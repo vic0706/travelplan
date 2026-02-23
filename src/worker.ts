@@ -18,6 +18,16 @@ app.use('*', cors({
   allowHeaders: ['Content-Type', 'Authorization'],
 }));
 
+// --- Static Assets Fallback ---
+// Any request that doesn't match the /api routes will be served from the static assets
+app.get('*', async (c, next) => {
+  if (c.req.path.startsWith('/api/')) {
+    await next();
+  } else {
+    return c.env.ASSETS.fetch(c.req.raw);
+  }
+});
+
 // --- API Routes ---
 
 // Auth
@@ -113,12 +123,6 @@ app.get('/api/trips/:tripId/expenses', async (c) => {
   } catch (e: any) {
     return c.json({ error: e.message }, 500);
   }
-});
-
-// --- Static Assets Fallback ---
-// Any request that doesn't match the /api routes will be served from the static assets
-app.get('*', async (c) => {
-  return c.env.ASSETS.fetch(c.req.raw);
 });
 
 // --- Cron Job (Scheduled Task) ---
