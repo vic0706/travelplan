@@ -5,8 +5,7 @@ import path from 'path';
 import {defineConfig, loadEnv} from 'vite';
 
 export default defineConfig(({mode}) => {
-  const env = loadEnv(mode, '.', ''); // Only load from .env files
-  console.log('Vite config env.VITE_WORKER_URL:', env.VITE_WORKER_URL);
+  const env = loadEnv(mode, process.cwd(), '');
   return {
     plugins: [
       react(),
@@ -53,8 +52,7 @@ export default defineConfig(({mode}) => {
       })
     ],
     define: {
-      'process.env.GEMINI_API_KEY': JSON.stringify(process.env.GEMINI_API_KEY),
-      'import.meta.env.VITE_WORKER_URL': JSON.stringify(env.VITE_WORKER_URL),
+      'process.env.GEMINI_API_KEY': JSON.stringify(env.GEMINI_API_KEY),
     },
     resolve: {
       alias: {
