@@ -111,7 +111,7 @@ db.exec(`
 // Seed Data
 db.exec(`
   INSERT INTO Users (id, role, name, password_hash) VALUES 
-  ('admin', 'Admin', 'Admin User', '8d969eef6ecad3c29a3a629280e686cf0c3f5d5a86aff3ca12020c923adc6c92'),
+  ('admin', 'Admin', 'Admin User', '0192023a7bbd73250516f069df18b5004348d494e18c8c6a0865c589237b7c2a'),
   ('editor', 'Editor', 'Editor User', '8d969eef6ecad3c29a3a629280e686cf0c3f5d5a86aff3ca12020c923adc6c92'),
   ('guest', 'Guest', 'Guest User', '8d969eef6ecad3c29a3a629280e686cf0c3f5d5a86aff3ca12020c923adc6c92');
 

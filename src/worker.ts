@@ -11,6 +11,7 @@ type Bindings = {
   __STATIC_CONTENT: KVNamespace;
   SUPABASE_URL: string;
   SUPABASE_KEY: string;
+  PASSWORD_SALT: string;
 };
 
 const app = new Hono<{ Bindings: Bindings }>();
@@ -36,7 +37,8 @@ app.post('/api/auth/login', async (c) => {
     }
 
     // 2. Verify password_hash with SHA-256
-    const passwordBuffer = new TextEncoder().encode(password);
+    const passwordWithSalt = password + c.env.PASSWORD_SALT;
+    const passwordBuffer = new TextEncoder().encode(passwordWithSalt);
     const passwordHashBuffer = await crypto.subtle.digest('SHA-256', passwordBuffer);
     const passwordHash = Array.from(new Uint8Array(passwordHashBuffer)).map(b => b.toString(16).padStart(2, '0')).join('');
 
