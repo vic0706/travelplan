@@ -77,7 +77,8 @@ app.post('/api/auth/login', async (c) => {
       return c.json({ error: 'Missing username or password' }, 400);
     }
 
-    const { results } = await c.env.DB.prepare('SELECT * FROM Users WHERE id = ?').bind(username).all();
+    // 同時檢查 id 或 name，並使用 COLLATE NOCASE 確保大小寫不敏感
+    const { results } = await c.env.DB.prepare('SELECT * FROM Users WHERE (id = ? OR name = ?) AND allow_login = 1 COLLATE NOCASE').bind(username, username).all();
     const user = results[0] as any;
 
     if (!user) {
