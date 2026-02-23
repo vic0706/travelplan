@@ -13,6 +13,7 @@ type Bindings = {
   SUPABASE_KEY: string;
   PASSWORD_SALT: string;
   VITE_WORKER_URL: string; // Add VITE_WORKER_URL to Bindings;
+}
 
 const app = new Hono<{ Bindings: Bindings }>();
 
