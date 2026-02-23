@@ -158,6 +158,16 @@ app.get('/api/trips/:id/expenses', async (c) => {
   }
 });
 
+// 8. Settings API
+app.get('/api/settings', async (c) => {
+  try {
+    const { results } = await c.env.DB.prepare('SELECT * FROM App_Settings').all();
+    return c.json(results);
+  } catch (error: any) {
+    return c.json({ error: error.message }, 500);
+  }
+});
+
 // Export default object with fetch and scheduled handlers
 export default {
   fetch: app.fetch,

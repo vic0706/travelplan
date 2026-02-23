@@ -1,42 +1,8 @@
 import Dexie, { Table } from 'dexie';
-
-export interface Trip {
-  id: string;
-  title: string;
-  start_date: string;
-  end_date: string;
-  timezone: string;
-  cover_image_url?: string;
-  visible_status: number;
-  created_at?: string;
-  // Local cache fields
-  last_accessed?: number; 
-  is_fully_synced?: boolean; // For deep caching status
-}
-
-export interface Itinerary {
-  id: string;
-  trip_id: string;
-  date: string;
-  start_time: string;
-  end_time: string;
-  title: string;
-  location: string;
-  notes?: string;
-  cost?: number;
-  created_at?: string;
-}
-
-export interface Expense {
-  id: string;
-  trip_id: string;
-  date: string;
-  category: string;
-  amount: number;
-  currency: string;
-  notes?: string;
-  created_at?: string;
-}
+import { 
+  User, Trip, TripMember, Itinerary, SubItinerary, 
+  Expense, Flight, Accommodation, AppSetting 
+} from './types';
 
 export interface SyncOperation {
   id?: number;
@@ -47,17 +13,29 @@ export interface SyncOperation {
 }
 
 export class TravelPlanDB extends Dexie {
+  users!: Table<User, string>;
   trips!: Table<Trip, string>;
+  tripMembers!: Table<TripMember, [string, string]>; // Compound key
   itineraries!: Table<Itinerary, string>;
+  subItineraries!: Table<SubItinerary, string>;
   expenses!: Table<Expense, string>;
+  flights!: Table<Flight, string>;
+  accommodations!: Table<Accommodation, string>;
+  appSettings!: Table<AppSetting, string>;
   syncQueue!: Table<SyncOperation, number>;
 
   constructor() {
     super('TravelPlanDB');
-    this.version(1).stores({
-      trips: 'id, title, start_date, end_date, last_accessed',
+    this.version(2).stores({
+      users: 'id, role, allow_login',
+      trips: 'id, title, start_date, end_date, visible_status, last_accessed',
+      tripMembers: '[trip_id+user_id], trip_id, user_id',
       itineraries: 'id, trip_id, date, start_time',
-      expenses: 'id, trip_id, date, category',
+      subItineraries: 'id, itinerary_id, start_time',
+      expenses: 'id, trip_id, date, payer_id',
+      flights: 'id, trip_id, date',
+      accommodations: 'id, trip_id, check_in_date',
+      appSettings: 'id, key_name',
       syncQueue: '++id, createdAt'
     });
   }
