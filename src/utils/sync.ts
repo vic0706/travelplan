@@ -1,5 +1,5 @@
 import { db, SyncOperation } from '../db';
-import { getApiUrl } from './api';
+
 
 export async function addToSyncQueue(url: string, method: 'POST' | 'PUT' | 'DELETE', body?: any) {
   await db.syncQueue.add({
@@ -26,7 +26,7 @@ export async function processSyncQueue() {
     
     for (const op of queue) {
       try {
-        const res = await fetch(getApiUrl(op.url), {
+        const res = await fetch(`${import.meta.env.VITE_WORKER_URL}${op.url}`, {
           method: op.method,
           headers: {
             'Content-Type': 'application/json',

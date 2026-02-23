@@ -3,7 +3,7 @@ import { useAppStore } from '../store';
 import { useNavigate } from 'react-router-dom';
 import { Plus, Calendar, MapPin } from 'lucide-react';
 import { format, differenceInDays, parseISO } from 'date-fns';
-import { getApiUrl } from '../utils/api';
+
 import { db } from '../db';
 import { useLiveQuery } from 'dexie-react-hooks';
 
@@ -17,7 +17,7 @@ export function Home() {
   // 2. Fetch from API and update IndexedDB (Network-First Strategy for freshness)
   useEffect(() => {
     if (navigator.onLine) {
-      fetch(getApiUrl('/api/trips'))
+      fetch(`${import.meta.env.VITE_WORKER_URL}/api/trips`)
         .then(async res => {
           if (!res.ok) throw new Error(`HTTP error! status: ${res.status}`);
           const text = await res.text();

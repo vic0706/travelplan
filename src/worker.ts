@@ -14,7 +14,12 @@ export interface Env {
 
 const app = new Hono<{ Bindings: Env }>();
 
-app.use('/api/*', cors());
+app.use('*', cors());
+
+// Custom 404 for API
+app.notFound((c) => {
+  return c.json({ error: 'API route not found', path: c.req.path, method: c.req.method }, 404);
+});
 
 // Helper function: Generate SHA-256 Hash with Salt
 async function generateHash(password: string, salt: string): Promise<string> {
@@ -63,15 +68,19 @@ app.get('/api/users/login-list', async (c) => {
   }
 });
 
-// 3. Login API: Authenticate using userId and password (numeric pad)
+// 3. Login API: Authenticate using username and password
+app.get('/api/auth/login', (c) => {
+  return c.json({ message: 'Login endpoint is active. Please use POST to authenticate.' });
+});
+
 app.post('/api/auth/login', async (c) => {
   try {
-    const { userId, password } = await c.req.json();
-    if (!userId || !password) {
-      return c.json({ error: 'Missing userId or password' }, 400);
+    const { username, password } = await c.req.json();
+    if (!username || !password) {
+      return c.json({ error: 'Missing username or password' }, 400);
     }
 
-    const { results } = await c.env.DB.prepare('SELECT * FROM Users WHERE id = ?').bind(userId).all();
+    const { results } = await c.env.DB.prepare('SELECT * FROM Users WHERE name = ?').bind(username).all();
     const user = results[0] as any;
 
     if (!user) {
@@ -166,20 +175,6 @@ app.get('/api/settings', async (c) => {
   } catch (error: any) {
     return c.json({ error: error.message }, 500);
   }
-});
-
-// 9. Users API (Admin only)
-app.get('/api/users', async (c) => {
-  try {
-    const { results } = await c.env.DB.prepare('SELECT id, name, avatar_url, role FROM Users').all();
-    return c.json(results);
-  } catch (error: any) {
-    return c.json({ error: error.message }, 500);
-  }
-});
-
-app.notFound((c) => {
-  return c.json({ error: 'API route not found', path: c.req.path }, 404);
 });
 
 // Export default object with fetch and scheduled handlers

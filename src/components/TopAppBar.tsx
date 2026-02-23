@@ -5,7 +5,7 @@ import { LogOut, LogIn, ChevronLeft } from 'lucide-react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { AppSetting } from '../types';
 
-import { getApiUrl } from '../utils/api';
+
 
 export function TopAppBar() {
   const [bgUrl, setBgUrl] = useState('');
@@ -15,7 +15,7 @@ export function TopAppBar() {
   const location = useLocation();
 
   useEffect(() => {
-    fetch(getApiUrl('/api/settings'))
+    fetch(`${import.meta.env.VITE_WORKER_URL}/api/settings`)
       .then(async res => {
         if (!res.ok) throw new Error(`HTTP error! status: ${res.status}`);
         const text = await res.text();

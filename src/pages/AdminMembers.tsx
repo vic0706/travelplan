@@ -2,14 +2,14 @@ import React, { useEffect, useState } from 'react';
 import { useAppStore } from '../store';
 import { Shield, User as UserIcon, Settings2 } from 'lucide-react';
 import { clsx } from 'clsx';
-import { getApiUrl } from '../utils/api';
+
 
 export function AdminMembers() {
   const [users, setUsers] = useState<any[]>([]);
   const { user } = useAppStore();
 
   useEffect(() => {
-    fetch(getApiUrl('/api/users'))
+    fetch(`${import.meta.env.VITE_WORKER_URL}/api/users`)
       .then(async res => {
         if (!res.ok) throw new Error(`HTTP error! status: ${res.status}`);
         const text = await res.text();
