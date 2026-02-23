@@ -1,10 +1,14 @@
 import { Hono } from 'hono';
 import { cors } from 'hono/cors';
+import { getAssetFromKV, serveSinglePageApp } from '@cloudflare/kv-asset-handler';
+// @ts-ignore
+import manifestJSON from '__STATIC_CONTENT_MANIFEST';
+const assetManifest = JSON.parse(manifestJSON);
 
 type Bindings = {
   DB: D1Database;
   KV: KVNamespace;
-  ASSETS: Fetcher;
+  __STATIC_CONTENT: KVNamespace;
   SUPABASE_URL: string;
   SUPABASE_KEY: string;
 };
@@ -119,15 +123,22 @@ app.get('/api/trips/:tripId/expenses', async (c) => {
 // Any request that doesn't match the /api routes will be served from the static assets
 app.get('*', async (c) => {
   try {
-    const response = await c.env.ASSETS.fetch(c.req.raw);
-    if (response.status === 404) {
-      // SPA Fallback: serve index.html
-      const indexResponse = await c.env.ASSETS.fetch(new URL('/index.html', c.req.url));
-      return indexResponse;
-    }
-    return response;
+    const page = await getAssetFromKV(
+      {
+        request: c.req.raw,
+        waitUntil: c.executionCtx.waitUntil.bind(c.executionCtx),
+      },
+      {
+        ASSET_NAMESPACE: c.env.__STATIC_CONTENT,
+        ASSET_MANIFEST: assetManifest,
+        mapRequestToAsset: serveSinglePageApp,
+      }
+    );
+    return new Response(page.body, page);
   } catch (e: any) {
-    // Fallback if ASSETS binding is missing or fails
+    // If asset not found, return 404 or index.html if it's a route
+    // But serveSinglePageApp should handle routes.
+    // If it fails, it's likely a missing file or config error.
     return c.text('Static assets error: ' + e.message, 500);
   }
 });
