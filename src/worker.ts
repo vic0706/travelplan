@@ -78,6 +78,34 @@ app.get('/api/users', async (c) => {
   }
 });
 
+// 2.1.1 Create User API (Admin only)
+app.post('/api/users', async (c) => {
+  try {
+    const { name, password, role } = await c.req.json();
+    
+    // Basic validation
+    if (!name || !password) {
+      return c.json({ error: 'Name and password are required' }, 400);
+    }
+
+    const id = crypto.randomUUID();
+    const salt = c.env.PASSWORD_SALT || 'default_salt';
+    const passwordHash = await generateHash(password, salt);
+    
+    // Default avatar based on name (using UI Avatars service or similar, or just null)
+    const avatar_url = `https://ui-avatars.com/api/?name=${encodeURIComponent(name)}&background=random`;
+
+    await c.env.DB.prepare(`
+      INSERT INTO Users (id, name, password_hash, role, avatar_url, allow_login, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, 1, ?, ?)
+    `).bind(id, name, passwordHash, role || 'Member', avatar_url, Date.now(), Date.now()).run();
+
+    return c.json({ id, name, role, avatar_url });
+  } catch (error: any) {
+    return c.json({ error: error.message }, 500);
+  }
+});
+
 // 2.2 Get Settings
 app.get('/api/settings', async (c) => {
   try {

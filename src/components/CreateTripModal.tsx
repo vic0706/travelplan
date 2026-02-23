@@ -1,22 +1,64 @@
 import React, { useState } from 'react';
 import { useAppStore } from '../store';
-import { X, Calendar, MapPin, Globe } from 'lucide-react';
+import { X, Calendar, Upload, Loader2 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { getApiUrl } from '../utils/api';
+import { createClient } from '@supabase/supabase-js';
+
+// Initialize Supabase client
+const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
+const supabaseKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
+const supabase = (supabaseUrl && supabaseKey) ? createClient(supabaseUrl, supabaseKey) : null;
 
 export function CreateTripModal() {
   const { isCreateTripModalOpen, setCreateTripModalOpen } = useAppStore();
   const [loading, setLoading] = useState(false);
+  const [uploading, setUploading] = useState(false);
   const [error, setError] = useState('');
 
   const [formData, setFormData] = useState({
     title: '',
     start_date: '',
     end_date: '',
+    // Timezone will be auto-detected or defaulted by the backend/client logic later if needed.
+    // For now, we just send the browser's timezone or let backend handle it.
     timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
     cover_image_url: '',
     visible_status: 1
   });
+
+  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (!e.target.files || e.target.files.length === 0) return;
+    
+    if (!supabase) {
+      setError('Supabase is not configured. Please check environment variables.');
+      return;
+    }
+
+    const file = e.target.files[0];
+    const fileExt = file.name.split('.').pop();
+    const fileName = `${Math.random()}.${fileExt}`;
+    const filePath = `trip-covers/${fileName}`;
+
+    setUploading(true);
+    setError('');
+
+    try {
+      const { error: uploadError } = await supabase.storage
+        .from('trip-covers') // Assuming bucket name is 'trip-covers'
+        .upload(filePath, file);
+
+      if (uploadError) throw uploadError;
+
+      const { data } = supabase.storage.from('trip-covers').getPublicUrl(filePath);
+      setFormData(prev => ({ ...prev, cover_image_url: data.publicUrl }));
+    } catch (err: any) {
+      console.error('Upload failed:', err);
+      setError('Failed to upload image: ' + err.message);
+    } finally {
+      setUploading(false);
+    }
+  };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -36,9 +78,6 @@ export function CreateTripModal() {
       }
 
       setCreateTripModalOpen(false);
-      // Ideally we should refresh the trips list here, but Home component uses Network-First
-      // so a simple reload or re-fetch trigger would work. 
-      // For now, let's just reload the page to be safe and simple.
       window.location.reload();
     } catch (err: any) {
       setError(err.message);
@@ -124,35 +163,60 @@ export function CreateTripModal() {
             </div>
 
             <div>
-              <label className="block text-sm font-medium text-zinc-400 mb-1">Timezone</label>
-              <div className="relative">
-                <Globe size={16} className="absolute left-3 top-3.5 text-zinc-500" />
-                <select
-                  value={formData.timezone}
-                  onChange={e => setFormData({ ...formData, timezone: e.target.value })}
-                  className="w-full bg-zinc-800 border border-zinc-700 rounded-xl pl-10 pr-4 py-3 text-white focus:outline-none focus:ring-2 focus:ring-orange-500 appearance-none"
-                >
-                  {Intl.supportedValuesOf('timeZone').map(tz => (
-                    <option key={tz} value={tz}>{tz}</option>
-                  ))}
-                </select>
+              <label className="block text-sm font-medium text-zinc-400 mb-1">Cover Image</label>
+              <div className="space-y-3">
+                {formData.cover_image_url && (
+                  <div className="relative h-32 w-full rounded-xl overflow-hidden border border-zinc-700">
+                    <img 
+                      src={formData.cover_image_url} 
+                      alt="Cover Preview" 
+                      className="w-full h-full object-cover"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setFormData({ ...formData, cover_image_url: '' })}
+                      className="absolute top-2 right-2 p-1 bg-black/50 rounded-full text-white hover:bg-black/70"
+                    >
+                      <X size={14} />
+                    </button>
+                  </div>
+                )}
+                
+                <div className="relative">
+                  <input
+                    type="file"
+                    accept="image/*"
+                    onChange={handleFileUpload}
+                    className="hidden"
+                    id="cover-upload"
+                    disabled={uploading}
+                  />
+                  <label
+                    htmlFor="cover-upload"
+                    className={`flex items-center justify-center gap-2 w-full py-3 border-2 border-dashed border-zinc-700 rounded-xl text-zinc-400 hover:text-white hover:border-zinc-500 hover:bg-zinc-800/50 transition-all cursor-pointer ${uploading ? 'opacity-50 cursor-not-allowed' : ''}`}
+                  >
+                    {uploading ? (
+                      <>
+                        <Loader2 size={18} className="animate-spin" />
+                        <span>Uploading...</span>
+                      </>
+                    ) : (
+                      <>
+                        <Upload size={18} />
+                        <span>Upload Image</span>
+                      </>
+                    )}
+                  </label>
+                </div>
+                <p className="text-[10px] text-zinc-500">
+                  Supported formats: JPG, PNG, WEBP. Max size: 5MB.
+                </p>
               </div>
-            </div>
-
-            <div>
-              <label className="block text-sm font-medium text-zinc-400 mb-1">Cover Image URL (Optional)</label>
-              <input
-                type="url"
-                value={formData.cover_image_url}
-                onChange={e => setFormData({ ...formData, cover_image_url: e.target.value })}
-                className="w-full bg-zinc-800 border border-zinc-700 rounded-xl px-4 py-3 text-white focus:outline-none focus:ring-2 focus:ring-orange-500"
-                placeholder="https://example.com/image.jpg"
-              />
             </div>
 
             <button
               type="submit"
-              disabled={loading}
+              disabled={loading || uploading}
               className="w-full bg-orange-500 hover:bg-orange-600 disabled:opacity-50 disabled:cursor-not-allowed text-white font-bold rounded-xl px-4 py-3 transition-all shadow-lg shadow-orange-500/20 active:scale-95 mt-2"
             >
               {loading ? 'Creating...' : 'Create Trip'}
