@@ -8,7 +8,6 @@ import { TripDetails } from './pages/TripDetails';
 import { AdminMembers } from './pages/AdminMembers';
 
 export default function App() {
-  console.log('VITE_WORKER_URL:', import.meta.env.VITE_WORKER_URL);
   return (
     <Router>
       <div className="flex flex-col h-[100dvh] w-screen bg-black text-zinc-100 font-sans overflow-hidden selection:bg-orange-500/30">
