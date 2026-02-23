@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useEffect } from 'react';
 import { BrowserRouter as Router, Routes, Route } from 'react-router-dom';
 import { TopAppBar } from './components/TopAppBar';
 import { AdminBottomBar } from './components/AdminBottomBar';
@@ -6,8 +6,15 @@ import { OfflineStatusBar } from './components/OfflineStatusBar';
 import { Home } from './pages/Home';
 import { TripDetails } from './pages/TripDetails';
 import { AdminMembers } from './pages/AdminMembers';
+import { getApiUrl } from './utils/api';
 
 export default function App() {
+  useEffect(() => {
+    // Initialize API (create admin if needed)
+    fetch(getApiUrl('/api/init'), { method: 'POST' })
+      .catch(err => console.error('Init failed:', err));
+  }, []);
+
   return (
     <Router>
       <div className="flex flex-col h-[100dvh] w-screen bg-black text-zinc-100 font-sans overflow-hidden selection:bg-orange-500/30">

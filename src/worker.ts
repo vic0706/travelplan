@@ -168,6 +168,20 @@ app.get('/api/settings', async (c) => {
   }
 });
 
+// 9. Users API (Admin only)
+app.get('/api/users', async (c) => {
+  try {
+    const { results } = await c.env.DB.prepare('SELECT id, name, avatar_url, role FROM Users').all();
+    return c.json(results);
+  } catch (error: any) {
+    return c.json({ error: error.message }, 500);
+  }
+});
+
+app.notFound((c) => {
+  return c.json({ error: 'API route not found', path: c.req.path }, 404);
+});
+
 // Export default object with fetch and scheduled handlers
 export default {
   async fetch(request: Request, env: Env, ctx: ExecutionContext) {

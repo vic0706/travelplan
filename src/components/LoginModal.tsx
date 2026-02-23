@@ -27,11 +27,18 @@ export function LoginModal({ onClose }: LoginModalProps) {
         body: JSON.stringify({ username, password }),
       });
       
-      if (!res.ok) {
-        throw new Error('Invalid credentials');
+      const text = await res.text();
+      let data;
+      try {
+        data = JSON.parse(text);
+      } catch (e) {
+        throw new Error('API returned non-JSON response (likely HTML)');
       }
 
-      const data = await res.json() as { user?: User };
+      if (!res.ok) {
+        throw new Error(data.error || 'Invalid credentials');
+      }
+
       if (data && data.user) {
         login(data.user);
         onClose();
