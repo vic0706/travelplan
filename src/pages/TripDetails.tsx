@@ -10,6 +10,8 @@ import { Trip, Itinerary, Expense } from '../types';
 import { db } from '../db';
 import { useLiveQuery } from 'dexie-react-hooks';
 
+import { getApiUrl } from '../utils/api';
+
 export function TripDetails() {
   const { id } = useParams();
   const { user } = useAppStore();
@@ -39,7 +41,7 @@ export function TripDetails() {
     const fetchTripDetails = async () => {
       try {
         // Fetch Trip Basic Info first
-        const tripRes = await fetch(`${import.meta.env.VITE_WORKER_URL}/api/trips/${id}`);
+        const tripRes = await fetch(getApiUrl(`/api/trips/${id}`));
         if (!tripRes.ok) throw new Error('Trip fetch failed');
         const tripText = await tripRes.text();
         let tripData;
@@ -75,8 +77,8 @@ export function TripDetails() {
         // But to strictly follow "On-Demand", we are doing it right here: we are viewing it, so we fetch it.
         
         const [itinerariesRes, expensesRes] = await Promise.all([
-          fetch(`${import.meta.env.VITE_WORKER_URL}/api/trips/${id}/itineraries`),
-          fetch(`${import.meta.env.VITE_WORKER_URL}/api/trips/${id}/expenses`)
+          fetch(getApiUrl(`/api/trips/${id}/itineraries`)),
+          fetch(getApiUrl(`/api/trips/${id}/expenses`))
         ]);
 
         if (itinerariesRes.ok) {

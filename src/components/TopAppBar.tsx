@@ -7,6 +7,8 @@ import { AppSetting } from '../types';
 
 
 
+import { getApiUrl } from '../utils/api';
+
 export function TopAppBar() {
   const [bgUrl, setBgUrl] = useState('');
   const [showLogin, setShowLogin] = useState(false);
@@ -15,7 +17,7 @@ export function TopAppBar() {
   const location = useLocation();
 
   useEffect(() => {
-    fetch(`${import.meta.env.VITE_WORKER_URL}/api/settings`)
+    fetch(getApiUrl('/api/settings'))
       .then(async res => {
         if (!res.ok) throw new Error(`HTTP error! status: ${res.status}`);
         const text = await res.text();

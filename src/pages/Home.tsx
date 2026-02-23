@@ -7,6 +7,8 @@ import { format, differenceInDays, parseISO } from 'date-fns';
 import { db } from '../db';
 import { useLiveQuery } from 'dexie-react-hooks';
 
+import { getApiUrl } from '../utils/api';
+
 export function Home() {
   // 1. Live Query from IndexedDB (Offline-First)
   const trips = useLiveQuery(() => db.trips.orderBy('start_date').reverse().toArray());
@@ -17,7 +19,7 @@ export function Home() {
   // 2. Fetch from API and update IndexedDB (Network-First Strategy for freshness)
   useEffect(() => {
     if (navigator.onLine) {
-      fetch(`${import.meta.env.VITE_WORKER_URL}/api/trips`)
+      fetch(getApiUrl('/api/trips'))
         .then(async res => {
           if (!res.ok) throw new Error(`HTTP error! status: ${res.status}`);
           const text = await res.text();

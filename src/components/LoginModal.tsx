@@ -4,6 +4,9 @@ import { User } from '../types';
 import { X } from 'lucide-react';
 
 
+import { getApiUrl } from '../utils/api';
+
+
 interface LoginModalProps {
   onClose: () => void;
 }
@@ -21,7 +24,7 @@ export function LoginModal({ onClose }: LoginModalProps) {
     setErrorMsg('');
     console.log('Frontend Sending:', { username, password });
     try {
-      const res = await fetch(`${import.meta.env.VITE_WORKER_URL}/api/auth/login`, {
+      const res = await fetch(getApiUrl('/api/auth/login'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ username, password }),
