@@ -1,178 +1,173 @@
 import { Hono } from 'hono';
 import { cors } from 'hono/cors';
-import { getAssetFromKV, serveSinglePageApp } from '@cloudflare/kv-asset-handler';
-// @ts-ignore
-import manifestJSON from '__STATIC_CONTENT_MANIFEST';
-const assetManifest = JSON.parse(manifestJSON);
 
-type Bindings = {
+export interface Env {
   DB: D1Database;
-  KV: KVNamespace;
-  __STATIC_CONTENT: KVNamespace;
-  SUPABASE_URL: string;
-  SUPABASE_KEY: string;
   PASSWORD_SALT: string;
-  VITE_WORKER_URL: string;}
-const app = new Hono<{ Bindings: Bindings }>();
+}
 
-// CORS Configuration
-app.use('*', cors({
-  origin: '*', // In production, restrict to your domain
-  allowMethods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-  allowHeaders: ['Content-Type', 'Authorization'],
-}));
+const app = new Hono<{ Bindings: Env }>();
 
-// --- API Routes ---
+app.use('/api/*', cors());
 
-// Auth
+// Helper function: Generate SHA-256 Hash with Salt
+async function generateHash(password: string, salt: string): Promise<string> {
+  const encoder = new TextEncoder();
+  const data = encoder.encode(password + salt);
+  const hashBuffer = await crypto.subtle.digest('SHA-256', data);
+  const hashArray = Array.from(new Uint8Array(hashBuffer));
+  return hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
+}
+
+// 1. Init API: Auto-create Admin if Users table is empty
+app.post('/api/init', async (c) => {
+  try {
+    const { results } = await c.env.DB.prepare('SELECT COUNT(*) as count FROM Users').all();
+    const count = (results[0] as any).count;
+
+    if (count === 0) {
+      const salt = c.env.PASSWORD_SALT || 'default_salt';
+      const passwordHash = await generateHash('123456', salt);
+      const adminId = crypto.randomUUID();
+
+      await c.env.DB.prepare(`
+        INSERT INTO Users (id, role, name, avatar_url, password_hash, allow_login) 
+        VALUES (?, 'Admin', 'Admin', 'https://api.dicebear.com/7.x/avataaars/svg?seed=Admin', ?, 1)
+      `).bind(adminId, passwordHash).run();
+
+      return c.json({ success: true, message: 'Admin user created successfully.' });
+    }
+    return c.json({ success: false, message: 'Users table is not empty.' });
+  } catch (error: any) {
+    return c.json({ error: error.message }, 500);
+  }
+});
+
+// 2. Avatar Login List API: Fetch users with allow_login = 1
+app.get('/api/users/login-list', async (c) => {
+  try {
+    const { results } = await c.env.DB.prepare(`
+      SELECT id, name, avatar_url, role 
+      FROM Users 
+      WHERE allow_login = 1
+    `).all();
+    return c.json(results);
+  } catch (error: any) {
+    return c.json({ error: error.message }, 500);
+  }
+});
+
+// 3. Login API: Authenticate using userId and password (numeric pad)
 app.post('/api/auth/login', async (c) => {
   try {
-    const { username, password } = await c.req.json();
-
-    // 1. Fetch user from DB
-    const user = await c.env.DB.prepare('SELECT * FROM Users WHERE id = ?').bind(username).first<any>();
-    if (!user) {
-      return c.json({ error: 'Invalid credentials' }, 401);
+    const { userId, password } = await c.req.json();
+    if (!userId || !password) {
+      return c.json({ error: 'Missing userId or password' }, 400);
     }
 
-    // 2. Verify password_hash with SHA-256
-    const passwordWithSalt = password + (c.env.PASSWORD_SALT || "");
-    const passwordBuffer = new TextEncoder().encode(passwordWithSalt);
-    const passwordHashBuffer = await crypto.subtle.digest('SHA-256', passwordBuffer);
-    const passwordHash = Array.from(new Uint8Array(passwordHashBuffer)).map(b => b.toString(16).padStart(2, '0')).join('');
+    const { results } = await c.env.DB.prepare('SELECT * FROM Users WHERE id = ?').bind(userId).all();
+    const user = results[0] as any;
 
-    // console.log("Debug Info:");
-    // console.log("  c.env.PASSWORD_SALT:", c.env.PASSWORD_SALT);
-    // console.log("  passwordWithSalt:", passwordWithSalt);
-    // console.log("  Calculated Hash:", passwordHash);
-    // console.log("  DB Hash:", user.password_hash);
-    
+    if (!user) {
+      return c.json({ error: 'User not found' }, 404);
+    }
+
+    const salt = c.env.PASSWORD_SALT || 'default_salt';
+    const passwordHash = await generateHash(password, salt);
+
     if (passwordHash !== user.password_hash) {
       return c.json({ error: 'Invalid credentials' }, 401);
     }
 
-    // 3. Generate Session Token and store in KV
-    const sessionToken = crypto.randomUUID();
-    await c.env.KV.put(`session:${sessionToken}`, JSON.stringify({ userId: user.id, role: user.role }), { expirationTtl: 86400 }); // 24h
-
-    const { password_hash, ...userWithoutPassword } = user;
-
-    return c.json({ token: sessionToken, user: userWithoutPassword });
-  } catch (e: any) {
-    return c.json({ error: e.message }, 500);
+    // Remove password_hash before sending
+    const { password_hash, ...safeUser } = user;
+    return c.json({ user: safeUser });
+  } catch (error: any) {
+    return c.json({ error: error.message }, 500);
   }
 });
 
-// Settings
-app.get('/api/settings', async (c) => {
-  try {
-    const { results } = await c.env.DB.prepare('SELECT * FROM App_Settings').all();
-    return c.json(results);
-  } catch (e: any) {
-    return c.json({ error: e.message }, 500);
-  }
-});
-
-// Users
-app.get('/api/users', async (c) => {
-  try {
-    const { results } = await c.env.DB.prepare('SELECT * FROM Users').all();
-    return c.json(results);
-  } catch (e: any) {
-    return c.json({ error: e.message }, 500);
-  }
-});
-
-// Trips
+// 4. Trips API: Get visible trips
 app.get('/api/trips', async (c) => {
   try {
-    const { results } = await c.env.DB.prepare('SELECT * FROM Trips WHERE visible_status = 1').all();
+    // For Guest/User, only show visible_status = 1.
+    // In a real app, we'd check the Authorization header to see if they are Admin.
+    // For now, we return visible trips.
+    const { results } = await c.env.DB.prepare(`
+      SELECT id, title, cover_image_url, start_date, end_date, timezone, visible_status 
+      FROM Trips 
+      WHERE visible_status = 1 
+      ORDER BY start_date DESC
+    `).all();
     return c.json(results);
-  } catch (e: any) {
-    return c.json({ error: e.message }, 500);
+  } catch (error: any) {
+    return c.json({ error: error.message }, 500);
   }
 });
 
-app.get('/api/trips/:tripId', async (c) => {
+// 5. Trip Details API
+app.get('/api/trips/:id', async (c) => {
+  const id = c.req.param('id');
   try {
-    const tripId = c.req.param('tripId');
-    const trip = await c.env.DB.prepare('SELECT * FROM Trips WHERE id = ?').bind(tripId).first();
-    if (!trip) return c.json({ error: 'Trip not found' }, 404);
+    const { results } = await c.env.DB.prepare('SELECT * FROM Trips WHERE id = ?').bind(id).all();
+    if (results.length === 0) return c.json({ error: 'Trip not found' }, 404);
+    
+    // Parse JSON fields
+    const trip = results[0] as any;
+    if (trip.currencies) trip.currencies = JSON.parse(trip.currencies);
+    
     return c.json(trip);
-  } catch (e: any) {
-    return c.json({ error: e.message }, 500);
+  } catch (error: any) {
+    return c.json({ error: error.message }, 500);
   }
 });
 
-// Itineraries
-app.get('/api/trips/:tripId/itineraries', async (c) => {
+// 6. Itineraries API
+app.get('/api/trips/:id/itineraries', async (c) => {
+  const tripId = c.req.param('id');
   try {
-    const tripId = c.req.param('tripId');
     const { results } = await c.env.DB.prepare('SELECT * FROM Itineraries WHERE trip_id = ? ORDER BY date, start_time').bind(tripId).all();
-    return c.json(results);
-  } catch (e: any) {
-    return c.json({ error: e.message }, 500);
+    
+    // Parse JSON tags
+    const parsedResults = results.map((item: any) => ({
+      ...item,
+      tags: item.tags ? JSON.parse(item.tags) : []
+    }));
+    
+    return c.json(parsedResults);
+  } catch (error: any) {
+    return c.json({ error: error.message }, 500);
   }
 });
 
-// Expenses
-app.get('/api/trips/:tripId/expenses', async (c) => {
+// 7. Expenses API
+app.get('/api/trips/:id/expenses', async (c) => {
+  const tripId = c.req.param('id');
   try {
-    const tripId = c.req.param('tripId');
     const { results } = await c.env.DB.prepare('SELECT * FROM Expenses WHERE trip_id = ? ORDER BY date').bind(tripId).all();
-    return c.json(results);
-  } catch (e: any) {
-    return c.json({ error: e.message }, 500);
+    
+    // Parse JSON split_members
+    const parsedResults = results.map((item: any) => ({
+      ...item,
+      split_members: item.split_members ? JSON.parse(item.split_members) : []
+    }));
+    
+    return c.json(parsedResults);
+  } catch (error: any) {
+    return c.json({ error: error.message }, 500);
   }
 });
 
-// --- Static Assets Fallback ---
-// Any request that doesn't match the /api routes will be served from the static assets
-app.get('*', async (c) => {
-  try {
-    const page = await getAssetFromKV(
-      {
-        request: c.req.raw,
-        waitUntil: c.executionCtx.waitUntil.bind(c.executionCtx),
-      },
-      {
-        ASSET_NAMESPACE: c.env.__STATIC_CONTENT,
-        ASSET_MANIFEST: assetManifest,
-        mapRequestToAsset: serveSinglePageApp,
-      }
-    );
-
-    let response = new Response(page.body, page);
-
-    // Inject worker URL into index.html for client-side use
-    if (c.req.url.endsWith('/index.html') || c.req.url.endsWith('/')) {
-      let html = await response.text();
-      html = html.replace('__WORKER_URL__', c.env.VITE_WORKER_URL);
-      response = new Response(html, response);
-    }
-
-    return response;
-  } catch (e: any) {
-    // If asset not found, return 404 or index.html if it's a route
-    // But serveSinglePageApp should handle routes.
-    // If it fails, it's likely a missing file or config error.
-    return c.text('Static assets error: ' + e.message, 500);
-  }
-});
-
-// --- Cron Job (Scheduled Task) ---
+// Export default object with fetch and scheduled handlers
 export default {
   fetch: app.fetch,
-  async scheduled(event: ScheduledEvent, env: Bindings, ctx: ExecutionContext) {
-    // Triggered daily at 6:00 AM (configured in wrangler.toml)
-    ctx.waitUntil(runDailyTasks(env));
+  
+  // Cron Job Handler for Weather & Transport
+  async scheduled(event: ScheduledEvent, env: Env, ctx: ExecutionContext) {
+    console.log(`Cron Job triggered at ${new Date().toISOString()}`);
+    // TODO: Implement daily 6:00 AM logic to fetch weather summary for ongoing trips
+    // 1. Query DB for ongoing trips (start_date <= today <= end_date)
+    // 2. Fetch weather from external API (e.g., OpenWeatherMap)
+    // 3. Store results in Cloudflare KV or D1 cache table
   }
 };
-
-async function runDailyTasks(env: Bindings) {
-  console.log('Running daily cron job: Fetching Weather & Google Maps Transit Times');
-  // 1. Query Trips that are currently active or in the future
-  // 2. For each trip, fetch itineraries for today
-  // 3. Fetch weather data and store in KV
-  // 4. Calculate transit times between itineraries using Google Maps API and store in KV
-}
