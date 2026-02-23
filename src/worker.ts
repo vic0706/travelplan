@@ -12,9 +12,7 @@ type Bindings = {
   SUPABASE_URL: string;
   SUPABASE_KEY: string;
   PASSWORD_SALT: string;
-  VITE_WORKER_URL: string; // Add VITE_WORKER_URL to Bindings;
-}
-
+  VITE_WORKER_URL: string;}
 const app = new Hono<{ Bindings: Bindings }>();
 
 // CORS Configuration
@@ -38,14 +36,11 @@ app.post('/api/auth/login', async (c) => {
     }
 
     // 2. Verify password_hash with SHA-256
-    const passwordWithSalt = password + c.env.PASSWORD_SALT;
+    const passwordWithSalt = password + (c.env.PASSWORD_SALT || "");
     const passwordBuffer = new TextEncoder().encode(passwordWithSalt);
     const passwordHashBuffer = await crypto.subtle.digest('SHA-256', passwordBuffer);
     const passwordHash = Array.from(new Uint8Array(passwordHashBuffer)).map(b => b.toString(16).padStart(2, '0')).join('');
 
-    console.log("環境變數的 SALT:", c.env.PASSWORD_SALT);
-    console.log("DB裡的 Hash:", user.password_hash);
-    console.log("系統算出的 Hash:", passwordHash);
     
     if (passwordHash !== user.password_hash) {
       return c.json({ error: 'Invalid credentials' }, 401);
