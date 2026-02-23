@@ -77,7 +77,7 @@ app.post('/api/auth/login', async (c) => {
       return c.json({ error: 'Missing username or password' }, 400);
     }
 
-    const { results } = await c.env.DB.prepare('SELECT * FROM Users WHERE name = ? COLLATE NOCASE').bind(username).all();
+    const { results } = await c.env.DB.prepare('SELECT * FROM Users WHERE id = ?').bind(username).all();
     const user = results[0] as any;
 
     if (!user) {
@@ -178,23 +178,39 @@ app.get('/api/settings', async (c) => {
 export default {
   async fetch(request: Request, env: Env, ctx: ExecutionContext) {
     const url = new URL(request.url);
-    const pathname = url.pathname;
+    // 標準化路徑：移除多餘斜線，轉小寫進行判斷
+    const normalizedPath = url.pathname.replace(/\/+/g, '/').toLowerCase();
 
-    // 【核心修復】只要是 /api 開頭，強制進入 Hono，絕對不允許流向靜態資源
-    if (pathname.startsWith('/api')) {
+    // 【鋼鐵規則】只要路徑以 /api 開頭，絕對不允許流向靜態資源
+    if (normalizedPath.startsWith('/api')) {
       try {
         const response = await app.fetch(request, env, ctx);
-        // 如果 Hono 回傳了 404，確保它是 JSON (由 app.notFound 處理)
+        
+        // 如果 Hono 回傳了 404 (例如路徑拼錯)，Hono 的 app.notFound 會處理成 JSON
+        // 我們在這裡做最後一層保護，確保 Content-Type 是 JSON
+        if (response.status === 404 && !response.headers.get('Content-Type')?.includes('json')) {
+          return new Response(JSON.stringify({ 
+            error: 'API Route Not Found', 
+            path: url.pathname 
+          }), {
+            status: 404,
+            headers: { 'Content-Type': 'application/json' }
+          });
+        }
+        
         return response;
       } catch (e: any) {
-        return new Response(JSON.stringify({ error: 'Internal Server Error', message: e.message }), {
+        return new Response(JSON.stringify({ 
+          error: 'Internal Server Error', 
+          message: e.message 
+        }), {
           status: 500,
           headers: { 'Content-Type': 'application/json' }
         });
       }
     }
 
-    // --- 以下為網站靜態資源邏輯 ---
+    // --- 以下僅處理網站靜態資源 ---
     try {
       const assetManifest = JSON.parse(manifestJSON);
       return await getAssetFromKV(
