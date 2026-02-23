@@ -41,6 +41,11 @@ app.post('/api/auth/login', async (c) => {
     const passwordHashBuffer = await crypto.subtle.digest('SHA-256', passwordBuffer);
     const passwordHash = Array.from(new Uint8Array(passwordHashBuffer)).map(b => b.toString(16).padStart(2, '0')).join('');
 
+    console.log("Debug Info:");
+    console.log("  c.env.PASSWORD_SALT:", c.env.PASSWORD_SALT);
+    console.log("  passwordWithSalt:", passwordWithSalt);
+    console.log("  Calculated Hash:", passwordHash);
+    console.log("  DB Hash:", user.password_hash);
     
     if (passwordHash !== user.password_hash) {
       return c.json({ error: 'Invalid credentials' }, 401);
