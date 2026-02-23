@@ -1,4 +1,4 @@
-name = "travelplan-worker"
+name = 'travelplan'
 main = "src/worker.ts"
 compatibility_date = "2024-03-18"
 
@@ -17,3 +17,8 @@ id = "57eb8a061473416e82c28bb961b4cd06"
 
 [site]
 bucket = "./dist"
+
+[observability]
+[observability.logs]
+enabled = false
+invocation_logs = true
