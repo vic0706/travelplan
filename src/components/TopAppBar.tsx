@@ -1,89 +1,82 @@
-import React, { useState, useEffect } from 'react';
+import React from 'react';
 import { useAppStore } from '../store';
-import { LoginModal } from './LoginModal';
-import { LogOut, LogIn, ChevronLeft } from 'lucide-react';
-import { useNavigate, useLocation } from 'react-router-dom';
-import { AppSetting } from '../types';
-
-
-
-import { getApiUrl } from '../utils/api';
+import { User, LogOut, Settings, Menu } from 'lucide-react';
+import { motion, AnimatePresence } from 'framer-motion';
 
 export function TopAppBar() {
-  const [bgUrl, setBgUrl] = useState('');
-  const [showLogin, setShowLogin] = useState(false);
-  const { user, logout } = useAppStore();
-  const navigate = useNavigate();
-  const location = useLocation();
-
-  useEffect(() => {
-    fetch(getApiUrl('/api/settings'))
-      .then(async res => {
-        if (!res.ok) throw new Error(`HTTP error! status: ${res.status}`);
-        const text = await res.text();
-        try {
-          return JSON.parse(text);
-        } catch (e) {
-          console.error('API returned non-JSON:', text.substring(0, 100));
-          throw new Error('API returned non-JSON response (likely HTML)');
-        }
-      })
-      .then((data) => {
-        if (Array.isArray(data)) {
-          const bgSetting = data.find((s: any) => s.key_name === 'top_bar_bg');
-          if (bgSetting) setBgUrl(bgSetting.value);
-        }
-      })
-      .catch(err => console.error('Settings fetch failed:', err));
-  }, []);
-
-  const isHome = location.pathname === '/';
-  const title = isHome ? 'Travel Plan' : 'Trip Details';
+  const { user, isUserMenuOpen, setLoginModalOpen, setUserMenuOpen, logout } = useAppStore();
 
   return (
-    <>
-      <header className="relative h-20 w-full flex items-center justify-between px-4 z-40 bg-black border-b border-orange-500/20">
-        {bgUrl && (
-          <div className="absolute inset-0 z-[-1] overflow-hidden">
-            <img src={bgUrl} alt="Header Background" className="w-full h-full object-cover opacity-20" />
-            <div className="absolute inset-0 bg-gradient-to-b from-transparent to-black"></div>
-          </div>
+    <header className="fixed top-0 left-0 right-0 z-40 bg-white/80 backdrop-blur-md border-b border-zinc-200 h-16 px-4 flex items-center justify-between">
+      <div className="flex items-center gap-2">
+        <div className="w-8 h-8 bg-orange-500 rounded-lg flex items-center justify-center text-white font-bold">
+          TP
+        </div>
+        <h1 className="text-lg font-semibold text-zinc-900">Travel Plan</h1>
+      </div>
+
+      <div className="relative">
+        {user ? (
+          <button
+            onClick={() => setUserMenuOpen(!isUserMenuOpen)}
+            className="flex items-center gap-2 p-1 pr-3 rounded-full hover:bg-zinc-100 transition-colors"
+          >
+            {user.avatar_url ? (
+              <img
+                src={user.avatar_url}
+                alt={user.name}
+                className="w-8 h-8 rounded-full object-cover border border-zinc-200"
+              />
+            ) : (
+              <div className="w-8 h-8 rounded-full bg-zinc-200 flex items-center justify-center text-zinc-500">
+                <User size={16} />
+              </div>
+            )}
+            <span className="text-sm font-medium text-zinc-700 hidden sm:block">{user.name}</span>
+          </button>
+        ) : (
+          <button
+            onClick={() => setLoginModalOpen(true)}
+            className="px-4 py-2 bg-zinc-900 text-white text-sm font-medium rounded-full hover:bg-zinc-800 transition-colors"
+          >
+            Sign In
+          </button>
         )}
-        
-        <div className="flex items-center gap-3">
-          {!isHome && (
-            <button onClick={() => navigate(-1)} className="p-2 -ml-2 text-zinc-300 hover:text-white rounded-full">
-              <ChevronLeft size={24} />
-            </button>
-          )}
-          <h1 className="text-2xl font-black tracking-tighter italic">
-            <span className="text-orange-500">TRAVEL</span>
-            <span className="text-white ml-1">PLAN</span>
-          </h1>
-        </div>
 
-        <div>
-          {user ? (
-            <button
-              onClick={logout}
-              className="flex items-center gap-2 px-3 py-1.5 rounded-full bg-white/10 hover:bg-white/20 text-sm font-medium text-white transition-colors"
+        {/* User Menu Dropdown */}
+        <AnimatePresence>
+          {isUserMenuOpen && user && (
+            <motion.div
+              initial={{ opacity: 0, y: 10, scale: 0.95 }}
+              animate={{ opacity: 1, y: 0, scale: 1 }}
+              exit={{ opacity: 0, y: 10, scale: 0.95 }}
+              transition={{ duration: 0.1 }}
+              className="absolute right-0 top-full mt-2 w-56 bg-white rounded-2xl shadow-xl border border-zinc-100 overflow-hidden origin-top-right"
             >
-              <LogOut size={16} />
-              <span className="hidden sm:inline">Logout</span>
-            </button>
-          ) : (
-            <button
-              onClick={() => setShowLogin(true)}
-              className="flex items-center gap-2 px-3 py-1.5 rounded-full bg-orange-500 hover:bg-orange-600 text-sm font-medium text-white transition-colors"
-            >
-              <LogIn size={16} />
-              <span>Login</span>
-            </button>
+              <div className="p-4 border-b border-zinc-100">
+                <p className="text-sm font-medium text-zinc-900">{user.name}</p>
+                <p className="text-xs text-zinc-500 capitalize">{user.role}</p>
+              </div>
+              <div className="p-1">
+                <button className="w-full flex items-center gap-2 px-3 py-2 text-sm text-zinc-600 hover:bg-zinc-50 rounded-xl transition-colors text-left">
+                  <Settings size={16} />
+                  Settings
+                </button>
+                <button
+                  onClick={() => {
+                    logout();
+                    setUserMenuOpen(false);
+                  }}
+                  className="w-full flex items-center gap-2 px-3 py-2 text-sm text-red-600 hover:bg-red-50 rounded-xl transition-colors text-left"
+                >
+                  <LogOut size={16} />
+                  Sign Out
+                </button>
+              </div>
+            </motion.div>
           )}
-        </div>
-      </header>
-
-      {showLogin && <LoginModal onClose={() => setShowLogin(false)} />}
-    </>
+        </AnimatePresence>
+      </div>
+    </header>
   );
 }
