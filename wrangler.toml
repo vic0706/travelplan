@@ -1,0 +1,18 @@
+name = "travelplan-worker"
+main = "src/worker.ts"
+compatibility_date = "2024-03-18"
+
+[vars]
+VITE_SUPABASE_URL = "https://pyltlobngdnoqjnrxefn.supabase.co"
+
+[[d1_databases]]
+binding = "DB"
+database_name = "travelplan"
+database_id = "4667570e-324a-44d6-879b-27ee3888d1fc"
+
+[[kv_namespaces]]
+binding = "KV"
+id = "57eb8a061473416e82c28bb961b4cd06"
+
+[site]
+bucket = ".

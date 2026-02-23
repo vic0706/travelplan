@@ -24,9 +24,29 @@ app.use('*', cors({
 app.post('/api/auth/login', async (c) => {
   try {
     const { username, password } = await c.req.json();
-    // TODO: Verify password_hash from DB.Users
-    // TODO: Generate Session Token and store in KV
-    return c.json({ token: 'mock-token', user: { id: '1', role: 'Admin', name: 'Admin User' } });
+
+    // 1. Fetch user from DB
+    const user = await c.env.DB.prepare('SELECT * FROM Users WHERE username = ?').bind(username).first<any>();
+    if (!user) {
+      return c.json({ error: 'Invalid credentials' }, 401);
+    }
+
+    // 2. Verify password_hash with SHA-256
+    const passwordBuffer = new TextEncoder().encode(password);
+    const passwordHashBuffer = await crypto.subtle.digest('SHA-256', passwordBuffer);
+    const passwordHash = Array.from(new Uint8Array(passwordHashBuffer)).map(b => b.toString(16).padStart(2, '0')).join('');
+
+    if (passwordHash !== user.password_hash) {
+      return c.json({ error: 'Invalid credentials' }, 401);
+    }
+
+    // 3. Generate Session Token and store in KV
+    const sessionToken = crypto.randomUUID();
+    await c.env.KV.put(`session:${sessionToken}`, JSON.stringify({ userId: user.id, role: user.role }), { expirationTtl: 86400 }); // 24h
+
+    const { password_hash, ...userWithoutPassword } = user;
+
+    return c.json({ token: sessionToken, user: userWithoutPassword });
   } catch (e: any) {
     return c.json({ error: e.message }, 500);
   }

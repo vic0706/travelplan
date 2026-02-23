@@ -90,7 +90,7 @@ export interface Accommodation {
 
 declare global {
   interface ImportMetaEnv {
-    VITE_WORKER_API_URL: string;
+    VITE_WORKER_URL: string;
   }
 
   interface ImportMeta {
