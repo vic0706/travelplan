@@ -1,16 +1,17 @@
 import React from 'react';
 import { BrowserRouter as Router, Routes, Route } from 'react-router-dom';
 import { TopAppBar } from './components/TopAppBar';
-import { AdminBottomBar } from './components/AdminBottomBar';
 import { OfflineStatusBar } from './components/OfflineStatusBar';
 import { LoginModal } from './components/LoginModal';
+import { CreateTripModal } from './components/CreateTripModal';
 import { Home } from './pages/Home';
 import { TripDetails } from './pages/TripDetails';
 import { AdminMembers } from './pages/AdminMembers';
+import { AdminSettings } from './pages/AdminSettings';
 import { useAppStore } from './store';
 
 export default function App() {
-  const { isLoginModalOpen, setLoginModalOpen } = useAppStore();
+  const { isLoginModalOpen, setLoginModalOpen, isCreateTripModalOpen, setCreateTripModalOpen } = useAppStore();
 
   return (
     <Router>
@@ -22,13 +23,13 @@ export default function App() {
             <Route path="/" element={<Home />} />
             <Route path="/trip/:id" element={<TripDetails />} />
             <Route path="/admin/members" element={<AdminMembers />} />
-            <Route path="/admin/settings" element={<div className="p-8 text-center text-zinc-500">Settings Page</div>} />
+            <Route path="/admin/settings" element={<AdminSettings />} />
           </Routes>
         </main>
-        <AdminBottomBar />
         
         {/* Global Modals */}
         {isLoginModalOpen && <LoginModal onClose={() => setLoginModalOpen(false)} />}
+        {isCreateTripModalOpen && <CreateTripModal />}
       </div>
     </Router>
   );

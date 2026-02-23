@@ -68,6 +68,30 @@ app.get('/api/users/login-list', async (c) => {
   }
 });
 
+// 2.1 Get all users (Admin only)
+app.get('/api/users', async (c) => {
+  try {
+    const { results } = await c.env.DB.prepare('SELECT id, name, avatar_url, role, allow_login FROM Users').all();
+    return c.json(results);
+  } catch (error: any) {
+    return c.json({ error: error.message }, 500);
+  }
+});
+
+// 2.2 Get Settings
+app.get('/api/settings', async (c) => {
+  try {
+    const { results } = await c.env.DB.prepare('SELECT * FROM Settings').all();
+    const settings = results.reduce((acc: any, curr: any) => {
+      acc[curr.key] = curr.value;
+      return acc;
+    }, {});
+    return c.json(settings);
+  } catch (error: any) {
+    return c.json({ error: error.message }, 500);
+  }
+});
+
 // 3. Login API: Authenticate using username and password
 
 app.post('/api/auth/login', async (c) => {
@@ -110,6 +134,23 @@ app.get('/api/trips', async (c) => {
       ORDER BY start_date DESC
     `).all();
     return c.json(results);
+  } catch (error: any) {
+    return c.json({ error: error.message }, 500);
+  }
+});
+
+// 4.1 Create Trip API
+app.post('/api/trips', async (c) => {
+  try {
+    const { title, start_date, end_date, timezone, cover_image_url, visible_status } = await c.req.json();
+    const id = crypto.randomUUID();
+    
+    await c.env.DB.prepare(`
+      INSERT INTO Trips (id, title, start_date, end_date, timezone, cover_image_url, visible_status, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).bind(id, title, start_date, end_date, timezone, cover_image_url, visible_status, Date.now(), Date.now()).run();
+
+    return c.json({ id, title, start_date, end_date, timezone, cover_image_url, visible_status });
   } catch (error: any) {
     return c.json({ error: error.message }, 500);
   }

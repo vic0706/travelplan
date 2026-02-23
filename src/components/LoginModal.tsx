@@ -122,19 +122,26 @@ export function LoginModal({ onClose }: LoginModalProps) {
         )}
 
         <form onSubmit={handleLogin} className="space-y-4">
-          <div>
-            <label className="block text-sm font-medium text-zinc-400 mb-1">Username</label>
-            <input
-              type="text"
-              name="username"
-              autoComplete="username"
-              value={username}
-              onChange={(e) => setUsername(e.target.value)}
-              className="w-full bg-zinc-800 border border-zinc-700 rounded-xl px-4 py-3 text-white focus:outline-none focus:ring-2 focus:ring-orange-500"
-              placeholder="Admin User"
-              required
-            />
-          </div>
+          {username ? (
+            <div className="bg-zinc-800/50 border border-zinc-700 rounded-xl px-4 py-3 flex items-center justify-between">
+              <div>
+                <span className="block text-[10px] text-zinc-500 uppercase tracking-widest">Selected User</span>
+                <span className="text-white font-bold">{username}</span>
+              </div>
+              <button 
+                type="button"
+                onClick={() => setUsername('')}
+                className="text-xs text-orange-500 hover:underline"
+              >
+                Change
+              </button>
+            </div>
+          ) : (
+            <div className="text-center py-4 text-zinc-500 text-sm italic">
+              Please select a user above to continue
+            </div>
+          )}
+          
           <div>
             <label className="block text-sm font-medium text-zinc-400 mb-1">Password</label>
             <input
@@ -143,15 +150,16 @@ export function LoginModal({ onClose }: LoginModalProps) {
               autoComplete="current-password"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
-              className="w-full bg-zinc-800 border border-zinc-700 rounded-xl px-4 py-3 text-white focus:outline-none focus:ring-2 focus:ring-orange-500"
+              className="w-full bg-zinc-800 border border-zinc-700 rounded-xl px-4 py-3 text-white focus:outline-none focus:ring-2 focus:ring-orange-500 transition-all"
               placeholder="••••••••"
               required
+              disabled={!username}
             />
           </div>
           <button
             type="submit"
-            disabled={loading}
-            className="w-full bg-orange-500 hover:bg-orange-600 disabled:opacity-50 disabled:cursor-not-allowed text-white font-medium rounded-xl px-4 py-3 transition-colors mt-2"
+            disabled={loading || !username}
+            className="w-full bg-orange-500 hover:bg-orange-600 disabled:opacity-30 disabled:cursor-not-allowed text-white font-bold rounded-xl px-4 py-3 transition-all shadow-lg shadow-orange-500/20 active:scale-95"
           >
             {loading ? 'Signing In...' : 'Sign In'}
           </button>
