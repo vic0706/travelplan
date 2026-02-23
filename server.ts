@@ -13,9 +13,9 @@ const db = new Database(':memory:');
 db.exec(`
   CREATE TABLE IF NOT EXISTS Users (
     id TEXT PRIMARY KEY,
-    role TEXT,
-    name TEXT,
-    password_hash TEXT
+    role TEXT NOT NULL DEFAULT 'guest',
+    name TEXT NOT NULL,
+    password_hash TEXT NOT NULL DEFAULT '8d969eef6ecad3c29a3a629280e686cf0c3f5d5a86aff3ca12020c923adc6c92'
   );
 
   CREATE TABLE IF NOT EXISTS Trips (
@@ -111,9 +111,9 @@ db.exec(`
 // Seed Data
 db.exec(`
   INSERT INTO Users (id, role, name, password_hash) VALUES 
-  ('u1', 'Admin', 'Admin User', 'hash'),
-  ('u2', 'Editor', 'Editor User', 'hash'),
-  ('u3', 'Guest', 'Guest User', 'hash');
+  ('admin', 'Admin', 'Admin User', '8d969eef6ecad3c29a3a629280e686cf0c3f5d5a86aff3ca12020c923adc6c92'),
+  ('editor', 'Editor', 'Editor User', '8d969eef6ecad3c29a3a629280e686cf0c3f5d5a86aff3ca12020c923adc6c92'),
+  ('guest', 'Guest', 'Guest User', '8d969eef6ecad3c29a3a629280e686cf0c3f5d5a86aff3ca12020c923adc6c92');
 
   INSERT INTO App_Settings (id, key_name, value) VALUES 
   ('s1', 'top_bar_bg', 'https://picsum.photos/seed/travel/800/200');
@@ -138,9 +138,13 @@ db.exec(`
 
 app.post('/api/auth/login', (req, res) => {
   const { username, password } = req.body;
-  // Mock login
-  const user = db.prepare('SELECT * FROM Users WHERE name = ?').get(username) || db.prepare('SELECT * FROM Users WHERE role = ?').get('Admin');
-  res.json({ token: 'mock-token', user });
+  // Mock login: search by id (which is the login account)
+  const user = db.prepare('SELECT * FROM Users WHERE id = ?').get(username);
+  if (user) {
+    res.json({ token: 'mock-token', user });
+  } else {
+    res.status(401).json({ error: 'Invalid credentials' });
+  }
 });
 
 import { AppSetting, Trip, Itinerary, Expense, User, TripMember } from './src/types';

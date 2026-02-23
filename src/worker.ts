@@ -30,7 +30,7 @@ app.post('/api/auth/login', async (c) => {
     const { username, password } = await c.req.json();
 
     // 1. Fetch user from DB
-    const user = await c.env.DB.prepare('SELECT * FROM Users WHERE username = ?').bind(username).first<any>();
+    const user = await c.env.DB.prepare('SELECT * FROM Users WHERE id = ?').bind(username).first<any>();
     if (!user) {
       return c.json({ error: 'Invalid credentials' }, 401);
     }
@@ -59,7 +59,7 @@ app.post('/api/auth/login', async (c) => {
 // Settings
 app.get('/api/settings', async (c) => {
   try {
-    const { results } = await c.env.DB.prepare('SELECT * FROM AppSettings').all();
+    const { results } = await c.env.DB.prepare('SELECT * FROM App_Settings').all();
     return c.json(results);
   } catch (e: any) {
     return c.json({ error: e.message }, 500);

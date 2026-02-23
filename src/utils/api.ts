@@ -1,8 +1,9 @@
 export function getApiUrl(path: string): string {
   let baseUrl = import.meta.env.VITE_WORKER_URL || '';
   
-  if (baseUrl === 'undefined') {
-    baseUrl = '';
+  // If we are in local dev and no worker URL is set, use local
+  if (!baseUrl || baseUrl === 'undefined' || baseUrl === '') {
+    baseUrl = window.location.origin;
   }
   
   // Remove surrounding quotes if any
