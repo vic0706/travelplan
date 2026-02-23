@@ -1,26 +1,49 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect } from 'react';
 import { useAppStore } from '../store';
 import { useNavigate } from 'react-router-dom';
 import { Plus, Calendar, MapPin } from 'lucide-react';
 import { format, differenceInDays, parseISO } from 'date-fns';
 import { getApiUrl } from '../utils/api';
+import { db } from '../db';
+import { useLiveQuery } from 'dexie-react-hooks';
 
 export function Home() {
-  const [trips, setTrips] = useState<any[]>([]);
+  // 1. Live Query from IndexedDB (Offline-First)
+  const trips = useLiveQuery(() => db.trips.orderBy('start_date').reverse().toArray());
+  
   const { user } = useAppStore();
   const navigate = useNavigate();
 
+  // 2. Fetch from API and update IndexedDB (Network-First Strategy for freshness)
   useEffect(() => {
-    fetch(getApiUrl('/api/trips'))
-      .then(res => res.json())
-      .then(data => {
-        if (Array.isArray(data)) {
-          setTrips(data);
-        } else {
-          setTrips([]);
-        }
-      })
-      .catch(() => setTrips([]));
+    if (navigator.onLine) {
+      fetch(getApiUrl('/api/trips'))
+        .then(res => res.json())
+        .then(async (data) => {
+          if (Array.isArray(data)) {
+            // We need to be careful not to overwrite 'is_fully_synced' if it exists locally
+            // So we iterate and put one by one or use a more complex merge
+            // For simplicity, let's just update the basic info. 
+            // Dexie's bulkPut will overwrite the whole object if key matches.
+            // To preserve local fields, we should read first.
+            
+            const existingTrips = await db.trips.toArray();
+            const existingMap = new Map(existingTrips.map(t => [t.id, t]));
+            
+            const tripsToSave = data.map(apiTrip => {
+              const localTrip = existingMap.get(apiTrip.id);
+              return {
+                ...apiTrip,
+                is_fully_synced: localTrip?.is_fully_synced, // Preserve sync status
+                last_accessed: localTrip?.last_accessed // Preserve access time
+              };
+            });
+            
+            await db.trips.bulkPut(tripsToSave);
+          }
+        })
+        .catch(err => console.error('Failed to fetch trips:', err));
+    }
   }, []);
 
   return (

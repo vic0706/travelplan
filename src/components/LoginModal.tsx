@@ -19,6 +19,7 @@ export function LoginModal({ onClose }: LoginModalProps) {
     e.preventDefault();
     setLoading(true);
     setErrorMsg('');
+    console.log('Frontend Sending:', { username, password });
     try {
       const res = await fetch(getApiUrl('/api/auth/login'), {
         method: 'POST',
@@ -64,6 +65,8 @@ export function LoginModal({ onClose }: LoginModalProps) {
             <label className="block text-sm font-medium text-zinc-400 mb-1">Username</label>
             <input
               type="text"
+              name="username"
+              autoComplete="username"
               value={username}
               onChange={(e) => setUsername(e.target.value)}
               className="w-full bg-zinc-800 border border-zinc-700 rounded-xl px-4 py-3 text-white focus:outline-none focus:ring-2 focus:ring-orange-500"
@@ -75,6 +78,8 @@ export function LoginModal({ onClose }: LoginModalProps) {
             <label className="block text-sm font-medium text-zinc-400 mb-1">Password</label>
             <input
               type="password"
+              name="password"
+              autoComplete="current-password"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
               className="w-full bg-zinc-800 border border-zinc-700 rounded-xl px-4 py-3 text-white focus:outline-none focus:ring-2 focus:ring-orange-500"
