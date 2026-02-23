@@ -18,7 +18,16 @@ export function Home() {
   useEffect(() => {
     if (navigator.onLine) {
       fetch(getApiUrl('/api/trips'))
-        .then(res => res.json())
+        .then(async res => {
+          if (!res.ok) throw new Error(`HTTP error! status: ${res.status}`);
+          const text = await res.text();
+          try {
+            return JSON.parse(text);
+          } catch (e) {
+            console.error('API returned non-JSON:', text.substring(0, 100));
+            throw new Error('API returned non-JSON response (likely HTML)');
+          }
+        })
         .then(async (data) => {
           if (Array.isArray(data)) {
             // We need to be careful not to overwrite 'is_fully_synced' if it exists locally

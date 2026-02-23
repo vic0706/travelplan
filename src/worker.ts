@@ -1,9 +1,15 @@
 import { Hono } from 'hono';
 import { cors } from 'hono/cors';
+import { getAssetFromKV } from '@cloudflare/kv-asset-handler';
+
+// @ts-ignore
+import manifestJSON from '__STATIC_CONTENT_MANIFEST';
 
 export interface Env {
   DB: D1Database;
   PASSWORD_SALT: string;
+  __STATIC_CONTENT: any;
+  __STATIC_CONTENT_MANIFEST: string;
 }
 
 const app = new Hono<{ Bindings: Env }>();
@@ -90,9 +96,6 @@ app.post('/api/auth/login', async (c) => {
 // 4. Trips API: Get visible trips
 app.get('/api/trips', async (c) => {
   try {
-    // For Guest/User, only show visible_status = 1.
-    // In a real app, we'd check the Authorization header to see if they are Admin.
-    // For now, we return visible trips.
     const { results } = await c.env.DB.prepare(`
       SELECT id, title, cover_image_url, start_date, end_date, timezone, visible_status 
       FROM Trips 
@@ -112,7 +115,6 @@ app.get('/api/trips/:id', async (c) => {
     const { results } = await c.env.DB.prepare('SELECT * FROM Trips WHERE id = ?').bind(id).all();
     if (results.length === 0) return c.json({ error: 'Trip not found' }, 404);
     
-    // Parse JSON fields
     const trip = results[0] as any;
     if (trip.currencies) trip.currencies = JSON.parse(trip.currencies);
     
@@ -128,7 +130,6 @@ app.get('/api/trips/:id/itineraries', async (c) => {
   try {
     const { results } = await c.env.DB.prepare('SELECT * FROM Itineraries WHERE trip_id = ? ORDER BY date, start_time').bind(tripId).all();
     
-    // Parse JSON tags
     const parsedResults = results.map((item: any) => ({
       ...item,
       tags: item.tags ? JSON.parse(item.tags) : []
@@ -146,7 +147,6 @@ app.get('/api/trips/:id/expenses', async (c) => {
   try {
     const { results } = await c.env.DB.prepare('SELECT * FROM Expenses WHERE trip_id = ? ORDER BY date').bind(tripId).all();
     
-    // Parse JSON split_members
     const parsedResults = results.map((item: any) => ({
       ...item,
       split_members: item.split_members ? JSON.parse(item.split_members) : []
@@ -170,14 +170,54 @@ app.get('/api/settings', async (c) => {
 
 // Export default object with fetch and scheduled handlers
 export default {
-  fetch: app.fetch,
+  async fetch(request: Request, env: Env, ctx: ExecutionContext) {
+    const url = new URL(request.url);
+    
+    // 1. Handle API routes with Hono
+    if (url.pathname.startsWith('/api/')) {
+      return app.fetch(request, env, ctx);
+    }
+    
+    // 2. Handle Static Assets for Workers Sites
+    try {
+      const assetManifest = JSON.parse(manifestJSON);
+      return await getAssetFromKV(
+        {
+          request,
+          waitUntil: ctx.waitUntil.bind(ctx),
+        },
+        {
+          ASSET_NAMESPACE: env.__STATIC_CONTENT,
+          ASSET_MANIFEST: assetManifest,
+        }
+      );
+    } catch (e: any) {
+      // 3. SPA Fallback: If asset not found, serve index.html
+      if (e.message && e.message.includes('could not find')) {
+        try {
+          const assetManifest = JSON.parse(manifestJSON);
+          const indexRequest = new Request(new URL('/index.html', request.url), request);
+          const indexResponse = await getAssetFromKV(
+            {
+              request: indexRequest,
+              waitUntil: ctx.waitUntil.bind(ctx),
+            },
+            {
+              ASSET_NAMESPACE: env.__STATIC_CONTENT,
+              ASSET_MANIFEST: assetManifest,
+            }
+          );
+          return new Response(indexResponse.body, { ...indexResponse, status: 200 });
+        } catch (fallbackError) {
+          return new Response('Not Found', { status: 404 });
+        }
+      }
+      return new Response(e.message || 'Internal Error', { status: 500 });
+    }
+  },
   
   // Cron Job Handler for Weather & Transport
   async scheduled(event: ScheduledEvent, env: Env, ctx: ExecutionContext) {
     console.log(`Cron Job triggered at ${new Date().toISOString()}`);
-    // TODO: Implement daily 6:00 AM logic to fetch weather summary for ongoing trips
-    // 1. Query DB for ongoing trips (start_date <= today <= end_date)
-    // 2. Fetch weather from external API (e.g., OpenWeatherMap)
-    // 3. Store results in Cloudflare KV or D1 cache table
   }
 };

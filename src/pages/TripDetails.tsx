@@ -41,7 +41,13 @@ export function TripDetails() {
         // Fetch Trip Basic Info first
         const tripRes = await fetch(getApiUrl(`/api/trips/${id}`));
         if (!tripRes.ok) throw new Error('Trip fetch failed');
-        const tripData = await tripRes.json();
+        const tripText = await tripRes.text();
+        let tripData;
+        try {
+          tripData = JSON.parse(tripText);
+        } catch (e) {
+          throw new Error('Trip API returned non-JSON response (likely HTML)');
+        }
         
         // Determine if we should "Deep Cache" (Sync everything)
         // Rule: User is member AND (Trip is ongoing OR future)
@@ -74,16 +80,26 @@ export function TripDetails() {
         ]);
 
         if (itinerariesRes.ok) {
-          const itinerariesData = await itinerariesRes.json();
-          if (Array.isArray(itinerariesData)) {
-            await db.itineraries.bulkPut(itinerariesData);
+          const text = await itinerariesRes.text();
+          try {
+            const itinerariesData = JSON.parse(text);
+            if (Array.isArray(itinerariesData)) {
+              await db.itineraries.bulkPut(itinerariesData);
+            }
+          } catch (e) {
+            console.error('Itineraries API returned non-JSON response');
           }
         }
 
         if (expensesRes.ok) {
-          const expensesData = await expensesRes.json();
-          if (Array.isArray(expensesData)) {
-            await db.expenses.bulkPut(expensesData);
+          const text = await expensesRes.text();
+          try {
+            const expensesData = JSON.parse(text);
+            if (Array.isArray(expensesData)) {
+              await db.expenses.bulkPut(expensesData);
+            }
+          } catch (e) {
+            console.error('Expenses API returned non-JSON response');
           }
         }
 
