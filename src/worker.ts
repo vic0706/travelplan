@@ -43,6 +43,10 @@ app.post('/api/auth/login', async (c) => {
     const passwordHashBuffer = await crypto.subtle.digest('SHA-256', passwordBuffer);
     const passwordHash = Array.from(new Uint8Array(passwordHashBuffer)).map(b => b.toString(16).padStart(2, '0')).join('');
 
+    console.log("環境變數的 SALT:", c.env.PASSWORD_SALT);
+    console.log("DB裡的 Hash:", user.password_hash);
+    console.log("系統算出的 Hash:", passwordHash);
+    
     if (passwordHash !== user.password_hash) {
       return c.json({ error: 'Invalid credentials' }, 401);
     }
