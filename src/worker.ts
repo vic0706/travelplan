@@ -12,7 +12,7 @@ type Bindings = {
   SUPABASE_URL: string;
   SUPABASE_KEY: string;
   PASSWORD_SALT: string;
-};
+  VITE_WORKER_URL: string; // Add VITE_WORKER_URL to Bindings;
 
 const app = new Hono<{ Bindings: Bindings }>();
 
@@ -136,7 +136,17 @@ app.get('*', async (c) => {
         mapRequestToAsset: serveSinglePageApp,
       }
     );
-    return new Response(page.body, page);
+
+    let response = new Response(page.body, page);
+
+    // Inject worker URL into index.html for client-side use
+    if (c.req.url.endsWith('/index.html') || c.req.url.endsWith('/')) {
+      let html = await response.text();
+      html = html.replace('__WORKER_URL__', c.env.VITE_WORKER_URL);
+      response = new Response(html, response);
+    }
+
+    return response;
   } catch (e: any) {
     // If asset not found, return 404 or index.html if it's a route
     // But serveSinglePageApp should handle routes.
