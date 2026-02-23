@@ -104,6 +104,17 @@ export function AdminSettings() {
               />
             </div>
 
+            <div>
+              <label className="block text-sm font-medium text-zinc-400 mb-2">Top Background Image URL</label>
+              <input 
+                type="text" 
+                value={settings.top_bg_url || ''} 
+                onChange={e => setSettings({...settings, top_bg_url: e.target.value})}
+                className="w-full bg-zinc-800 border border-zinc-700 rounded-xl px-4 py-3 text-white focus:outline-none focus:ring-2 focus:ring-orange-500"
+                placeholder="https://picsum.photos/..."
+              />
+            </div>
+
             <div className="pt-4 border-t border-zinc-800">
               <button 
                 onClick={handleClearCache}

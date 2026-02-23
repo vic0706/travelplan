@@ -95,24 +95,24 @@ export function LoginModal({ onClose }: LoginModalProps) {
         {/* Avatar Selection */}
         {availableUsers.length > 0 && (
           <div className="mb-6">
-            <p className="text-xs text-zinc-500 text-center mb-3 uppercase tracking-wider">Select User</p>
-            <div className="flex justify-center gap-4 flex-wrap">
+            <p className="text-xs text-zinc-500 text-center mb-4 uppercase tracking-wider">Select Your Profile</p>
+            <div className="grid grid-cols-3 gap-4">
               {availableUsers.map((u) => (
                 <button
                   key={u.id}
                   onClick={() => handleUserSelect(u)}
-                  className={`flex flex-col items-center gap-2 group transition-transform active:scale-95 ${selectedUser?.id === u.id ? 'opacity-100 scale-110' : 'opacity-70 hover:opacity-100'}`}
+                  className={`flex flex-col items-center gap-2 group transition-all active:scale-95 ${selectedUser?.id === u.id ? 'opacity-100' : 'opacity-60 hover:opacity-100'}`}
                 >
-                  <div className={`w-12 h-12 rounded-full overflow-hidden border-2 transition-colors ${selectedUser?.id === u.id ? 'border-orange-500' : 'border-transparent group-hover:border-zinc-600'}`}>
+                  <div className={`w-16 h-16 rounded-full overflow-hidden border-4 transition-all ${selectedUser?.id === u.id ? 'border-orange-500 scale-110 shadow-lg shadow-orange-500/20' : 'border-zinc-800 group-hover:border-zinc-600'}`}>
                     {u.avatar_url ? (
                       <img src={u.avatar_url} alt={u.name} className="w-full h-full object-cover" />
                     ) : (
                       <div className="w-full h-full bg-zinc-800 flex items-center justify-center text-zinc-400">
-                        <UserIcon size={20} />
+                        <UserIcon size={24} />
                       </div>
                     )}
                   </div>
-                  <span className="text-xs text-zinc-300 font-medium">{u.name}</span>
+                  <span className="text-xs text-zinc-300 font-bold truncate w-full text-center">{u.name}</span>
                 </button>
               ))}
             </div>
@@ -147,15 +147,17 @@ export function LoginModal({ onClose }: LoginModalProps) {
           )}
           
           <div>
-            <label className="block text-sm font-medium text-zinc-400 mb-1">Password</label>
+            <label className="block text-sm font-medium text-zinc-400 mb-1">PIN Code</label>
             <input
               type="password"
               name="password"
+              inputMode="numeric"
+              pattern="[0-9]*"
               autoComplete="current-password"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
-              className="w-full bg-zinc-800 border border-zinc-700 rounded-xl px-4 py-3 text-white focus:outline-none focus:ring-2 focus:ring-orange-500 transition-all"
-              placeholder="••••••••"
+              className="w-full bg-zinc-800 border border-zinc-700 rounded-xl px-4 py-3 text-white focus:outline-none focus:ring-2 focus:ring-orange-500 transition-all text-center tracking-widest text-lg"
+              placeholder="••••••"
               required
               disabled={!selectedUser}
             />

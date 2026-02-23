@@ -1,9 +1,8 @@
 import { useAppStore } from '../store';
 
 export const getApiUrl = (path: string): string => {
-  const baseUrl = "https://travelplan.vic070680.workers.dev";
-  const cleanPath = path.startsWith('/') ? path : `/${path}`;
-  return `${baseUrl}${cleanPath}`;
+  // Use relative path since frontend and backend are on the same origin
+  return path.startsWith('/') ? path : `/${path}`;
 };
 
 export const apiFetch = async (path: string, options: RequestInit = {}) => {
