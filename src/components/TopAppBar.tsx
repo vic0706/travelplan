@@ -13,7 +13,7 @@ export function TopAppBar() {
   const location = useLocation();
 
   useEffect(() => {
-    fetch('/api/settings')
+    fetch(`${import.meta.env.VITE_WORKER_API_URL}/api/settings`)
       .then(res => res.json())
       .then((data: AppSetting[]) => {
         const bgSetting = data.find(s => s.key_name === 'top_bar_bg');
@@ -22,15 +22,15 @@ export function TopAppBar() {
   }, []);
 
   const isHome = location.pathname === '/';
-  const title = isHome ? 'Travel Tracker' : 'Trip Details'; // Can be dynamic based on route
+  const title = isHome ? 'Travel Plan' : 'Trip Details';
 
   return (
     <>
-      <header className="relative h-20 w-full flex items-center justify-between px-4 z-40 bg-zinc-950/80 backdrop-blur-md border-b border-white/5">
+      <header className="relative h-20 w-full flex items-center justify-between px-4 z-40 bg-black border-b border-orange-500/20">
         {bgUrl && (
           <div className="absolute inset-0 z-[-1] overflow-hidden">
-            <img src={bgUrl} alt="Header Background" className="w-full h-full object-cover opacity-30" />
-            <div className="absolute inset-0 bg-gradient-to-b from-transparent to-zinc-950"></div>
+            <img src={bgUrl} alt="Header Background" className="w-full h-full object-cover opacity-20" />
+            <div className="absolute inset-0 bg-gradient-to-b from-transparent to-black"></div>
           </div>
         )}
         
@@ -40,7 +40,10 @@ export function TopAppBar() {
               <ChevronLeft size={24} />
             </button>
           )}
-          <h1 className="text-xl font-semibold text-white tracking-tight">{title}</h1>
+          <h1 className="text-2xl font-black tracking-tighter italic">
+            <span className="text-orange-500">TRAVEL</span>
+            <span className="text-white ml-1">PLAN</span>
+          </h1>
         </div>
 
         <div>

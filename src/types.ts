@@ -87,3 +87,13 @@ export interface Accommodation {
   check_out_date: string; // UTC date string
   notes: string;
 }
+
+declare global {
+  interface ImportMetaEnv {
+    VITE_WORKER_API_URL: string;
+  }
+
+  interface ImportMeta {
+    readonly env: ImportMetaEnv;
+  }
+}

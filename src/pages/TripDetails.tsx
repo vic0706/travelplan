@@ -16,15 +16,28 @@ export function TripDetails() {
   const [selectedDate, setSelectedDate] = useState<Date>(new Date());
   const { user } = useAppStore();
 
+  const safeParse = (dateStr: any) => {
+    if (!dateStr || typeof dateStr !== 'string') return null;
+    try {
+      const parsed = parseISO(dateStr);
+      return isNaN(parsed.getTime()) ? null : parsed;
+    } catch (e) {
+      return null;
+    }
+  };
+
   useEffect(() => {
-    fetch(`/api/trips/${id}`)
+    fetch(`${import.meta.env.VITE_WORKER_API_URL}/api/trips/${id}`)
       .then(res => res.json())
       .then((data: Trip) => {
         setTrip(data);
-        setSelectedDate(parseISO(data.start_date));
+        const parsedStart = safeParse(data.start_date);
+        if (parsedStart) {
+          setSelectedDate(parsedStart);
+        }
       });
     
-    fetch(`/api/trips/${id}/itineraries`)
+    fetch(`${import.meta.env.VITE_WORKER_API_URL}/api/trips/${id}/itineraries`)
       .then(res => res.json())
       .then(data => setItineraries(data));
 
@@ -35,11 +48,24 @@ export function TripDetails() {
 
   if (!trip) return <div className="p-8 text-center text-zinc-500">Loading...</div>;
 
-  const daysCount = differenceInDays(parseISO(trip.end_date), parseISO(trip.start_date)) + 1;
-  const dates = Array.from({ length: daysCount }).map((_, i) => addDays(parseISO(trip.start_date), i));
+  const validTripStartDate = safeParse(trip.start_date);
+  const validTripEndDate = safeParse(trip.end_date);
 
-  const filteredItineraries = itineraries.filter(i => isSameDay(parseISO(i.date), selectedDate));
-  const filteredExpenses = expenses.filter(e => isSameDay(parseISO(e.date), selectedDate));
+  const daysCount = (validTripStartDate && validTripEndDate) ? differenceInDays(validTripEndDate, validTripStartDate) + 1 : 0;
+  const dates = Array.from({ length: daysCount }).map((_, i) => addDays(validTripStartDate || new Date(), i));
+
+  const tripCoverImageUrl = trip.cover_image_url && typeof trip.cover_image_url === 'string' && trip.cover_image_url.startsWith('http')
+    ? trip.cover_image_url
+    : 'https://picsum.photos/seed/trip-details/1920/1080'; // Fallback image
+
+  const filteredItineraries = itineraries.filter(i => {
+    const parsed = safeParse(i.date);
+    return parsed ? isSameDay(parsed, selectedDate) : false;
+  });
+  const filteredExpenses = expenses.filter(e => {
+    const parsed = safeParse(e.date);
+    return parsed ? isSameDay(parsed, selectedDate) : false;
+  });
 
   const expenseData = expenses.reduce((acc, curr) => {
     const existing = acc.find(item => item.name === curr.item_name);
@@ -122,54 +148,60 @@ export function TripDetails() {
 
             {/* Itinerary Cards */}
             <div className="space-y-4">
-              {filteredItineraries.map((item, index) => (
-                <React.Fragment key={item.id}>
-                  <div className="bg-zinc-900 border border-zinc-800 rounded-3xl overflow-hidden shadow-lg group">
-                    {item.image_url && (
-                      <div className="h-32 w-full relative">
-                        <img src={item.image_url} alt={item.title} className="w-full h-full object-cover" referrerPolicy="no-referrer" />
-                        <div className="absolute inset-0 bg-gradient-to-t from-zinc-900 to-transparent"></div>
+              {filteredItineraries.map((item, index) => {
+                const itineraryImageUrl = item.image_url && typeof item.image_url === 'string' && item.image_url.startsWith('http')
+                  ? item.image_url
+                  : null;
+
+                return (
+                  <React.Fragment key={item.id}>
+                    <div className="bg-zinc-900 border border-zinc-800 rounded-3xl overflow-hidden shadow-lg group">
+                      {itineraryImageUrl && (
+                        <div className="h-32 w-full relative">
+                          <img src={itineraryImageUrl} alt={item.title} className="w-full h-full object-cover" referrerPolicy="no-referrer" />
+                          <div className="absolute inset-0 bg-gradient-to-t from-zinc-900 to-transparent"></div>
+                        </div>
+                      )}
+                      <div className="p-5">
+                        <div className="flex items-center justify-between mb-3">
+                          <div className="flex items-center gap-2 text-orange-500 bg-orange-500/10 px-3 py-1 rounded-full">
+                            <Clock size={14} />
+                            <span className="text-xs font-bold tracking-wider">{item.start_time} - {item.end_time}</span>
+                          </div>
+                          {item.tags && item.tags.map((tag: string) => (
+                            <span key={tag} className="text-[10px] font-medium uppercase tracking-wider text-zinc-500 border border-zinc-700 px-2 py-0.5 rounded-full">
+                              {tag}
+                            </span>
+                          ))}
+                        </div>
+                        <h3 className="text-xl font-semibold text-white mb-2">{item.title}</h3>
+                        <div className="flex items-start gap-2 text-zinc-400 text-sm">
+                          <MapPin size={16} className="mt-0.5 shrink-0" />
+                          <span className="leading-snug">{item.address}</span>
+                        </div>
+                        {item.notes && (
+                          <p className="mt-4 text-sm text-zinc-500 leading-relaxed bg-zinc-950/50 p-3 rounded-xl border border-zinc-800/50">
+                            {item.notes}
+                          </p>
+                        )}
+                      </div>
+                    </div>
+
+                    {/* Transit Node */}
+                    {index < filteredItineraries.length - 1 && (
+                      <div className="flex items-center justify-center py-2 relative">
+                        <div className="absolute top-0 bottom-0 w-px bg-zinc-800 -z-10"></div>
+                        <div className="bg-zinc-950 border border-zinc-800 rounded-full px-4 py-2 flex items-center gap-3 shadow-md">
+                          <Navigation size={14} className="text-orange-500" />
+                          <span className="text-xs font-medium text-zinc-400 uppercase tracking-wider">
+                            {item.next_transport_mode} • {item.custom_transport_time} min
+                          </span>
+                        </div>
                       </div>
                     )}
-                    <div className="p-5">
-                      <div className="flex items-center justify-between mb-3">
-                        <div className="flex items-center gap-2 text-orange-500 bg-orange-500/10 px-3 py-1 rounded-full">
-                          <Clock size={14} />
-                          <span className="text-xs font-bold tracking-wider">{item.start_time} - {item.end_time}</span>
-                        </div>
-                        {item.tags && item.tags.map((tag: string) => (
-                          <span key={tag} className="text-[10px] font-medium uppercase tracking-wider text-zinc-500 border border-zinc-700 px-2 py-0.5 rounded-full">
-                            {tag}
-                          </span>
-                        ))}
-                      </div>
-                      <h3 className="text-xl font-semibold text-white mb-2">{item.title}</h3>
-                      <div className="flex items-start gap-2 text-zinc-400 text-sm">
-                        <MapPin size={16} className="mt-0.5 shrink-0" />
-                        <span className="leading-snug">{item.address}</span>
-                      </div>
-                      {item.notes && (
-                        <p className="mt-4 text-sm text-zinc-500 leading-relaxed bg-zinc-950/50 p-3 rounded-xl border border-zinc-800/50">
-                          {item.notes}
-                        </p>
-                      )}
-                    </div>
-                  </div>
-
-                  {/* Transit Node */}
-                  {index < filteredItineraries.length - 1 && (
-                    <div className="flex items-center justify-center py-2 relative">
-                      <div className="absolute top-0 bottom-0 w-px bg-zinc-800 -z-10"></div>
-                      <div className="bg-zinc-950 border border-zinc-800 rounded-full px-4 py-2 flex items-center gap-3 shadow-md">
-                        <Navigation size={14} className="text-orange-500" />
-                        <span className="text-xs font-medium text-zinc-400 uppercase tracking-wider">
-                          {item.next_transport_mode} • {item.custom_transport_time} min
-                        </span>
-                      </div>
-                    </div>
-                  )}
-                </React.Fragment>
-              ))}
+                  </React.Fragment>
+                );
+              })}
 
               {user?.role !== 'Guest' && (
                 <button className="w-full mt-6 py-4 border-2 border-dashed border-zinc-800 rounded-3xl flex items-center justify-center gap-2 text-zinc-500 hover:text-orange-500 hover:border-orange-500/50 hover:bg-orange-500/5 transition-all">

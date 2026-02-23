@@ -10,13 +10,13 @@ export function Home() {
   const navigate = useNavigate();
 
   useEffect(() => {
-    fetch('/api/trips')
+    fetch(`${import.meta.env.VITE_WORKER_API_URL}/api/trips`)
       .then(res => res.json())
       .then(data => setTrips(data));
   }, []);
 
   return (
-    <div className="flex-1 overflow-y-auto p-4 space-y-6 pb-24 bg-zinc-950 min-h-screen">
+    <div className="flex-1 overflow-y-auto p-4 space-y-6 pb-24 bg-black min-h-screen">
       <div className="flex items-center justify-between mb-2">
         <h2 className="text-2xl font-semibold text-white tracking-tight">Public Trips</h2>
         {user?.role === 'Admin' && (
@@ -29,7 +29,25 @@ export function Home() {
 
       <div className="grid grid-cols-1 gap-6">
         {trips.map(trip => {
-          const days = differenceInDays(parseISO(trip.end_date), parseISO(trip.start_date)) + 1;
+          const safeParse = (dateStr: any) => {
+            if (!dateStr || typeof dateStr !== 'string') return null;
+            try {
+              const parsed = parseISO(dateStr);
+              return isNaN(parsed.getTime()) ? null : parsed;
+            } catch (e) {
+              return null;
+            }
+          };
+
+          const validStartDate = safeParse(trip.start_date);
+          const validEndDate = safeParse(trip.end_date);
+          
+          const days = (validStartDate && validEndDate) ? differenceInDays(validEndDate, validStartDate) + 1 : 0;
+          const displayStartDate = validStartDate ? format(validStartDate, 'MMM d, yyyy') : 'N/A';
+
+          const imageUrl = trip.cover_image_url && typeof trip.cover_image_url === 'string' && trip.cover_image_url.startsWith('http')
+            ? trip.cover_image_url
+            : 'https://picsum.photos/seed/default/400/300'; // Fallback image
           
           return (
             <div
@@ -39,7 +57,7 @@ export function Home() {
             >
               <div className="aspect-[4/3] w-full relative">
                 <img
-                  src={trip.cover_image_url}
+                  src={imageUrl}
                   alt={trip.title}
                   className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-700"
                   referrerPolicy="no-referrer"
@@ -56,7 +74,7 @@ export function Home() {
                 <div className="flex items-center gap-4 text-zinc-400 text-sm font-medium">
                   <div className="flex items-center gap-1.5">
                     <Calendar size={16} />
-                    <span>{format(parseISO(trip.start_date), 'MMM d, yyyy')}</span>
+                    <span>{displayStartDate}</span>
                   </div>
                   <div className="flex items-center gap-1.5 px-2 py-1 bg-white/10 rounded-md text-white text-xs">
                     <span>{days} Days</span>
