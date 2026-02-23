@@ -1,15 +1,16 @@
 // src/utils/api.ts
 export const getApiUrl = (path: string): string => {
-  // 優先使用環境變數，如果沒有則使用硬編碼的正式網址 (Fallback)
-  const baseUrl = import.meta.env.VITE_WORKER_URL || "https://travelplan.vic070680.workers.dev";
-  
-  if (!baseUrl) {
-    console.error("嚴重錯誤：找不到 VITE_WORKER_URL 且無預設值！");
-    throw new Error("Missing VITE_WORKER_URL");
+  // 確保路徑以 / 開頭
+  const cleanPath = path.startsWith('/') ? path : `/${path}`;
+
+  // 如果在瀏覽器環境中，且我們就在正式域名下，直接回傳相對路徑
+  // 這能解決所有 VITE_WORKER_URL 為 undefined 或跨域的問題
+  if (typeof window !== 'undefined') {
+    return cleanPath;
   }
 
-  // 確保路徑拼接正確
-  const cleanPath = path.startsWith('/') ? path : `/${path}`;
+  // Fallback (主要用於 SSR 或非瀏覽器環境)
+  const baseUrl = import.meta.env.VITE_WORKER_URL || "https://travelplan.vic070680.workers.dev";
   const cleanBase = baseUrl.endsWith('/') ? baseUrl.slice(0, -1) : baseUrl;
   
   return `${cleanBase}${cleanPath}`;

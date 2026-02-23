@@ -77,41 +77,24 @@ app.post('/api/auth/login', async (c) => {
       return c.json({ error: 'Missing username or password' }, 400);
     }
 
-    console.log('--- Login Debug Start ---');
-    console.log('Received username:', username);
-
     const { results } = await c.env.DB.prepare('SELECT * FROM Users WHERE name = ? COLLATE NOCASE').bind(username).all();
     const user = results[0] as any;
 
-    console.log('DB query results:', JSON.stringify(results));
-
     if (!user) {
-      console.log('User not found in DB for username:', username);
-      console.log('--- Login Debug End ---');
       return c.json({ error: 'User not found' }, 404);
     }
 
-    console.log('User found in DB (name, role, password_hash):', user.name, user.role, user.password_hash);
-
     const salt = c.env.PASSWORD_SALT || 'default_salt';
     const passwordHash = await generateHash(password, salt);
-    console.log('Generated password hash:', passwordHash);
-    console.log('Stored password hash:', user.password_hash);
 
     if (passwordHash !== user.password_hash) {
-      console.log('Invalid credentials: password hash mismatch.');
-      console.log('--- Login Debug End ---');
       return c.json({ error: 'Invalid credentials' }, 401);
     }
 
     // Remove password_hash before sending
     const { password_hash, ...safeUser } = user;
-    console.log('Login successful for user:', safeUser.name);
-    console.log('--- Login Debug End ---');
     return c.json({ user: safeUser });
   } catch (error: any) {
-    console.error('Login API error:', error.message);
-    console.log('--- Login Debug End ---');
     return c.json({ error: error.message }, 500);
   }
 });
@@ -195,13 +178,23 @@ app.get('/api/settings', async (c) => {
 export default {
   async fetch(request: Request, env: Env, ctx: ExecutionContext) {
     const url = new URL(request.url);
-    
-    // 1. Handle API routes with Hono
-    if (url.pathname.startsWith('/api/')) {
-      return app.fetch(request, env, ctx);
+    const pathname = url.pathname;
+
+    // 【核心修復】只要是 /api 開頭，強制進入 Hono，絕對不允許流向靜態資源
+    if (pathname.startsWith('/api')) {
+      try {
+        const response = await app.fetch(request, env, ctx);
+        // 如果 Hono 回傳了 404，確保它是 JSON (由 app.notFound 處理)
+        return response;
+      } catch (e: any) {
+        return new Response(JSON.stringify({ error: 'Internal Server Error', message: e.message }), {
+          status: 500,
+          headers: { 'Content-Type': 'application/json' }
+        });
+      }
     }
-    
-    // 2. Handle Static Assets for Workers Sites
+
+    // --- 以下為網站靜態資源邏輯 ---
     try {
       const assetManifest = JSON.parse(manifestJSON);
       return await getAssetFromKV(
@@ -215,31 +208,27 @@ export default {
         }
       );
     } catch (e: any) {
-      // 3. SPA Fallback: If asset not found, serve index.html
-      if (e.message && e.message.includes('could not find')) {
-        try {
-          const assetManifest = JSON.parse(manifestJSON);
-          const indexRequest = new Request(new URL('/index.html', request.url), request);
-          const indexResponse = await getAssetFromKV(
-            {
-              request: indexRequest,
-              waitUntil: ctx.waitUntil.bind(ctx),
-            },
-            {
-              ASSET_NAMESPACE: env.__STATIC_CONTENT,
-              ASSET_MANIFEST: assetManifest,
-            }
-          );
-          return new Response(indexResponse.body, { ...indexResponse, status: 200 });
-        } catch (fallbackError) {
-          return new Response('Not Found', { status: 404 });
-        }
+      // SPA Fallback: 只有非 API 請求才回傳 index.html
+      try {
+        const assetManifest = JSON.parse(manifestJSON);
+        const indexRequest = new Request(new URL('/index.html', request.url), request);
+        const indexResponse = await getAssetFromKV(
+          {
+            request: indexRequest,
+            waitUntil: ctx.waitUntil.bind(ctx),
+          },
+          {
+            ASSET_NAMESPACE: env.__STATIC_CONTENT,
+            ASSET_MANIFEST: assetManifest,
+          }
+        );
+        return new Response(indexResponse.body, { ...indexResponse, status: 200 });
+      } catch (fallbackError) {
+        return new Response('Not Found', { status: 404 });
       }
-      return new Response(e.message || 'Internal Error', { status: 500 });
     }
   },
   
-  // Cron Job Handler for Weather & Transport
   async scheduled(event: ScheduledEvent, env: Env, ctx: ExecutionContext) {
     console.log(`Cron Job triggered at ${new Date().toISOString()}`);
   }
