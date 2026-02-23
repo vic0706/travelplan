@@ -80,12 +80,19 @@ app.post('/api/auth/login', async (c) => {
       return c.json({ error: 'Missing username or password' }, 400);
     }
 
+    console.log('Login attempt for username:', username);
+
     const { results } = await c.env.DB.prepare('SELECT * FROM Users WHERE name = ?').bind(username).all();
     const user = results[0] as any;
 
+    console.log('DB query results:', results);
+
     if (!user) {
+      console.log('User not found in DB for username:', username);
       return c.json({ error: 'User not found' }, 404);
     }
+
+    console.log('User found in DB:', user.name);
 
     const salt = c.env.PASSWORD_SALT || 'default_salt';
     const passwordHash = await generateHash(password, salt);
