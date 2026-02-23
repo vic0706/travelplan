@@ -2,10 +2,11 @@ import React, { useState, useEffect } from 'react';
 import { useParams } from 'react-router-dom';
 import { useAppStore } from '../store';
 import { format, parseISO, addDays, differenceInDays, isSameDay } from 'date-fns';
-import { MapPin, Clock, Plus, Navigation, ChevronDown, ChevronUp, DollarSign, Plane, Bed } from 'lucide-react';
+import { MapPin, Clock, Plus, Navigation, ChevronDown, ChevronUp, DollarSign, Plane, Bed, Map, Info, Wallet } from 'lucide-react';
 import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip } from 'recharts';
 import { clsx } from 'clsx';
 import { Trip, Itinerary, Expense } from '../types';
+import { getApiUrl } from '../utils/api';
 
 export function TripDetails() {
   const { id } = useParams();
@@ -27,7 +28,7 @@ export function TripDetails() {
   };
 
   useEffect(() => {
-    fetch(`${import.meta.env.VITE_WORKER_API_URL}/api/trips/${id}`)
+    fetch(getApiUrl(`/api/trips/${id}`))
       .then(res => res.json())
       .then((data: Trip) => {
         setTrip(data);
@@ -35,15 +36,22 @@ export function TripDetails() {
         if (parsedStart) {
           setSelectedDate(parsedStart);
         }
-      });
+      })
+      .catch(err => console.error('Trip fetch failed:', err));
     
-    fetch(`${import.meta.env.VITE_WORKER_API_URL}/api/trips/${id}/itineraries`)
+    fetch(getApiUrl(`/api/trips/${id}/itineraries`))
       .then(res => res.json())
-      .then(data => setItineraries(data));
+      .then(data => {
+        if (Array.isArray(data)) setItineraries(data);
+      })
+      .catch(err => console.error('Itineraries fetch failed:', err));
 
-    fetch(`/api/trips/${id}/expenses`)
+    fetch(getApiUrl(`/api/trips/${id}/expenses`))
       .then(res => res.json())
-      .then(data => setExpenses(data));
+      .then(data => {
+        if (Array.isArray(data)) setExpenses(data);
+      })
+      .catch(err => console.error('Expenses fetch failed:', err));
   }, [id]);
 
   if (!trip) return <div className="p-8 text-center text-zinc-500">Loading...</div>;
@@ -80,26 +88,7 @@ export function TripDetails() {
   const COLORS = ['#f97316', '#fb923c', '#fdba74', '#ffedd5'];
 
   return (
-    <div className="flex flex-col min-h-screen bg-zinc-950 pb-24">
-      {/* Tabs */}
-      <div className="flex border-b border-zinc-800 bg-zinc-950 sticky top-0 z-30">
-        {['itinerary', 'info', 'finance'].map(tab => (
-          <button
-            key={tab}
-            onClick={() => setActiveTab(tab as any)}
-            className={clsx(
-              "flex-1 py-4 text-sm font-medium uppercase tracking-wider transition-colors relative",
-              activeTab === tab ? "text-orange-500" : "text-zinc-500 hover:text-zinc-300"
-            )}
-          >
-            {tab}
-            {activeTab === tab && (
-              <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-orange-500 rounded-t-full" />
-            )}
-          </button>
-        ))}
-      </div>
-
+    <div className="flex flex-col min-h-screen bg-black pb-24">
       {/* Date Slider */}
       {(activeTab === 'itinerary' || activeTab === 'finance') && (
         <div className="flex overflow-x-auto py-4 px-4 gap-3 no-scrollbar border-b border-zinc-800 bg-zinc-900/50">
@@ -116,8 +105,12 @@ export function TripDetails() {
                     : "bg-zinc-800 text-zinc-400 hover:bg-zinc-700"
                 )}
               >
-                <span className="text-xs font-medium uppercase tracking-wider opacity-80">{format(date, 'EEE')}</span>
-                <span className="text-xl font-bold mt-1">{format(date, 'd')}</span>
+                <span className="text-xs font-medium uppercase tracking-wider opacity-80">
+                  {date instanceof Date && !isNaN(date.getTime()) ? format(date, 'EEE') : '---'}
+                </span>
+                <span className="text-xl font-bold mt-1">
+                  {date instanceof Date && !isNaN(date.getTime()) ? format(date, 'd') : '--'}
+                </span>
               </button>
             );
           })}
@@ -294,6 +287,40 @@ export function TripDetails() {
             )}
           </div>
         )}
+      </div>
+
+      {/* Bottom Tabs */}
+      <div className="fixed bottom-0 left-0 right-0 h-16 bg-zinc-900 border-t border-zinc-800 flex items-center justify-around px-4 pb-[env(safe-area-inset-bottom)] z-50">
+        <button
+          onClick={() => setActiveTab('itinerary')}
+          className={clsx(
+            "flex flex-col items-center justify-center w-full h-full space-y-1 transition-colors",
+            activeTab === 'itinerary' ? "text-orange-500" : "text-zinc-500 hover:text-zinc-300"
+          )}
+        >
+          <Map size={24} />
+          <span className="text-[10px] font-medium uppercase tracking-wider">Itinerary</span>
+        </button>
+        <button
+          onClick={() => setActiveTab('info')}
+          className={clsx(
+            "flex flex-col items-center justify-center w-full h-full space-y-1 transition-colors",
+            activeTab === 'info' ? "text-orange-500" : "text-zinc-500 hover:text-zinc-300"
+          )}
+        >
+          <Info size={24} />
+          <span className="text-[10px] font-medium uppercase tracking-wider">Info</span>
+        </button>
+        <button
+          onClick={() => setActiveTab('finance')}
+          className={clsx(
+            "flex flex-col items-center justify-center w-full h-full space-y-1 transition-colors",
+            activeTab === 'finance' ? "text-orange-500" : "text-zinc-500 hover:text-zinc-300"
+          )}
+        >
+          <Wallet size={24} />
+          <span className="text-[10px] font-medium uppercase tracking-wider">Finance</span>
+        </button>
       </div>
     </div>
   );

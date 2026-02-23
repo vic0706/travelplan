@@ -3,6 +3,7 @@ import { useAppStore } from '../store';
 import { useNavigate } from 'react-router-dom';
 import { Plus, Calendar, MapPin } from 'lucide-react';
 import { format, differenceInDays, parseISO } from 'date-fns';
+import { getApiUrl } from '../utils/api';
 
 export function Home() {
   const [trips, setTrips] = useState<any[]>([]);
@@ -10,9 +11,16 @@ export function Home() {
   const navigate = useNavigate();
 
   useEffect(() => {
-    fetch(`${import.meta.env.VITE_WORKER_API_URL}/api/trips`)
+    fetch(getApiUrl('/api/trips'))
       .then(res => res.json())
-      .then(data => setTrips(data));
+      .then(data => {
+        if (Array.isArray(data)) {
+          setTrips(data);
+        } else {
+          setTrips([]);
+        }
+      })
+      .catch(() => setTrips([]));
   }, []);
 
   return (
@@ -28,62 +36,72 @@ export function Home() {
       </div>
 
       <div className="grid grid-cols-1 gap-6">
-        {trips.map(trip => {
-          const safeParse = (dateStr: any) => {
-            if (!dateStr || typeof dateStr !== 'string') return null;
-            try {
-              const parsed = parseISO(dateStr);
-              return isNaN(parsed.getTime()) ? null : parsed;
-            } catch (e) {
-              return null;
-            }
-          };
+        {Array.isArray(trips) && trips.length > 0 ? (
+          trips.map(trip => {
+            const safeParse = (dateStr: any) => {
+              if (!dateStr || typeof dateStr !== 'string') return null;
+              try {
+                const parsed = parseISO(dateStr);
+                return isNaN(parsed.getTime()) ? null : parsed;
+              } catch (e) {
+                return null;
+              }
+            };
 
-          const validStartDate = safeParse(trip.start_date);
-          const validEndDate = safeParse(trip.end_date);
-          
-          const days = (validStartDate && validEndDate) ? differenceInDays(validEndDate, validStartDate) + 1 : 0;
-          const displayStartDate = validStartDate ? format(validStartDate, 'MMM d, yyyy') : 'N/A';
+            const validStartDate = safeParse(trip.start_date);
+            const validEndDate = safeParse(trip.end_date);
+            
+            const days = (validStartDate && validEndDate) ? differenceInDays(validEndDate, validStartDate) + 1 : 0;
+            const displayStartDate = validStartDate ? format(validStartDate, 'MMM d, yyyy') : 'N/A';
 
-          const imageUrl = trip.cover_image_url && typeof trip.cover_image_url === 'string' && trip.cover_image_url.startsWith('http')
-            ? trip.cover_image_url
-            : 'https://picsum.photos/seed/default/400/300'; // Fallback image
-          
-          return (
-            <div
-              key={trip.id}
-              onClick={() => navigate(`/trip/${trip.id}`)}
-              className="group relative overflow-hidden rounded-3xl bg-zinc-900 border border-white/5 cursor-pointer hover:border-orange-500/50 transition-all duration-300 shadow-xl"
-            >
-              <div className="aspect-[4/3] w-full relative">
-                <img
-                  src={imageUrl}
-                  alt={trip.title}
-                  className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-700"
-                  referrerPolicy="no-referrer"
-                />
-                <div className="absolute inset-0 bg-gradient-to-t from-zinc-950 via-zinc-950/40 to-transparent"></div>
-              </div>
-              
-              <div className="absolute bottom-0 left-0 right-0 p-6">
-                <div className="flex items-center gap-2 text-orange-400 mb-2">
-                  <MapPin size={16} />
-                  <span className="text-xs font-semibold uppercase tracking-wider">{trip.timezone.split('/')[1]?.replace('_', ' ')}</span>
+            const imageUrl = trip.cover_image_url && typeof trip.cover_image_url === 'string' && trip.cover_image_url.startsWith('http')
+              ? trip.cover_image_url
+              : 'https://picsum.photos/seed/default/400/300'; // Fallback image
+            
+            const timezoneDisplay = (trip.timezone && typeof trip.timezone === 'string') 
+              ? (trip.timezone.split('/')[1]?.replace('_', ' ') || trip.timezone)
+              : 'Unknown';
+            
+            return (
+              <div
+                key={trip.id}
+                onClick={() => navigate(`/trip/${trip.id}`)}
+                className="group relative overflow-hidden rounded-3xl bg-zinc-900 border border-white/5 cursor-pointer hover:border-orange-500/50 transition-all duration-300 shadow-xl"
+              >
+                <div className="aspect-[4/3] w-full relative">
+                  <img
+                    src={imageUrl}
+                    alt={trip.title}
+                    className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-700"
+                    referrerPolicy="no-referrer"
+                  />
+                  <div className="absolute inset-0 bg-gradient-to-t from-zinc-950 via-zinc-950/40 to-transparent"></div>
                 </div>
-                <h3 className="text-2xl font-semibold text-white mb-2 leading-tight">{trip.title}</h3>
-                <div className="flex items-center gap-4 text-zinc-400 text-sm font-medium">
-                  <div className="flex items-center gap-1.5">
-                    <Calendar size={16} />
-                    <span>{displayStartDate}</span>
+                
+                <div className="absolute bottom-0 left-0 right-0 p-6">
+                  <div className="flex items-center gap-2 text-orange-400 mb-2">
+                    <MapPin size={16} />
+                    <span className="text-xs font-semibold uppercase tracking-wider">{timezoneDisplay}</span>
                   </div>
-                  <div className="flex items-center gap-1.5 px-2 py-1 bg-white/10 rounded-md text-white text-xs">
-                    <span>{days} Days</span>
+                  <h3 className="text-2xl font-semibold text-white mb-2 leading-tight">{trip.title}</h3>
+                  <div className="flex items-center gap-4 text-zinc-400 text-sm font-medium">
+                    <div className="flex items-center gap-1.5">
+                      <Calendar size={16} />
+                      <span>{displayStartDate}</span>
+                    </div>
+                    <div className="flex items-center gap-1.5 px-2 py-1 bg-white/10 rounded-md text-white text-xs">
+                      <span>{days} Days</span>
+                    </div>
                   </div>
                 </div>
               </div>
-            </div>
-          );
-        })}
+            );
+          })
+        ) : (
+          <div className="text-center py-20 text-zinc-500">
+            <p>No trips found.</p>
+          </div>
+        )}
       </div>
     </div>
   );

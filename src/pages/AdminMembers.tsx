@@ -2,21 +2,25 @@ import React, { useEffect, useState } from 'react';
 import { useAppStore } from '../store';
 import { Shield, User as UserIcon, Settings2 } from 'lucide-react';
 import { clsx } from 'clsx';
+import { getApiUrl } from '../utils/api';
 
 export function AdminMembers() {
   const [users, setUsers] = useState<any[]>([]);
   const { user } = useAppStore();
 
   useEffect(() => {
-    fetch('/api/users')
+    fetch(getApiUrl('/api/users'))
       .then(res => res.json())
-      .then(data => setUsers(data));
+      .then(data => {
+        if (Array.isArray(data)) setUsers(data);
+      })
+      .catch(err => console.error('Users fetch failed:', err));
   }, []);
 
   if (user?.role !== 'Admin') return <div className="p-8 text-center text-zinc-500">Access Denied</div>;
 
   return (
-    <div className="flex-1 overflow-y-auto p-4 space-y-6 pb-24 bg-zinc-950 min-h-screen">
+    <div className="flex-1 overflow-y-auto p-4 space-y-6 pb-24 bg-black min-h-screen">
       <div className="flex items-center justify-between mb-8">
         <h2 className="text-2xl font-semibold text-white tracking-tight">Members</h2>
         <button className="p-2 bg-zinc-900 rounded-full text-zinc-400 hover:text-white transition-colors">

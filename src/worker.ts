@@ -22,23 +22,77 @@ app.use('*', cors({
 
 // Auth
 app.post('/api/auth/login', async (c) => {
-  const { username, password } = await c.req.json();
-  // TODO: Verify password_hash from DB.Users
-  // TODO: Generate Session Token and store in KV
-  return c.json({ token: 'mock-token', user: { id: '1', role: 'Admin', name: 'Admin User' } });
+  try {
+    const { username, password } = await c.req.json();
+    // TODO: Verify password_hash from DB.Users
+    // TODO: Generate Session Token and store in KV
+    return c.json({ token: 'mock-token', user: { id: '1', role: 'Admin', name: 'Admin User' } });
+  } catch (e: any) {
+    return c.json({ error: e.message }, 500);
+  }
+});
+
+// Settings
+app.get('/api/settings', async (c) => {
+  try {
+    const { results } = await c.env.DB.prepare('SELECT * FROM AppSettings').all();
+    return c.json(results);
+  } catch (e: any) {
+    return c.json({ error: e.message }, 500);
+  }
+});
+
+// Users
+app.get('/api/users', async (c) => {
+  try {
+    const { results } = await c.env.DB.prepare('SELECT * FROM Users').all();
+    return c.json(results);
+  } catch (e: any) {
+    return c.json({ error: e.message }, 500);
+  }
 });
 
 // Trips
 app.get('/api/trips', async (c) => {
-  const { results } = await c.env.DB.prepare('SELECT * FROM Trips WHERE visible_status = 1').all();
-  return c.json(results);
+  try {
+    const { results } = await c.env.DB.prepare('SELECT * FROM Trips WHERE visible_status = 1').all();
+    return c.json(results);
+  } catch (e: any) {
+    return c.json({ error: e.message }, 500);
+  }
+});
+
+app.get('/api/trips/:tripId', async (c) => {
+  try {
+    const tripId = c.req.param('tripId');
+    const trip = await c.env.DB.prepare('SELECT * FROM Trips WHERE id = ?').bind(tripId).first();
+    if (!trip) return c.json({ error: 'Trip not found' }, 404);
+    return c.json(trip);
+  } catch (e: any) {
+    return c.json({ error: e.message }, 500);
+  }
 });
 
 // Itineraries
 app.get('/api/trips/:tripId/itineraries', async (c) => {
-  const tripId = c.req.param('tripId');
-  const { results } = await c.env.DB.prepare('SELECT * FROM Itineraries WHERE trip_id = ? ORDER BY date, start_time').bind(tripId).all();
-  return c.json(results);
+  try {
+    const tripId = c.req.param('tripId');
+    const { results } = await c.env.DB.prepare('SELECT * FROM Itineraries WHERE trip_id = ? ORDER BY date, start_time').bind(tripId).all();
+    return c.json(results);
+  } catch (e: any) {
+    return c.json({ error: e.message }, 500);
+  }
+});
+
+// Expenses
+app.get('/api/trips/:tripId/expenses', async (c) => {
+  try {
+    const tripId = c.req.param('tripId');
+    const { results } = await c.env.DB.prepare('SELECT * FROM Expenses WHERE trip_id = ? ORDER BY date').bind(tripId).all();
+    return c.json(results);
+  } catch (e: any) {
+    return c.json({ error: e.message }, 500);
+  }
 });
 
 // --- Static Assets Fallback ---

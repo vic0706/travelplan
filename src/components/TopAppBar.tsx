@@ -5,6 +5,8 @@ import { LogOut, LogIn, ChevronLeft } from 'lucide-react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { AppSetting } from '../types';
 
+import { getApiUrl } from '../utils/api';
+
 export function TopAppBar() {
   const [bgUrl, setBgUrl] = useState('');
   const [showLogin, setShowLogin] = useState(false);
@@ -13,12 +15,15 @@ export function TopAppBar() {
   const location = useLocation();
 
   useEffect(() => {
-    fetch(`${import.meta.env.VITE_WORKER_API_URL}/api/settings`)
+    fetch(getApiUrl('/api/settings'))
       .then(res => res.json())
-      .then((data: AppSetting[]) => {
-        const bgSetting = data.find(s => s.key_name === 'top_bar_bg');
-        if (bgSetting) setBgUrl(bgSetting.value);
-      });
+      .then((data) => {
+        if (Array.isArray(data)) {
+          const bgSetting = data.find((s: any) => s.key_name === 'top_bar_bg');
+          if (bgSetting) setBgUrl(bgSetting.value);
+        }
+      })
+      .catch(err => console.error('Settings fetch failed:', err));
   }, []);
 
   const isHome = location.pathname === '/';

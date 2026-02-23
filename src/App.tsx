@@ -9,7 +9,7 @@ import { AdminMembers } from './pages/AdminMembers';
 export default function App() {
   return (
     <Router>
-      <div className="flex flex-col h-[100dvh] w-screen bg-zinc-950 text-zinc-100 font-sans overflow-hidden selection:bg-orange-500/30">
+      <div className="flex flex-col h-[100dvh] w-screen bg-black text-zinc-100 font-sans overflow-hidden selection:bg-orange-500/30">
         <TopAppBar />
         <main className="flex-1 overflow-y-auto relative z-10">
           <Routes>
