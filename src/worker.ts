@@ -118,7 +118,18 @@ app.get('/api/trips/:tripId/expenses', async (c) => {
 // --- Static Assets Fallback ---
 // Any request that doesn't match the /api routes will be served from the static assets
 app.get('*', async (c) => {
-  return c.env.ASSETS.fetch(c.req.raw);
+  try {
+    const response = await c.env.ASSETS.fetch(c.req.raw);
+    if (response.status === 404) {
+      // SPA Fallback: serve index.html
+      const indexResponse = await c.env.ASSETS.fetch(new URL('/index.html', c.req.url));
+      return indexResponse;
+    }
+    return response;
+  } catch (e: any) {
+    // Fallback if ASSETS binding is missing or fails
+    return c.text('Static assets error: ' + e.message, 500);
+  }
 });
 
 // --- Cron Job (Scheduled Task) ---

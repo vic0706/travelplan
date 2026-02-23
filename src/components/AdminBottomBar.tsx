@@ -10,7 +10,7 @@ export function AdminBottomBar() {
   const location = useLocation();
 
   if (user?.role !== 'Admin') return null;
-  if (!location.pathname.startsWith('/admin')) return null;
+  // if (!location.pathname.startsWith('/admin')) return null;
 
   const isActive = (path: string) => location.pathname === path;
 
