@@ -6,7 +6,6 @@ import {defineConfig, loadEnv} from 'vite';
 
 export default defineConfig(({mode}) => {
   const env = loadEnv(mode, process.cwd(), '');
-  console.log('Vite config process.env.VITE_WORKER_URL:', process.env.VITE_WORKER_URL);
   return {
     plugins: [
       react(),
@@ -52,10 +51,6 @@ export default defineConfig(({mode}) => {
         }
       })
     ],
-    define: {
-      // Vite automatically exposes VITE_ prefixed variables to import.meta.env
-      // process.env.GEMINI_API_KEY is handled by the platform or should be VITE_ prefixed if from .env
-    },
     resolve: {
       alias: {
         '@': path.resolve(__dirname, '.'),

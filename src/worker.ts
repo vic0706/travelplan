@@ -69,9 +69,6 @@ app.get('/api/users/login-list', async (c) => {
 });
 
 // 3. Login API: Authenticate using username and password
-app.get('/api/auth/login', (c) => {
-  return c.json({ message: 'Login endpoint is active. Please use POST to authenticate.' });
-});
 
 app.post('/api/auth/login', async (c) => {
   try {
@@ -80,31 +77,41 @@ app.post('/api/auth/login', async (c) => {
       return c.json({ error: 'Missing username or password' }, 400);
     }
 
-    console.log('Login attempt for username:', username);
+    console.log('--- Login Debug Start ---');
+    console.log('Received username:', username);
 
-    const { results } = await c.env.DB.prepare('SELECT * FROM Users WHERE name = ?').bind(username).all();
+    const { results } = await c.env.DB.prepare('SELECT * FROM Users WHERE name = ? COLLATE NOCASE').bind(username).all();
     const user = results[0] as any;
 
-    console.log('DB query results:', results);
+    console.log('DB query results:', JSON.stringify(results));
 
     if (!user) {
       console.log('User not found in DB for username:', username);
+      console.log('--- Login Debug End ---');
       return c.json({ error: 'User not found' }, 404);
     }
 
-    console.log('User found in DB:', user.name);
+    console.log('User found in DB (name, role, password_hash):', user.name, user.role, user.password_hash);
 
     const salt = c.env.PASSWORD_SALT || 'default_salt';
     const passwordHash = await generateHash(password, salt);
+    console.log('Generated password hash:', passwordHash);
+    console.log('Stored password hash:', user.password_hash);
 
     if (passwordHash !== user.password_hash) {
+      console.log('Invalid credentials: password hash mismatch.');
+      console.log('--- Login Debug End ---');
       return c.json({ error: 'Invalid credentials' }, 401);
     }
 
     // Remove password_hash before sending
     const { password_hash, ...safeUser } = user;
+    console.log('Login successful for user:', safeUser.name);
+    console.log('--- Login Debug End ---');
     return c.json({ user: safeUser });
   } catch (error: any) {
+    console.error('Login API error:', error.message);
+    console.log('--- Login Debug End ---');
     return c.json({ error: error.message }, 500);
   }
 });
