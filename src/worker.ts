@@ -7,6 +7,7 @@ import manifestJSON from '__STATIC_CONTENT_MANIFEST';
 
 export interface Env {
   DB: D1Database;
+  KV: KVNamespace;
   PASSWORD_SALT: string;
   __STATIC_CONTENT: any;
   __STATIC_CONTENT_MANIFEST: string;
@@ -81,7 +82,7 @@ app.get('/api/users', async (c) => {
 // 2.1.1 Create User API (Admin only)
 app.post('/api/users', async (c) => {
   try {
-    const { name, password, role } = await c.req.json();
+    const { name, password, role, allow_login } = await c.req.json();
     
     // Basic validation
     if (!name || !password) {
@@ -97,8 +98,8 @@ app.post('/api/users', async (c) => {
 
     await c.env.DB.prepare(`
       INSERT INTO Users (id, name, password_hash, role, avatar_url, allow_login, created_at, updated_at)
-      VALUES (?, ?, ?, ?, ?, 1, ?, ?)
-    `).bind(id, name, passwordHash, role || 'Member', avatar_url, Date.now(), Date.now()).run();
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    `).bind(id, name, passwordHash, role || 'Member', avatar_url, allow_login !== undefined ? allow_login : 1, Date.now(), Date.now()).run();
 
     return c.json({ id, name, role, avatar_url });
   } catch (error: any) {
@@ -137,16 +138,29 @@ app.post('/api/auth/login', async (c) => {
       return c.json({ error: 'User not found' }, 404);
     }
 
-    const salt = c.env.PASSWORD_SALT || 'default_salt';
+    const salt = c.env.PASSWORD_SALT;
     const passwordHash = await generateHash(password, salt);
+    
+    console.log("環境變數的 SALT:", c.env.PASSWORD_SALT);
+    console.log("DB裡的 Hash:", user.password_hash);
+    console.log("系統算出的 Hash:", passwordHash);    
 
     if (passwordHash !== user.password_hash) {
       return c.json({ error: 'Invalid credentials' }, 401);
     }
 
+    const token = crypto.randomUUID();
+    try {
+      // Store token in KV, expiring in 7 days
+      await c.env.KV.put(`token:${token}`, JSON.stringify(user), { expirationTtl: 60 * 60 * 24 * 7 });
+    } catch (e) {
+      console.error('Failed to save token to KV:', e);
+      // Continue even if KV fails, though auth might fail later if we check KV
+    }
+
     // Remove password_hash before sending
     const { password_hash, ...safeUser } = user;
-    return c.json({ user: safeUser });
+    return c.json({ user: safeUser, token });
   } catch (error: any) {
     return c.json({ error: error.message }, 500);
   }
@@ -176,9 +190,42 @@ app.post('/api/trips', async (c) => {
     await c.env.DB.prepare(`
       INSERT INTO Trips (id, title, start_date, end_date, timezone, cover_image_url, visible_status, created_at, updated_at)
       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `).bind(id, title, start_date, end_date, timezone, cover_image_url, visible_status, Date.now(), Date.now()).run();
+    `).bind(id, title, start_date, end_date, timezone, cover_image_url, visible_status || 1, Date.now(), Date.now()).run();
 
     return c.json({ id, title, start_date, end_date, timezone, cover_image_url, visible_status });
+  } catch (error: any) {
+    return c.json({ error: error.message }, 500);
+  }
+});
+
+// 4.2 Get Trip Members
+app.get('/api/trips/:id/members', async (c) => {
+  const tripId = c.req.param('id');
+  try {
+    const { results } = await c.env.DB.prepare(`
+      SELECT u.id, u.name, u.avatar_url, u.role
+      FROM TripMembers tm
+      JOIN Users u ON tm.user_id = u.id
+      WHERE tm.trip_id = ?
+    `).bind(tripId).all();
+    return c.json(results);
+  } catch (error: any) {
+    return c.json({ error: error.message }, 500);
+  }
+});
+
+// 4.3 Add Trip Members
+app.post('/api/trips/:id/members', async (c) => {
+  const tripId = c.req.param('id');
+  try {
+    const { userIds } = await c.req.json();
+    if (!Array.isArray(userIds)) return c.json({ error: 'userIds must be an array' }, 400);
+
+    const stmt = c.env.DB.prepare('INSERT INTO TripMembers (trip_id, user_id, role) VALUES (?, ?, ?)');
+    const batch = userIds.map((userId: number) => stmt.bind(tripId, userId, 'Member'));
+    await c.env.DB.batch(batch);
+
+    return c.json({ success: true });
   } catch (error: any) {
     return c.json({ error: error.message }, 500);
   }
@@ -234,11 +281,75 @@ app.get('/api/trips/:id/expenses', async (c) => {
   }
 });
 
+// 7.1 Add Expense API
+app.post('/api/trips/:id/expenses', async (c) => {
+  const tripId = c.req.param('id');
+  try {
+    const { item_name, amount, currency, date, payer_id, split_members, notes } = await c.req.json();
+    const id = crypto.randomUUID();
+
+    await c.env.DB.prepare(`
+      INSERT INTO Expenses (id, trip_id, item_name, amount, currency, date, payer_id, split_members, notes, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).bind(
+      id, tripId, item_name, amount, currency, date, payer_id, 
+      JSON.stringify(split_members), notes, Date.now(), Date.now()
+    ).run();
+
+    return c.json({ success: true, id });
+  } catch (error: any) {
+    return c.json({ error: error.message }, 500);
+  }
+});
+
 // 8. Settings API
 app.get('/api/settings', async (c) => {
   try {
-    const { results } = await c.env.DB.prepare('SELECT * FROM App_Settings').all();
-    return c.json(results);
+    const { results } = await c.env.DB.prepare('SELECT * FROM Settings').all();
+    const settings = results.reduce((acc: any, curr: any) => {
+      acc[curr.key] = curr.value;
+      return acc;
+    }, {});
+    return c.json(settings);
+  } catch (error: any) {
+    return c.json({ error: error.message }, 500);
+  }
+});
+
+// 8.1 Update Settings API
+app.put('/api/settings', async (c) => {
+  try {
+    const settings = await c.req.json();
+    const stmt = c.env.DB.prepare('INSERT OR REPLACE INTO Settings (key, value, updated_at) VALUES (?, ?, ?)');
+    const batch = Object.entries(settings).map(([key, value]) => stmt.bind(key, value, Date.now()));
+    await c.env.DB.batch(batch);
+    return c.json({ success: true });
+  } catch (error: any) {
+    return c.json({ error: error.message }, 500);
+  }
+});
+
+// 9. Update User API
+app.put('/api/users/:id', async (c) => {
+  const id = c.req.param('id');
+  try {
+    const { name, role, allow_login, password } = await c.req.json();
+    
+    let query = 'UPDATE Users SET name = ?, role = ?, allow_login = ?, updated_at = ?';
+    const params: any[] = [name, role, allow_login, Date.now()];
+
+    if (password) {
+      const salt = c.env.PASSWORD_SALT || 'default_salt';
+      const passwordHash = await generateHash(password, salt);
+      query += ', password_hash = ?';
+      params.push(passwordHash);
+    }
+
+    query += ' WHERE id = ?';
+    params.push(id);
+
+    await c.env.DB.prepare(query).bind(...params).run();
+    return c.json({ success: true });
   } catch (error: any) {
     return c.json({ error: error.message }, 500);
   }

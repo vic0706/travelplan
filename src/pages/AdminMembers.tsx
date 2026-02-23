@@ -1,59 +1,67 @@
 import React, { useEffect, useState } from 'react';
 import { useAppStore } from '../store';
-import { Shield, User as UserIcon, Plus, X, Loader2 } from 'lucide-react';
+import { Shield, User as UserIcon, Plus, X, Loader2, Edit2 } from 'lucide-react';
 import { clsx } from 'clsx';
-import { getApiUrl } from '../utils/api';
+import { apiFetch } from '../utils/api';
 import { motion, AnimatePresence } from 'framer-motion';
 
 export function AdminMembers() {
   const [users, setUsers] = useState<any[]>([]);
   const { user } = useAppStore();
-  const [isAddModalOpen, setIsAddModalOpen] = useState(false);
-  const [newMember, setNewMember] = useState({ name: '', password: '', role: 'Member' });
+  const [isModalOpen, setIsModalOpen] = useState(false);
+  const [editingUser, setEditingUser] = useState<any>(null);
+  const [formData, setFormData] = useState({ name: '', password: '', role: 'Member', allow_login: 1 });
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
 
-  const fetchUsers = () => {
-    fetch(getApiUrl('/api/users'))
-      .then(async res => {
-        if (!res.ok) throw new Error(`HTTP error! status: ${res.status}`);
-        const text = await res.text();
-        try {
-          return JSON.parse(text);
-        } catch (e) {
-          console.error('API returned non-JSON:', text.substring(0, 100));
-          throw new Error('API returned non-JSON response (likely HTML)');
-        }
-      })
-      .then(data => {
-        if (Array.isArray(data)) setUsers(data);
-      })
-      .catch(err => console.error('Users fetch failed:', err));
+  const fetchUsers = async () => {
+    try {
+      const res = await apiFetch('/api/users');
+      if (res.ok) {
+        const data = await res.json() as any[];
+        setUsers(data);
+      }
+    } catch (err) {
+      console.error('Users fetch failed:', err);
+    }
   };
 
   useEffect(() => {
     fetchUsers();
   }, []);
 
-  const handleAddMember = async (e: React.FormEvent) => {
+  const openAddModal = () => {
+    setEditingUser(null);
+    setFormData({ name: '', password: '', role: 'Member', allow_login: 1 });
+    setIsModalOpen(true);
+  };
+
+  const openEditModal = (u: any) => {
+    setEditingUser(u);
+    setFormData({ name: u.name, password: '', role: u.role, allow_login: u.allow_login });
+    setIsModalOpen(true);
+  };
+
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoading(true);
     setError('');
 
     try {
-      const res = await fetch(getApiUrl('/api/users'), {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(newMember)
+      const url = editingUser ? `/api/users/${editingUser.id}` : '/api/users';
+      const method = editingUser ? 'PUT' : 'POST';
+      
+      const res = await apiFetch(url, {
+        method,
+        body: JSON.stringify(formData)
       });
 
       if (!res.ok) {
         const data = await res.json() as { error?: string };
-        throw new Error(data.error || 'Failed to create user');
+        throw new Error(data.error || 'Operation failed');
       }
 
-      setIsAddModalOpen(false);
-      setNewMember({ name: '', password: '', role: 'Member' });
+      setIsModalOpen(false);
       fetchUsers();
     } catch (err: any) {
       setError(err.message);
@@ -69,7 +77,7 @@ export function AdminMembers() {
       <div className="flex items-center justify-between mb-8">
         <h2 className="text-2xl font-semibold text-white tracking-tight">Members</h2>
         <button 
-          onClick={() => setIsAddModalOpen(true)}
+          onClick={openAddModal}
           className="flex items-center gap-2 px-4 py-2 bg-orange-500 text-white text-xs font-bold uppercase tracking-wider rounded-full hover:bg-orange-600 transition-all shadow-lg shadow-orange-500/20"
         >
           <Plus size={16} />
@@ -82,12 +90,12 @@ export function AdminMembers() {
           <div
             key={u.id}
             className={clsx(
-              "bg-zinc-900 border border-zinc-800 rounded-3xl p-5 flex items-center justify-between transition-all",
+              "bg-zinc-900 border border-zinc-800 rounded-3xl p-5 flex items-center justify-between transition-all hover:border-zinc-700",
               !u.allow_login && "opacity-50 grayscale"
             )}
           >
             <div className="flex items-center gap-4">
-              <div className="w-12 h-12 rounded-full bg-zinc-800 flex items-center justify-center shrink-0 overflow-hidden">
+              <div className="w-12 h-12 rounded-full bg-zinc-800 flex items-center justify-center shrink-0 overflow-hidden border border-zinc-700">
                 {u.avatar_url ? (
                   <img src={u.avatar_url} alt={u.name} className="w-full h-full object-cover" />
                 ) : (
@@ -99,26 +107,30 @@ export function AdminMembers() {
                 <div className="flex items-center gap-2 mt-1">
                   <Shield size={12} className={u.role === 'Admin' ? 'text-orange-500' : 'text-zinc-500'} />
                   <span className="text-[10px] uppercase tracking-wider text-zinc-500 font-semibold">{u.role}</span>
+                  {!u.allow_login && <span className="text-[10px] text-red-500 font-bold uppercase ml-2">Disabled</span>}
                 </div>
               </div>
             </div>
             
-            <button className="px-4 py-2 bg-zinc-800 hover:bg-zinc-700 text-white text-xs font-medium uppercase tracking-wider rounded-full transition-colors">
-              Edit
+            <button 
+              onClick={() => openEditModal(u)}
+              className="p-3 bg-zinc-800 hover:bg-zinc-700 text-zinc-400 hover:text-white rounded-full transition-colors"
+            >
+              <Edit2 size={16} />
             </button>
           </div>
         ))}
       </div>
 
-      {/* Add Member Modal */}
+      {/* Member Modal */}
       <AnimatePresence>
-        {isAddModalOpen && (
+        {isModalOpen && (
           <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
             <motion.div
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
               exit={{ opacity: 0 }}
-              onClick={() => setIsAddModalOpen(false)}
+              onClick={() => setIsModalOpen(false)}
               className="absolute inset-0 bg-black/80 backdrop-blur-sm"
             />
             <motion.div
@@ -128,16 +140,16 @@ export function AdminMembers() {
               className="relative w-full max-w-md bg-zinc-900 border border-zinc-800 rounded-3xl shadow-2xl overflow-hidden"
             >
               <div className="p-6 border-b border-zinc-800 flex items-center justify-between bg-zinc-900/50">
-                <h2 className="text-xl font-bold text-white">Add New Member</h2>
+                <h2 className="text-xl font-bold text-white">{editingUser ? 'Edit Member' : 'Add New Member'}</h2>
                 <button
-                  onClick={() => setIsAddModalOpen(false)}
+                  onClick={() => setIsModalOpen(false)}
                   className="p-2 hover:bg-zinc-800 rounded-full transition-colors text-zinc-400 hover:text-white"
                 >
                   <X size={20} />
                 </button>
               </div>
 
-              <form onSubmit={handleAddMember} className="p-6 space-y-4">
+              <form onSubmit={handleSubmit} className="p-6 space-y-4">
                 {error && (
                   <div className="p-3 bg-red-500/10 border border-red-500/20 rounded-xl text-red-400 text-sm">
                     {error}
@@ -149,36 +161,51 @@ export function AdminMembers() {
                   <input
                     type="text"
                     required
-                    value={newMember.name}
-                    onChange={e => setNewMember({ ...newMember, name: e.target.value })}
+                    value={formData.name}
+                    onChange={e => setFormData({ ...formData, name: e.target.value })}
                     className="w-full bg-zinc-800 border border-zinc-700 rounded-xl px-4 py-3 text-white focus:outline-none focus:ring-2 focus:ring-orange-500"
                     placeholder="John Doe"
                   />
                 </div>
 
                 <div>
-                  <label className="block text-sm font-medium text-zinc-400 mb-1">Password</label>
+                  <label className="block text-sm font-medium text-zinc-400 mb-1">
+                    {editingUser ? 'New Password (leave blank to keep current)' : 'Password'}
+                  </label>
                   <input
                     type="password"
-                    required
-                    value={newMember.password}
-                    onChange={e => setNewMember({ ...newMember, password: e.target.value })}
+                    required={!editingUser}
+                    value={formData.password}
+                    onChange={e => setFormData({ ...formData, password: e.target.value })}
                     className="w-full bg-zinc-800 border border-zinc-700 rounded-xl px-4 py-3 text-white focus:outline-none focus:ring-2 focus:ring-orange-500"
                     placeholder="••••••••"
                   />
                 </div>
 
-                <div>
-                  <label className="block text-sm font-medium text-zinc-400 mb-1">Role</label>
-                  <select
-                    value={newMember.role}
-                    onChange={e => setNewMember({ ...newMember, role: e.target.value })}
-                    className="w-full bg-zinc-800 border border-zinc-700 rounded-xl px-4 py-3 text-white focus:outline-none focus:ring-2 focus:ring-orange-500"
-                  >
-                    <option value="Member">Member</option>
-                    <option value="Admin">Admin</option>
-                    <option value="Guest">Guest</option>
-                  </select>
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-sm font-medium text-zinc-400 mb-1">Role</label>
+                    <select
+                      value={formData.role}
+                      onChange={e => setFormData({ ...formData, role: e.target.value })}
+                      className="w-full bg-zinc-800 border border-zinc-700 rounded-xl px-4 py-3 text-white focus:outline-none focus:ring-2 focus:ring-orange-500"
+                    >
+                      <option value="Member">Member</option>
+                      <option value="Admin">Admin</option>
+                      <option value="Guest">Guest</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-zinc-400 mb-1">Status</label>
+                    <select
+                      value={formData.allow_login}
+                      onChange={e => setFormData({ ...formData, allow_login: Number(e.target.value) })}
+                      className="w-full bg-zinc-800 border border-zinc-700 rounded-xl px-4 py-3 text-white focus:outline-none focus:ring-2 focus:ring-orange-500"
+                    >
+                      <option value={1}>Active</option>
+                      <option value={0}>Disabled</option>
+                    </select>
+                  </div>
                 </div>
 
                 <button
@@ -186,7 +213,7 @@ export function AdminMembers() {
                   disabled={loading}
                   className="w-full bg-orange-500 hover:bg-orange-600 disabled:opacity-50 disabled:cursor-not-allowed text-white font-bold rounded-xl px-4 py-3 transition-all shadow-lg shadow-orange-500/20 active:scale-95 mt-2"
                 >
-                  {loading ? 'Creating...' : 'Create Member'}
+                  {loading ? 'Saving...' : (editingUser ? 'Update Member' : 'Create Member')}
                 </button>
               </form>
             </motion.div>

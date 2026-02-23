@@ -2,12 +2,15 @@ import React, { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useAppStore } from '../store';
 import { format, parseISO, addDays, differenceInDays, isSameDay, isPast } from 'date-fns';
-import { MapPin, Clock, Plus, Navigation, DollarSign, Plane, Bed, Map, Info, Wallet, ArrowLeft, Calendar } from 'lucide-react';
+import { MapPin, Clock, Plus, Navigation, DollarSign, Plane, Bed, Map, Info, Wallet, ArrowLeft, Calendar, X } from 'lucide-react';
+import { Trip, Itinerary, Expense, User } from '../types';
 import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip } from 'recharts';
 import { clsx } from 'clsx';
 import { db } from '../db';
 import { useLiveQuery } from 'dexie-react-hooks';
-import { getApiUrl } from '../utils/api';
+import { getApiUrl, apiFetch } from '../utils/api';
+import { FinanceForm } from '../components/FinanceForm';
+import { motion, AnimatePresence } from 'framer-motion';
 
 export function TripDetails() {
   const { id } = useParams();
@@ -18,10 +21,12 @@ export function TripDetails() {
   const trip = useLiveQuery(() => db.trips.get(id || ''), [id]);
   const itineraries = useLiveQuery(() => db.itineraries.where('trip_id').equals(id || '').toArray(), [id]) || [];
   const expenses = useLiveQuery(() => db.expenses.where('trip_id').equals(id || '').toArray(), [id]) || [];
+  const members = useLiveQuery(() => db.tripMembers.where('trip_id').equals(id || '').toArray(), [id]) || [];
 
   const [activeTab, setActiveTab] = useState<'itinerary' | 'info' | 'finance'>('itinerary');
   const [selectedDate, setSelectedDate] = useState<Date>(new Date());
   const [isLoading, setIsLoading] = useState(false);
+  const [isFinanceFormOpen, setIsFinanceFormOpen] = useState(false);
 
   const safeParse = (dateStr: any) => {
     if (!dateStr || typeof dateStr !== 'string') return null;
@@ -41,15 +46,9 @@ export function TripDetails() {
       setIsLoading(true);
       try {
         // Fetch Trip Basic Info first
-        const tripRes = await fetch(getApiUrl(`/api/trips/${id}`));
+        const tripRes = await apiFetch(`/api/trips/${id}`);
         if (!tripRes.ok) throw new Error('Trip fetch failed');
-        const tripText = await tripRes.text();
-        let tripData;
-        try {
-          tripData = JSON.parse(tripText);
-        } catch (e) {
-          throw new Error('Trip API returned non-JSON response (likely HTML)');
-        }
+        const tripData = await tripRes.json() as Trip;
         
         const tripEndDate = safeParse(tripData.end_date);
         const isPastTrip = tripEndDate && isPast(tripEndDate) && !isSameDay(tripEndDate, new Date());
@@ -62,32 +61,43 @@ export function TripDetails() {
           is_fully_synced: shouldDeepCache
         });
 
-        const [itinerariesRes, expensesRes] = await Promise.all([
-          fetch(getApiUrl(`/api/trips/${id}/itineraries`)),
-          fetch(getApiUrl(`/api/trips/${id}/expenses`))
+        const [itinerariesRes, expensesRes, membersRes] = await Promise.all([
+          apiFetch(`/api/trips/${id}/itineraries`),
+          apiFetch(`/api/trips/${id}/expenses`),
+          apiFetch(`/api/trips/${id}/members`)
         ]);
 
         if (itinerariesRes.ok) {
-          const text = await itinerariesRes.text();
-          try {
-            const itinerariesData = JSON.parse(text);
-            if (Array.isArray(itinerariesData)) {
-              await db.itineraries.bulkPut(itinerariesData);
-            }
-          } catch (e) {
-            console.error('Itineraries API returned non-JSON response');
+          const itinerariesData = await itinerariesRes.json() as Itinerary[];
+          if (Array.isArray(itinerariesData)) {
+            await db.itineraries.bulkPut(itinerariesData);
           }
         }
 
         if (expensesRes.ok) {
-          const text = await expensesRes.text();
-          try {
-            const expensesData = JSON.parse(text);
-            if (Array.isArray(expensesData)) {
-              await db.expenses.bulkPut(expensesData);
-            }
-          } catch (e) {
-            console.error('Expenses API returned non-JSON response');
+          const expensesData = await expensesRes.json() as Expense[];
+          if (Array.isArray(expensesData)) {
+            await db.expenses.bulkPut(expensesData);
+          }
+        }
+
+        if (membersRes.ok) {
+          const membersData = await membersRes.json() as User[];
+          if (Array.isArray(membersData)) {
+            // Update users table
+            await db.users.bulkPut(membersData.map((m) => ({
+              id: m.id,
+              name: m.name,
+              role: m.role,
+              avatar_url: m.avatar_url || '',
+              allow_login: 1 // Assuming they are active
+            })));
+
+            // Update tripMembers relation
+            await db.tripMembers.bulkPut(membersData.map((m) => ({
+              trip_id: id || '',
+              user_id: m.id,
+            })));
           }
         }
 
@@ -149,6 +159,20 @@ export function TripDetails() {
   }, [] as { name: string, value: number }[]);
 
   const COLORS = ['#f97316', '#fb923c', '#fdba74', '#ffedd5'];
+
+  // Better approach for user names:
+  // We can fetch all users involved in this trip.
+  const tripUsers = useLiveQuery(async () => {
+    if (!id) return [];
+    const members = await db.tripMembers.where('trip_id').equals(id).toArray();
+    const userIds = members.map(m => m.user_id);
+    return db.users.where('id').anyOf(userIds).toArray();
+  }, [id]);
+
+  const getUserNameById = (userId: string) => {
+    const u = tripUsers?.find(u => u.id === userId);
+    return u ? u.name : `User ${userId}`;
+  };
 
   return (
     <div className="flex flex-col min-h-screen bg-black pb-24">
@@ -371,7 +395,7 @@ export function TripDetails() {
                     </div>
                     <div>
                       <h4 className="text-white font-medium">{expense.item_name}</h4>
-                      <p className="text-xs text-zinc-500 mt-1 uppercase tracking-wider">Paid by {expense.payer_id}</p>
+                      <p className="text-xs text-zinc-500 mt-1 uppercase tracking-wider">Paid by {getUserNameById(expense.payer_id)}</p>
                     </div>
                   </div>
                   <div className="text-right">
@@ -387,7 +411,10 @@ export function TripDetails() {
             )}
 
             {user?.role !== 'Guest' && (
-              <button className="w-full mt-6 py-4 border-2 border-dashed border-zinc-800 rounded-3xl flex items-center justify-center gap-2 text-zinc-500 hover:text-orange-500 hover:border-orange-500/50 hover:bg-orange-500/5 transition-all">
+              <button 
+                onClick={() => setIsFinanceFormOpen(true)}
+                className="w-full mt-6 py-4 border-2 border-dashed border-zinc-800 rounded-3xl flex items-center justify-center gap-2 text-zinc-500 hover:text-orange-500 hover:border-orange-500/50 hover:bg-orange-500/5 transition-all"
+              >
                 <Plus size={20} />
                 <span className="font-medium">Add Expense</span>
               </button>
@@ -429,6 +456,39 @@ export function TripDetails() {
           <span className="text-[10px] font-medium uppercase tracking-wider">Finance</span>
         </button>
       </div>
+
+      {/* Finance Form Modal */}
+      <AnimatePresence>
+        {isFinanceFormOpen && id && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              onClick={() => setIsFinanceFormOpen(false)}
+              className="absolute inset-0 bg-black/80 backdrop-blur-sm"
+            />
+            <motion.div
+              initial={{ scale: 0.95, opacity: 0, y: 20 }}
+              animate={{ scale: 1, opacity: 1, y: 0 }}
+              exit={{ scale: 0.95, opacity: 0, y: 20 }}
+              className="relative w-full max-w-md z-10"
+            >
+              <FinanceForm 
+                tripId={id} 
+                onSuccess={() => {
+                  setIsFinanceFormOpen(false);
+                  // Refresh expenses
+                  apiFetch(`/api/trips/${id}/expenses`)
+                    .then(res => res.json() as Promise<Expense[]>)
+                    .then(data => db.expenses.bulkPut(data));
+                }} 
+                onCancel={() => setIsFinanceFormOpen(false)} 
+              />
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
     </div>
   );
 }

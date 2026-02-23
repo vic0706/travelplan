@@ -1,8 +1,8 @@
-import React, { useState } from 'react';
-import { useAppStore } from '../store';
-import { X, Calendar, Upload, Loader2 } from 'lucide-react';
+import React, { useState, useEffect } from 'react';
+import { useAppStore, User } from '../store';
+import { X, Calendar, Upload, Loader2, User as UserIcon, Check } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { getApiUrl } from '../utils/api';
+import { apiFetch } from '../utils/api';
 import { createClient } from '@supabase/supabase-js';
 
 // Initialize Supabase client
@@ -15,17 +15,34 @@ export function CreateTripModal() {
   const [loading, setLoading] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [error, setError] = useState('');
+  const [users, setUsers] = useState<User[]>([]);
+  const [selectedMembers, setSelectedMembers] = useState<string[]>([]);
 
   const [formData, setFormData] = useState({
     title: '',
     start_date: '',
     end_date: '',
-    // Timezone will be auto-detected or defaulted by the backend/client logic later if needed.
-    // For now, we just send the browser's timezone or let backend handle it.
     timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
     cover_image_url: '',
     visible_status: 1
   });
+
+  useEffect(() => {
+    if (isCreateTripModalOpen) {
+      const fetchUsers = async () => {
+        try {
+          const res = await apiFetch('/api/users');
+          if (res.ok) {
+            const data = await res.json() as User[];
+            setUsers(data);
+          }
+        } catch (err) {
+          console.error('Failed to fetch users', err);
+        }
+      };
+      fetchUsers();
+    }
+  }, [isCreateTripModalOpen]);
 
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     if (!e.target.files || e.target.files.length === 0) return;
@@ -45,7 +62,7 @@ export function CreateTripModal() {
 
     try {
       const { error: uploadError } = await supabase.storage
-        .from('trip-covers') // Assuming bucket name is 'trip-covers'
+        .from('trip-covers')
         .upload(filePath, file);
 
       if (uploadError) throw uploadError;
@@ -60,21 +77,37 @@ export function CreateTripModal() {
     }
   };
 
+  const toggleMember = (userId: string) => {
+    setSelectedMembers(prev => 
+      prev.includes(userId) ? prev.filter(id => id !== userId) : [...prev, userId]
+    );
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoading(true);
     setError('');
 
     try {
-      const res = await fetch(getApiUrl('/api/trips'), {
+      // 1. Create Trip
+      const res = await apiFetch('/api/trips', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(formData)
       });
 
       if (!res.ok) {
         const data = await res.json() as { error?: string };
         throw new Error(data.error || 'Failed to create trip');
+      }
+
+      const trip = await res.json() as { id: string };
+
+      // 2. Add Members
+      if (selectedMembers.length > 0) {
+        await apiFetch(`/api/trips/${trip.id}/members`, {
+          method: 'POST',
+          body: JSON.stringify({ userIds: selectedMembers })
+        });
       }
 
       setCreateTripModalOpen(false);
@@ -102,9 +135,9 @@ export function CreateTripModal() {
           initial={{ scale: 0.95, opacity: 0, y: 20 }}
           animate={{ scale: 1, opacity: 1, y: 0 }}
           exit={{ scale: 0.95, opacity: 0, y: 20 }}
-          className="relative w-full max-w-md bg-zinc-900 border border-zinc-800 rounded-3xl shadow-2xl overflow-hidden"
+          className="relative w-full max-w-md bg-zinc-900 border border-zinc-800 rounded-3xl shadow-2xl overflow-hidden max-h-[90vh] overflow-y-auto"
         >
-          <div className="p-6 border-b border-zinc-800 flex items-center justify-between bg-zinc-900/50">
+          <div className="p-6 border-b border-zinc-800 flex items-center justify-between bg-zinc-900/50 sticky top-0 z-10 backdrop-blur-md">
             <h2 className="text-xl font-bold text-white">New Trip</h2>
             <button
               onClick={() => setCreateTripModalOpen(false)}
@@ -114,7 +147,7 @@ export function CreateTripModal() {
             </button>
           </div>
 
-          <form onSubmit={handleSubmit} className="p-6 space-y-4">
+          <form onSubmit={handleSubmit} className="p-6 space-y-6">
             {error && (
               <div className="p-3 bg-red-500/10 border border-red-500/20 rounded-xl text-red-400 text-sm">
                 {error}
@@ -159,6 +192,44 @@ export function CreateTripModal() {
                     className="w-full bg-zinc-800 border border-zinc-700 rounded-xl pl-10 pr-4 py-3 text-white focus:outline-none focus:ring-2 focus:ring-orange-500 [color-scheme:dark]"
                   />
                 </div>
+              </div>
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium text-zinc-400 mb-2">Members</label>
+              <div className="grid grid-cols-4 gap-2">
+                {users.map(u => (
+                  <button
+                    key={u.id}
+                    type="button"
+                    onClick={() => toggleMember(u.id)}
+                    className={`flex flex-col items-center gap-1 p-2 rounded-xl border transition-all ${
+                      selectedMembers.includes(u.id)
+                        ? 'bg-orange-500/20 border-orange-500'
+                        : 'bg-zinc-800 border-zinc-700 hover:bg-zinc-700'
+                    }`}
+                  >
+                    <div className="relative w-10 h-10">
+                      <div className="w-10 h-10 rounded-full overflow-hidden bg-zinc-900">
+                        {u.avatar_url ? (
+                          <img src={u.avatar_url} alt={u.name} className="w-full h-full object-cover" />
+                        ) : (
+                          <div className="w-full h-full flex items-center justify-center text-zinc-500">
+                            <UserIcon size={16} />
+                          </div>
+                        )}
+                      </div>
+                      {selectedMembers.includes(u.id) && (
+                        <div className="absolute -top-1 -right-1 w-4 h-4 bg-orange-500 rounded-full flex items-center justify-center border border-black">
+                          <Check size={10} className="text-white" />
+                        </div>
+                      )}
+                    </div>
+                    <span className={`text-[10px] font-medium truncate w-full text-center ${selectedMembers.includes(u.id) ? 'text-white' : 'text-zinc-400'}`}>
+                      {u.name}
+                    </span>
+                  </button>
+                ))}
               </div>
             </div>
 

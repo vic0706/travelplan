@@ -1,7 +1,7 @@
 import React, { useEffect, useRef } from 'react';
 import { useAppStore } from '../store';
 import { useNavigate } from 'react-router-dom';
-import { User, LogOut, Settings, Users, Plus } from 'lucide-react';
+import { LogOut, Settings, Users, RefreshCw, User as UserIcon, Plus } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 
 export function TopAppBar() {
@@ -25,6 +25,15 @@ export function TopAppBar() {
     };
   }, [isUserMenuOpen, setUserMenuOpen]);
 
+  const handleClearCache = () => {
+    if (window.confirm('Are you sure you want to clear cache and reload?')) {
+      localStorage.clear();
+      sessionStorage.clear();
+      // Clear IndexedDB if needed, but for now just reload
+      window.location.reload();
+    }
+  };
+
   return (
     <header className="fixed top-0 left-0 right-0 z-40 bg-black border-b border-zinc-800 h-16 px-4 flex items-center justify-between">
       <div className="flex items-center gap-2 cursor-pointer" onClick={() => navigate('/')}>
@@ -34,94 +43,135 @@ export function TopAppBar() {
       </div>
 
       <div className="relative" ref={menuRef}>
-        {user ? (
-          <button
-            onClick={() => setUserMenuOpen(!isUserMenuOpen)}
-            className="flex items-center gap-2 p-1 pr-3 rounded-full hover:bg-zinc-900 transition-colors border border-transparent hover:border-orange-500/30"
-          >
-            {user.avatar_url ? (
-              <img
-                src={user.avatar_url}
-                alt={user.name}
-                className="w-8 h-8 rounded-full object-cover border border-orange-500/50"
-              />
-            ) : (
-              <div className="w-8 h-8 rounded-full bg-zinc-800 flex items-center justify-center text-orange-500">
-                <User size={16} />
-              </div>
-            )}
-            <span className="text-sm font-bold text-zinc-100 hidden sm:block">{user.name}</span>
-          </button>
-        ) : (
-          <button
-            onClick={() => setLoginModalOpen(true)}
-            className="px-5 py-2 bg-orange-500 text-white text-sm font-bold rounded-full hover:bg-orange-600 transition-all shadow-[0_0_15px_rgba(249,115,22,0.3)] active:scale-95"
-          >
-            Sign In
-          </button>
-        )}
+        <button
+          onClick={() => setUserMenuOpen(!isUserMenuOpen)}
+          className="p-2 rounded-full hover:bg-zinc-900 transition-colors text-zinc-400 hover:text-white"
+        >
+          <Settings size={24} />
+        </button>
 
         {/* User Menu Dropdown */}
         <AnimatePresence>
-          {isUserMenuOpen && user && (
+          {isUserMenuOpen && (
             <motion.div
               initial={{ opacity: 0, y: 10, scale: 0.95 }}
               animate={{ opacity: 1, y: 0, scale: 1 }}
               exit={{ opacity: 0, y: 10, scale: 0.95 }}
               transition={{ duration: 0.1 }}
-              className="absolute right-0 top-full mt-2 w-56 bg-zinc-900 rounded-2xl shadow-2xl border border-zinc-800 overflow-hidden origin-top-right z-50"
+              className="absolute right-0 top-full mt-2 w-64 bg-zinc-900 rounded-2xl shadow-2xl border border-zinc-800 overflow-hidden origin-top-right z-50"
             >
-              <div className="p-4 border-b border-zinc-800 bg-zinc-900/50">
-                <p className="text-sm font-bold text-white">{user.name}</p>
-                <p className="text-[10px] text-orange-500 font-bold uppercase tracking-widest mt-0.5">{user.role}</p>
-              </div>
-              <div className="p-1 space-y-0.5">
-                {user.role === 'Admin' && (
-                  <>
+              {user ? (
+                <>
+                  <div className="p-4 border-b border-zinc-800 bg-zinc-900/50 flex items-center gap-3">
+                    <div className="w-10 h-10 rounded-full overflow-hidden border border-orange-500/50">
+                      {user.avatar_url ? (
+                        <img src={user.avatar_url} alt={user.name} className="w-full h-full object-cover" />
+                      ) : (
+                        <div className="w-full h-full bg-zinc-800 flex items-center justify-center text-orange-500">
+                          <UserIcon size={20} />
+                        </div>
+                      )}
+                    </div>
+                    <div>
+                      <p className="text-sm font-bold text-white">{user.name}</p>
+                      <p className="text-[10px] text-orange-500 font-bold uppercase tracking-widest">{user.role}</p>
+                    </div>
+                  </div>
+                  <div className="p-1 space-y-0.5">
+                    {user.role === 'Admin' && (
+                      <>
+                        <button 
+                          onClick={() => {
+                            setCreateTripModalOpen(true);
+                            setUserMenuOpen(false);
+                          }}
+                          className="w-full flex items-center gap-3 px-3 py-2.5 text-sm text-zinc-300 hover:bg-zinc-800 hover:text-white rounded-xl transition-colors text-left font-medium"
+                        >
+                          <Plus size={16} />
+                          New Trip
+                        </button>
+                        <button 
+                          onClick={() => {
+                            navigate('/admin/members');
+                            setUserMenuOpen(false);
+                          }}
+                          className="w-full flex items-center gap-3 px-3 py-2.5 text-sm text-zinc-300 hover:bg-zinc-800 hover:text-white rounded-xl transition-colors text-left font-medium"
+                        >
+                          <Users size={16} />
+                          Member Management
+                        </button>
+                        <button 
+                          onClick={() => {
+                            navigate('/admin/settings');
+                            setUserMenuOpen(false);
+                          }}
+                          className="w-full flex items-center gap-3 px-3 py-2.5 text-sm text-zinc-300 hover:bg-zinc-800 hover:text-white rounded-xl transition-colors text-left font-medium"
+                        >
+                          <Settings size={16} />
+                          System Settings
+                        </button>
+                      </>
+                    )}
+                    
                     <button 
                       onClick={() => {
-                        setCreateTripModalOpen(true);
+                        // Handle change avatar (placeholder for now)
+                        alert('Change Avatar feature coming soon!');
                         setUserMenuOpen(false);
                       }}
-                      className="w-full flex items-center gap-2 px-3 py-2.5 text-sm text-zinc-300 hover:bg-zinc-800 hover:text-white rounded-xl transition-colors text-left font-medium"
+                      className="w-full flex items-center gap-3 px-3 py-2.5 text-sm text-zinc-300 hover:bg-zinc-800 hover:text-white rounded-xl transition-colors text-left font-medium"
                     >
-                      <Plus size={16} className="text-orange-500" />
-                      New Trip
+                      <UserIcon size={16} />
+                      Change Avatar
                     </button>
+
                     <button 
                       onClick={() => {
-                        navigate('/admin/members');
+                        handleClearCache();
                         setUserMenuOpen(false);
                       }}
-                      className="w-full flex items-center gap-2 px-3 py-2.5 text-sm text-zinc-300 hover:bg-zinc-800 hover:text-white rounded-xl transition-colors text-left font-medium"
+                      className="w-full flex items-center gap-3 px-3 py-2.5 text-sm text-zinc-300 hover:bg-zinc-800 hover:text-white rounded-xl transition-colors text-left font-medium"
                     >
-                      <Users size={16} />
-                      Members
+                      <RefreshCw size={16} />
+                      Clear Cache & Reload
                     </button>
-                  </>
-                )}
-                <button 
-                  onClick={() => {
-                    navigate('/admin/settings');
-                    setUserMenuOpen(false);
-                  }}
-                  className="w-full flex items-center gap-2 px-3 py-2.5 text-sm text-zinc-300 hover:bg-zinc-800 hover:text-white rounded-xl transition-colors text-left font-medium"
-                >
-                  <Settings size={16} />
-                  Settings
-                </button>
-                <div className="h-px bg-zinc-800 my-1 mx-2"></div>
-                <button
-                  onClick={() => {
-                    logout();
-                    setUserMenuOpen(false);
-                  }}
-                  className="w-full flex items-center gap-2 px-3 py-2.5 text-sm text-red-400 hover:bg-red-500/10 rounded-xl transition-colors text-left font-medium"
-                >
-                  <LogOut size={16} />
-                  Sign Out
-                </button>
-              </div>
+
+                    <div className="h-px bg-zinc-800 my-1 mx-2"></div>
+                    <button
+                      onClick={() => {
+                        logout();
+                        setUserMenuOpen(false);
+                      }}
+                      className="w-full flex items-center gap-3 px-3 py-2.5 text-sm text-red-400 hover:bg-red-500/10 rounded-xl transition-colors text-left font-medium"
+                    >
+                      <LogOut size={16} />
+                      Sign Out
+                    </button>
+                  </div>
+                </>
+              ) : (
+                <div className="p-1 space-y-0.5">
+                  <button
+                    onClick={() => {
+                      setLoginModalOpen(true);
+                      setUserMenuOpen(false);
+                    }}
+                    className="w-full flex items-center gap-3 px-3 py-2.5 text-sm text-white bg-orange-500 hover:bg-orange-600 rounded-xl transition-colors text-left font-bold justify-center mb-2 shadow-lg shadow-orange-500/20"
+                  >
+                    Sign In
+                  </button>
+                  <button 
+                    onClick={() => {
+                      handleClearCache();
+                      setUserMenuOpen(false);
+                    }}
+                    className="w-full flex items-center gap-3 px-3 py-2.5 text-sm text-zinc-300 hover:bg-zinc-800 hover:text-white rounded-xl transition-colors text-left font-medium"
+                  >
+                    <RefreshCw size={16} />
+                    Clear Cache & Reload
+                  </button>
+                </div>
+              )}
             </motion.div>
           )}
         </AnimatePresence>

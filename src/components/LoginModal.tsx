@@ -9,7 +9,7 @@ interface LoginModalProps {
 }
 
 export function LoginModal({ onClose }: LoginModalProps) {
-  const [username, setUsername] = useState('');
+  const [selectedUser, setSelectedUser] = useState<User | null>(null);
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
   const [errorMsg, setErrorMsg] = useState('');
@@ -33,25 +33,29 @@ export function LoginModal({ onClose }: LoginModalProps) {
     fetchUsers();
   }, []);
 
-  const handleUserSelect = (selectedUser: User) => {
-    setUsername(selectedUser.name);
+  const handleUserSelect = (u: User) => {
+    setSelectedUser(u);
     // Focus password input
-    const passwordInput = document.querySelector('input[name="password"]') as HTMLInputElement;
-    if (passwordInput) {
-      passwordInput.focus();
-    }
+    setTimeout(() => {
+      const passwordInput = document.querySelector('input[name="password"]') as HTMLInputElement;
+      if (passwordInput) {
+        passwordInput.focus();
+      }
+    }, 0);
   };
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (!selectedUser) return;
+
     setLoading(true);
     setErrorMsg('');
-    console.log('Frontend Sending:', { username, password });
+    console.log('Frontend Sending:', { username: selectedUser.id, password });
     try {
       const res = await fetch(getApiUrl('/api/auth/login'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ username, password }),
+        body: JSON.stringify({ username: selectedUser.id, password }),
       });
       
       const text = await res.text();
@@ -66,8 +70,8 @@ export function LoginModal({ onClose }: LoginModalProps) {
         throw new Error(data.error || 'Invalid credentials');
       }
 
-      if (data && data.user) {
-        login(data.user);
+      if (data && data.user && data.token) {
+        login(data.user, data.token);
         onClose();
       } else {
         setErrorMsg('Login failed: Invalid response');
@@ -97,9 +101,9 @@ export function LoginModal({ onClose }: LoginModalProps) {
                 <button
                   key={u.id}
                   onClick={() => handleUserSelect(u)}
-                  className={`flex flex-col items-center gap-2 group transition-transform active:scale-95 ${username === u.name ? 'opacity-100 scale-110' : 'opacity-70 hover:opacity-100'}`}
+                  className={`flex flex-col items-center gap-2 group transition-transform active:scale-95 ${selectedUser?.id === u.id ? 'opacity-100 scale-110' : 'opacity-70 hover:opacity-100'}`}
                 >
-                  <div className={`w-12 h-12 rounded-full overflow-hidden border-2 transition-colors ${username === u.name ? 'border-orange-500' : 'border-transparent group-hover:border-zinc-600'}`}>
+                  <div className={`w-12 h-12 rounded-full overflow-hidden border-2 transition-colors ${selectedUser?.id === u.id ? 'border-orange-500' : 'border-transparent group-hover:border-zinc-600'}`}>
                     {u.avatar_url ? (
                       <img src={u.avatar_url} alt={u.name} className="w-full h-full object-cover" />
                     ) : (
@@ -122,15 +126,15 @@ export function LoginModal({ onClose }: LoginModalProps) {
         )}
 
         <form onSubmit={handleLogin} className="space-y-4">
-          {username ? (
+          {selectedUser ? (
             <div className="bg-zinc-800/50 border border-zinc-700 rounded-xl px-4 py-3 flex items-center justify-between">
               <div>
                 <span className="block text-[10px] text-zinc-500 uppercase tracking-widest">Selected User</span>
-                <span className="text-white font-bold">{username}</span>
+                <span className="text-white font-bold">{selectedUser.name}</span>
               </div>
               <button 
                 type="button"
-                onClick={() => setUsername('')}
+                onClick={() => setSelectedUser(null)}
                 className="text-xs text-orange-500 hover:underline"
               >
                 Change
@@ -153,12 +157,12 @@ export function LoginModal({ onClose }: LoginModalProps) {
               className="w-full bg-zinc-800 border border-zinc-700 rounded-xl px-4 py-3 text-white focus:outline-none focus:ring-2 focus:ring-orange-500 transition-all"
               placeholder="••••••••"
               required
-              disabled={!username}
+              disabled={!selectedUser}
             />
           </div>
           <button
             type="submit"
-            disabled={loading || !username}
+            disabled={loading || !selectedUser}
             className="w-full bg-orange-500 hover:bg-orange-600 disabled:opacity-30 disabled:cursor-not-allowed text-white font-bold rounded-xl px-4 py-3 transition-all shadow-lg shadow-orange-500/20 active:scale-95"
           >
             {loading ? 'Signing In...' : 'Sign In'}
