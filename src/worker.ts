@@ -4,6 +4,7 @@ import { cors } from 'hono/cors';
 type Bindings = {
   DB: D1Database;
   KV: KVNamespace;
+  ASSETS: Fetcher;
   SUPABASE_URL: string;
   SUPABASE_KEY: string;
 };
@@ -38,6 +39,12 @@ app.get('/api/trips/:tripId/itineraries', async (c) => {
   const tripId = c.req.param('tripId');
   const { results } = await c.env.DB.prepare('SELECT * FROM Itineraries WHERE trip_id = ? ORDER BY date, start_time').bind(tripId).all();
   return c.json(results);
+});
+
+// --- Static Assets Fallback ---
+// Any request that doesn't match the /api routes will be served from the static assets
+app.get('*', async (c) => {
+  return c.env.ASSETS.fetch(c.req.raw);
 });
 
 // --- Cron Job (Scheduled Task) ---
