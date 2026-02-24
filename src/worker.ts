@@ -177,8 +177,8 @@ app.post('/api/trips', async (c) => {
     const now = Date.now();
     
     await c.env.DB.prepare(`
-      INSERT INTO Trips (title, start_date, end_date, cover_image_url, visible_status, created_at, updated_at, currencies, timezone)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+      INSERT INTO Trips (title, start_date, end_date, cover_image_url, visible_status, created_at, updated_at, currencies)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
     `).bind(
       title, 
       start_date, 
@@ -187,8 +187,7 @@ app.post('/api/trips', async (c) => {
       visible_status || 1, 
       now, 
       now,
-      JSON.stringify(['TWD']),
-      'UTC'
+      JSON.stringify(['TWD'])
     ).run();
 
     const idResult = await c.env.DB.prepare('SELECT last_insert_rowid() as id').first();
