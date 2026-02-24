@@ -18,10 +18,10 @@ export function TripDetails() {
   const { user } = useAppStore();
   
   // 1. Live Query from IndexedDB (Offline-First)
-  const trip = useLiveQuery(() => db.trips.get(id || ''), [id]);
-  const itineraries = useLiveQuery(() => db.itineraries.where('trip_id').equals(id || '').toArray(), [id]) || [];
-  const expenses = useLiveQuery(() => db.expenses.where('trip_id').equals(id || '').toArray(), [id]) || [];
-  const members = useLiveQuery(() => db.tripMembers.where('trip_id').equals(id || '').toArray(), [id]) || [];
+  const trip = useLiveQuery(() => db.trips.get(Number(id) || 0), [id]);
+  const itineraries = useLiveQuery(() => db.itineraries.where('trip_id').equals(Number(id) || 0).toArray(), [id]) || [];
+  const expenses = useLiveQuery(() => db.expenses.where('trip_id').equals(Number(id) || 0).toArray(), [id]) || [];
+  const members = useLiveQuery(() => db.tripMembers.where('trip_id').equals(Number(id) || 0).toArray(), [id]) || [];
 
   const [activeTab, setActiveTab] = useState<'itinerary' | 'info' | 'finance'>('itinerary');
   const [selectedDate, setSelectedDate] = useState<Date>(new Date());
@@ -95,8 +95,9 @@ export function TripDetails() {
 
             // Update tripMembers relation
             await db.tripMembers.bulkPut(membersData.map((m) => ({
-              trip_id: id || '',
+              trip_id: Number(id) || 0,
               user_id: m.id,
+              role: 'Member'
             })));
           }
         }
@@ -164,12 +165,12 @@ export function TripDetails() {
   // We can fetch all users involved in this trip.
   const tripUsers = useLiveQuery(async () => {
     if (!id) return [];
-    const members = await db.tripMembers.where('trip_id').equals(id).toArray();
+    const members = await db.tripMembers.where('trip_id').equals(Number(id)).toArray();
     const userIds = members.map(m => m.user_id);
     return db.users.where('id').anyOf(userIds).toArray();
   }, [id]);
 
-  const getUserNameById = (userId: string) => {
+  const getUserNameById = (userId: number) => {
     const u = tripUsers?.find(u => u.id === userId);
     return u ? u.name : `User ${userId}`;
   };
@@ -197,10 +198,6 @@ export function TripDetails() {
             <div className="flex items-center gap-1">
               <Calendar size={14} />
               <span>{validTripStartDate ? format(validTripStartDate, 'MMM d') : ''} - {validTripEndDate ? format(validTripEndDate, 'MMM d, yyyy') : ''}</span>
-            </div>
-            <div className="flex items-center gap-1">
-              <MapPin size={14} />
-              <span>{trip.timezone ? trip.timezone.split('/').pop()?.replace(/_/g, ' ') : 'Unknown'}</span>
             </div>
           </div>
         </div>
@@ -299,19 +296,6 @@ export function TripDetails() {
                           )}
                         </div>
                       </div>
-
-                      {/* Transit Node */}
-                      {index < filteredItineraries.length - 1 && (
-                        <div className="flex items-center justify-center py-2 relative">
-                          <div className="absolute top-0 bottom-0 w-px bg-zinc-800 -z-10"></div>
-                          <div className="bg-zinc-950 border border-zinc-800 rounded-full px-4 py-2 flex items-center gap-3 shadow-md">
-                            <Navigation size={14} className="text-orange-500" />
-                            <span className="text-xs font-medium text-zinc-400 uppercase tracking-wider">
-                              {item.next_transport_mode} • {item.custom_transport_time} min
-                            </span>
-                          </div>
-                        </div>
-                      )}
                     </React.Fragment>
                   );
                 })

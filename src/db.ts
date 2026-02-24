@@ -13,12 +13,12 @@ export interface SyncOperation {
 }
 
 export class TravelPlanDB extends Dexie {
-  users!: Table<User, string>;
-  trips!: Table<Trip, string>;
-  tripMembers!: Table<TripMember, [string, string]>; // Compound key
-  itineraries!: Table<Itinerary, string>;
+  users!: Table<User, number>;
+  trips!: Table<Trip, number>;
+  tripMembers!: Table<TripMember, [number, number]>; // Compound key
+  itineraries!: Table<Itinerary, number>;
   subItineraries!: Table<SubItinerary, string>;
-  expenses!: Table<Expense, string>;
+  expenses!: Table<Expense, number>;
   flights!: Table<Flight, string>;
   accommodations!: Table<Accommodation, string>;
   appSettings!: Table<AppSetting, string>;
@@ -26,7 +26,7 @@ export class TravelPlanDB extends Dexie {
 
   constructor() {
     super('TravelPlanDB');
-    this.version(2).stores({
+    this.version(3).stores({
       users: 'id, role, allow_login',
       trips: 'id, title, start_date, end_date, visible_status, last_accessed',
       tripMembers: '[trip_id+user_id], trip_id, user_id',

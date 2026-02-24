@@ -1,4 +1,4 @@
-DROP TABLE IF EXISTS Trip_Members;
+DROP TABLE IF EXISTS TripMembers;
 DROP TABLE IF EXISTS Sub_Itineraries;
 DROP TABLE IF EXISTS Expenses;
 DROP TABLE IF EXISTS Flights;
@@ -9,52 +9,54 @@ DROP TABLE IF EXISTS Users;
 DROP TABLE IF EXISTS App_Settings;
 
 CREATE TABLE Users (
-  id TEXT PRIMARY KEY,
-  role TEXT,
-  name TEXT,
-  avatar_url TEXT,
-  password_hash TEXT,
-  allow_login INTEGER DEFAULT 1
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    role TEXT NOT NULL DEFAULT 'user',
+    name TEXT NOT NULL,
+    avatar_url TEXT,
+    password_hash TEXT NOT NULL,
+    allow_login INTEGER DEFAULT 1,
+    created_at INTEGER, 
+    updated_at INTEGER
 );
 
 CREATE TABLE Trips (
-  id TEXT PRIMARY KEY,
-  title TEXT,
-  cover_image_url TEXT,
-  start_date TEXT,
-  end_date TEXT,
-  currencies TEXT, -- JSON TEXT
-  visible_status INTEGER,
-  timezone TEXT
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    title TEXT NOT NULL, 
+    cover_image_url TEXT,
+    start_date TEXT NOT NULL, 
+    end_date TEXT NOT NULL, -- 格式 YYYY-MM-DD
+    currencies TEXT DEFAULT '["TWD"]', 
+    visible_status INTEGER DEFAULT 1,
+    created_at INTEGER, 
+    updated_at INTEGER
 );
 
-CREATE TABLE Trip_Members (
-  trip_id TEXT,
-  user_id TEXT,
-  PRIMARY KEY (trip_id, user_id),
-  FOREIGN KEY (trip_id) REFERENCES Trips(id) ON DELETE CASCADE,
-  FOREIGN KEY (user_id) REFERENCES Users(id) ON DELETE CASCADE
+CREATE TABLE TripMembers (
+    trip_id INTEGER, 
+    user_id INTEGER, 
+    role TEXT DEFAULT 'Member',
+    PRIMARY KEY (trip_id, user_id),
+    FOREIGN KEY (trip_id) REFERENCES Trips(id) ON DELETE CASCADE,
+    FOREIGN KEY (user_id) REFERENCES Users(id) ON DELETE CASCADE
 );
 
 CREATE TABLE Itineraries (
-  id TEXT PRIMARY KEY,
-  trip_id TEXT,
-  date TEXT,
-  start_time TEXT,
-  end_time TEXT,
-  title TEXT,
-  address TEXT,
-  image_url TEXT,
-  notes TEXT,
-  tags TEXT, -- JSON TEXT
-  next_transport_mode TEXT,
-  custom_transport_time INTEGER,
-  FOREIGN KEY (trip_id) REFERENCES Trips(id) ON DELETE CASCADE
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    trip_id INTEGER, 
+    date TEXT NOT NULL,
+    start_time TEXT, 
+    end_time TEXT,
+    title TEXT NOT NULL, 
+    address TEXT, 
+    image_url TEXT, 
+    notes TEXT, 
+    tags TEXT DEFAULT '[]',
+    FOREIGN KEY (trip_id) REFERENCES Trips(id) ON DELETE CASCADE
 );
 
 CREATE TABLE Sub_Itineraries (
   id TEXT PRIMARY KEY,
-  itinerary_id TEXT,
+  itinerary_id INTEGER,
   start_time TEXT,
   end_time TEXT,
   title TEXT,
@@ -64,22 +66,24 @@ CREATE TABLE Sub_Itineraries (
 );
 
 CREATE TABLE Expenses (
-  id TEXT PRIMARY KEY,
-  trip_id TEXT,
-  date TEXT,
-  item_name TEXT,
-  amount REAL,
-  currency TEXT,
-  payer_id TEXT,
-  split_members TEXT, -- JSON TEXT
-  notes TEXT,
-  FOREIGN KEY (trip_id) REFERENCES Trips(id) ON DELETE CASCADE,
-  FOREIGN KEY (payer_id) REFERENCES Users(id)
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    trip_id INTEGER, 
+    item_name TEXT NOT NULL, 
+    amount REAL NOT NULL,
+    currency TEXT NOT NULL, 
+    date TEXT NOT NULL,
+    payer_id INTEGER, 
+    split_members TEXT, 
+    notes TEXT,
+    created_at INTEGER, 
+    updated_at INTEGER,
+    FOREIGN KEY (trip_id) REFERENCES Trips(id) ON DELETE CASCADE,
+    FOREIGN KEY (payer_id) REFERENCES Users(id)
 );
 
 CREATE TABLE Flights (
   id TEXT PRIMARY KEY,
-  trip_id TEXT,
+  trip_id INTEGER,
   date TEXT,
   flight_number TEXT,
   departure_airport TEXT,
@@ -91,7 +95,7 @@ CREATE TABLE Flights (
 
 CREATE TABLE Accommodations (
   id TEXT PRIMARY KEY,
-  trip_id TEXT,
+  trip_id INTEGER,
   check_in_date TEXT,
   check_out_date TEXT,
   name TEXT,

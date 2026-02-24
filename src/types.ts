@@ -1,33 +1,37 @@
 export interface User {
-  id: string;
-  role: 'Admin' | 'User' | 'Guest';
+  id: number;
+  role: string;
   name: string;
   avatar_url: string;
   allow_login: number;
+  created_at?: number;
+  updated_at?: number;
 }
 
 export interface Trip {
-  id: string;
+  id: number;
   title: string;
   cover_image_url: string;
   start_date: string;
   end_date: string;
   currencies: string[]; // Parsed from JSON
   visible_status: number;
-  timezone: string;
+  created_at?: number;
+  updated_at?: number;
   // Local cache fields
   last_accessed?: number;
   is_fully_synced?: boolean;
 }
 
 export interface TripMember {
-  trip_id: string;
-  user_id: string;
+  trip_id: number;
+  user_id: number;
+  role: string;
 }
 
 export interface Itinerary {
-  id: string;
-  trip_id: string;
+  id: number;
+  trip_id: number;
   date: string;
   start_time: string;
   end_time: string;
@@ -36,13 +40,11 @@ export interface Itinerary {
   image_url: string;
   notes: string;
   tags: string[]; // Parsed from JSON
-  next_transport_mode: string;
-  custom_transport_time: number;
 }
 
 export interface SubItinerary {
   id: string;
-  itinerary_id: string;
+  itinerary_id: number;
   start_time: string;
   end_time: string;
   title: string;
@@ -51,20 +53,22 @@ export interface SubItinerary {
 }
 
 export interface Expense {
-  id: string;
-  trip_id: string;
+  id: number;
+  trip_id: number;
   date: string;
   item_name: string;
   amount: number;
   currency: string;
-  payer_id: string;
-  split_members: string[]; // Parsed from JSON (User IDs)
+  payer_id: number;
+  split_members: number[]; // Parsed from JSON (User IDs)
   notes: string;
+  created_at?: number;
+  updated_at?: number;
 }
 
 export interface Flight {
   id: string;
-  trip_id: string;
+  trip_id: number;
   date: string;
   flight_number: string;
   departure_airport: string;
@@ -75,7 +79,7 @@ export interface Flight {
 
 export interface Accommodation {
   id: string;
-  trip_id: string;
+  trip_id: number;
   check_in_date: string;
   check_out_date: string;
   name: string;

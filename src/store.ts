@@ -4,7 +4,7 @@ import { persist } from 'zustand/middleware';
 export type Role = 'Guest' | 'Member' | 'Admin';
 
 export interface User {
-  id: string;
+  id: number;
   role: Role;
   name: string;
   avatar_url?: string;

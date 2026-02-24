@@ -104,8 +104,6 @@ export function Home() {
               ? trip.cover_image_url
               : `https://picsum.photos/seed/${trip.id}/800/600`;
             
-            const timezoneDisplay = trip.timezone ? trip.timezone.split('/').pop()?.replace(/_/g, ' ') : 'Unknown Location';
-            
             return (
               <div
                 key={trip.id}
@@ -130,10 +128,6 @@ export function Home() {
                 </div>
                 
                 <div className="absolute bottom-0 left-0 right-0 p-6">
-                  <div className="flex items-center gap-2 text-orange-400 mb-2">
-                    <MapPin size={14} />
-                    <span className="text-xs font-bold uppercase tracking-wider">{timezoneDisplay}</span>
-                  </div>
                   <h3 className="text-2xl font-bold text-white mb-3 leading-tight drop-shadow-lg">{trip.title}</h3>
                   <div className="flex items-center gap-4 text-zinc-300 text-sm font-medium">
                     <div className="flex items-center gap-1.5">

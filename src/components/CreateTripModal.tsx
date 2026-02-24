@@ -16,13 +16,12 @@ export function CreateTripModal() {
   const [uploading, setUploading] = useState(false);
   const [error, setError] = useState('');
   const [users, setUsers] = useState<User[]>([]);
-  const [selectedMembers, setSelectedMembers] = useState<string[]>([]);
+  const [selectedMembers, setSelectedMembers] = useState<number[]>([]);
 
   const [formData, setFormData] = useState({
     title: '',
     start_date: '',
     end_date: '',
-    timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
     cover_image_url: '',
     visible_status: 1
   });
@@ -77,7 +76,7 @@ export function CreateTripModal() {
     }
   };
 
-  const toggleMember = (userId: string) => {
+  const toggleMember = (userId: number) => {
     setSelectedMembers(prev => 
       prev.includes(userId) ? prev.filter(id => id !== userId) : [...prev, userId]
     );

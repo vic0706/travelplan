@@ -55,7 +55,7 @@ export function LoginModal({ onClose }: LoginModalProps) {
       const res = await fetch(getApiUrl('/api/auth/login'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ username: selectedUser.id, password }),
+        body: JSON.stringify({ username: String(selectedUser.id), password }),
       });
       
       const text = await res.text();

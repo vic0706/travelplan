@@ -40,12 +40,11 @@ app.post('/api/init', async (c) => {
     if (count === 0) {
       const salt = c.env.PASSWORD_SALT || 'default_salt';
       const passwordHash = await generateHash('123456', salt);
-      const adminId = crypto.randomUUID();
 
       await c.env.DB.prepare(`
-        INSERT INTO Users (id, role, name, avatar_url, password_hash, allow_login) 
-        VALUES (?, 'Admin', 'Admin', 'https://api.dicebear.com/7.x/avataaars/svg?seed=Admin', ?, 1)
-      `).bind(adminId, passwordHash).run();
+        INSERT INTO Users (role, name, avatar_url, password_hash, allow_login) 
+        VALUES ('Admin', 'Admin', 'https://api.dicebear.com/7.x/avataaars/svg?seed=Admin', ?, 1)
+      `).bind(passwordHash).run();
 
       return c.json({ success: true, message: 'Admin user created successfully.' });
     }
@@ -89,17 +88,18 @@ app.post('/api/users', async (c) => {
       return c.json({ error: 'Name and password are required' }, 400);
     }
 
-    const id = crypto.randomUUID();
     const salt = c.env.PASSWORD_SALT || 'default_salt';
     const passwordHash = await generateHash(password, salt);
     
     // Default avatar based on name (using UI Avatars service or similar, or just null)
     const avatar_url = `https://ui-avatars.com/api/?name=${encodeURIComponent(name)}&background=random`;
 
-    await c.env.DB.prepare(`
-      INSERT INTO Users (id, name, password_hash, role, avatar_url, allow_login, created_at, updated_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-    `).bind(id, name, passwordHash, role || 'Member', avatar_url, allow_login !== undefined ? allow_login : 1, Date.now(), Date.now()).run();
+    const result = await c.env.DB.prepare(`
+      INSERT INTO Users (name, password_hash, role, avatar_url, allow_login, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?) RETURNING id
+    `).bind(name, passwordHash, role || 'Member', avatar_url, allow_login !== undefined ? allow_login : 1, Date.now(), Date.now()).all();
+
+    const id = result.results[0].id;
 
     return c.json({ id, name, role, avatar_url });
   } catch (error: any) {
@@ -107,19 +107,7 @@ app.post('/api/users', async (c) => {
   }
 });
 
-// 2.2 Get Settings
-app.get('/api/settings', async (c) => {
-  try {
-    const { results } = await c.env.DB.prepare('SELECT * FROM Settings').all();
-    const settings = results.reduce((acc: any, curr: any) => {
-      acc[curr.key] = curr.value;
-      return acc;
-    }, {});
-    return c.json(settings);
-  } catch (error: any) {
-    return c.json({ error: error.message }, 500);
-  }
-});
+
 
 // 3. Login API: Authenticate using username and password
 
@@ -170,7 +158,7 @@ app.post('/api/auth/login', async (c) => {
 app.get('/api/trips', async (c) => {
   try {
     const { results } = await c.env.DB.prepare(`
-      SELECT id, title, cover_image_url, start_date, end_date, timezone, visible_status 
+      SELECT id, title, cover_image_url, start_date, end_date, visible_status 
       FROM Trips 
       WHERE visible_status = 1 
       ORDER BY start_date DESC
@@ -184,15 +172,16 @@ app.get('/api/trips', async (c) => {
 // 4.1 Create Trip API
 app.post('/api/trips', async (c) => {
   try {
-    const { title, start_date, end_date, timezone, cover_image_url, visible_status } = await c.req.json();
-    const id = crypto.randomUUID();
+    const { title, start_date, end_date, cover_image_url, visible_status } = await c.req.json();
     
-    await c.env.DB.prepare(`
-      INSERT INTO Trips (id, title, start_date, end_date, timezone, cover_image_url, visible_status, created_at, updated_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `).bind(id, title, start_date, end_date, timezone, cover_image_url, visible_status || 1, Date.now(), Date.now()).run();
+    const result = await c.env.DB.prepare(`
+      INSERT INTO Trips (title, start_date, end_date, cover_image_url, visible_status, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?) RETURNING id
+    `).bind(title, start_date, end_date, cover_image_url, visible_status || 1, Date.now(), Date.now()).all();
 
-    return c.json({ id, title, start_date, end_date, timezone, cover_image_url, visible_status });
+    const id = result.results[0].id;
+
+    return c.json({ id, title, start_date, end_date, cover_image_url, visible_status });
   } catch (error: any) {
     return c.json({ error: error.message }, 500);
   }
@@ -286,15 +275,16 @@ app.post('/api/trips/:id/expenses', async (c) => {
   const tripId = c.req.param('id');
   try {
     const { item_name, amount, currency, date, payer_id, split_members, notes } = await c.req.json();
-    const id = crypto.randomUUID();
 
-    await c.env.DB.prepare(`
-      INSERT INTO Expenses (id, trip_id, item_name, amount, currency, date, payer_id, split_members, notes, created_at, updated_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    const result = await c.env.DB.prepare(`
+      INSERT INTO Expenses (trip_id, item_name, amount, currency, date, payer_id, split_members, notes, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id
     `).bind(
-      id, tripId, item_name, amount, currency, date, payer_id, 
+      tripId, item_name, amount, currency, date, payer_id, 
       JSON.stringify(split_members), notes, Date.now(), Date.now()
-    ).run();
+    ).all();
+
+    const id = result.results[0].id;
 
     return c.json({ success: true, id });
   } catch (error: any) {
@@ -305,9 +295,9 @@ app.post('/api/trips/:id/expenses', async (c) => {
 // 8. Settings API
 app.get('/api/settings', async (c) => {
   try {
-    const { results } = await c.env.DB.prepare('SELECT * FROM Settings').all();
+    const { results } = await c.env.DB.prepare('SELECT * FROM App_Settings').all();
     const settings = results.reduce((acc: any, curr: any) => {
-      acc[curr.key] = curr.value;
+      acc[curr.key_name] = curr.value;
       return acc;
     }, {});
     return c.json(settings);
@@ -320,8 +310,8 @@ app.get('/api/settings', async (c) => {
 app.put('/api/settings', async (c) => {
   try {
     const settings = await c.req.json();
-    const stmt = c.env.DB.prepare('INSERT OR REPLACE INTO Settings (key, value, updated_at) VALUES (?, ?, ?)');
-    const batch = Object.entries(settings).map(([key, value]) => stmt.bind(key, value, Date.now()));
+    const stmt = c.env.DB.prepare('INSERT OR REPLACE INTO App_Settings (id, key_name, value) VALUES (?, ?, ?)');
+    const batch = Object.entries(settings).map(([key, value]) => stmt.bind(crypto.randomUUID(), key, value));
     await c.env.DB.batch(batch);
     return c.json({ success: true });
   } catch (error: any) {
