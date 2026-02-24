@@ -30,25 +30,25 @@ async function generateHash(password: string, salt: string): Promise<string> {
 }
 
 // Auth Middleware
-const authMiddleware = async (c: any, next: any) => {
-  const authHeader = c.req.header('Authorization');
-  if (!authHeader || !authHeader.startsWith('Bearer ')) return c.json({ error: 'Unauthorized' }, 401);
-  const token = authHeader.split(' ')[1];
-  const userData = await c.env.KV.get(`session:${token}`, 'json');
-  if (!userData) return c.json({ error: 'Unauthorized' }, 401);
-  c.set('user', userData);
-  await next();
-};
-
-// Optional Auth Middleware
-const optionalAuthMiddleware = async (c: any, next: any) => {
+const decodeUserMiddleware = async (c: any, next: any) => {
   const authHeader = c.req.header('Authorization');
   if (authHeader && authHeader.startsWith('Bearer ')) {
     const token = authHeader.split(' ')[1];
-    const userData = await c.env.KV.get(`session:${token}`, 'json');
-    if (userData) {
-      c.set('user', userData);
+    try {
+      const userData = await c.env.KV.get(`session:${token}`, 'json');
+      if (userData) {
+        c.set('user', userData);
+      }
+    } catch (e) {
+      // Ignore KV errors (e.g., malformed JSON)
     }
+  }
+  await next();
+};
+
+const requireAuthMiddleware = async (c: any, next: any) => {
+  if (!c.get('user')) {
+    return c.json({ error: 'Unauthorized' }, 401);
   }
   await next();
 };
@@ -210,25 +210,22 @@ app.post('/api/auth/login', async (c) => {
 // ==========================================
 // 🔒 Protected API
 // ==========================================
-app.use('/api/users', authMiddleware);
-app.use('/api/users/*', authMiddleware);
-app.use('/api/trips', optionalAuthMiddleware); // Use optional auth for base trips route
-app.use('/api/trips/*', optionalAuthMiddleware); // Use optional auth for trip details
-app.use('/api/settings', authMiddleware);
-app.use('/api/cities', optionalAuthMiddleware); // Cities are public
-app.use('/api/sync', authMiddleware);
+// Decode user for all API routes
+app.use('/api/*', decodeUserMiddleware);
 
-// Middleware to enforce auth for sensitive trip operations
-const requireTripAuth = async (c: any, next: any) => {
-  const user = c.get('user');
-  if (!user) return c.json({ error: 'Unauthorized' }, 401);
-  await next();
-};
+// Apply strict auth only where needed
+app.use('/api/users', requireAuthMiddleware);
+app.use('/api/users/*', requireAuthMiddleware);
+app.use('/api/settings', requireAuthMiddleware);
+app.use('/api/sync', requireAuthMiddleware);
 
-// Apply strict auth to non-GET trip routes
-app.post('/api/trips', requireTripAuth);
-app.put('/api/trips/*', requireTripAuth);
-app.delete('/api/trips/*', requireTripAuth);
+// Trip mutations require auth
+app.post('/api/trips', requireAuthMiddleware);
+app.post('/api/trips/*', requireAuthMiddleware);
+app.put('/api/trips/*', requireAuthMiddleware);
+app.delete('/api/trips/*', requireAuthMiddleware);
+
+// GET routes for trips and cities are public but can be enhanced by knowing the user
 
 // --- Cities API ---
 app.get('/api/cities', async (c) => {
@@ -305,6 +302,7 @@ app.get('/api/trips', async (c) => {
 
 app.post('/api/trips', async (c) => {
   try {
+    await ensureSchema(c.env.DB);
     const { title, start_date, end_date, cover_image_url, visible_status, default_city_id, is_public } = await c.req.json();
     const info = await c.env.DB.prepare(`
       INSERT INTO Trips (title, start_date, end_date, cover_image_url, visible_status, default_city_id, created_at, updated_at, currencies, is_public)
@@ -350,6 +348,7 @@ app.get('/api/trips/:id', async (c) => {
 app.put('/api/trips/:id', async (c) => {
   const id = c.req.param('id');
   try {
+    await ensureSchema(c.env.DB);
     const { title, start_date, end_date, cover_image_url, visible_status, default_city_id, currencies, is_public } = await c.req.json();
     await c.env.DB.prepare(`
       UPDATE Trips 
