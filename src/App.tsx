@@ -19,7 +19,7 @@ function AppContent() {
   const isTripDetails = location.pathname.startsWith('/trip/');
 
   useEffect(() => {
-    if (!_hasHydrated || !token) return;
+    if (!_hasHydrated) return;
     const fetchCities = async () => {
       try {
         const res = await apiFetch('/api/cities');

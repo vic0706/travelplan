@@ -23,6 +23,7 @@ export function ItineraryForm({ tripId, defaultCityId, date, onSuccess, onCancel
     end_time: '10:00',
     address: '',
     notes: '',
+    country: cities.find(c => c.id === defaultCityId)?.country || '',
     city_id: defaultCityId ? String(defaultCityId) : '',
     tags: [] as string[]
   });
@@ -33,10 +34,27 @@ export function ItineraryForm({ tripId, defaultCityId, date, onSuccess, onCancel
     return acc;
   }, {} as Record<string, typeof cities>);
 
+  const availableCities = formData.country ? groupedCities[formData.country] || [] : [];
+
+  const handleCountryChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
+    const newCountry = e.target.value;
+    setFormData(prev => ({
+      ...prev,
+      country: newCountry,
+      city_id: '' // Reset city when country changes
+    }));
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoading(true);
     setError('');
+
+    if (!formData.country || !formData.city_id) {
+      setError('Please select both country and city.');
+      setLoading(false);
+      return;
+    }
 
     try {
       const res = await apiFetch(`/api/trips/${tripId}/itineraries`, {
@@ -93,20 +111,32 @@ export function ItineraryForm({ tripId, defaultCityId, date, onSuccess, onCancel
         </div>
 
         <div>
+          <label className="block text-sm font-medium text-zinc-400 mb-1">Country</label>
+          <select
+            required
+            value={formData.country}
+            onChange={handleCountryChange}
+            className="w-full bg-zinc-800 border border-zinc-700 rounded-xl px-4 py-3 text-white focus:outline-none focus:ring-2 focus:ring-orange-500"
+          >
+            <option value="" disabled>Select a country</option>
+            {Object.keys(groupedCities).sort().map(country => (
+              <option key={country} value={country}>{country}</option>
+            ))}
+          </select>
+        </div>
+
+        <div>
           <label className="block text-sm font-medium text-zinc-400 mb-1">City</label>
           <select
             required
             value={formData.city_id}
             onChange={e => setFormData({ ...formData, city_id: e.target.value })}
             className="w-full bg-zinc-800 border border-zinc-700 rounded-xl px-4 py-3 text-white focus:outline-none focus:ring-2 focus:ring-orange-500"
+            disabled={!formData.country}
           >
             <option value="" disabled>Select a city</option>
-            {Object.entries(groupedCities).map(([country, countryCities]) => (
-              <optgroup key={country} label={country}>
-                {countryCities.map(city => (
-                  <option key={city.id} value={city.id}>{city.name}</option>
-                ))}
-              </optgroup>
+            {availableCities.map(city => (
+              <option key={city.id} value={city.id}>{city.name}</option>
             ))}
           </select>
         </div>

@@ -343,6 +343,12 @@ export function TripDetails() {
           <div className="space-y-6">
             <div className="bg-zinc-900 border border-zinc-800 rounded-3xl p-6 shadow-lg">
               <h3 className="text-lg font-semibold text-white mb-6">Expenses Overview</h3>
+              <div className="bg-zinc-900 border border-zinc-800 rounded-3xl p-6 shadow-lg mb-4">
+                 <div className="text-zinc-500 text-xs font-bold uppercase tracking-widest mb-1">Total Expenses</div>
+                 <div className="text-3xl font-bold text-white">
+                   {trip.currencies?.[0] || 'TWD'} {totalExpenses.toLocaleString()}
+                 </div>
+              </div>
               <div className="h-64">
                 <ResponsiveContainer width="100%" height="100%">
                   <PieChart>
@@ -452,12 +458,7 @@ export function TripDetails() {
 
         {activeTab === 'finance' && (
           <div className="space-y-4">
-            <div className="bg-zinc-900 border border-zinc-800 rounded-3xl p-6 shadow-lg mb-4">
-               <div className="text-zinc-500 text-xs font-bold uppercase tracking-widest mb-1">Total Expenses</div>
-               <div className="text-3xl font-bold text-white">
-                 {trip.currencies?.[0] || 'TWD'} {totalExpenses.toLocaleString()}
-               </div>
-            </div>
+
 
             {filteredExpenses.length > 0 ? (
               filteredExpenses.map(expense => (

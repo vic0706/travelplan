@@ -30,6 +30,8 @@ export interface Trip {
   // Local cache fields
   last_accessed?: number;
   is_fully_synced?: boolean;
+  is_public?: boolean; // New field for public/private status
+  members?: TripMember[]; // New field to store trip members for access control
 }
 
 export interface TripMember {

@@ -18,7 +18,7 @@ export function Home() {
 
   // 2. Fetch from API and update IndexedDB (Network-First Strategy for freshness)
   useEffect(() => {
-    if (!_hasHydrated || !token) {
+    if (!_hasHydrated) {
       if (_hasHydrated) setIsLoading(false);
       return;
     }
@@ -29,7 +29,7 @@ export function Home() {
       }
 
       try {
-        const res = await apiFetch('/api/trips');
+        const res = await apiFetch('/api/trips', token ? { headers: { Authorization: `Bearer ${token}` } } : {});
         if (!res.ok) throw new Error(`HTTP error! status: ${res.status}`);
         
         const text = await res.text();
@@ -94,6 +94,15 @@ export function Home() {
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
         {Array.isArray(trips) && trips.length > 0 ? (
           trips.map(trip => {
+            // Determine if the trip is viewable by the current user
+            const isMember = user && trip.members?.some(member => member.user_id === user.id);
+            const canView = trip.is_public || isMember || user?.role === 'Admin';
+
+            // Determine if the trip is editable by the current user
+            const canEdit = isMember || user?.role === 'Admin';
+
+            if (!canView) return null; // Don't render if user cannot view
+
             let validStartDate: Date | null = null;
             let validEndDate: Date | null = null;
             
@@ -119,8 +128,8 @@ export function Home() {
             return (
               <div
                 key={trip.id}
-                onClick={() => navigate(`/trip/${trip.id}`)}
-                className="group relative overflow-hidden rounded-3xl bg-zinc-900 border border-white/5 cursor-pointer hover:border-orange-500/50 transition-all duration-300 shadow-xl"
+                onClick={() => canView && navigate(`/trip/${trip.id}`)}
+                className={`group relative overflow-hidden rounded-3xl bg-zinc-900 border border-white/5 shadow-xl transition-all duration-300 ${canView ? 'cursor-pointer hover:border-orange-500/50' : 'cursor-not-allowed opacity-70'}`}
               >
                 <div className="aspect-[4/3] w-full relative overflow-hidden">
                   <img
@@ -137,6 +146,11 @@ export function Home() {
                   <div className="absolute top-4 right-4 bg-black/60 backdrop-blur-md px-3 py-1 rounded-full text-xs font-medium text-white border border-white/10">
                     {days} Days
                   </div>
+                  {!canEdit && (
+                    <div className="absolute inset-0 flex items-center justify-center bg-black/50 text-white text-lg font-bold">
+                      View Only
+                    </div>
+                  )}
                 </div>
                 
                 <div className="absolute bottom-0 left-0 right-0 p-6">

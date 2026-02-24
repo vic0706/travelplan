@@ -235,18 +235,35 @@ app.put('/api/users/:id', async (c) => {
 // --- Trips ---
 app.get('/api/trips', async (c) => {
   try {
-    const { results } = await c.env.DB.prepare('SELECT id, title, cover_image_url, start_date, end_date, visible_status, default_city_id FROM Trips WHERE visible_status = 1 ORDER BY start_date DESC').all();
-    return c.json(results);
+    const user = c.get('user');
+    let query = 'SELECT id, title, cover_image_url, start_date, end_date, visible_status, default_city_id, is_public FROM Trips WHERE is_public = 1';
+    const params: any[] = [];
+
+    if (user) {
+      // If user is logged in, also show trips they are a member of
+      query += ' OR id IN (SELECT trip_id FROM TripMembers WHERE user_id = ?)';
+      params.push(user.id);
+    }
+    query += ' ORDER BY start_date DESC';
+
+    const { results } = await c.env.DB.prepare(query).bind(...params).all();
+
+    const tripsWithMembers = await Promise.all(results.map(async (trip: any) => {
+      const { results: members } = await c.env.DB.prepare('SELECT user_id, role FROM TripMembers WHERE trip_id = ?').bind(trip.id).all();
+      return { ...trip, members: members || [] };
+    }));
+
+    return c.json(tripsWithMembers);
   } catch (error: any) { return c.json({ error: error.message }, 500); }
 });
 
 app.post('/api/trips', async (c) => {
   try {
-    const { title, start_date, end_date, cover_image_url, visible_status, default_city_id } = await c.req.json();
+    const { title, start_date, end_date, cover_image_url, visible_status, default_city_id, is_public } = await c.req.json();
     const info = await c.env.DB.prepare(`
-      INSERT INTO Trips (title, start_date, end_date, cover_image_url, visible_status, default_city_id, created_at, updated_at, currencies)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `).bind(title, start_date, end_date, cover_image_url, visible_status || 1, default_city_id, Date.now(), Date.now(), JSON.stringify(['TWD'])).run();
+      INSERT INTO Trips (title, start_date, end_date, cover_image_url, visible_status, default_city_id, created_at, updated_at, currencies, is_public)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).bind(title, start_date, end_date, cover_image_url, visible_status || 1, default_city_id, Date.now(), Date.now(), JSON.stringify(['TWD']), is_public || 0).run();
     
     const idResult = await c.env.DB.prepare('SELECT last_insert_rowid() as id').first();
     const id = idResult ? (idResult as any).id : null;
@@ -268,6 +285,10 @@ app.get('/api/trips/:id', async (c) => {
     if (results.length === 0) return c.json({ error: 'Trip not found' }, 404);
     const trip = results[0] as any;
     if (trip.currencies) trip.currencies = JSON.parse(trip.currencies);
+
+    const { results: members } = await c.env.DB.prepare('SELECT user_id, role FROM TripMembers WHERE trip_id = ?').bind(id).all();
+    trip.members = members || [];
+
     return c.json(trip);
   } catch (error: any) { return c.json({ error: error.message }, 500); }
 });
@@ -275,13 +296,13 @@ app.get('/api/trips/:id', async (c) => {
 app.put('/api/trips/:id', async (c) => {
   const id = c.req.param('id');
   try {
-    const { title, start_date, end_date, cover_image_url, visible_status, default_city_id, currencies } = await c.req.json();
+    const { title, start_date, end_date, cover_image_url, visible_status, default_city_id, currencies, is_public } = await c.req.json();
     await c.env.DB.prepare(`
       UPDATE Trips 
-      SET title = ?, start_date = ?, end_date = ?, cover_image_url = ?, visible_status = ?, default_city_id = ?, currencies = ?, updated_at = ?
+      SET title = ?, start_date = ?, end_date = ?, cover_image_url = ?, visible_status = ?, default_city_id = ?, currencies = ?, is_public = ?, updated_at = ?
       WHERE id = ?
     `).bind(
-      title, start_date, end_date, cover_image_url, visible_status, default_city_id, JSON.stringify(currencies || ['TWD']), Date.now(), id
+      title, start_date, end_date, cover_image_url, visible_status, default_city_id, JSON.stringify(currencies || ['TWD']), is_public, Date.now(), id
     ).run();
     return c.json({ success: true });
   } catch (error: any) { return c.json({ error: error.message }, 500); }
