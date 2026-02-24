@@ -4,14 +4,6 @@ import {
   Expense, Flight, Accommodation, AppSetting 
 } from './types';
 
-export interface SyncOperation {
-  id?: number;
-  url: string;
-  method: 'POST' | 'PUT' | 'DELETE';
-  body?: any;
-  createdAt: number;
-}
-
 export class TravelPlanDB extends Dexie {
   users!: Table<User, number>;
   trips!: Table<Trip, number>;
@@ -22,7 +14,6 @@ export class TravelPlanDB extends Dexie {
   flights!: Table<Flight, string>;
   accommodations!: Table<Accommodation, string>;
   appSettings!: Table<AppSetting, string>;
-  syncQueue!: Table<SyncOperation, number>;
 
   constructor() {
     super('TravelPlanDB');
@@ -35,8 +26,7 @@ export class TravelPlanDB extends Dexie {
       expenses: 'id, trip_id, date, payer_id',
       flights: 'id, trip_id, date',
       accommodations: 'id, trip_id, check_in_date',
-      appSettings: 'id, key_name',
-      syncQueue: '++id, createdAt'
+      appSettings: 'id, key_name'
     });
   }
 }

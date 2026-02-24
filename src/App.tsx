@@ -36,7 +36,7 @@ export default function App() {
       <div className="flex flex-col h-[100dvh] w-screen bg-black text-zinc-100 font-sans overflow-hidden selection:bg-orange-500/30">
         <OfflineStatusBar />
         <TopAppBar />
-        <main className="flex-1 overflow-y-auto relative z-10 pt-16"> {/* Added pt-16 for TopAppBar */}
+        <main className="flex-1 overflow-y-auto relative z-10 pt-[calc(4rem+env(safe-area-inset-top))]">
           <Routes>
             <Route path="/" element={<Home />} />
             <Route path="/trip/:id" element={<TripDetails />} />
