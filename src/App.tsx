@@ -1,5 +1,5 @@
 import React, { useEffect } from 'react';
-import { BrowserRouter as Router, Routes, Route } from 'react-router-dom';
+import { BrowserRouter as Router, Routes, Route, useLocation } from 'react-router-dom';
 import { TopAppBar } from './components/TopAppBar';
 import { OfflineStatusBar } from './components/OfflineStatusBar';
 import { LoginModal } from './components/LoginModal';
@@ -11,9 +11,12 @@ import { AdminSettings } from './pages/AdminSettings';
 import { useAppStore } from './store';
 import { apiFetch } from './utils/api';
 import { City } from './types';
+import { clsx } from 'clsx';
 
-export default function App() {
+function AppContent() {
   const { isLoginModalOpen, setLoginModalOpen, isCreateTripModalOpen, setCreateTripModalOpen, setCities, _hasHydrated, token } = useAppStore();
+  const location = useLocation();
+  const isTripDetails = location.pathname.startsWith('/trip/');
 
   useEffect(() => {
     if (!_hasHydrated || !token) return;
@@ -32,23 +35,32 @@ export default function App() {
   }, [_hasHydrated, setCities]);
 
   return (
+    <div className="flex flex-col h-[100dvh] w-screen bg-black text-zinc-100 font-sans overflow-hidden selection:bg-orange-500/30">
+      <OfflineStatusBar />
+      {!isTripDetails && <TopAppBar />}
+      <main className={clsx(
+        "flex-1 overflow-y-auto relative z-10",
+        !isTripDetails && "pt-[calc(4rem+env(safe-area-inset-top))]"
+      )}>
+        <Routes>
+          <Route path="/" element={<Home />} />
+          <Route path="/trip/:id" element={<TripDetails />} />
+          <Route path="/admin/members" element={<AdminMembers />} />
+          <Route path="/admin/settings" element={<AdminSettings />} />
+        </Routes>
+      </main>
+      
+      {/* Global Modals */}
+      {isLoginModalOpen && <LoginModal onClose={() => setLoginModalOpen(false)} />}
+      {isCreateTripModalOpen && <CreateTripModal />}
+    </div>
+  );
+}
+
+export default function App() {
+  return (
     <Router>
-      <div className="flex flex-col h-[100dvh] w-screen bg-black text-zinc-100 font-sans overflow-hidden selection:bg-orange-500/30">
-        <OfflineStatusBar />
-        <TopAppBar />
-        <main className="flex-1 overflow-y-auto relative z-10 pt-[calc(4rem+env(safe-area-inset-top))]">
-          <Routes>
-            <Route path="/" element={<Home />} />
-            <Route path="/trip/:id" element={<TripDetails />} />
-            <Route path="/admin/members" element={<AdminMembers />} />
-            <Route path="/admin/settings" element={<AdminSettings />} />
-          </Routes>
-        </main>
-        
-        {/* Global Modals */}
-        {isLoginModalOpen && <LoginModal onClose={() => setLoginModalOpen(false)} />}
-        {isCreateTripModalOpen && <CreateTripModal />}
-      </div>
+      <AppContent />
     </Router>
   );
 }

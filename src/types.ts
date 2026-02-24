@@ -80,20 +80,25 @@ export interface Expense {
 export interface Flight {
   id: string;
   trip_id: number;
-  date: string;
+  airline: string;
   flight_number: string;
-  departure_airport: string;
-  arrival_airport: string;
+  departure_date: string;
   departure_time: string;
+  departure_airport: string;
+  departure_terminal: string;
+  arrival_date: string;
   arrival_time: string;
+  arrival_airport: string;
+  arrival_terminal: string;
+  notes: string;
 }
 
 export interface Accommodation {
   id: string;
   trip_id: number;
+  name: string;
   check_in_date: string;
   check_out_date: string;
-  name: string;
   address: string;
   notes: string;
 }

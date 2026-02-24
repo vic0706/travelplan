@@ -40,10 +40,12 @@ const authMiddleware = async (c: any, next: any) => {
   await next();
 };
 
-// Helper: Sync Weather for a Trip
-async function syncWeatherForTrip(tripId: number, env: Env) {
-  const todayStr = new Date().toISOString().split('T')[0];
-  
+// Helper: Get Weather for a specific date
+async function getWeatherForDate(tripId: number, dateStr: string, env: Env) {
+  const cacheKey = `weather:trip:${tripId}:${dateStr}`;
+  const cached = await env.KV.get(cacheKey, 'json');
+  if (cached) return cached;
+
   const { results: tripResults } = await env.DB.prepare(`
     SELECT t.id, c.name as default_city, c.lat as default_lat, c.lng as default_lng 
     FROM Trips t 
@@ -51,17 +53,17 @@ async function syncWeatherForTrip(tripId: number, env: Env) {
     WHERE t.id = ?
   `).bind(tripId).all();
 
-  if (tripResults.length === 0) return;
+  if (tripResults.length === 0) return null;
   const trip = tripResults[0] as any;
 
   const targetHours = ['09:00', '12:00', '15:00', '18:00'];
 
-  const { results: todayItineraries } = await env.DB.prepare(`
+  const { results: itineraries } = await env.DB.prepare(`
     SELECT i.start_time, i.end_time, c.name as city, c.lat, c.lng 
     FROM Itineraries i 
     JOIN Cities c ON i.city_id = c.id 
     WHERE i.trip_id = ? AND i.date = ?
-  `).bind(trip.id, todayStr).all();
+  `).bind(trip.id, dateStr).all();
 
   const intervals = [];
   const uniqueCoords = new Map();
@@ -71,7 +73,7 @@ async function syncWeatherForTrip(tripId: number, env: Env) {
     let currentLng = trip.default_lng;
     let currentCity = trip.default_city;
 
-    for (const item of todayItineraries as any[]) {
+    for (const item of itineraries as any[]) {
       if (item.start_time && item.end_time && hour >= item.start_time && hour <= item.end_time) {
         currentLat = item.lat;
         currentLng = item.lng;
@@ -83,7 +85,8 @@ async function syncWeatherForTrip(tripId: number, env: Env) {
     const coordKey = `${currentLat},${currentLng}`;
     
     if (!uniqueCoords.has(coordKey)) {
-      const url = `https://api.open-meteo.com/v1/forecast?latitude=${currentLat}&longitude=${currentLng}&hourly=temperature_2m,precipitation_probability,weathercode&daily=temperature_2m_max,temperature_2m_min,weathercode&timezone=auto`;
+      // Use forecast endpoint which works for past 90 days and future
+      const url = `https://api.open-meteo.com/v1/forecast?latitude=${currentLat}&longitude=${currentLng}&hourly=temperature_2m,precipitation_probability,weathercode&daily=temperature_2m_max,temperature_2m_min,weathercode&timezone=auto&start_date=${dateStr}&end_date=${dateStr}`;
       const res = await fetch(url);
       if (res.ok) uniqueCoords.set(coordKey, await res.json());
     }
@@ -91,7 +94,7 @@ async function syncWeatherForTrip(tripId: number, env: Env) {
     const weatherData = uniqueCoords.get(coordKey);
     
     if (weatherData) {
-      const timeString = `${todayStr}T${hour}`;
+      const timeString = `${dateStr}T${hour}`;
       const index = weatherData.hourly.time.indexOf(timeString);
       intervals.push({
         time: hour,
@@ -106,19 +109,27 @@ async function syncWeatherForTrip(tripId: number, env: Env) {
   let summary = null;
   const noonData = intervals.find(i => i.time === '12:00');
   if (noonData) {
-     const coordKey = [...uniqueCoords.keys()].find(k => uniqueCoords.get(k).hourly.time.includes(`${todayStr}T12:00`)) || [...uniqueCoords.keys()][0];
+     const coordKey = [...uniqueCoords.keys()].find(k => uniqueCoords.get(k).hourly.time.includes(`${dateStr}T12:00`)) || [...uniqueCoords.keys()][0];
      const mainWeather = uniqueCoords.get(coordKey);
-     summary = {
-       max_temp: Math.round(mainWeather.daily.temperature_2m_max[0]),
-       min_temp: Math.round(mainWeather.daily.temperature_2m_min[0]),
-       weather_code: mainWeather.daily.weathercode[0]
-     };
+     if (mainWeather && mainWeather.daily) {
+       summary = {
+         max_temp: Math.round(mainWeather.daily.temperature_2m_max[0]),
+         min_temp: Math.round(mainWeather.daily.temperature_2m_min[0]),
+         weather_code: mainWeather.daily.weathercode[0]
+       };
+     }
   }
 
-  const finalJSON = { date: todayStr, summary, intervals };
-  await env.KV.put(`weather:trip:${trip.id}`, JSON.stringify(finalJSON), { expirationTtl: 86400 });
-  console.log(`Weather updated for Trip ${trip.id}`);
+  const finalJSON = { date: dateStr, summary, intervals };
+  // Cache for 1 hour to allow updates but prevent spam
+  await env.KV.put(cacheKey, JSON.stringify(finalJSON), { expirationTtl: 3600 });
   return finalJSON;
+}
+
+// Helper: Sync Weather for a Trip (Legacy Cron use)
+async function syncWeatherForTrip(tripId: number, env: Env) {
+  const todayStr = new Date().toISOString().split('T')[0];
+  return getWeatherForDate(tripId, todayStr, env);
 }
 
 // ==========================================
@@ -279,10 +290,19 @@ app.put('/api/trips/:id', async (c) => {
 // Weather API
 app.get('/api/trips/:id/weather', async (c) => {
   const tripId = c.req.param('id');
+  const date = c.req.query('date');
   try {
-    const weatherData = await c.env.KV.get(`weather:trip:${tripId}`, 'json');
-    if (!weatherData) return c.json({ message: 'Weather data will be updated at 06:00 AM' }, 202);
-    return c.json(weatherData);
+    if (date) {
+      const weatherData = await getWeatherForDate(Number(tripId), date, c.env);
+      if (!weatherData) return c.json({ message: 'No weather data available' }, 404);
+      return c.json(weatherData);
+    } else {
+      // Fallback to today's cached weather (legacy)
+      const todayStr = new Date().toISOString().split('T')[0];
+      const weatherData = await c.env.KV.get(`weather:trip:${tripId}:${todayStr}`, 'json');
+      if (!weatherData) return c.json({ message: 'Weather data will be updated soon' }, 202);
+      return c.json(weatherData);
+    }
   } catch (error: any) { return c.json({ error: error.message }, 500); }
 });
 
@@ -299,7 +319,7 @@ app.post('/api/trips/:id/weather/sync', async (c) => {
 app.get('/api/trips/:id/flights', async (c) => {
   const tripId = c.req.param('id');
   try {
-    const { results } = await c.env.DB.prepare('SELECT * FROM Flights WHERE trip_id = ? ORDER BY date, departure_time').bind(tripId).all();
+    const { results } = await c.env.DB.prepare('SELECT * FROM Flights WHERE trip_id = ? ORDER BY departure_date, departure_time').bind(tripId).all();
     return c.json(results);
   } catch (error: any) { return c.json({ error: error.message }, 500); }
 });
@@ -310,9 +330,9 @@ app.post('/api/trips/:id/flights', async (c) => {
     const b = await c.req.json();
     const id = crypto.randomUUID();
     await c.env.DB.prepare(`
-      INSERT INTO Flights (id, trip_id, date, flight_number, departure_airport, arrival_airport, departure_time, arrival_time)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-    `).bind(id, tripId, b.date, b.flight_number, b.departure_airport, b.arrival_airport, b.departure_time, b.arrival_time).run();
+      INSERT INTO Flights (id, trip_id, airline, flight_number, departure_date, departure_time, departure_airport, departure_terminal, arrival_date, arrival_time, arrival_airport, arrival_terminal, notes)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).bind(id, tripId, b.airline, b.flight_number, b.departure_date, b.departure_time, b.departure_airport, b.departure_terminal, b.arrival_date, b.arrival_time, b.arrival_airport, b.arrival_terminal, b.notes).run();
     return c.json({ success: true, id });
   } catch (error: any) { return c.json({ error: error.message }, 500); }
 });

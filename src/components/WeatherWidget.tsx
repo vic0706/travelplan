@@ -1,9 +1,11 @@
 import React, { useEffect, useState } from 'react';
 import { Cloud, CloudDrizzle, CloudFog, CloudLightning, CloudRain, CloudSnow, Sun, Loader2 } from 'lucide-react';
 import { apiFetch } from '../utils/api';
+import { format } from 'date-fns';
 
 interface WeatherWidgetProps {
   tripId: number;
+  date: Date;
 }
 
 interface WeatherData {
@@ -22,21 +24,26 @@ interface WeatherData {
   }[];
 }
 
-export function WeatherWidget({ tripId }: WeatherWidgetProps) {
+export function WeatherWidget({ tripId, date }: WeatherWidgetProps) {
   const [data, setData] = useState<WeatherData | null>(null);
   const [loading, setLoading] = useState(true);
   const [message, setMessage] = useState<string | null>(null);
+  const [isExpanded, setIsExpanded] = useState(false);
 
   useEffect(() => {
     const fetchWeather = async () => {
+      setLoading(true);
       try {
-        const res = await apiFetch(`/api/trips/${tripId}/weather`);
-        if (res.status === 202) {
+        const dateStr = format(date, 'yyyy-MM-dd');
+        const res = await apiFetch(`/api/trips/${tripId}/weather?date=${dateStr}`);
+        if (res.status === 202 || res.status === 404) {
           const json = await res.json() as { message: string };
           setMessage(json.message);
+          setData(null);
         } else if (res.ok) {
           const json = await res.json() as WeatherData;
           setData(json);
+          setMessage(null);
         }
       } catch (err) {
         console.error('Failed to fetch weather', err);
@@ -46,7 +53,7 @@ export function WeatherWidget({ tripId }: WeatherWidgetProps) {
     };
 
     fetchWeather();
-  }, [tripId]);
+  }, [tripId, date]);
 
   const getWeatherIcon = (code: number | null, size = 24) => {
     if (code === null) return <Cloud size={size} className="text-zinc-500" />;
@@ -61,52 +68,58 @@ export function WeatherWidget({ tripId }: WeatherWidgetProps) {
 
   if (loading) {
     return (
-      <div className="bg-zinc-900 border border-zinc-800 rounded-3xl p-5 flex items-center justify-center shadow-lg h-[104px]">
+      <div className="bg-zinc-900 border border-zinc-800 rounded-3xl p-5 flex items-center justify-center shadow-lg h-[80px]">
         <Loader2 className="w-6 h-6 text-orange-500 animate-spin" />
       </div>
     );
   }
 
-  if (message) {
+  if (message || !data || data.intervals.length === 0) {
     return (
-      <div className="bg-zinc-900 border border-zinc-800 rounded-3xl p-5 flex items-center justify-center shadow-lg h-[104px]">
-        <p className="text-sm text-zinc-400">{message}</p>
+      <div className="bg-zinc-900 border border-zinc-800 rounded-3xl p-5 flex items-center justify-center shadow-lg h-[80px]">
+        <p className="text-sm text-zinc-400">{message || 'No weather data'}</p>
       </div>
     );
   }
 
-  if (!data || data.intervals.length === 0) {
-    return null;
-  }
-
   return (
-    <div className="bg-zinc-900 border border-zinc-800 rounded-3xl p-5 shadow-lg">
-      <div className="flex items-center justify-between mb-4">
-        <div>
-          <h4 className="text-white font-medium">Today's Weather</h4>
-          {data.summary && (
-            <p className="text-xs text-zinc-400 mt-0.5">
-              H: {data.summary.max_temp}° L: {data.summary.min_temp}°
-            </p>
-          )}
+    <div className="bg-zinc-900 border border-zinc-800 rounded-3xl p-5 shadow-lg transition-all duration-300">
+      <div 
+        className="flex items-center justify-between cursor-pointer"
+        onClick={() => setIsExpanded(!isExpanded)}
+      >
+        <div className="flex items-center gap-3">
+          {data.summary && getWeatherIcon(data.summary.weather_code, 32)}
+          <div>
+            <h4 className="text-white font-medium text-sm">Weather Forecast</h4>
+            {data.summary && (
+              <p className="text-xs text-zinc-400">
+                H: {data.summary.max_temp}° L: {data.summary.min_temp}°
+              </p>
+            )}
+          </div>
         </div>
-        {data.summary && getWeatherIcon(data.summary.weather_code, 28)}
+        <div className="text-xs text-orange-500 font-medium">
+          {isExpanded ? 'Collapse' : 'Expand'}
+        </div>
       </div>
 
-      <div className="grid grid-cols-4 gap-2">
-        {data.intervals.map((interval, idx) => (
-          <div key={idx} className="flex flex-col items-center bg-zinc-950/50 rounded-2xl py-3 px-1 border border-zinc-800/50">
-            <span className="text-[10px] font-medium text-zinc-500 mb-2">{interval.time}</span>
-            {getWeatherIcon(interval.code, 20)}
-            <span className="text-sm font-semibold text-white mt-2">
-              {interval.temp !== null ? `${interval.temp}°` : '--'}
-            </span>
-            <span className="text-[9px] font-medium text-orange-500/80 mt-1 truncate w-full text-center px-1">
-              {interval.city}
-            </span>
-          </div>
-        ))}
-      </div>
+      {isExpanded && (
+        <div className="grid grid-cols-4 gap-2 mt-4 pt-4 border-t border-zinc-800">
+          {data.intervals.map((interval, idx) => (
+            <div key={idx} className="flex flex-col items-center bg-zinc-950/50 rounded-2xl py-3 px-1 border border-zinc-800/50">
+              <span className="text-[10px] font-medium text-zinc-500 mb-2">{interval.time}</span>
+              {getWeatherIcon(interval.code, 20)}
+              <span className="text-sm font-semibold text-white mt-2">
+                {interval.temp !== null ? `${interval.temp}°` : '--'}
+              </span>
+              <span className="text-[9px] font-medium text-orange-500/80 mt-1 truncate w-full text-center px-1">
+                {interval.city}
+              </span>
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   );
 }

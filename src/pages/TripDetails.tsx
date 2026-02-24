@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useAppStore } from '../store';
 import { format, parseISO, addDays, differenceInDays, isSameDay, isPast } from 'date-fns';
-import { MapPin, Clock, Plus, Navigation, DollarSign, Plane, Bed, Map, Info, Wallet, ArrowLeft, Calendar, X, Settings } from 'lucide-react';
+import { MapPin, Clock, Plus, Navigation, DollarSign, Plane, Bed, Map, Info, Wallet, ArrowLeft, Calendar, X, Settings, Edit3 } from 'lucide-react';
 import { Trip, Itinerary, Expense, User } from '../types';
 import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip } from 'recharts';
 import { clsx } from 'clsx';
@@ -13,6 +13,8 @@ import { FinanceForm } from '../components/FinanceForm';
 import { ItineraryForm } from '../components/ItineraryForm';
 import { TripSettingsForm } from '../components/TripSettingsForm';
 import { WeatherWidget } from '../components/WeatherWidget';
+import { FlightForm } from '../components/FlightForm';
+import { AccommodationForm } from '../components/AccommodationForm';
 import { motion, AnimatePresence } from 'framer-motion';
 
 export function TripDetails() {
@@ -31,8 +33,13 @@ export function TripDetails() {
   const [activeTab, setActiveTab] = useState<'itinerary' | 'info' | 'finance' | 'settings'>('itinerary');
   const [selectedDate, setSelectedDate] = useState<Date>(new Date());
   const [isLoading, setIsLoading] = useState(false);
+  
   const [isFinanceFormOpen, setIsFinanceFormOpen] = useState(false);
   const [isItineraryFormOpen, setIsItineraryFormOpen] = useState(false);
+  const [isFlightFormOpen, setIsFlightFormOpen] = useState(false);
+  const [isAccommodationFormOpen, setIsAccommodationFormOpen] = useState(false);
+  
+  const [editingExpense, setEditingExpense] = useState<Expense | null>(null);
 
   const safeParse = (dateStr: any) => {
     if (!dateStr || typeof dateStr !== 'string') return null;
@@ -188,6 +195,8 @@ export function TripDetails() {
     return acc;
   }, [] as { name: string, value: number }[]);
 
+  const totalExpenses = expenses.reduce((sum, curr) => sum + curr.amount, 0);
+
   const COLORS = ['#f97316', '#fb923c', '#fdba74', '#ffedd5'];
 
   const getUserNameById = (userId: number) => {
@@ -258,7 +267,7 @@ export function TripDetails() {
         {activeTab === 'itinerary' && (
           <div className="space-y-6">
             {/* Weather Widget */}
-            {id && <WeatherWidget tripId={Number(id)} />}
+            {id && <WeatherWidget tripId={Number(id)} date={selectedDate} />}
 
             {/* Itinerary Cards */}
             <div className="space-y-4">
@@ -361,22 +370,36 @@ export function TripDetails() {
             </div>
 
             <div className="space-y-4">
-              <h4 className="text-zinc-500 text-xs font-bold uppercase tracking-widest px-2">Flight Details</h4>
+              <div className="flex items-center justify-between px-2">
+                 <h4 className="text-zinc-500 text-xs font-bold uppercase tracking-widest">Flight Details</h4>
+                 <button onClick={() => setIsFlightFormOpen(true)} className="text-orange-500 hover:text-orange-400">
+                   <Plus size={18} />
+                 </button>
+              </div>
               {flights.length > 0 ? (
                 flights.map(flight => (
-                  <div key={flight.id} className="bg-zinc-900 border border-zinc-800 rounded-3xl p-5 shadow-lg flex items-center gap-4">
-                    <div className="w-12 h-12 rounded-full bg-orange-500/10 flex items-center justify-center shrink-0">
-                      <Plane className="text-orange-500" size={24} />
-                    </div>
-                    <div className="flex-1">
-                      <div className="flex justify-between items-start">
-                        <h4 className="text-white font-medium">{flight.flight_number}</h4>
-                        <span className="text-[10px] text-zinc-500 font-bold uppercase tracking-wider">{format(parseISO(flight.date), 'MMM d')}</span>
+                  <div key={flight.id} className="bg-zinc-900 border border-zinc-800 rounded-3xl p-5 shadow-lg flex flex-col gap-3">
+                    <div className="flex items-center gap-4">
+                      <div className="w-12 h-12 rounded-full bg-orange-500/10 flex items-center justify-center shrink-0">
+                        <Plane className="text-orange-500" size={24} />
                       </div>
-                      <p className="text-sm text-zinc-400 mt-1">
-                        {flight.departure_airport} ({flight.departure_time}) → {flight.arrival_airport} ({flight.arrival_time})
-                      </p>
+                      <div className="flex-1">
+                        <div className="flex justify-between items-start">
+                          <h4 className="text-white font-medium">{flight.airline} {flight.flight_number}</h4>
+                          <span className="text-[10px] text-zinc-500 font-bold uppercase tracking-wider">{format(parseISO(flight.departure_date), 'MMM d')}</span>
+                        </div>
+                        <p className="text-sm text-zinc-400 mt-1">
+                          {flight.departure_airport} ({flight.departure_time}) → {flight.arrival_airport} ({flight.arrival_time})
+                        </p>
+                      </div>
                     </div>
+                    {(flight.departure_terminal || flight.arrival_terminal || flight.notes) && (
+                      <div className="bg-zinc-950/50 rounded-xl p-3 text-xs text-zinc-400 space-y-1">
+                        {flight.departure_terminal && <div>Dep Terminal: {flight.departure_terminal}</div>}
+                        {flight.arrival_terminal && <div>Arr Terminal: {flight.arrival_terminal}</div>}
+                        {flight.notes && <div className="italic mt-1">"{flight.notes}"</div>}
+                      </div>
+                    )}
                   </div>
                 ))
               ) : (
@@ -385,25 +408,37 @@ export function TripDetails() {
                 </div>
               )}
 
-              <h4 className="text-zinc-500 text-xs font-bold uppercase tracking-widest px-2 mt-6">Accommodation</h4>
+              <div className="flex items-center justify-between px-2 mt-6">
+                <h4 className="text-zinc-500 text-xs font-bold uppercase tracking-widest">Accommodation</h4>
+                <button onClick={() => setIsAccommodationFormOpen(true)} className="text-orange-500 hover:text-orange-400">
+                   <Plus size={18} />
+                 </button>
+              </div>
               {accommodations.length > 0 ? (
                 accommodations.map(acc => (
-                  <div key={acc.id} className="bg-zinc-900 border border-zinc-800 rounded-3xl p-5 shadow-lg flex items-center gap-4">
-                    <div className="w-12 h-12 rounded-full bg-orange-500/10 flex items-center justify-center shrink-0">
-                      <Bed className="text-orange-500" size={24} />
-                    </div>
-                    <div className="flex-1">
-                      <h4 className="text-white font-medium">{acc.name}</h4>
-                      <p className="text-sm text-zinc-400 mt-1">{acc.address}</p>
-                      <div className="flex gap-4 mt-2">
-                        <div className="text-[10px] text-zinc-500 font-bold uppercase tracking-wider">
-                          In: {format(parseISO(acc.check_in_date), 'MMM d')}
-                        </div>
-                        <div className="text-[10px] text-zinc-500 font-bold uppercase tracking-wider">
-                          Out: {format(parseISO(acc.check_out_date), 'MMM d')}
+                  <div key={acc.id} className="bg-zinc-900 border border-zinc-800 rounded-3xl p-5 shadow-lg flex flex-col gap-3">
+                    <div className="flex items-center gap-4">
+                      <div className="w-12 h-12 rounded-full bg-orange-500/10 flex items-center justify-center shrink-0">
+                        <Bed className="text-orange-500" size={24} />
+                      </div>
+                      <div className="flex-1">
+                        <h4 className="text-white font-medium">{acc.name}</h4>
+                        <p className="text-sm text-zinc-400 mt-1">{acc.address}</p>
+                        <div className="flex gap-4 mt-2">
+                          <div className="text-[10px] text-zinc-500 font-bold uppercase tracking-wider">
+                            In: {format(parseISO(acc.check_in_date), 'MMM d')}
+                          </div>
+                          <div className="text-[10px] text-zinc-500 font-bold uppercase tracking-wider">
+                            Out: {format(parseISO(acc.check_out_date), 'MMM d')}
+                          </div>
                         </div>
                       </div>
                     </div>
+                    {acc.notes && (
+                       <div className="bg-zinc-950/50 rounded-xl p-3 text-xs text-zinc-400 italic">
+                         "{acc.notes}"
+                       </div>
+                    )}
                   </div>
                 ))
               ) : (
@@ -417,9 +452,23 @@ export function TripDetails() {
 
         {activeTab === 'finance' && (
           <div className="space-y-4">
+            <div className="bg-zinc-900 border border-zinc-800 rounded-3xl p-6 shadow-lg mb-4">
+               <div className="text-zinc-500 text-xs font-bold uppercase tracking-widest mb-1">Total Expenses</div>
+               <div className="text-3xl font-bold text-white">
+                 {trip.currencies?.[0] || 'TWD'} {totalExpenses.toLocaleString()}
+               </div>
+            </div>
+
             {filteredExpenses.length > 0 ? (
               filteredExpenses.map(expense => (
-                <div key={expense.id} className="bg-zinc-900 border border-zinc-800 rounded-3xl p-5 shadow-lg flex items-center justify-between">
+                <div 
+                  key={expense.id} 
+                  onClick={() => {
+                    setEditingExpense(expense);
+                    setIsFinanceFormOpen(true);
+                  }}
+                  className="bg-zinc-900 border border-zinc-800 rounded-3xl p-5 shadow-lg flex items-center justify-between cursor-pointer hover:bg-zinc-800/50 transition-colors"
+                >
                   <div className="flex items-center gap-4">
                     <div className="w-12 h-12 rounded-full bg-zinc-800 flex items-center justify-center shrink-0">
                       <DollarSign className="text-zinc-400" size={20} />
@@ -443,7 +492,10 @@ export function TripDetails() {
 
             {user?.role !== 'Guest' && (
               <button 
-                onClick={() => setIsFinanceFormOpen(true)}
+                onClick={() => {
+                  setEditingExpense(null);
+                  setIsFinanceFormOpen(true);
+                }}
                 className="w-full mt-6 py-4 border-2 border-dashed border-zinc-800 rounded-3xl flex items-center justify-center gap-2 text-zinc-500 hover:text-orange-500 hover:border-orange-500/50 hover:bg-orange-500/5 transition-all"
               >
                 <Plus size={20} />
@@ -535,6 +587,9 @@ export function TripDetails() {
             >
               <FinanceForm 
                 tripId={id} 
+                defaultDate={format(selectedDate, 'yyyy-MM-dd')}
+                currencies={trip.currencies || ['TWD']}
+                initialData={editingExpense}
                 onSuccess={() => {
                   setIsFinanceFormOpen(false);
                   // Refresh expenses
@@ -578,6 +633,70 @@ export function TripDetails() {
                     .then(data => db.itineraries.bulkPut(data));
                 }} 
                 onCancel={() => setIsItineraryFormOpen(false)} 
+              />
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      {/* Flight Form Modal */}
+      <AnimatePresence>
+        {isFlightFormOpen && id && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              onClick={() => setIsFlightFormOpen(false)}
+              className="absolute inset-0 bg-black/80 backdrop-blur-sm"
+            />
+            <motion.div
+              initial={{ scale: 0.95, opacity: 0, y: 20 }}
+              animate={{ scale: 1, opacity: 1, y: 0 }}
+              exit={{ scale: 0.95, opacity: 0, y: 20 }}
+              className="relative w-full max-w-md z-10"
+            >
+              <FlightForm 
+                tripId={Number(id)} 
+                onSuccess={() => {
+                  setIsFlightFormOpen(false);
+                  apiFetch(`/api/trips/${id}/flights`)
+                    .then(res => res.json())
+                    .then(data => db.flights.bulkPut(data));
+                }} 
+                onCancel={() => setIsFlightFormOpen(false)} 
+              />
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      {/* Accommodation Form Modal */}
+      <AnimatePresence>
+        {isAccommodationFormOpen && id && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              onClick={() => setIsAccommodationFormOpen(false)}
+              className="absolute inset-0 bg-black/80 backdrop-blur-sm"
+            />
+            <motion.div
+              initial={{ scale: 0.95, opacity: 0, y: 20 }}
+              animate={{ scale: 1, opacity: 1, y: 0 }}
+              exit={{ scale: 0.95, opacity: 0, y: 20 }}
+              className="relative w-full max-w-md z-10"
+            >
+              <AccommodationForm 
+                tripId={Number(id)} 
+                onSuccess={() => {
+                  setIsAccommodationFormOpen(false);
+                  apiFetch(`/api/trips/${id}/accommodations`)
+                    .then(res => res.json())
+                    .then(data => db.accommodations.bulkPut(data));
+                }} 
+                onCancel={() => setIsAccommodationFormOpen(false)} 
               />
             </motion.div>
           </div>

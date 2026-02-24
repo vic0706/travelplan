@@ -1,11 +1,9 @@
 import React, { useState, useEffect } from 'react';
 import { useAppStore, User } from '../store';
-import { X, Calendar, Upload, Loader2, User as UserIcon, Check, CloudLightning, Plane, Bed, Plus, Trash2 } from 'lucide-react';
+import { X, Calendar, Upload, Loader2, User as UserIcon, Check, CloudLightning, Plus, Trash2 } from 'lucide-react';
 import { apiFetch } from '../utils/api';
 import { createClient } from '@supabase/supabase-js';
-import { Trip, Flight, Accommodation } from '../types';
-import { db } from '../db';
-import { format, parseISO } from 'date-fns';
+import { Trip } from '../types';
 
 const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
 const supabaseKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
@@ -16,6 +14,8 @@ interface TripSettingsFormProps {
   onSuccess: () => void;
 }
 
+const COMMON_CURRENCIES = ['TWD', 'USD', 'JPY', 'EUR', 'GBP', 'AUD', 'CAD', 'CNY', 'HKD', 'KRW'];
+
 export function TripSettingsForm({ trip, onSuccess }: TripSettingsFormProps) {
   const { cities } = useAppStore();
   const [loading, setLoading] = useState(false);
@@ -25,25 +25,8 @@ export function TripSettingsForm({ trip, onSuccess }: TripSettingsFormProps) {
   const [users, setUsers] = useState<User[]>([]);
   const [selectedMembers, setSelectedMembers] = useState<number[]>([]);
   
-  const [flights, setFlights] = useState<Flight[]>([]);
-  const [accommodations, setAccommodations] = useState<Accommodation[]>([]);
-  
-  const [newFlight, setNewFlight] = useState({
-    date: '',
-    flight_number: '',
-    departure_airport: '',
-    arrival_airport: '',
-    departure_time: '',
-    arrival_time: ''
-  });
-  
-  const [newAcc, setNewAcc] = useState({
-    name: '',
-    address: '',
-    check_in_date: '',
-    check_out_date: '',
-    notes: ''
-  });
+  const [selectedCountry, setSelectedCountry] = useState('');
+  const [currencyInput, setCurrencyInput] = useState('');
 
   const [formData, setFormData] = useState({
     title: trip.title,
@@ -55,20 +38,21 @@ export function TripSettingsForm({ trip, onSuccess }: TripSettingsFormProps) {
     currencies: trip.currencies || ['TWD']
   });
 
+  // Group cities by country
   const groupedCities = cities.reduce((acc, city) => {
     if (!acc[city.country]) acc[city.country] = [];
     acc[city.country].push(city);
     return acc;
   }, {} as Record<string, typeof cities>);
 
+  const countries = Object.keys(groupedCities).sort();
+
   useEffect(() => {
     const fetchData = async () => {
       try {
-        const [usersRes, membersRes, flightsRes, accRes] = await Promise.all([
+        const [usersRes, membersRes] = await Promise.all([
           apiFetch('/api/users'),
-          apiFetch(`/api/trips/${trip.id}/members`),
-          apiFetch(`/api/trips/${trip.id}/flights`),
-          apiFetch(`/api/trips/${trip.id}/accommodations`)
+          apiFetch(`/api/trips/${trip.id}/members`)
         ]);
         
         if (usersRes.ok) setUsers(await usersRes.json() as User[]);
@@ -76,48 +60,18 @@ export function TripSettingsForm({ trip, onSuccess }: TripSettingsFormProps) {
           const data = await membersRes.json() as { id: number }[];
           setSelectedMembers(data.map((m) => m.id));
         }
-        if (flightsRes.ok) setFlights(await flightsRes.json() as Flight[]);
-        if (accRes.ok) setAccommodations(await accRes.json() as Accommodation[]);
+
+        // Set initial selected country based on default city
+        if (trip.default_city_id) {
+          const city = cities.find(c => c.id === trip.default_city_id);
+          if (city) setSelectedCountry(city.country);
+        }
       } catch (err) {
         console.error('Failed to fetch data', err);
       }
     };
     fetchData();
-  }, [trip.id]);
-
-  const handleAddFlight = async () => {
-    if (!newFlight.flight_number || !newFlight.date) return;
-    try {
-      const res = await apiFetch(`/api/trips/${trip.id}/flights`, {
-        method: 'POST',
-        body: JSON.stringify(newFlight)
-      });
-      if (res.ok) {
-        const data = await res.json() as { id: string };
-        const flight = { ...newFlight, id: data.id, trip_id: trip.id };
-        setFlights([...flights, flight]);
-        await db.flights.put(flight);
-        setNewFlight({ date: '', flight_number: '', departure_airport: '', arrival_airport: '', departure_time: '', arrival_time: '' });
-      }
-    } catch (err) { console.error(err); }
-  };
-
-  const handleAddAcc = async () => {
-    if (!newAcc.name || !newAcc.check_in_date) return;
-    try {
-      const res = await apiFetch(`/api/trips/${trip.id}/accommodations`, {
-        method: 'POST',
-        body: JSON.stringify(newAcc)
-      });
-      if (res.ok) {
-        const data = await res.json() as { id: string };
-        const acc = { ...newAcc, id: data.id, trip_id: trip.id };
-        setAccommodations([...accommodations, acc]);
-        await db.accommodations.put(acc);
-        setNewAcc({ name: '', address: '', check_in_date: '', check_out_date: '', notes: '' });
-      }
-    } catch (err) { console.error(err); }
-  };
+  }, [trip.id, cities, trip.default_city_id]);
 
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     if (!e.target.files || e.target.files.length === 0) return;
@@ -156,6 +110,19 @@ export function TripSettingsForm({ trip, onSuccess }: TripSettingsFormProps) {
     setSelectedMembers(prev => 
       prev.includes(userId) ? prev.filter(id => id !== userId) : [...prev, userId]
     );
+  };
+
+  const handleAddCurrency = () => {
+    if (!currencyInput) return;
+    const code = currencyInput.toUpperCase();
+    if (!formData.currencies.includes(code)) {
+      setFormData(prev => ({ ...prev, currencies: [...prev.currencies, code] }));
+    }
+    setCurrencyInput('');
+  };
+
+  const removeCurrency = (code: string) => {
+    setFormData(prev => ({ ...prev, currencies: prev.currencies.filter(c => c !== code) }));
   };
 
   const handleSyncWeather = async () => {
@@ -224,23 +191,41 @@ export function TripSettingsForm({ trip, onSuccess }: TripSettingsFormProps) {
         />
       </div>
 
-      <div>
-        <label className="block text-sm font-medium text-zinc-400 mb-1">Primary City</label>
-        <select
-          required
-          value={formData.default_city_id}
-          onChange={e => setFormData({ ...formData, default_city_id: e.target.value })}
-          className="w-full bg-zinc-800 border border-zinc-700 rounded-xl px-4 py-3 text-white focus:outline-none focus:ring-2 focus:ring-orange-500"
-        >
-          <option value="" disabled>Select a city</option>
-          {Object.entries(groupedCities).map(([country, countryCities]) => (
-            <optgroup key={country} label={country}>
-              {countryCities.map(city => (
+      <div className="space-y-3">
+        <label className="block text-sm font-medium text-zinc-400">Primary City</label>
+        <div className="grid grid-cols-2 gap-4">
+          <div>
+            <label className="text-xs text-zinc-500 mb-1 block">Country</label>
+            <select
+              value={selectedCountry}
+              onChange={e => {
+                setSelectedCountry(e.target.value);
+                setFormData(prev => ({ ...prev, default_city_id: '' }));
+              }}
+              className="w-full bg-zinc-800 border border-zinc-700 rounded-xl px-4 py-3 text-white focus:outline-none focus:ring-2 focus:ring-orange-500"
+            >
+              <option value="" disabled>Select Country</option>
+              {countries.map(country => (
+                <option key={country} value={country}>{country}</option>
+              ))}
+            </select>
+          </div>
+          <div>
+            <label className="text-xs text-zinc-500 mb-1 block">City</label>
+            <select
+              required
+              value={formData.default_city_id}
+              onChange={e => setFormData({ ...formData, default_city_id: e.target.value })}
+              disabled={!selectedCountry}
+              className="w-full bg-zinc-800 border border-zinc-700 rounded-xl px-4 py-3 text-white focus:outline-none focus:ring-2 focus:ring-orange-500 disabled:opacity-50"
+            >
+              <option value="" disabled>Select City</option>
+              {selectedCountry && groupedCities[selectedCountry]?.map(city => (
                 <option key={city.id} value={city.id}>{city.name}</option>
               ))}
-            </optgroup>
-          ))}
-        </select>
+            </select>
+          </div>
+        </div>
       </div>
 
       <div className="grid grid-cols-2 gap-4">
@@ -273,15 +258,49 @@ export function TripSettingsForm({ trip, onSuccess }: TripSettingsFormProps) {
       </div>
 
       <div>
-        <label className="block text-sm font-medium text-zinc-400 mb-1">Currency</label>
-        <input
-          type="text"
-          required
-          value={formData.currencies[0] || ''}
-          onChange={e => setFormData({ ...formData, currencies: [e.target.value] })}
-          className="w-full bg-zinc-800 border border-zinc-700 rounded-xl px-4 py-3 text-white focus:outline-none focus:ring-2 focus:ring-orange-500"
-          placeholder="e.g., TWD"
-        />
+        <label className="block text-sm font-medium text-zinc-400 mb-2">Currencies</label>
+        <div className="flex flex-wrap gap-2 mb-3">
+          {formData.currencies.map(currency => (
+            <div key={currency} className="bg-orange-500/20 border border-orange-500/50 text-orange-400 rounded-lg px-3 py-1 flex items-center gap-2">
+              <span className="font-bold text-sm">{currency}</span>
+              <button type="button" onClick={() => removeCurrency(currency)} className="hover:text-white">
+                <X size={14} />
+              </button>
+            </div>
+          ))}
+        </div>
+        <div className="flex gap-2">
+          <input
+            type="text"
+            value={currencyInput}
+            onChange={e => setCurrencyInput(e.target.value.toUpperCase())}
+            onKeyDown={e => e.key === 'Enter' && (e.preventDefault(), handleAddCurrency())}
+            className="flex-1 bg-zinc-800 border border-zinc-700 rounded-xl px-4 py-3 text-white focus:outline-none focus:ring-2 focus:ring-orange-500"
+            placeholder="Add currency (e.g. USD)"
+            maxLength={3}
+          />
+          <button
+            type="button"
+            onClick={handleAddCurrency}
+            className="bg-zinc-800 hover:bg-zinc-700 text-white rounded-xl px-4 border border-zinc-700"
+          >
+            <Plus size={20} />
+          </button>
+        </div>
+        <div className="mt-2 flex flex-wrap gap-2">
+          {COMMON_CURRENCIES.map(c => (
+            !formData.currencies.includes(c) && (
+              <button
+                key={c}
+                type="button"
+                onClick={() => setFormData(prev => ({ ...prev, currencies: [...prev.currencies, c] }))}
+                className="text-xs bg-zinc-900 border border-zinc-800 text-zinc-500 hover:text-zinc-300 hover:border-zinc-600 px-2 py-1 rounded-md transition-colors"
+              >
+                + {c}
+              </button>
+            )
+          ))}
+        </div>
       </div>
 
       <div>
@@ -319,137 +338,6 @@ export function TripSettingsForm({ trip, onSuccess }: TripSettingsFormProps) {
               </span>
             </button>
           ))}
-        </div>
-      </div>
-
-      <div className="space-y-4 pt-4 border-t border-zinc-800">
-        <h3 className="text-sm font-bold text-zinc-500 uppercase tracking-widest flex items-center gap-2">
-          <Plane size={16} /> Flight Details
-        </h3>
-        <div className="space-y-3">
-          {flights.map(f => (
-            <div key={f.id} className="bg-zinc-800/50 border border-zinc-700 rounded-xl p-3 flex justify-between items-center">
-              <div>
-                <div className="text-white font-medium">{f.flight_number}</div>
-                <div className="text-xs text-zinc-500">{f.departure_airport} → {f.arrival_airport}</div>
-              </div>
-              <div className="text-xs text-zinc-400">{f.date}</div>
-            </div>
-          ))}
-          <div className="bg-zinc-800 border border-zinc-700 rounded-xl p-4 space-y-3">
-            <div className="grid grid-cols-2 gap-2">
-              <input
-                type="text"
-                placeholder="Flight #"
-                value={newFlight.flight_number}
-                onChange={e => setNewFlight({...newFlight, flight_number: e.target.value})}
-                className="bg-zinc-900 border border-zinc-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none"
-              />
-              <input
-                type="date"
-                value={newFlight.date}
-                onChange={e => setNewFlight({...newFlight, date: e.target.value})}
-                className="bg-zinc-900 border border-zinc-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none [color-scheme:dark]"
-              />
-            </div>
-            <div className="grid grid-cols-2 gap-2">
-              <input
-                type="text"
-                placeholder="Dep Airport"
-                value={newFlight.departure_airport}
-                onChange={e => setNewFlight({...newFlight, departure_airport: e.target.value})}
-                className="bg-zinc-900 border border-zinc-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none"
-              />
-              <input
-                type="text"
-                placeholder="Arr Airport"
-                value={newFlight.arrival_airport}
-                onChange={e => setNewFlight({...newFlight, arrival_airport: e.target.value})}
-                className="bg-zinc-900 border border-zinc-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none"
-              />
-            </div>
-            <div className="grid grid-cols-2 gap-2">
-              <input
-                type="time"
-                value={newFlight.departure_time}
-                onChange={e => setNewFlight({...newFlight, departure_time: e.target.value})}
-                className="bg-zinc-900 border border-zinc-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none [color-scheme:dark]"
-              />
-              <input
-                type="time"
-                value={newFlight.arrival_time}
-                onChange={e => setNewFlight({...newFlight, arrival_time: e.target.value})}
-                className="bg-zinc-900 border border-zinc-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none [color-scheme:dark]"
-              />
-            </div>
-            <button
-              type="button"
-              onClick={handleAddFlight}
-              className="w-full py-2 bg-zinc-700 hover:bg-zinc-600 text-white rounded-lg text-sm font-medium transition-colors flex items-center justify-center gap-2"
-            >
-              <Plus size={14} /> Add Flight
-            </button>
-          </div>
-        </div>
-      </div>
-
-      <div className="space-y-4 pt-4 border-t border-zinc-800">
-        <h3 className="text-sm font-bold text-zinc-500 uppercase tracking-widest flex items-center gap-2">
-          <Bed size={16} /> Accommodation
-        </h3>
-        <div className="space-y-3">
-          {accommodations.map(a => (
-            <div key={a.id} className="bg-zinc-800/50 border border-zinc-700 rounded-xl p-3 flex justify-between items-center">
-              <div>
-                <div className="text-white font-medium">{a.name}</div>
-                <div className="text-xs text-zinc-500">{a.address}</div>
-              </div>
-              <div className="text-xs text-zinc-400">{a.check_in_date}</div>
-            </div>
-          ))}
-          <div className="bg-zinc-800 border border-zinc-700 rounded-xl p-4 space-y-3">
-            <input
-              type="text"
-              placeholder="Hotel Name"
-              value={newAcc.name}
-              onChange={e => setNewAcc({...newAcc, name: e.target.value})}
-              className="w-full bg-zinc-900 border border-zinc-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none"
-            />
-            <input
-              type="text"
-              placeholder="Address"
-              value={newAcc.address}
-              onChange={e => setNewAcc({...newAcc, address: e.target.value})}
-              className="w-full bg-zinc-900 border border-zinc-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none"
-            />
-            <div className="grid grid-cols-2 gap-2">
-              <div className="space-y-1">
-                <label className="text-[10px] text-zinc-500 uppercase">Check In</label>
-                <input
-                  type="date"
-                  value={newAcc.check_in_date}
-                  onChange={e => setNewAcc({...newAcc, check_in_date: e.target.value})}
-                  className="w-full bg-zinc-900 border border-zinc-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none [color-scheme:dark]"
-                />
-              </div>
-              <div className="space-y-1">
-                <label className="text-[10px] text-zinc-500 uppercase">Check Out</label>
-                <input
-                  type="date"
-                  value={newAcc.check_out_date}
-                  onChange={e => setNewAcc({...newAcc, check_out_date: e.target.value})}
-                  className="w-full bg-zinc-900 border border-zinc-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none [color-scheme:dark]"
-                />
-              </div>
-            </div>
-            <button
-              type="button"
-              onClick={handleAddAcc}
-              className="w-full py-2 bg-zinc-700 hover:bg-zinc-600 text-white rounded-lg text-sm font-medium transition-colors flex items-center justify-center gap-2"
-            >
-              <Plus size={14} /> Add Accommodation
-            </button>
-          </div>
         </div>
       </div>
 
