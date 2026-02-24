@@ -1,5 +1,6 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
+import { City } from './types';
 
 export type Role = 'Guest' | 'Member' | 'Admin';
 
@@ -14,12 +15,14 @@ export interface User {
 interface AppState {
   user: User | null;
   token: string | null;
+  cities: City[];
   isLoginModalOpen: boolean;
   isUserMenuOpen: boolean;
   isCreateTripModalOpen: boolean;
   
   login: (user: User, token: string) => void;
   logout: () => void;
+  setCities: (cities: City[]) => void;
   setLoginModalOpen: (isOpen: boolean) => void;
   setUserMenuOpen: (isOpen: boolean) => void;
   setCreateTripModalOpen: (isOpen: boolean) => void;
@@ -30,12 +33,14 @@ export const useAppStore = create<AppState>()(
     (set) => ({
       user: null,
       token: null,
+      cities: [],
       isLoginModalOpen: false,
       isUserMenuOpen: false,
       isCreateTripModalOpen: false,
       
       login: (user, token) => set({ user, token }),
       logout: () => set({ user: null, token: null }),
+      setCities: (cities) => set({ cities }),
       setLoginModalOpen: (isOpen) => set({ isLoginModalOpen: isOpen }),
       setUserMenuOpen: (isOpen) => set({ isUserMenuOpen: isOpen }),
       setCreateTripModalOpen: (isOpen) => set({ isCreateTripModalOpen: isOpen }),

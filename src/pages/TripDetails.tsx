@@ -10,6 +10,8 @@ import { db } from '../db';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { getApiUrl, apiFetch } from '../utils/api';
 import { FinanceForm } from '../components/FinanceForm';
+import { ItineraryForm } from '../components/ItineraryForm';
+import { WeatherWidget } from '../components/WeatherWidget';
 import { motion, AnimatePresence } from 'framer-motion';
 
 export function TripDetails() {
@@ -27,6 +29,7 @@ export function TripDetails() {
   const [selectedDate, setSelectedDate] = useState<Date>(new Date());
   const [isLoading, setIsLoading] = useState(false);
   const [isFinanceFormOpen, setIsFinanceFormOpen] = useState(false);
+  const [isItineraryFormOpen, setIsItineraryFormOpen] = useState(false);
 
   const safeParse = (dateStr: any) => {
     if (!dateStr || typeof dateStr !== 'string') return null;
@@ -122,6 +125,13 @@ export function TripDetails() {
     }
   }, [trip?.start_date]);
 
+  const tripUsers = useLiveQuery(async () => {
+    if (!id) return [];
+    const members = await db.tripMembers.where('trip_id').equals(Number(id)).toArray();
+    const userIds = members.map(m => m.user_id);
+    return db.users.where('id').anyOf(userIds).toArray();
+  }, [id]);
+
   if (!trip) {
     return (
       <div className="flex items-center justify-center h-full min-h-[50vh]">
@@ -160,15 +170,6 @@ export function TripDetails() {
   }, [] as { name: string, value: number }[]);
 
   const COLORS = ['#f97316', '#fb923c', '#fdba74', '#ffedd5'];
-
-  // Better approach for user names:
-  // We can fetch all users involved in this trip.
-  const tripUsers = useLiveQuery(async () => {
-    if (!id) return [];
-    const members = await db.tripMembers.where('trip_id').equals(Number(id)).toArray();
-    const userIds = members.map(m => m.user_id);
-    return db.users.where('id').anyOf(userIds).toArray();
-  }, [id]);
 
   const getUserNameById = (userId: number) => {
     const u = tripUsers?.find(u => u.id === userId);
@@ -238,22 +239,7 @@ export function TripDetails() {
         {activeTab === 'itinerary' && (
           <div className="space-y-6">
             {/* Weather Widget */}
-            <div className="bg-zinc-900 border border-zinc-800 rounded-3xl p-5 flex items-center justify-between shadow-lg">
-              <div>
-                <h4 className="text-white font-medium mb-1">Weather Forecast</h4>
-                <p className="text-sm text-zinc-400">Tokyo, Japan</p>
-              </div>
-              <div className="flex gap-4">
-                <div className="text-center">
-                  <div className="text-2xl font-light text-white">18°</div>
-                  <div className="text-[10px] text-zinc-500 uppercase tracking-wider mt-1">High</div>
-                </div>
-                <div className="text-center">
-                  <div className="text-2xl font-light text-zinc-500">12°</div>
-                  <div className="text-[10px] text-zinc-500 uppercase tracking-wider mt-1">Low</div>
-                </div>
-              </div>
-            </div>
+            {id && <WeatherWidget tripId={Number(id)} />}
 
             {/* Itinerary Cards */}
             <div className="space-y-4">
@@ -274,9 +260,16 @@ export function TripDetails() {
                         )}
                         <div className="p-5">
                           <div className="flex items-center justify-between mb-3">
-                            <div className="flex items-center gap-2 text-orange-500 bg-orange-500/10 px-3 py-1 rounded-full">
-                              <Clock size={14} />
-                              <span className="text-xs font-bold tracking-wider">{item.start_time} - {item.end_time}</span>
+                            <div className="flex items-center gap-2">
+                              {item.city_name && (
+                                <span className="text-xs font-bold tracking-wider text-white bg-zinc-800 px-2 py-1 rounded-md border border-zinc-700">
+                                  [{item.city_name}]
+                                </span>
+                              )}
+                              <div className="flex items-center gap-2 text-orange-500 bg-orange-500/10 px-3 py-1 rounded-full">
+                                <Clock size={14} />
+                                <span className="text-xs font-bold tracking-wider">{item.start_time} - {item.end_time}</span>
+                              </div>
                             </div>
                             {item.tags && item.tags.map((tag: string) => (
                               <span key={tag} className="text-[10px] font-medium uppercase tracking-wider text-zinc-500 border border-zinc-700 px-2 py-0.5 rounded-full">
@@ -306,7 +299,10 @@ export function TripDetails() {
               )}
 
               {user?.role !== 'Guest' && (
-                <button className="w-full mt-6 py-4 border-2 border-dashed border-zinc-800 rounded-3xl flex items-center justify-center gap-2 text-zinc-500 hover:text-orange-500 hover:border-orange-500/50 hover:bg-orange-500/5 transition-all">
+                <button 
+                  onClick={() => setIsItineraryFormOpen(true)}
+                  className="w-full mt-6 py-4 border-2 border-dashed border-zinc-800 rounded-3xl flex items-center justify-center gap-2 text-zinc-500 hover:text-orange-500 hover:border-orange-500/50 hover:bg-orange-500/5 transition-all"
+                >
                   <Plus size={20} />
                   <span className="font-medium">Add Activity</span>
                 </button>
@@ -468,6 +464,41 @@ export function TripDetails() {
                     .then(data => db.expenses.bulkPut(data));
                 }} 
                 onCancel={() => setIsFinanceFormOpen(false)} 
+              />
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      {/* Itinerary Form Modal */}
+      <AnimatePresence>
+        {isItineraryFormOpen && id && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              onClick={() => setIsItineraryFormOpen(false)}
+              className="absolute inset-0 bg-black/80 backdrop-blur-sm"
+            />
+            <motion.div
+              initial={{ scale: 0.95, opacity: 0, y: 20 }}
+              animate={{ scale: 1, opacity: 1, y: 0 }}
+              exit={{ scale: 0.95, opacity: 0, y: 20 }}
+              className="relative w-full max-w-md z-10"
+            >
+              <ItineraryForm 
+                tripId={Number(id)} 
+                defaultCityId={trip.default_city_id}
+                date={format(selectedDate, 'yyyy-MM-dd')}
+                onSuccess={() => {
+                  setIsItineraryFormOpen(false);
+                  // Refresh itineraries
+                  apiFetch(`/api/trips/${id}/itineraries`)
+                    .then(res => res.json() as Promise<Itinerary[]>)
+                    .then(data => db.itineraries.bulkPut(data));
+                }} 
+                onCancel={() => setIsItineraryFormOpen(false)} 
               />
             </motion.div>
           </div>

@@ -14,7 +14,7 @@ import { useNavigate } from 'react-router-dom';
 
 export function CreateTripModal() {
   const navigate = useNavigate();
-  const { isCreateTripModalOpen, setCreateTripModalOpen } = useAppStore();
+  const { isCreateTripModalOpen, setCreateTripModalOpen, cities } = useAppStore();
   const [loading, setLoading] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [error, setError] = useState('');
@@ -26,8 +26,16 @@ export function CreateTripModal() {
     start_date: '',
     end_date: '',
     cover_image_url: '',
-    visible_status: 1
+    visible_status: 1,
+    default_city_id: ''
   });
+
+  // Group cities by country
+  const groupedCities = cities.reduce((acc, city) => {
+    if (!acc[city.country]) acc[city.country] = [];
+    acc[city.country].push(city);
+    return acc;
+  }, {} as Record<string, typeof cities>);
 
   useEffect(() => {
     if (isCreateTripModalOpen) {
@@ -166,6 +174,25 @@ export function CreateTripModal() {
                 className="w-full bg-zinc-800 border border-zinc-700 rounded-xl px-4 py-3 text-white focus:outline-none focus:ring-2 focus:ring-orange-500"
                 placeholder="e.g., Summer in Tokyo"
               />
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium text-zinc-400 mb-1">Primary City</label>
+              <select
+                required
+                value={formData.default_city_id}
+                onChange={e => setFormData({ ...formData, default_city_id: e.target.value })}
+                className="w-full bg-zinc-800 border border-zinc-700 rounded-xl px-4 py-3 text-white focus:outline-none focus:ring-2 focus:ring-orange-500"
+              >
+                <option value="" disabled>Select a city</option>
+                {Object.entries(groupedCities).map(([country, countryCities]) => (
+                  <optgroup key={country} label={country}>
+                    {countryCities.map(city => (
+                      <option key={city.id} value={city.id}>{city.name}</option>
+                    ))}
+                  </optgroup>
+                ))}
+              </select>
             </div>
 
             <div className="grid grid-cols-2 gap-4">

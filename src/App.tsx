@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useEffect } from 'react';
 import { BrowserRouter as Router, Routes, Route } from 'react-router-dom';
 import { TopAppBar } from './components/TopAppBar';
 import { OfflineStatusBar } from './components/OfflineStatusBar';
@@ -9,9 +9,26 @@ import { TripDetails } from './pages/TripDetails';
 import { AdminMembers } from './pages/AdminMembers';
 import { AdminSettings } from './pages/AdminSettings';
 import { useAppStore } from './store';
+import { apiFetch } from './utils/api';
+import { City } from './types';
 
 export default function App() {
-  const { isLoginModalOpen, setLoginModalOpen, isCreateTripModalOpen, setCreateTripModalOpen } = useAppStore();
+  const { isLoginModalOpen, setLoginModalOpen, isCreateTripModalOpen, setCreateTripModalOpen, setCities } = useAppStore();
+
+  useEffect(() => {
+    const fetchCities = async () => {
+      try {
+        const res = await apiFetch('/api/cities');
+        if (res.ok) {
+          const data = await res.json() as City[];
+          setCities(data);
+        }
+      } catch (err) {
+        console.error('Failed to fetch cities:', err);
+      }
+    };
+    fetchCities();
+  }, [setCities]);
 
   return (
     <Router>

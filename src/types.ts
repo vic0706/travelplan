@@ -8,6 +8,14 @@ export interface User {
   updated_at?: number;
 }
 
+export interface City {
+  id: number;
+  name: string;
+  country: string;
+  lat: number;
+  lng: number;
+}
+
 export interface Trip {
   id: number;
   title: string;
@@ -16,6 +24,7 @@ export interface Trip {
   end_date: string;
   currencies: string[]; // Parsed from JSON
   visible_status: number;
+  default_city_id?: number;
   created_at?: number;
   updated_at?: number;
   // Local cache fields
@@ -32,6 +41,8 @@ export interface TripMember {
 export interface Itinerary {
   id: number;
   trip_id: number;
+  city_id?: number;
+  city_name?: string;
   date: string;
   start_time: string;
   end_time: string;
