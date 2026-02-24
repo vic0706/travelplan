@@ -42,7 +42,7 @@ export function Home() {
           const localTrips = await db.trips.toArray();
           const tripsToDelete = localTrips.filter(t => !serverTripIds.has(t.id));
           if (tripsToDelete.length > 0) {
-            await db.trips.bulkDelete(tripsToDelete.map(t => t.id));
+            await db.trips.bulkDelete(tripsToDelete.map(t => t.id as number));
           }
 
           const existingTrips = await db.trips.toArray();

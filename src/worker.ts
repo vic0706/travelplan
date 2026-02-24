@@ -174,18 +174,35 @@ app.post('/api/trips', async (c) => {
   try {
     const { title, start_date, end_date, cover_image_url, visible_status } = await c.req.json();
     
-    const { results } = await c.env.DB.prepare(`
-      INSERT INTO Trips (title, start_date, end_date, cover_image_url, visible_status, created_at, updated_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?)
-    `).bind(title, start_date, end_date, cover_image_url, visible_status || 1, Date.now(), Date.now()).run();
+    const now = Date.now();
+    
+    await c.env.DB.prepare(`
+      INSERT INTO Trips (title, start_date, end_date, cover_image_url, visible_status, created_at, updated_at, currencies, timezone)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).bind(
+      title, 
+      start_date, 
+      end_date, 
+      cover_image_url, 
+      visible_status || 1, 
+      now, 
+      now,
+      JSON.stringify(['TWD']),
+      'UTC'
+    ).run();
 
     const idResult = await c.env.DB.prepare('SELECT last_insert_rowid() as id').first();
-    const id = (idResult as any).id;
+    const id = idResult ? (idResult as any).id : null;
+
+    if (!id) {
+      return c.json({ error: 'Failed to create trip and retrieve ID.' }, 500);
+    }
 
     const newTrip = await c.env.DB.prepare('SELECT * FROM Trips WHERE id = ?').bind(id).first();
 
     return c.json(newTrip);
   } catch (error: any) {
+    console.error('Create trip error:', error);
     return c.json({ error: error.message }, 500);
   }
 });

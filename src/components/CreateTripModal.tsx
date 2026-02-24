@@ -10,7 +10,10 @@ const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
 const supabaseKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
 const supabase = (supabaseUrl && supabaseKey) ? createClient(supabaseUrl, supabaseKey) : null;
 
+import { useNavigate } from 'react-router-dom';
+
 export function CreateTripModal() {
+  const navigate = useNavigate();
   const { isCreateTripModalOpen, setCreateTripModalOpen } = useAppStore();
   const [loading, setLoading] = useState(false);
   const [uploading, setUploading] = useState(false);
@@ -110,7 +113,7 @@ export function CreateTripModal() {
       }
 
       setCreateTripModalOpen(false);
-      window.location.reload();
+      navigate(`/trip/${trip.id}`);
     } catch (err: any) {
       setError(err.message);
     } finally {
