@@ -99,7 +99,7 @@ export function CreateTripModal() {
         throw new Error(data.error || 'Failed to create trip');
       }
 
-      const trip = await res.json() as { id: string };
+      const trip = await res.json() as { id: number };
 
       // 2. Add Members
       if (selectedMembers.length > 0) {

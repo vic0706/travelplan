@@ -50,7 +50,8 @@ export function Home() {
             };
           });
           
-          await db.trips.bulkPut(tripsToSave);
+          const validTripsToSave = tripsToSave.filter(trip => trip.id !== null && trip.id !== undefined);
+          await db.trips.bulkPut(validTripsToSave);
         }
       } catch (err: any) {
         console.error('Failed to fetch trips:', err);

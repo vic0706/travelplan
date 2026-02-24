@@ -181,7 +181,9 @@ app.post('/api/trips', async (c) => {
 
     const id = result.results[0].id;
 
-    return c.json({ id, title, start_date, end_date, cover_image_url, visible_status });
+    const newTrip = await c.env.DB.prepare('SELECT * FROM Trips WHERE id = ?').bind(id).first();
+
+    return c.json(newTrip);
   } catch (error: any) {
     return c.json({ error: error.message }, 500);
   }
