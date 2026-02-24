@@ -27,6 +27,7 @@ export function CreateTripModal() {
     end_date: '',
     cover_image_url: '',
     visible_status: 1,
+    is_public: 0,
     default_city_id: ''
   });
 
@@ -221,6 +222,19 @@ export function CreateTripModal() {
                     className="w-full bg-zinc-800 border border-zinc-700 rounded-xl pl-10 pr-4 py-3 text-white focus:outline-none focus:ring-2 focus:ring-orange-500 [color-scheme:dark]"
                   />
                 </div>
+              </div>
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium text-zinc-400 mb-2">Visibility</label>
+              <div className="flex items-center gap-3 bg-zinc-800 border border-zinc-700 rounded-xl p-3">
+                <div 
+                  className={`w-10 h-6 rounded-full p-1 transition-colors cursor-pointer ${formData.is_public ? 'bg-orange-500' : 'bg-zinc-600'}`} 
+                  onClick={() => setFormData({ ...formData, is_public: formData.is_public ? 0 : 1 })}
+                >
+                  <div className={`w-4 h-4 bg-white rounded-full shadow-md transform transition-transform ${formData.is_public ? 'translate-x-4' : 'translate-x-0'}`} />
+                </div>
+                <span className="text-white font-medium">{formData.is_public ? 'Public' : 'Private'}</span>
               </div>
             </div>
 

@@ -34,6 +34,7 @@ export function TripSettingsForm({ trip, onSuccess }: TripSettingsFormProps) {
     end_date: trip.end_date,
     cover_image_url: trip.cover_image_url || '',
     visible_status: trip.visible_status,
+    is_public: trip.is_public ? 1 : 0,
     default_city_id: trip.default_city_id ? String(trip.default_city_id) : '',
     currencies: trip.currencies || ['TWD']
   });
@@ -255,6 +256,19 @@ export function TripSettingsForm({ trip, onSuccess }: TripSettingsFormProps) {
             />
           </div>
         </div>
+      </div>
+
+      <div>
+        <label className="block text-sm font-medium text-zinc-400 mb-2">Visibility</label>
+        <div className="flex items-center gap-3 bg-zinc-800 border border-zinc-700 rounded-xl p-3">
+          <div className={`w-10 h-6 rounded-full p-1 transition-colors cursor-pointer ${formData.is_public ? 'bg-orange-500' : 'bg-zinc-600'}`} onClick={() => setFormData({ ...formData, is_public: formData.is_public ? 0 : 1 })}>
+            <div className={`w-4 h-4 bg-white rounded-full shadow-md transform transition-transform ${formData.is_public ? 'translate-x-4' : 'translate-x-0'}`} />
+          </div>
+          <span className="text-white font-medium">{formData.is_public ? 'Public' : 'Private'}</span>
+        </div>
+        <p className="text-xs text-zinc-500 mt-2">
+          {formData.is_public ? 'Anyone can view this trip.' : 'Only members and admins can view this trip.'}
+        </p>
       </div>
 
       <div>

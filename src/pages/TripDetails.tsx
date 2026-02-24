@@ -158,6 +158,11 @@ export function TripDetails() {
     return db.users.where('id').anyOf(userIds).toArray();
   }, [id]);
 
+  // Access Control Logic
+  const isMember = user && members.some(m => m.user_id === user.id);
+  const isAdmin = user?.role === 'Admin';
+  const canEdit = isMember || isAdmin;
+
   if (!trip) {
     return (
       <div className="flex items-center justify-center h-full min-h-[50vh]">
@@ -326,7 +331,7 @@ export function TripDetails() {
                 </div>
               )}
 
-              {user?.role !== 'Guest' && (
+              {canEdit && (
                 <button 
                   onClick={() => setIsItineraryFormOpen(true)}
                   className="w-full mt-6 py-4 border-2 border-dashed border-zinc-800 rounded-3xl flex items-center justify-center gap-2 text-zinc-500 hover:text-orange-500 hover:border-orange-500/50 hover:bg-orange-500/5 transition-all"
@@ -378,9 +383,11 @@ export function TripDetails() {
             <div className="space-y-4">
               <div className="flex items-center justify-between px-2">
                  <h4 className="text-zinc-500 text-xs font-bold uppercase tracking-widest">Flight Details</h4>
-                 <button onClick={() => setIsFlightFormOpen(true)} className="text-orange-500 hover:text-orange-400">
-                   <Plus size={18} />
-                 </button>
+                 {canEdit && (
+                   <button onClick={() => setIsFlightFormOpen(true)} className="text-orange-500 hover:text-orange-400">
+                     <Plus size={18} />
+                   </button>
+                 )}
               </div>
               {flights.length > 0 ? (
                 flights.map(flight => (
@@ -416,9 +423,11 @@ export function TripDetails() {
 
               <div className="flex items-center justify-between px-2 mt-6">
                 <h4 className="text-zinc-500 text-xs font-bold uppercase tracking-widest">Accommodation</h4>
-                <button onClick={() => setIsAccommodationFormOpen(true)} className="text-orange-500 hover:text-orange-400">
-                   <Plus size={18} />
-                 </button>
+                {canEdit && (
+                  <button onClick={() => setIsAccommodationFormOpen(true)} className="text-orange-500 hover:text-orange-400">
+                     <Plus size={18} />
+                   </button>
+                )}
               </div>
               {accommodations.length > 0 ? (
                 accommodations.map(acc => (
@@ -465,10 +474,12 @@ export function TripDetails() {
                 <div 
                   key={expense.id} 
                   onClick={() => {
-                    setEditingExpense(expense);
-                    setIsFinanceFormOpen(true);
+                    if (canEdit) {
+                      setEditingExpense(expense);
+                      setIsFinanceFormOpen(true);
+                    }
                   }}
-                  className="bg-zinc-900 border border-zinc-800 rounded-3xl p-5 shadow-lg flex items-center justify-between cursor-pointer hover:bg-zinc-800/50 transition-colors"
+                  className={`bg-zinc-900 border border-zinc-800 rounded-3xl p-5 shadow-lg flex items-center justify-between transition-colors ${canEdit ? 'cursor-pointer hover:bg-zinc-800/50' : ''}`}
                 >
                   <div className="flex items-center gap-4">
                     <div className="w-12 h-12 rounded-full bg-zinc-800 flex items-center justify-center shrink-0">
@@ -491,7 +502,7 @@ export function TripDetails() {
               </div>
             )}
 
-            {user?.role !== 'Guest' && (
+            {canEdit && (
               <button 
                 onClick={() => {
                   setEditingExpense(null);

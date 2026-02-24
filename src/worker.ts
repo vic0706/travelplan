@@ -53,6 +53,40 @@ const requireAuthMiddleware = async (c: any, next: any) => {
   await next();
 };
 
+// Helper: Check Trip Access
+async function checkTripAccess(c: any, tripId: number, level: 'view' | 'edit' | 'admin') {
+  const user = c.get('user');
+  
+  // 1. Admin always has access (except maybe for specific business logic, but generally yes)
+  if (user && user.role === 'Admin') return true;
+
+  // 2. Fetch Trip
+  const trip = await c.env.DB.prepare('SELECT is_public FROM Trips WHERE id = ?').bind(tripId).first();
+  if (!trip) return false; // Trip not found
+
+  // 3. Check Membership
+  let isMember = false;
+  if (user) {
+    const memberRecord = await c.env.DB.prepare('SELECT 1 FROM TripMembers WHERE trip_id = ? AND user_id = ?').bind(tripId, user.id).first();
+    isMember = !!memberRecord;
+  }
+
+  // 4. Evaluate based on level
+  if (level === 'admin') {
+    return user?.role === 'Admin';
+  }
+
+  if (level === 'edit') {
+    return isMember; // Admin handled above
+  }
+
+  if (level === 'view') {
+    return trip.is_public === 1 || isMember;
+  }
+
+  return false;
+}
+
 // Helper: Ensure Database Schema and Data Consistency
 async function ensureSchema(db: D1Database) {
   try {
@@ -286,6 +320,12 @@ app.get('/api/trips', async (c) => {
       // If user is logged in, also show trips they are a member of
       query += ' OR id IN (SELECT trip_id FROM TripMembers WHERE user_id = ?)';
       params.push(user.id);
+
+      // Admins can see all trips
+      if (user.role === 'Admin') {
+        query = 'SELECT id, title, cover_image_url, start_date, end_date, visible_status, default_city_id, is_public FROM Trips';
+        params.length = 0; // Clear params as admin query doesn't need them
+      }
     }
     query += ' ORDER BY start_date DESC';
 
@@ -302,12 +342,15 @@ app.get('/api/trips', async (c) => {
 
 app.post('/api/trips', async (c) => {
   try {
+    const user = c.get('user');
+    if (!user || user.role !== 'Admin') return c.json({ error: 'Only Admins can create trips' }, 403);
+
     await ensureSchema(c.env.DB);
     const { title, start_date, end_date, cover_image_url, visible_status, default_city_id, is_public } = await c.req.json();
     const info = await c.env.DB.prepare(`
-      INSERT INTO Trips (title, start_date, end_date, cover_image_url, visible_status, default_city_id, created_at, updated_at, currencies, is_public)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `).bind(title, start_date, end_date, cover_image_url, visible_status || 1, default_city_id, Date.now(), Date.now(), JSON.stringify(['TWD']), is_public || 0).run();
+      INSERT INTO Trips (title, start_date, end_date, cover_image_url, default_city_id, created_at, updated_at, currencies, is_public)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).bind(title, start_date, end_date, cover_image_url || 1, default_city_id, Date.now(), Date.now(), JSON.stringify(['TWD']), is_public || 0).run();
     
     const idResult = await c.env.DB.prepare('SELECT last_insert_rowid() as id').first();
     const id = idResult ? (idResult as any).id : null;
@@ -347,15 +390,28 @@ app.get('/api/trips/:id', async (c) => {
 
 app.put('/api/trips/:id', async (c) => {
   const id = c.req.param('id');
+  const user = c.get('user');
   try {
+    const canEdit = await checkTripAccess(c, Number(id), 'edit');
+    if (!canEdit) return c.json({ error: 'Unauthorized' }, 403);
+
     await ensureSchema(c.env.DB);
     const { title, start_date, end_date, cover_image_url, visible_status, default_city_id, currencies, is_public } = await c.req.json();
+    
+    // Only Admin can change is_public
+    let finalIsPublic = is_public;
+    if (is_public !== undefined && user.role !== 'Admin') {
+       // Fetch existing to preserve
+       const existing = await c.env.DB.prepare('SELECT is_public FROM Trips WHERE id = ?').bind(id).first();
+       finalIsPublic = existing.is_public;
+    }
+
     await c.env.DB.prepare(`
       UPDATE Trips 
       SET title = ?, start_date = ?, end_date = ?, cover_image_url = ?, visible_status = ?, default_city_id = ?, currencies = ?, is_public = ?, updated_at = ?
       WHERE id = ?
     `).bind(
-      title, start_date, end_date, cover_image_url, visible_status, default_city_id, JSON.stringify(currencies || ['TWD']), is_public, Date.now(), id
+      title, start_date, end_date, cover_image_url, visible_status, default_city_id, JSON.stringify(currencies || ['TWD']), finalIsPublic, Date.now(), id
     ).run();
     return c.json({ success: true });
   } catch (error: any) { return c.json({ error: error.message }, 500); }
@@ -383,6 +439,9 @@ app.get('/api/trips/:id/weather', async (c) => {
 app.post('/api/trips/:id/weather/sync', async (c) => {
   const tripId = c.req.param('id');
   try {
+    const canEdit = await checkTripAccess(c, Number(tripId), 'edit');
+    if (!canEdit) return c.json({ error: 'Unauthorized' }, 403);
+
     const weatherData = await syncWeatherForTrip(Number(tripId), c.env);
     if (!weatherData) return c.json({ error: 'Failed to sync weather' }, 500);
     return c.json(weatherData);
@@ -401,6 +460,9 @@ app.get('/api/trips/:id/flights', async (c) => {
 app.post('/api/trips/:id/flights', async (c) => {
   const tripId = c.req.param('id');
   try {
+    const canEdit = await checkTripAccess(c, Number(tripId), 'edit');
+    if (!canEdit) return c.json({ error: 'Unauthorized' }, 403);
+
     const b = await c.req.json();
     const id = crypto.randomUUID();
     await c.env.DB.prepare(`
@@ -422,6 +484,9 @@ app.get('/api/trips/:id/accommodations', async (c) => {
 app.post('/api/trips/:id/accommodations', async (c) => {
   const tripId = c.req.param('id');
   try {
+    const canEdit = await checkTripAccess(c, Number(tripId), 'edit');
+    if (!canEdit) return c.json({ error: 'Unauthorized' }, 403);
+
     const b = await c.req.json();
     const id = crypto.randomUUID();
     await c.env.DB.prepare(`
@@ -446,6 +511,9 @@ app.get('/api/trips/:id/members', async (c) => {
 app.post('/api/trips/:id/members', async (c) => {
   const tripId = c.req.param('id');
   try {
+    const isAdmin = await checkTripAccess(c, Number(tripId), 'admin');
+    if (!isAdmin) return c.json({ error: 'Only Admins can manage members' }, 403);
+
     const { userIds } = await c.req.json();
     await c.env.DB.prepare('DELETE FROM TripMembers WHERE trip_id = ?').bind(tripId).run();
     for (const userId of userIds) {
@@ -473,6 +541,9 @@ app.get('/api/trips/:id/itineraries', async (c) => {
 app.post('/api/trips/:id/itineraries', async (c) => {
   const tripId = c.req.param('id');
   try {
+    const canEdit = await checkTripAccess(c, Number(tripId), 'edit');
+    if (!canEdit) return c.json({ error: 'Unauthorized' }, 403);
+
     const b = await c.req.json();
     const info = await c.env.DB.prepare(`
       INSERT INTO Itineraries (trip_id, city_id, date, start_time, end_time, title, address, image_url, notes, tags)
@@ -494,6 +565,9 @@ app.get('/api/trips/:id/expenses', async (c) => {
 app.post('/api/trips/:id/expenses', async (c) => {
   const tripId = c.req.param('id');
   try {
+    const canEdit = await checkTripAccess(c, Number(tripId), 'edit');
+    if (!canEdit) return c.json({ error: 'Unauthorized' }, 403);
+
     const b = await c.req.json();
     const info = await c.env.DB.prepare(`
       INSERT INTO Expenses (trip_id, item_name, amount, currency, date, payer_id, split_members, notes, created_at, updated_at)
