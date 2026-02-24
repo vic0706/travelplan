@@ -8,20 +8,6 @@ export function TopAppBar() {
   const { user, isUserMenuOpen, setLoginModalOpen, setUserMenuOpen, logout, setCreateTripModalOpen } = useAppStore();
   const navigate = useNavigate();
   const menuRef = useRef<HTMLDivElement>(null);
-  const [bgUrl, setBgUrl] = React.useState('https://picsum.photos/seed/travel/1920/1080?blur=10');
-
-  useEffect(() => {
-    const fetchSettings = async () => {
-      try {
-        const res = await fetch('/api/settings');
-        if (res.ok) {
-          const data = await res.json() as { top_bg_url?: string };
-          if (data.top_bg_url) setBgUrl(data.top_bg_url);
-        }
-      } catch (e) {}
-    };
-    fetchSettings();
-  }, []);
 
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
@@ -49,21 +35,10 @@ export function TopAppBar() {
   };
 
   return (
-    <header className="fixed top-0 left-0 right-0 z-40 h-16 px-4 flex items-center justify-between overflow-hidden">
-      {/* Background Image with Blur */}
-      <div className="absolute inset-0 -z-10">
-        <img 
-          src={bgUrl} 
-          alt="Header Background" 
-          className="w-full h-full object-cover opacity-30"
-          referrerPolicy="no-referrer"
-        />
-        <div className="absolute inset-0 bg-gradient-to-b from-black/20 to-black/80"></div>
-      </div>
-
+    <header className="fixed top-0 left-0 right-0 z-40 bg-black border-b border-zinc-800 h-16 px-4 flex items-center justify-between">
       <div className="flex items-center gap-2 cursor-pointer" onClick={() => navigate('/')}>
-        <h1 className="text-xl font-black tracking-tighter text-white drop-shadow-[0_0_8px_rgba(249,115,22,0.6)] italic hover:scale-105 transition-transform">
-          TRAVEL <span className="text-orange-500">PLAN</span>
+        <h1 className="text-xl font-black tracking-tighter text-orange-500 drop-shadow-[0_0_8px_rgba(249,115,22,0.6)] italic hover:scale-105 transition-transform">
+          TRAVEL PLAN
         </h1>
       </div>
 

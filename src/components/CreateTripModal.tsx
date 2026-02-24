@@ -16,15 +16,15 @@ export function CreateTripModal() {
   const [uploading, setUploading] = useState(false);
   const [error, setError] = useState('');
   const [users, setUsers] = useState<User[]>([]);
-  const [selectedMembers, setSelectedMembers] = useState<number[]>([]);
+  const [selectedMembers, setSelectedMembers] = useState<string[]>([]);
 
   const [formData, setFormData] = useState({
     title: '',
     start_date: '',
     end_date: '',
+    timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
     cover_image_url: '',
-    visible_status: 1,
-    currencies: ['TWD']
+    visible_status: 1
   });
 
   useEffect(() => {
@@ -77,7 +77,7 @@ export function CreateTripModal() {
     }
   };
 
-  const toggleMember = (userId: number) => {
+  const toggleMember = (userId: string) => {
     setSelectedMembers(prev => 
       prev.includes(userId) ? prev.filter(id => id !== userId) : [...prev, userId]
     );
@@ -100,7 +100,7 @@ export function CreateTripModal() {
         throw new Error(data.error || 'Failed to create trip');
       }
 
-      const trip = await res.json() as { id: number };
+      const trip = await res.json() as { id: string };
 
       // 2. Add Members
       if (selectedMembers.length > 0) {

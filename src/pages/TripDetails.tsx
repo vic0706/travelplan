@@ -18,10 +18,10 @@ export function TripDetails() {
   const { user } = useAppStore();
   
   // 1. Live Query from IndexedDB (Offline-First)
-  const trip = useLiveQuery(() => db.trips.get(Number(id)), [id]);
-  const itineraries = useLiveQuery(() => db.itineraries.where('trip_id').equals(Number(id)).toArray(), [id]) || [];
-  const expenses = useLiveQuery(() => db.expenses.where('trip_id').equals(Number(id)).toArray(), [id]) || [];
-  const members = useLiveQuery(() => db.tripMembers.where('trip_id').equals(Number(id)).toArray(), [id]) || [];
+  const trip = useLiveQuery(() => db.trips.get(id || ''), [id]);
+  const itineraries = useLiveQuery(() => db.itineraries.where('trip_id').equals(id || '').toArray(), [id]) || [];
+  const expenses = useLiveQuery(() => db.expenses.where('trip_id').equals(id || '').toArray(), [id]) || [];
+  const members = useLiveQuery(() => db.tripMembers.where('trip_id').equals(id || '').toArray(), [id]) || [];
 
   const [activeTab, setActiveTab] = useState<'itinerary' | 'info' | 'finance'>('itinerary');
   const [selectedDate, setSelectedDate] = useState<Date>(new Date());
@@ -50,10 +50,15 @@ export function TripDetails() {
         if (!tripRes.ok) throw new Error('Trip fetch failed');
         const tripData = await tripRes.json() as Trip;
         
+        const tripEndDate = safeParse(tripData.end_date);
+        const isPastTrip = tripEndDate && isPast(tripEndDate) && !isSameDay(tripEndDate, new Date());
+        const shouldDeepCache = user?.role !== 'Guest' && !isPastTrip;
+
         // Update Trip in DB with last_accessed
         await db.trips.put({
           ...tripData,
-          last_accessed: Date.now()
+          last_accessed: Date.now(),
+          is_fully_synced: shouldDeepCache
         });
 
         const [itinerariesRes, expensesRes, membersRes] = await Promise.all([
@@ -90,9 +95,8 @@ export function TripDetails() {
 
             // Update tripMembers relation
             await db.tripMembers.bulkPut(membersData.map((m) => ({
-              trip_id: Number(id),
+              trip_id: id || '',
               user_id: m.id,
-              role: 'Member'
             })));
           }
         }
@@ -107,20 +111,15 @@ export function TripDetails() {
     fetchTripDetails();
   }, [id, user?.role]);
 
-  // Update selectedDate when trip loads or today changes
+  // Update selectedDate when trip loads
   useEffect(() => {
-    if (trip?.start_date && trip?.end_date) {
-      const today = new Date().toLocaleDateString('sv-SE');
-      const tripStart = trip.start_date;
-      const tripEnd = trip.end_date;
-
-      if (today >= tripStart && today <= tripEnd) {
-        setSelectedDate(parseISO(today));
-      } else {
-        setSelectedDate(parseISO(tripStart));
+    if (trip?.start_date) {
+      const parsedStart = safeParse(trip.start_date);
+      if (parsedStart) {
+        setSelectedDate(parsedStart);
       }
     }
-  }, [trip?.start_date, trip?.end_date]);
+  }, [trip?.start_date]);
 
   if (!trip) {
     return (
@@ -165,12 +164,12 @@ export function TripDetails() {
   // We can fetch all users involved in this trip.
   const tripUsers = useLiveQuery(async () => {
     if (!id) return [];
-    const members = await db.tripMembers.where('trip_id').equals(Number(id)).toArray();
+    const members = await db.tripMembers.where('trip_id').equals(id).toArray();
     const userIds = members.map(m => m.user_id);
     return db.users.where('id').anyOf(userIds).toArray();
   }, [id]);
 
-  const getUserNameById = (userId: number) => {
+  const getUserNameById = (userId: string) => {
     const u = tripUsers?.find(u => u.id === userId);
     return u ? u.name : `User ${userId}`;
   };
@@ -198,6 +197,10 @@ export function TripDetails() {
             <div className="flex items-center gap-1">
               <Calendar size={14} />
               <span>{validTripStartDate ? format(validTripStartDate, 'MMM d') : ''} - {validTripEndDate ? format(validTripEndDate, 'MMM d, yyyy') : ''}</span>
+            </div>
+            <div className="flex items-center gap-1">
+              <MapPin size={14} />
+              <span>{trip.timezone ? trip.timezone.split('/').pop()?.replace(/_/g, ' ') : 'Unknown'}</span>
             </div>
           </div>
         </div>
@@ -472,7 +475,7 @@ export function TripDetails() {
               className="relative w-full max-w-md z-10"
             >
               <FinanceForm 
-                tripId={Number(id)} 
+                tripId={id} 
                 onSuccess={() => {
                   setIsFinanceFormOpen(false);
                   // Refresh expenses

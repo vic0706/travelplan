@@ -4,7 +4,7 @@ import { apiFetch } from '../utils/api';
 import { Loader2, Plus, X } from 'lucide-react';
 
 interface FinanceFormProps {
-  tripId: number;
+  tripId: string;
   onSuccess: () => void;
   onCancel: () => void;
 }
@@ -20,9 +20,9 @@ export function FinanceForm({ tripId, onSuccess, onCancel }: FinanceFormProps) {
     item_name: '',
     amount: '',
     currency: 'TWD',
-    date: new Date().toLocaleDateString('sv-SE'),
-    payer_id: user?.id || 0,
-    split_members: [] as number[],
+    date: new Date().toISOString().split('T')[0],
+    payer_id: user?.id || '',
+    split_members: [] as string[],
     notes: ''
   });
 
@@ -73,7 +73,7 @@ export function FinanceForm({ tripId, onSuccess, onCancel }: FinanceFormProps) {
     }
   };
 
-  const toggleSplitMember = (memberId: number) => {
+  const toggleSplitMember = (memberId: string) => {
     setFormData(prev => {
       const current = prev.split_members;
       if (current.includes(memberId)) {
@@ -159,7 +159,7 @@ export function FinanceForm({ tripId, onSuccess, onCancel }: FinanceFormProps) {
           <label className="block text-sm font-medium text-zinc-400 mb-1">Paid By</label>
           <select
             value={formData.payer_id}
-            onChange={e => setFormData({ ...formData, payer_id: Number(e.target.value) })}
+            onChange={e => setFormData({ ...formData, payer_id: e.target.value })}
             className="w-full bg-zinc-800 border border-zinc-700 rounded-xl px-4 py-3 text-white focus:outline-none focus:ring-2 focus:ring-orange-500"
           >
             {members.map(m => (

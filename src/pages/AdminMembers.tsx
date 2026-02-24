@@ -170,17 +170,15 @@ export function AdminMembers() {
 
                 <div>
                   <label className="block text-sm font-medium text-zinc-400 mb-1">
-                    {editingUser ? 'New PIN (leave blank to keep current)' : 'PIN Code'}
+                    {editingUser ? 'New Password (leave blank to keep current)' : 'Password'}
                   </label>
                   <input
                     type="password"
-                    inputMode="numeric"
-                    pattern="[0-9]*"
                     required={!editingUser}
                     value={formData.password}
                     onChange={e => setFormData({ ...formData, password: e.target.value })}
-                    className="w-full bg-zinc-800 border border-zinc-700 rounded-xl px-4 py-3 text-white focus:outline-none focus:ring-2 focus:ring-orange-500 tracking-widest"
-                    placeholder="••••••"
+                    className="w-full bg-zinc-800 border border-zinc-700 rounded-xl px-4 py-3 text-white focus:outline-none focus:ring-2 focus:ring-orange-500"
+                    placeholder="••••••••"
                   />
                 </div>
 
