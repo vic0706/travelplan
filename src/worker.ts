@@ -40,6 +40,34 @@ const authMiddleware = async (c: any, next: any) => {
   await next();
 };
 
+// Optional Auth Middleware
+const optionalAuthMiddleware = async (c: any, next: any) => {
+  const authHeader = c.req.header('Authorization');
+  if (authHeader && authHeader.startsWith('Bearer ')) {
+    const token = authHeader.split(' ')[1];
+    const userData = await c.env.KV.get(`session:${token}`, 'json');
+    if (userData) {
+      c.set('user', userData);
+    }
+  }
+  await next();
+};
+
+// Helper: Ensure Database Schema and Data Consistency
+async function ensureSchema(db: D1Database) {
+  try {
+    // 1. Ensure is_public column exists in Trips table
+    await db.prepare('ALTER TABLE Trips ADD COLUMN is_public INTEGER DEFAULT 0').run();
+  } catch (e) {}
+
+  try {
+    // 2. Normalize roles to Title Case (Admin, Member, Guest)
+    await db.prepare("UPDATE Users SET role = 'Admin' WHERE role = 'admin'").run();
+    await db.prepare("UPDATE Users SET role = 'Member' WHERE role = 'member'").run();
+    await db.prepare("UPDATE Users SET role = 'Guest' WHERE role = 'guest'").run();
+  } catch (e) {}
+}
+
 // Helper: Get Weather for a specific date
 async function getWeatherForDate(tripId: number, dateStr: string, env: Env) {
   const cacheKey = `weather:trip:${tripId}:${dateStr}`;
@@ -137,13 +165,16 @@ async function syncWeatherForTrip(tripId: number, env: Env) {
 // ==========================================
 app.post('/api/init', async (c) => {
   try {
+    // Ensure is_public column exists in Trips table
+    await ensureSchema(c.env.DB);
+
     const { results } = await c.env.DB.prepare('SELECT COUNT(*) as count FROM Users').all();
     if ((results[0] as any).count === 0) {
       const salt = c.env.PASSWORD_SALT || 'default_salt';
       const passwordHash = await generateHash('123456', salt);
       await c.env.DB.prepare(`
         INSERT INTO Users (role, name, avatar_url, password_hash, allow_login, created_at, updated_at) 
-        VALUES ('admin', '超級管理員', 'https://api.dicebear.com/7.x/avataaars/svg?seed=Admin', ?, 1, ?, ?)
+        VALUES ('Admin', '超級管理員', 'https://api.dicebear.com/7.x/avataaars/svg?seed=Admin', ?, 1, ?, ?)
       `).bind(passwordHash, Date.now(), Date.now()).run();
       return c.json({ success: true, message: 'Admin created.' });
     }
@@ -181,11 +212,23 @@ app.post('/api/auth/login', async (c) => {
 // ==========================================
 app.use('/api/users', authMiddleware);
 app.use('/api/users/*', authMiddleware);
-app.use('/api/trips', authMiddleware);
-app.use('/api/trips/*', authMiddleware);
+app.use('/api/trips', optionalAuthMiddleware); // Use optional auth for base trips route
+app.use('/api/trips/*', optionalAuthMiddleware); // Use optional auth for trip details
 app.use('/api/settings', authMiddleware);
-app.use('/api/cities', authMiddleware); // Cities API 需登入
+app.use('/api/cities', optionalAuthMiddleware); // Cities are public
 app.use('/api/sync', authMiddleware);
+
+// Middleware to enforce auth for sensitive trip operations
+const requireTripAuth = async (c: any, next: any) => {
+  const user = c.get('user');
+  if (!user) return c.json({ error: 'Unauthorized' }, 401);
+  await next();
+};
+
+// Apply strict auth to non-GET trip routes
+app.post('/api/trips', requireTripAuth);
+app.put('/api/trips/*', requireTripAuth);
+app.delete('/api/trips/*', requireTripAuth);
 
 // --- Cities API ---
 app.get('/api/cities', async (c) => {
@@ -235,6 +278,9 @@ app.put('/api/users/:id', async (c) => {
 // --- Trips ---
 app.get('/api/trips', async (c) => {
   try {
+    // Ensure is_public column exists (migration)
+    await ensureSchema(c.env.DB);
+
     const user = c.get('user');
     let query = 'SELECT id, title, cover_image_url, start_date, end_date, visible_status, default_city_id, is_public FROM Trips WHERE is_public = 1';
     const params: any[] = [];
@@ -280,13 +326,21 @@ app.post('/api/trips', async (c) => {
 
 app.get('/api/trips/:id', async (c) => {
   const id = c.req.param('id');
+  const user = c.get('user');
   try {
+    await ensureSchema(c.env.DB);
     const { results } = await c.env.DB.prepare('SELECT * FROM Trips WHERE id = ?').bind(id).all();
     if (results.length === 0) return c.json({ error: 'Trip not found' }, 404);
     const trip = results[0] as any;
-    if (trip.currencies) trip.currencies = JSON.parse(trip.currencies);
 
+    // Access Control for single trip
     const { results: members } = await c.env.DB.prepare('SELECT user_id, role FROM TripMembers WHERE trip_id = ?').bind(id).all();
+    const isMember = user && members.some((m: any) => m.user_id === user.id);
+    const canView = trip.is_public === 1 || isMember || (user && user.role === 'Admin');
+
+    if (!canView) return c.json({ error: 'Unauthorized' }, 401);
+
+    if (trip.currencies) trip.currencies = JSON.parse(trip.currencies);
     trip.members = members || [];
 
     return c.json(trip);

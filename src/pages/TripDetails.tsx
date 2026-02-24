@@ -662,7 +662,7 @@ export function TripDetails() {
                 onSuccess={() => {
                   setIsFlightFormOpen(false);
                   apiFetch(`/api/trips/${id}/flights`)
-                    .then(res => res.json())
+                    .then(res => res.json() as Promise<any[]>)
                     .then(data => db.flights.bulkPut(data));
                 }} 
                 onCancel={() => setIsFlightFormOpen(false)} 
@@ -694,7 +694,7 @@ export function TripDetails() {
                 onSuccess={() => {
                   setIsAccommodationFormOpen(false);
                   apiFetch(`/api/trips/${id}/accommodations`)
-                    .then(res => res.json())
+                    .then(res => res.json() as Promise<any[]>)
                     .then(data => db.accommodations.bulkPut(data));
                 }} 
                 onCancel={() => setIsAccommodationFormOpen(false)} 
