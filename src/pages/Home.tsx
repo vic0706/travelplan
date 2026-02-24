@@ -38,6 +38,13 @@ export function Home() {
         }
 
         if (Array.isArray(data)) {
+          const serverTripIds = new Set(data.map(t => t.id));
+          const localTrips = await db.trips.toArray();
+          const tripsToDelete = localTrips.filter(t => !serverTripIds.has(t.id));
+          if (tripsToDelete.length > 0) {
+            await db.trips.bulkDelete(tripsToDelete.map(t => t.id));
+          }
+
           const existingTrips = await db.trips.toArray();
           const existingMap = new Map(existingTrips.map(t => [t.id, t]));
           

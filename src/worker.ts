@@ -174,12 +174,13 @@ app.post('/api/trips', async (c) => {
   try {
     const { title, start_date, end_date, cover_image_url, visible_status } = await c.req.json();
     
-    const result = await c.env.DB.prepare(`
+    const { results } = await c.env.DB.prepare(`
       INSERT INTO Trips (title, start_date, end_date, cover_image_url, visible_status, created_at, updated_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?) RETURNING id
-    `).bind(title, start_date, end_date, cover_image_url, visible_status || 1, Date.now(), Date.now()).all();
+      VALUES (?, ?, ?, ?, ?, ?, ?)
+    `).bind(title, start_date, end_date, cover_image_url, visible_status || 1, Date.now(), Date.now()).run();
 
-    const id = result.results[0].id;
+    const idResult = await c.env.DB.prepare('SELECT last_insert_rowid() as id').first();
+    const id = (idResult as any).id;
 
     const newTrip = await c.env.DB.prepare('SELECT * FROM Trips WHERE id = ?').bind(id).first();
 
