@@ -5,7 +5,7 @@ import { Plus, Calendar, MapPin, Loader2 } from 'lucide-react';
 import { format, differenceInDays, parseISO } from 'date-fns';
 import { db } from '../db';
 import { useLiveQuery } from 'dexie-react-hooks';
-import { getApiUrl } from '../utils/api';
+import { getApiUrl, apiFetch } from '../utils/api';
 
 export function Home() {
   // 1. Live Query from IndexedDB (Offline-First)
@@ -25,7 +25,7 @@ export function Home() {
       }
 
       try {
-        const res = await fetch(getApiUrl('/api/trips'));
+        const res = await apiFetch('/api/trips');
         if (!res.ok) throw new Error(`HTTP error! status: ${res.status}`);
         
         const text = await res.text();

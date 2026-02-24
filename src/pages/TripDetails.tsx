@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useAppStore } from '../store';
 import { format, parseISO, addDays, differenceInDays, isSameDay, isPast } from 'date-fns';
-import { MapPin, Clock, Plus, Navigation, DollarSign, Plane, Bed, Map, Info, Wallet, ArrowLeft, Calendar, X } from 'lucide-react';
+import { MapPin, Clock, Plus, Navigation, DollarSign, Plane, Bed, Map, Info, Wallet, ArrowLeft, Calendar, X, Settings } from 'lucide-react';
 import { Trip, Itinerary, Expense, User } from '../types';
 import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip } from 'recharts';
 import { clsx } from 'clsx';
@@ -11,6 +11,7 @@ import { useLiveQuery } from 'dexie-react-hooks';
 import { getApiUrl, apiFetch } from '../utils/api';
 import { FinanceForm } from '../components/FinanceForm';
 import { ItineraryForm } from '../components/ItineraryForm';
+import { TripSettingsForm } from '../components/TripSettingsForm';
 import { WeatherWidget } from '../components/WeatherWidget';
 import { motion, AnimatePresence } from 'framer-motion';
 
@@ -25,7 +26,7 @@ export function TripDetails() {
   const expenses = useLiveQuery(() => db.expenses.where('trip_id').equals(Number(id) || 0).toArray(), [id]) || [];
   const members = useLiveQuery(() => db.tripMembers.where('trip_id').equals(Number(id) || 0).toArray(), [id]) || [];
 
-  const [activeTab, setActiveTab] = useState<'itinerary' | 'info' | 'finance'>('itinerary');
+  const [activeTab, setActiveTab] = useState<'itinerary' | 'info' | 'finance' | 'settings'>('itinerary');
   const [selectedDate, setSelectedDate] = useState<Date>(new Date());
   const [isLoading, setIsLoading] = useState(false);
   const [isFinanceFormOpen, setIsFinanceFormOpen] = useState(false);
@@ -148,7 +149,7 @@ export function TripDetails() {
 
   const tripCoverImageUrl = trip.cover_image_url && typeof trip.cover_image_url === 'string' && trip.cover_image_url.startsWith('http')
     ? trip.cover_image_url
-    : 'https://picsum.photos/seed/trip-details/1920/1080';
+    : `https://picsum.photos/seed/${trip.id}/1920/1080`;
 
   const filteredItineraries = itineraries.filter(i => {
     const parsed = safeParse(i.date);
@@ -401,6 +402,22 @@ export function TripDetails() {
             )}
           </div>
         )}
+
+        {activeTab === 'settings' && user?.role === 'Admin' && (
+          <div className="space-y-6">
+            <div className="bg-zinc-900 border border-zinc-800 rounded-3xl p-6 shadow-lg">
+              <h3 className="text-lg font-semibold text-white mb-6">Trip Settings</h3>
+              <TripSettingsForm 
+                trip={trip} 
+                onSuccess={() => {
+                  apiFetch(`/api/trips/${id}`)
+                    .then(res => res.json() as Promise<Trip>)
+                    .then(data => db.trips.put(data));
+                }} 
+              />
+            </div>
+          </div>
+        )}
       </div>
 
       {/* Bottom Tabs */}
@@ -435,6 +452,18 @@ export function TripDetails() {
           <Wallet size={24} />
           <span className="text-[10px] font-medium uppercase tracking-wider">Finance</span>
         </button>
+        {user?.role === 'Admin' && (
+          <button
+            onClick={() => setActiveTab('settings')}
+            className={clsx(
+              "flex flex-col items-center justify-center w-full h-full space-y-1 transition-colors",
+              activeTab === 'settings' ? "text-orange-500" : "text-zinc-500 hover:text-zinc-300"
+            )}
+          >
+            <Settings size={24} />
+            <span className="text-[10px] font-medium uppercase tracking-wider">Settings</span>
+          </button>
+        )}
       </div>
 
       {/* Finance Form Modal */}

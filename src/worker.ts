@@ -40,6 +40,87 @@ const authMiddleware = async (c: any, next: any) => {
   await next();
 };
 
+// Helper: Sync Weather for a Trip
+async function syncWeatherForTrip(tripId: number, env: Env) {
+  const todayStr = new Date().toISOString().split('T')[0];
+  
+  const { results: tripResults } = await env.DB.prepare(`
+    SELECT t.id, c.name as default_city, c.lat as default_lat, c.lng as default_lng 
+    FROM Trips t 
+    JOIN Cities c ON t.default_city_id = c.id 
+    WHERE t.id = ?
+  `).bind(tripId).all();
+
+  if (tripResults.length === 0) return;
+  const trip = tripResults[0] as any;
+
+  const targetHours = ['09:00', '12:00', '15:00', '18:00'];
+
+  const { results: todayItineraries } = await env.DB.prepare(`
+    SELECT i.start_time, i.end_time, c.name as city, c.lat, c.lng 
+    FROM Itineraries i 
+    JOIN Cities c ON i.city_id = c.id 
+    WHERE i.trip_id = ? AND i.date = ?
+  `).bind(trip.id, todayStr).all();
+
+  const intervals = [];
+  const uniqueCoords = new Map();
+
+  for (const hour of targetHours) {
+    let currentLat = trip.default_lat;
+    let currentLng = trip.default_lng;
+    let currentCity = trip.default_city;
+
+    for (const item of todayItineraries as any[]) {
+      if (item.start_time && item.end_time && hour >= item.start_time && hour <= item.end_time) {
+        currentLat = item.lat;
+        currentLng = item.lng;
+        currentCity = item.city;
+        break;
+      }
+    }
+
+    const coordKey = `${currentLat},${currentLng}`;
+    
+    if (!uniqueCoords.has(coordKey)) {
+      const url = `https://api.open-meteo.com/v1/forecast?latitude=${currentLat}&longitude=${currentLng}&hourly=temperature_2m,precipitation_probability,weathercode&daily=temperature_2m_max,temperature_2m_min,weathercode&timezone=auto`;
+      const res = await fetch(url);
+      if (res.ok) uniqueCoords.set(coordKey, await res.json());
+    }
+
+    const weatherData = uniqueCoords.get(coordKey);
+    
+    if (weatherData) {
+      const timeString = `${todayStr}T${hour}`;
+      const index = weatherData.hourly.time.indexOf(timeString);
+      intervals.push({
+        time: hour,
+        city: currentCity,
+        temp: index !== -1 ? Math.round(weatherData.hourly.temperature_2m[index]) : null,
+        pop: index !== -1 ? weatherData.hourly.precipitation_probability[index] : null,
+        code: index !== -1 ? weatherData.hourly.weathercode[index] : null
+      });
+    }
+  }
+
+  let summary = null;
+  const noonData = intervals.find(i => i.time === '12:00');
+  if (noonData) {
+     const coordKey = [...uniqueCoords.keys()].find(k => uniqueCoords.get(k).hourly.time.includes(`${todayStr}T12:00`)) || [...uniqueCoords.keys()][0];
+     const mainWeather = uniqueCoords.get(coordKey);
+     summary = {
+       max_temp: Math.round(mainWeather.daily.temperature_2m_max[0]),
+       min_temp: Math.round(mainWeather.daily.temperature_2m_min[0]),
+       weather_code: mainWeather.daily.weathercode[0]
+     };
+  }
+
+  const finalJSON = { date: todayStr, summary, intervals };
+  await env.KV.put(`weather:trip:${trip.id}`, JSON.stringify(finalJSON), { expirationTtl: 86400 });
+  console.log(`Weather updated for Trip ${trip.id}`);
+  return finalJSON;
+}
+
 // ==========================================
 // 🔓 Public API
 // ==========================================
@@ -180,6 +261,21 @@ app.get('/api/trips/:id', async (c) => {
   } catch (error: any) { return c.json({ error: error.message }, 500); }
 });
 
+app.put('/api/trips/:id', async (c) => {
+  const id = c.req.param('id');
+  try {
+    const { title, start_date, end_date, cover_image_url, visible_status, default_city_id, currencies } = await c.req.json();
+    await c.env.DB.prepare(`
+      UPDATE Trips 
+      SET title = ?, start_date = ?, end_date = ?, cover_image_url = ?, visible_status = ?, default_city_id = ?, currencies = ?, updated_at = ?
+      WHERE id = ?
+    `).bind(
+      title, start_date, end_date, cover_image_url, visible_status, default_city_id, JSON.stringify(currencies || ['TWD']), Date.now(), id
+    ).run();
+    return c.json({ success: true });
+  } catch (error: any) { return c.json({ error: error.message }, 500); }
+});
+
 // Weather API
 app.get('/api/trips/:id/weather', async (c) => {
   const tripId = c.req.param('id');
@@ -187,6 +283,58 @@ app.get('/api/trips/:id/weather', async (c) => {
     const weatherData = await c.env.KV.get(`weather:trip:${tripId}`, 'json');
     if (!weatherData) return c.json({ message: 'Weather data will be updated at 06:00 AM' }, 202);
     return c.json(weatherData);
+  } catch (error: any) { return c.json({ error: error.message }, 500); }
+});
+
+app.post('/api/trips/:id/weather/sync', async (c) => {
+  const tripId = c.req.param('id');
+  try {
+    const weatherData = await syncWeatherForTrip(Number(tripId), c.env);
+    if (!weatherData) return c.json({ error: 'Failed to sync weather' }, 500);
+    return c.json(weatherData);
+  } catch (error: any) { return c.json({ error: error.message }, 500); }
+});
+
+// --- Flights & Accommodations ---
+app.get('/api/trips/:id/flights', async (c) => {
+  const tripId = c.req.param('id');
+  try {
+    const { results } = await c.env.DB.prepare('SELECT * FROM Flights WHERE trip_id = ? ORDER BY date, departure_time').bind(tripId).all();
+    return c.json(results);
+  } catch (error: any) { return c.json({ error: error.message }, 500); }
+});
+
+app.post('/api/trips/:id/flights', async (c) => {
+  const tripId = c.req.param('id');
+  try {
+    const b = await c.req.json();
+    const id = crypto.randomUUID();
+    await c.env.DB.prepare(`
+      INSERT INTO Flights (id, trip_id, date, flight_number, departure_airport, arrival_airport, departure_time, arrival_time)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    `).bind(id, tripId, b.date, b.flight_number, b.departure_airport, b.arrival_airport, b.departure_time, b.arrival_time).run();
+    return c.json({ success: true, id });
+  } catch (error: any) { return c.json({ error: error.message }, 500); }
+});
+
+app.get('/api/trips/:id/accommodations', async (c) => {
+  const tripId = c.req.param('id');
+  try {
+    const { results } = await c.env.DB.prepare('SELECT * FROM Accommodations WHERE trip_id = ? ORDER BY check_in_date').bind(tripId).all();
+    return c.json(results);
+  } catch (error: any) { return c.json({ error: error.message }, 500); }
+});
+
+app.post('/api/trips/:id/accommodations', async (c) => {
+  const tripId = c.req.param('id');
+  try {
+    const b = await c.req.json();
+    const id = crypto.randomUUID();
+    await c.env.DB.prepare(`
+      INSERT INTO Accommodations (id, trip_id, check_in_date, check_out_date, name, address, notes)
+      VALUES (?, ?, ?, ?, ?, ?, ?)
+    `).bind(id, tripId, b.check_in_date, b.check_out_date, b.name, b.address, b.notes).run();
+    return c.json({ success: true, id });
   } catch (error: any) { return c.json({ error: error.message }, 500); }
 });
 
