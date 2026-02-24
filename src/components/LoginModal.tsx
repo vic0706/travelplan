@@ -35,6 +35,8 @@ export function LoginModal({ onClose }: LoginModalProps) {
 
   const handleUserSelect = (u: User) => {
     setSelectedUser(u);
+    setPassword(''); // 切換使用者時，清空原本輸入的密碼
+    
     // Focus password input
     setTimeout(() => {
       const passwordInput = document.querySelector('input[name="password"]') as HTMLInputElement;
@@ -50,7 +52,6 @@ export function LoginModal({ onClose }: LoginModalProps) {
 
     setLoading(true);
     setErrorMsg('');
-    console.log('Frontend Sending:', { username: selectedUser.id, password });
     try {
       const res = await fetch(getApiUrl('/api/auth/login'), {
         method: 'POST',
@@ -87,87 +88,109 @@ export function LoginModal({ onClose }: LoginModalProps) {
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
       <div className="bg-zinc-900 border border-zinc-800 rounded-2xl w-full max-w-sm p-6 shadow-2xl relative">
-        <button onClick={onClose} className="absolute top-4 right-4 text-zinc-400 hover:text-white">
+        {/* 關閉按鈕 */}
+        <button onClick={onClose} className="absolute top-4 right-4 text-zinc-400 hover:text-white z-10">
           <X size={24} />
         </button>
-        <h2 className="text-2xl font-semibold text-white mb-6 text-center">Login</h2>
         
-        {/* Avatar Selection */}
-        {availableUsers.length > 0 && (
-          <div className="mb-6">
-            <p className="text-xs text-zinc-500 text-center mb-3 uppercase tracking-wider">Select User</p>
-            <div className="flex justify-center gap-4 flex-wrap">
-              {availableUsers.map((u) => (
-                <button
-                  key={u.id}
-                  onClick={() => handleUserSelect(u)}
-                  className={`flex flex-col items-center gap-2 group transition-transform active:scale-95 ${selectedUser?.id === u.id ? 'opacity-100 scale-110' : 'opacity-70 hover:opacity-100'}`}
-                >
-                  <div className={`w-12 h-12 rounded-full overflow-hidden border-2 transition-colors ${selectedUser?.id === u.id ? 'border-orange-500' : 'border-transparent group-hover:border-zinc-600'}`}>
-                    {u.avatar_url ? (
-                      <img src={u.avatar_url} alt={u.name} className="w-full h-full object-cover" />
-                    ) : (
-                      <div className="w-full h-full bg-zinc-800 flex items-center justify-center text-zinc-400">
-                        <UserIcon size={20} />
-                      </div>
-                    )}
-                  </div>
-                  <span className="text-xs text-zinc-300 font-medium">{u.name}</span>
-                </button>
-              ))}
-            </div>
-          </div>
-        )}
+        <h2 className="text-2xl font-semibold text-white mb-6 text-center">
+          {selectedUser ? 'Welcome Back' : 'Login'}
+        </h2>
 
         {errorMsg && (
-          <div className="mb-4 p-3 bg-red-500/10 border border-red-500/20 rounded-xl text-red-500 text-sm text-center">
+          <div className="mb-4 p-3 bg-red-500/10 border border-red-500/20 rounded-xl text-red-500 text-sm text-center animate-in fade-in">
             {errorMsg}
           </div>
         )}
 
-        <form onSubmit={handleLogin} className="space-y-4">
-          {selectedUser ? (
-            <div className="bg-zinc-800/50 border border-zinc-700 rounded-xl px-4 py-3 flex items-center justify-between">
-              <div>
-                <span className="block text-[10px] text-zinc-500 uppercase tracking-widest">Selected User</span>
-                <span className="text-white font-bold">{selectedUser.name}</span>
+        {/* 狀態一：尚未選擇 User (顯示放大版的選手清單) */}
+        {!selectedUser ? (
+          availableUsers.length > 0 ? (
+            <div className="animate-in fade-in zoom-in-95 duration-300">
+              <p className="text-xs text-zinc-500 text-center mb-6 uppercase tracking-wider">Select User</p>
+              <div className="flex justify-center gap-6 flex-wrap">
+                {availableUsers.map((u) => (
+                  <button
+                    key={u.id}
+                    onClick={() => handleUserSelect(u)}
+                    className="flex flex-col items-center gap-3 group transition-transform active:scale-95 hover:scale-105"
+                  >
+                    {/* 這裡把初始頭像放大到 w-20 h-20 */}
+                    <div className="w-20 h-20 rounded-full overflow-hidden border-2 border-transparent group-hover:border-orange-500 transition-colors shadow-lg">
+                      {u.avatar_url ? (
+                        <img src={u.avatar_url} alt={u.name} className="w-full h-full object-cover" />
+                      ) : (
+                        <div className="w-full h-full bg-zinc-800 flex items-center justify-center text-zinc-400">
+                          <UserIcon size={32} />
+                        </div>
+                      )}
+                    </div>
+                    <span className="text-sm text-zinc-300 font-medium group-hover:text-white transition-colors">{u.name}</span>
+                  </button>
+                ))}
               </div>
-              <button 
-                type="button"
-                onClick={() => setSelectedUser(null)}
-                className="text-xs text-orange-500 hover:underline"
-              >
-                Change
-              </button>
             </div>
           ) : (
-            <div className="text-center py-4 text-zinc-500 text-sm italic">
-              Please select a user above to continue
+            <div className="text-center py-8 text-zinc-500 text-sm italic">
+              Loading users...
             </div>
-          )}
-          
-          <div>
-            <label className="block text-sm font-medium text-zinc-400 mb-1">Password</label>
-            <input
-              type="password"
-              name="password"
-              autoComplete="current-password"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              className="w-full bg-zinc-800 border border-zinc-700 rounded-xl px-4 py-3 text-white focus:outline-none focus:ring-2 focus:ring-orange-500 transition-all"
-              placeholder="••••••••"
-              required
-              disabled={!selectedUser}
-            />
+          )
+        ) : (
+          /* 狀態二：已選擇 User (顯示超大頭像、密碼輸入、Login按鈕) */
+          <div className="flex flex-col items-center animate-in fade-in slide-in-from-bottom-4 duration-300">
+            
+            {/* 放大的大頭照 */}
+            <div className="relative mb-8">
+              <div className="w-32 h-32 rounded-full overflow-hidden border-4 border-orange-500 shadow-xl shadow-orange-500/20">
+                {selectedUser.avatar_url ? (
+                  <img src={selectedUser.avatar_url} alt={selectedUser.name} className="w-full h-full object-cover" />
+                ) : (
+                  <div className="w-full h-full bg-zinc-800 flex items-center justify-center text-zinc-400">
+                    <UserIcon size={48} />
+                  </div>
+                )}
+              </div>
+              {/* 小小的切換帳號按鈕，避免點錯人卡死 */}
+              <button
+                type="button"
+                onClick={() => setSelectedUser(null)}
+                className="absolute -bottom-3 left-1/2 -translate-x-1/2 bg-zinc-800 text-xs text-zinc-300 px-3 py-1 rounded-full border border-zinc-700 hover:bg-zinc-700 hover:text-white transition-colors whitespace-nowrap shadow-lg"
+              >
+                切換帳號
+              </button>
+            </div>
+
+            {/* 密碼表單，移除了 username 欄位 */}
+            <form onSubmit={handleLogin} className="w-full space-y-5">
+              <div>
+                <input
+                  type="password"
+                  name="password"
+                  autoComplete="current-password"
+                  inputMode="numeric" // 手機彈出數字鍵盤
+                  pattern="[0-9]*"
+                  value={password}
+                  onChange={(e) => {
+                    // 只允許輸入數字
+                    const numericValue = e.target.value.replace(/[^0-9]/g, '');
+                    setPassword(numericValue);
+                  }}
+                  className="w-full bg-zinc-800 border border-zinc-700 rounded-xl px-4 py-3 text-white focus:outline-none focus:ring-2 focus:ring-orange-500 transition-all text-center text-xl tracking-[0.5em] placeholder:tracking-normal"
+                  placeholder="請輸入密碼"
+                  required
+                />
+              </div>
+              
+              <button
+                type="submit"
+                disabled={loading || !password}
+                className="w-full bg-orange-500 hover:bg-orange-600 disabled:opacity-30 disabled:cursor-not-allowed text-white font-bold rounded-xl px-4 py-3.5 transition-all shadow-lg shadow-orange-500/20 active:scale-95 text-lg"
+              >
+                {loading ? 'Signing In...' : 'Sign In'}
+              </button>
+            </form>
           </div>
-          <button
-            type="submit"
-            disabled={loading || !selectedUser}
-            className="w-full bg-orange-500 hover:bg-orange-600 disabled:opacity-30 disabled:cursor-not-allowed text-white font-bold rounded-xl px-4 py-3 transition-all shadow-lg shadow-orange-500/20 active:scale-95"
-          >
-            {loading ? 'Signing In...' : 'Sign In'}
-          </button>
-        </form>
+        )}
       </div>
     </div>
   );

@@ -11,13 +11,17 @@ export function Home() {
   // 1. Live Query from IndexedDB (Offline-First)
   const trips = useLiveQuery(() => db.trips.orderBy('start_date').reverse().toArray());
   
-  const { user } = useAppStore();
+  const { user, _hasHydrated, token } = useAppStore();
   const navigate = useNavigate();
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
   // 2. Fetch from API and update IndexedDB (Network-First Strategy for freshness)
   useEffect(() => {
+    if (!_hasHydrated || !token) {
+      if (_hasHydrated) setIsLoading(false);
+      return;
+    }
     const fetchTrips = async () => {
       if (!navigator.onLine) {
         setIsLoading(false);
@@ -69,7 +73,7 @@ export function Home() {
     };
 
     fetchTrips();
-  }, []);
+  }, [_hasHydrated, token]);
 
   if (isLoading && !trips?.length) {
     return (

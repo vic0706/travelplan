@@ -1,9 +1,11 @@
 import React, { useState, useEffect } from 'react';
 import { useAppStore, User } from '../store';
-import { X, Calendar, Upload, Loader2, User as UserIcon, Check, CloudLightning } from 'lucide-react';
+import { X, Calendar, Upload, Loader2, User as UserIcon, Check, CloudLightning, Plane, Bed, Plus, Trash2 } from 'lucide-react';
 import { apiFetch } from '../utils/api';
 import { createClient } from '@supabase/supabase-js';
-import { Trip } from '../types';
+import { Trip, Flight, Accommodation } from '../types';
+import { db } from '../db';
+import { format, parseISO } from 'date-fns';
 
 const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
 const supabaseKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
@@ -22,6 +24,26 @@ export function TripSettingsForm({ trip, onSuccess }: TripSettingsFormProps) {
   const [error, setError] = useState('');
   const [users, setUsers] = useState<User[]>([]);
   const [selectedMembers, setSelectedMembers] = useState<number[]>([]);
+  
+  const [flights, setFlights] = useState<Flight[]>([]);
+  const [accommodations, setAccommodations] = useState<Accommodation[]>([]);
+  
+  const [newFlight, setNewFlight] = useState({
+    date: '',
+    flight_number: '',
+    departure_airport: '',
+    arrival_airport: '',
+    departure_time: '',
+    arrival_time: ''
+  });
+  
+  const [newAcc, setNewAcc] = useState({
+    name: '',
+    address: '',
+    check_in_date: '',
+    check_out_date: '',
+    notes: ''
+  });
 
   const [formData, setFormData] = useState({
     title: trip.title,
@@ -40,28 +62,62 @@ export function TripSettingsForm({ trip, onSuccess }: TripSettingsFormProps) {
   }, {} as Record<string, typeof cities>);
 
   useEffect(() => {
-    const fetchUsersAndMembers = async () => {
+    const fetchData = async () => {
       try {
-        const [usersRes, membersRes] = await Promise.all([
+        const [usersRes, membersRes, flightsRes, accRes] = await Promise.all([
           apiFetch('/api/users'),
-          apiFetch(`/api/trips/${trip.id}/members`)
+          apiFetch(`/api/trips/${trip.id}/members`),
+          apiFetch(`/api/trips/${trip.id}/flights`),
+          apiFetch(`/api/trips/${trip.id}/accommodations`)
         ]);
         
-        if (usersRes.ok) {
-          const data = await usersRes.json() as User[];
-          setUsers(data);
-        }
-        
+        if (usersRes.ok) setUsers(await usersRes.json() as User[]);
         if (membersRes.ok) {
           const data = await membersRes.json() as { id: number }[];
-          setSelectedMembers(data.map(m => m.id));
+          setSelectedMembers(data.map((m) => m.id));
         }
+        if (flightsRes.ok) setFlights(await flightsRes.json() as Flight[]);
+        if (accRes.ok) setAccommodations(await accRes.json() as Accommodation[]);
       } catch (err) {
-        console.error('Failed to fetch users/members', err);
+        console.error('Failed to fetch data', err);
       }
     };
-    fetchUsersAndMembers();
+    fetchData();
   }, [trip.id]);
+
+  const handleAddFlight = async () => {
+    if (!newFlight.flight_number || !newFlight.date) return;
+    try {
+      const res = await apiFetch(`/api/trips/${trip.id}/flights`, {
+        method: 'POST',
+        body: JSON.stringify(newFlight)
+      });
+      if (res.ok) {
+        const data = await res.json() as { id: string };
+        const flight = { ...newFlight, id: data.id, trip_id: trip.id };
+        setFlights([...flights, flight]);
+        await db.flights.put(flight);
+        setNewFlight({ date: '', flight_number: '', departure_airport: '', arrival_airport: '', departure_time: '', arrival_time: '' });
+      }
+    } catch (err) { console.error(err); }
+  };
+
+  const handleAddAcc = async () => {
+    if (!newAcc.name || !newAcc.check_in_date) return;
+    try {
+      const res = await apiFetch(`/api/trips/${trip.id}/accommodations`, {
+        method: 'POST',
+        body: JSON.stringify(newAcc)
+      });
+      if (res.ok) {
+        const data = await res.json() as { id: string };
+        const acc = { ...newAcc, id: data.id, trip_id: trip.id };
+        setAccommodations([...accommodations, acc]);
+        await db.accommodations.put(acc);
+        setNewAcc({ name: '', address: '', check_in_date: '', check_out_date: '', notes: '' });
+      }
+    } catch (err) { console.error(err); }
+  };
 
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     if (!e.target.files || e.target.files.length === 0) return;
@@ -263,6 +319,137 @@ export function TripSettingsForm({ trip, onSuccess }: TripSettingsFormProps) {
               </span>
             </button>
           ))}
+        </div>
+      </div>
+
+      <div className="space-y-4 pt-4 border-t border-zinc-800">
+        <h3 className="text-sm font-bold text-zinc-500 uppercase tracking-widest flex items-center gap-2">
+          <Plane size={16} /> Flight Details
+        </h3>
+        <div className="space-y-3">
+          {flights.map(f => (
+            <div key={f.id} className="bg-zinc-800/50 border border-zinc-700 rounded-xl p-3 flex justify-between items-center">
+              <div>
+                <div className="text-white font-medium">{f.flight_number}</div>
+                <div className="text-xs text-zinc-500">{f.departure_airport} → {f.arrival_airport}</div>
+              </div>
+              <div className="text-xs text-zinc-400">{f.date}</div>
+            </div>
+          ))}
+          <div className="bg-zinc-800 border border-zinc-700 rounded-xl p-4 space-y-3">
+            <div className="grid grid-cols-2 gap-2">
+              <input
+                type="text"
+                placeholder="Flight #"
+                value={newFlight.flight_number}
+                onChange={e => setNewFlight({...newFlight, flight_number: e.target.value})}
+                className="bg-zinc-900 border border-zinc-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none"
+              />
+              <input
+                type="date"
+                value={newFlight.date}
+                onChange={e => setNewFlight({...newFlight, date: e.target.value})}
+                className="bg-zinc-900 border border-zinc-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none [color-scheme:dark]"
+              />
+            </div>
+            <div className="grid grid-cols-2 gap-2">
+              <input
+                type="text"
+                placeholder="Dep Airport"
+                value={newFlight.departure_airport}
+                onChange={e => setNewFlight({...newFlight, departure_airport: e.target.value})}
+                className="bg-zinc-900 border border-zinc-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none"
+              />
+              <input
+                type="text"
+                placeholder="Arr Airport"
+                value={newFlight.arrival_airport}
+                onChange={e => setNewFlight({...newFlight, arrival_airport: e.target.value})}
+                className="bg-zinc-900 border border-zinc-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none"
+              />
+            </div>
+            <div className="grid grid-cols-2 gap-2">
+              <input
+                type="time"
+                value={newFlight.departure_time}
+                onChange={e => setNewFlight({...newFlight, departure_time: e.target.value})}
+                className="bg-zinc-900 border border-zinc-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none [color-scheme:dark]"
+              />
+              <input
+                type="time"
+                value={newFlight.arrival_time}
+                onChange={e => setNewFlight({...newFlight, arrival_time: e.target.value})}
+                className="bg-zinc-900 border border-zinc-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none [color-scheme:dark]"
+              />
+            </div>
+            <button
+              type="button"
+              onClick={handleAddFlight}
+              className="w-full py-2 bg-zinc-700 hover:bg-zinc-600 text-white rounded-lg text-sm font-medium transition-colors flex items-center justify-center gap-2"
+            >
+              <Plus size={14} /> Add Flight
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <div className="space-y-4 pt-4 border-t border-zinc-800">
+        <h3 className="text-sm font-bold text-zinc-500 uppercase tracking-widest flex items-center gap-2">
+          <Bed size={16} /> Accommodation
+        </h3>
+        <div className="space-y-3">
+          {accommodations.map(a => (
+            <div key={a.id} className="bg-zinc-800/50 border border-zinc-700 rounded-xl p-3 flex justify-between items-center">
+              <div>
+                <div className="text-white font-medium">{a.name}</div>
+                <div className="text-xs text-zinc-500">{a.address}</div>
+              </div>
+              <div className="text-xs text-zinc-400">{a.check_in_date}</div>
+            </div>
+          ))}
+          <div className="bg-zinc-800 border border-zinc-700 rounded-xl p-4 space-y-3">
+            <input
+              type="text"
+              placeholder="Hotel Name"
+              value={newAcc.name}
+              onChange={e => setNewAcc({...newAcc, name: e.target.value})}
+              className="w-full bg-zinc-900 border border-zinc-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none"
+            />
+            <input
+              type="text"
+              placeholder="Address"
+              value={newAcc.address}
+              onChange={e => setNewAcc({...newAcc, address: e.target.value})}
+              className="w-full bg-zinc-900 border border-zinc-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none"
+            />
+            <div className="grid grid-cols-2 gap-2">
+              <div className="space-y-1">
+                <label className="text-[10px] text-zinc-500 uppercase">Check In</label>
+                <input
+                  type="date"
+                  value={newAcc.check_in_date}
+                  onChange={e => setNewAcc({...newAcc, check_in_date: e.target.value})}
+                  className="w-full bg-zinc-900 border border-zinc-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none [color-scheme:dark]"
+                />
+              </div>
+              <div className="space-y-1">
+                <label className="text-[10px] text-zinc-500 uppercase">Check Out</label>
+                <input
+                  type="date"
+                  value={newAcc.check_out_date}
+                  onChange={e => setNewAcc({...newAcc, check_out_date: e.target.value})}
+                  className="w-full bg-zinc-900 border border-zinc-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none [color-scheme:dark]"
+                />
+              </div>
+            </div>
+            <button
+              type="button"
+              onClick={handleAddAcc}
+              className="w-full py-2 bg-zinc-700 hover:bg-zinc-600 text-white rounded-lg text-sm font-medium transition-colors flex items-center justify-center gap-2"
+            >
+              <Plus size={14} /> Add Accommodation
+            </button>
+          </div>
         </div>
       </div>
 

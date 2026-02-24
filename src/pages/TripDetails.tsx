@@ -18,13 +18,15 @@ import { motion, AnimatePresence } from 'framer-motion';
 export function TripDetails() {
   const { id } = useParams();
   const navigate = useNavigate();
-  const { user } = useAppStore();
+  const { user, _hasHydrated, token } = useAppStore();
   
   // 1. Live Query from IndexedDB (Offline-First)
   const trip = useLiveQuery(() => db.trips.get(Number(id) || 0), [id]);
   const itineraries = useLiveQuery(() => db.itineraries.where('trip_id').equals(Number(id) || 0).toArray(), [id]) || [];
   const expenses = useLiveQuery(() => db.expenses.where('trip_id').equals(Number(id) || 0).toArray(), [id]) || [];
   const members = useLiveQuery(() => db.tripMembers.where('trip_id').equals(Number(id) || 0).toArray(), [id]) || [];
+  const flights = useLiveQuery(() => db.flights.where('trip_id').equals(Number(id) || 0).toArray(), [id]) || [];
+  const accommodations = useLiveQuery(() => db.accommodations.where('trip_id').equals(Number(id) || 0).toArray(), [id]) || [];
 
   const [activeTab, setActiveTab] = useState<'itinerary' | 'info' | 'finance' | 'settings'>('itinerary');
   const [selectedDate, setSelectedDate] = useState<Date>(new Date());
@@ -44,7 +46,7 @@ export function TripDetails() {
 
   // 2. Smart Caching & On-Demand Fetching Logic
   useEffect(() => {
-    if (!id || !navigator.onLine) return;
+    if (!id || !navigator.onLine || !_hasHydrated || !token) return;
 
     const fetchTripDetails = async () => {
       setIsLoading(true);
@@ -65,10 +67,12 @@ export function TripDetails() {
           is_fully_synced: shouldDeepCache
         });
 
-        const [itinerariesRes, expensesRes, membersRes] = await Promise.all([
+        const [itinerariesRes, expensesRes, membersRes, flightsRes, accommodationsRes] = await Promise.all([
           apiFetch(`/api/trips/${id}/itineraries`),
           apiFetch(`/api/trips/${id}/expenses`),
-          apiFetch(`/api/trips/${id}/members`)
+          apiFetch(`/api/trips/${id}/members`),
+          apiFetch(`/api/trips/${id}/flights`),
+          apiFetch(`/api/trips/${id}/accommodations`)
         ]);
 
         if (itinerariesRes.ok) {
@@ -106,6 +110,20 @@ export function TripDetails() {
           }
         }
 
+        if (flightsRes.ok) {
+          const flightsData = await flightsRes.json();
+          if (Array.isArray(flightsData)) {
+            await db.flights.bulkPut(flightsData);
+          }
+        }
+
+        if (accommodationsRes.ok) {
+          const accommodationsData = await accommodationsRes.json();
+          if (Array.isArray(accommodationsData)) {
+            await db.accommodations.bulkPut(accommodationsData);
+          }
+        }
+
       } catch (err) {
         console.error('Failed to sync trip details:', err);
       } finally {
@@ -114,7 +132,7 @@ export function TripDetails() {
     };
 
     fetchTripDetails();
-  }, [id, user?.role]);
+  }, [id, user?.role, _hasHydrated, token]);
 
   // Update selectedDate when trip loads
   useEffect(() => {
@@ -342,25 +360,57 @@ export function TripDetails() {
               </div>
             </div>
 
-            <div className="grid gap-4">
-              <div className="bg-zinc-900 border border-zinc-800 rounded-3xl p-5 shadow-lg flex items-center gap-4">
-                <div className="w-12 h-12 rounded-full bg-orange-500/10 flex items-center justify-center shrink-0">
-                  <Plane className="text-orange-500" size={24} />
+            <div className="space-y-4">
+              <h4 className="text-zinc-500 text-xs font-bold uppercase tracking-widest px-2">Flight Details</h4>
+              {flights.length > 0 ? (
+                flights.map(flight => (
+                  <div key={flight.id} className="bg-zinc-900 border border-zinc-800 rounded-3xl p-5 shadow-lg flex items-center gap-4">
+                    <div className="w-12 h-12 rounded-full bg-orange-500/10 flex items-center justify-center shrink-0">
+                      <Plane className="text-orange-500" size={24} />
+                    </div>
+                    <div className="flex-1">
+                      <div className="flex justify-between items-start">
+                        <h4 className="text-white font-medium">{flight.flight_number}</h4>
+                        <span className="text-[10px] text-zinc-500 font-bold uppercase tracking-wider">{format(parseISO(flight.date), 'MMM d')}</span>
+                      </div>
+                      <p className="text-sm text-zinc-400 mt-1">
+                        {flight.departure_airport} ({flight.departure_time}) → {flight.arrival_airport} ({flight.arrival_time})
+                      </p>
+                    </div>
+                  </div>
+                ))
+              ) : (
+                <div className="bg-zinc-900/50 border border-dashed border-zinc-800 rounded-3xl p-6 text-center text-zinc-500 text-sm">
+                  No flight details added.
                 </div>
-                <div>
-                  <h4 className="text-white font-medium">Flight Details</h4>
-                  <p className="text-sm text-zinc-400 mt-1">NRT • Terminal 2</p>
+              )}
+
+              <h4 className="text-zinc-500 text-xs font-bold uppercase tracking-widest px-2 mt-6">Accommodation</h4>
+              {accommodations.length > 0 ? (
+                accommodations.map(acc => (
+                  <div key={acc.id} className="bg-zinc-900 border border-zinc-800 rounded-3xl p-5 shadow-lg flex items-center gap-4">
+                    <div className="w-12 h-12 rounded-full bg-orange-500/10 flex items-center justify-center shrink-0">
+                      <Bed className="text-orange-500" size={24} />
+                    </div>
+                    <div className="flex-1">
+                      <h4 className="text-white font-medium">{acc.name}</h4>
+                      <p className="text-sm text-zinc-400 mt-1">{acc.address}</p>
+                      <div className="flex gap-4 mt-2">
+                        <div className="text-[10px] text-zinc-500 font-bold uppercase tracking-wider">
+                          In: {format(parseISO(acc.check_in_date), 'MMM d')}
+                        </div>
+                        <div className="text-[10px] text-zinc-500 font-bold uppercase tracking-wider">
+                          Out: {format(parseISO(acc.check_out_date), 'MMM d')}
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                ))
+              ) : (
+                <div className="bg-zinc-900/50 border border-dashed border-zinc-800 rounded-3xl p-6 text-center text-zinc-500 text-sm">
+                  No accommodation details added.
                 </div>
-              </div>
-              <div className="bg-zinc-900 border border-zinc-800 rounded-3xl p-5 shadow-lg flex items-center gap-4">
-                <div className="w-12 h-12 rounded-full bg-orange-500/10 flex items-center justify-center shrink-0">
-                  <Bed className="text-orange-500" size={24} />
-                </div>
-                <div>
-                  <h4 className="text-white font-medium">Accommodation</h4>
-                  <p className="text-sm text-zinc-400 mt-1">Shinjuku Prince Hotel</p>
-                </div>
-              </div>
+              )}
             </div>
           </div>
         )}

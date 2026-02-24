@@ -19,6 +19,7 @@ interface AppState {
   isLoginModalOpen: boolean;
   isUserMenuOpen: boolean;
   isCreateTripModalOpen: boolean;
+  _hasHydrated: boolean;
   
   login: (user: User, token: string) => void;
   logout: () => void;
@@ -26,6 +27,7 @@ interface AppState {
   setLoginModalOpen: (isOpen: boolean) => void;
   setUserMenuOpen: (isOpen: boolean) => void;
   setCreateTripModalOpen: (isOpen: boolean) => void;
+  setHasHydrated: (hasHydHydrated: boolean) => void;
 }
 
 export const useAppStore = create<AppState>()(
@@ -37,6 +39,7 @@ export const useAppStore = create<AppState>()(
       isLoginModalOpen: false,
       isUserMenuOpen: false,
       isCreateTripModalOpen: false,
+      _hasHydrated: false,
       
       login: (user, token) => set({ user, token }),
       logout: () => set({ user: null, token: null }),
@@ -44,10 +47,14 @@ export const useAppStore = create<AppState>()(
       setLoginModalOpen: (isOpen) => set({ isLoginModalOpen: isOpen }),
       setUserMenuOpen: (isOpen) => set({ isUserMenuOpen: isOpen }),
       setCreateTripModalOpen: (isOpen) => set({ isCreateTripModalOpen: isOpen }),
+      setHasHydrated: (hasHydrated) => set({ _hasHydrated: hasHydrated }),
     }),
     {
       name: 'travel-plan-storage',
       partialize: (state) => ({ user: state.user, token: state.token }),
+      onRehydrateStorage: () => (state) => {
+        state?.setHasHydrated(true);
+      },
     }
   )
 );

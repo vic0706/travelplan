@@ -13,9 +13,10 @@ import { apiFetch } from './utils/api';
 import { City } from './types';
 
 export default function App() {
-  const { isLoginModalOpen, setLoginModalOpen, isCreateTripModalOpen, setCreateTripModalOpen, setCities } = useAppStore();
+  const { isLoginModalOpen, setLoginModalOpen, isCreateTripModalOpen, setCreateTripModalOpen, setCities, _hasHydrated, token } = useAppStore();
 
   useEffect(() => {
+    if (!_hasHydrated || !token) return;
     const fetchCities = async () => {
       try {
         const res = await apiFetch('/api/cities');
@@ -28,7 +29,7 @@ export default function App() {
       }
     };
     fetchCities();
-  }, [setCities]);
+  }, [_hasHydrated, setCities]);
 
   return (
     <Router>
