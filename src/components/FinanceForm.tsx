@@ -22,10 +22,20 @@ export function FinanceForm({ tripId, defaultDate, currencies = ['TWD'], onSucce
   
   const [itemName, setItemName] = useState(initialData?.item_name || '');
   const [date, setDate] = useState(initialData?.date || defaultDate || new Date().toISOString().split('T')[0]);
+  const [category, setCategory] = useState(initialData?.category || 'food');
   const [payerId, setPayerId] = useState<number>(initialData?.payer_id || user?.id || 0);
   const [splitMembers, setSplitMembers] = useState<number[]>(initialData?.split_members || []);
   const [amountStr, setAmountStr] = useState(initialData?.amount?.toString() || '0');
   const [currency, setCurrency] = useState(initialData?.currency || currencies[0] || 'TWD');
+
+  const categories = [
+    { id: 'food', label: 'Food', icon: '🍔' },
+    { id: 'transport', label: 'Transport', icon: '🚕' },
+    { id: 'accommodation', label: 'Hotel', icon: '🏨' },
+    { id: 'entertainment', label: 'Fun', icon: '🎉' },
+    { id: 'shopping', label: 'Shop', icon: '🛍️' },
+    { id: 'other', label: 'Other', icon: '📦' },
+  ];
 
   useEffect(() => {
     const fetchMembers = async () => {
@@ -80,6 +90,7 @@ export function FinanceForm({ tripId, defaultDate, currencies = ['TWD'], onSucce
           amount: parseFloat(amountStr),
           currency,
           date,
+          category,
           payer_id: payerId,
           split_members: splitMembers,
           notes: ''
@@ -134,22 +145,36 @@ export function FinanceForm({ tripId, defaultDate, currencies = ['TWD'], onSucce
       </div>
 
       <div className="flex-1 overflow-y-auto p-4 space-y-4">
-        {/* Date & Name */}
-        <div className="grid grid-cols-3 gap-3">
+        {/* Date & Category */}
+        <div className="flex gap-3">
           <input
             type="date"
             value={date}
             onChange={e => setDate(e.target.value)}
-            className="col-span-1 bg-zinc-950 border border-zinc-800 rounded-xl px-3 py-3 text-white text-sm focus:outline-none focus:border-orange-500"
+            className="flex-1 bg-zinc-950 border border-zinc-800 rounded-xl px-4 py-3 text-white text-base focus:outline-none focus:border-orange-500"
           />
-          <input
-            type="text"
-            value={itemName}
-            onChange={e => setItemName(e.target.value)}
-            placeholder="Expense Name"
-            className="col-span-2 bg-zinc-950 border border-zinc-800 rounded-xl px-4 py-3 text-white text-sm focus:outline-none focus:border-orange-500"
-          />
+          <div className="relative flex-1">
+            <select
+              value={category}
+              onChange={e => setCategory(e.target.value)}
+              className="w-full h-full appearance-none bg-zinc-950 border border-zinc-800 rounded-xl px-4 py-3 text-white text-base focus:outline-none focus:border-orange-500 pr-10"
+            >
+              {categories.map(c => (
+                <option key={c.id} value={c.id}>{c.icon} {c.label}</option>
+              ))}
+            </select>
+            <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 text-zinc-500 pointer-events-none" size={16} />
+          </div>
         </div>
+
+        {/* Name */}
+        <input
+          type="text"
+          value={itemName}
+          onChange={e => setItemName(e.target.value)}
+          placeholder="Expense Name"
+          className="w-full bg-zinc-950 border border-zinc-800 rounded-xl px-4 py-3 text-white text-base focus:outline-none focus:border-orange-500"
+        />
 
         {/* Paid By */}
         <div className="space-y-1">
@@ -183,7 +208,7 @@ export function FinanceForm({ tripId, defaultDate, currencies = ['TWD'], onSucce
                 onClick={() => toggleSplitMember(m.id)}
                 className={clsx(
                   "flex items-center gap-2 px-3 py-2 rounded-full border transition-all shrink-0",
-                  splitMembers.includes(m.id) ? "bg-zinc-800 border-zinc-600 text-white" : "bg-zinc-950 border-zinc-800 text-zinc-500 opacity-50"
+                  splitMembers.includes(m.id) ? "bg-orange-500 border-orange-500 text-white shadow-lg shadow-orange-500/20" : "bg-zinc-950 border-zinc-800 text-zinc-500 opacity-50"
                 )}
               >
                 <div className="w-5 h-5 rounded-full bg-zinc-800 overflow-hidden">

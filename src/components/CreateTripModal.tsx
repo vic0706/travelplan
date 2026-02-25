@@ -3,13 +3,7 @@ import { useAppStore, User } from '../store';
 import { X, Calendar, Upload, Loader2, User as UserIcon, Check } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { apiFetch } from '../utils/api';
-import { createClient } from '@supabase/supabase-js';
-
-// Initialize Supabase client
-const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
-const supabaseKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
-const supabase = (supabaseUrl && supabaseKey) ? createClient(supabaseUrl, supabaseKey) : null;
-
+import { ImageCropper, uploadImageToSupabase } from './ImageCropper';
 import { useNavigate } from 'react-router-dom';
 
 export function CreateTripModal() {
@@ -20,6 +14,7 @@ export function CreateTripModal() {
   const [error, setError] = useState('');
   const [users, setUsers] = useState<User[]>([]);
   const [selectedMembers, setSelectedMembers] = useState<number[]>([]);
+  const [croppingImage, setCroppingImage] = useState<string | null>(null);
 
   const [formData, setFormData] = useState({
     title: '',
@@ -54,31 +49,25 @@ export function CreateTripModal() {
     }
   }, [isCreateTripModalOpen]);
 
-  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (!e.target.files || e.target.files.length === 0) return;
-    
-    if (!supabase) {
-      setError('Supabase is not configured. Please check environment variables.');
-      return;
-    }
-
     const file = e.target.files[0];
-    const fileExt = file.name.split('.').pop();
-    const fileName = `${Math.random()}.${fileExt}`;
-    const filePath = `trip-covers/${fileName}`;
+    const reader = new FileReader();
+    reader.onload = () => {
+      setCroppingImage(reader.result as string);
+    };
+    reader.readAsDataURL(file);
+    // Reset input
+    e.target.value = '';
+  };
 
+  const handleCropComplete = async (croppedBlob: Blob) => {
+    setCroppingImage(null);
     setUploading(true);
     setError('');
-
     try {
-      const { error: uploadError } = await supabase.storage
-        .from('trip-covers')
-        .upload(filePath, file);
-
-      if (uploadError) throw uploadError;
-
-      const { data } = supabase.storage.from('trip-covers').getPublicUrl(filePath);
-      setFormData(prev => ({ ...prev, cover_image_url: data.publicUrl }));
+      const publicUrl = await uploadImageToSupabase(croppedBlob);
+      setFormData(prev => ({ ...prev, cover_image_url: publicUrl }));
     } catch (err: any) {
       console.error('Upload failed:', err);
       setError('Failed to upload image: ' + err.message);
@@ -199,26 +188,24 @@ export function CreateTripModal() {
               <div>
                 <label className="block text-sm font-medium text-zinc-400 mb-1">Start Date</label>
                 <div className="relative">
-                  <Calendar size={16} className="absolute left-3 top-3.5 text-zinc-500" />
                   <input
                     type="date"
                     required
                     value={formData.start_date}
                     onChange={e => setFormData({ ...formData, start_date: e.target.value })}
-                    className="w-full bg-zinc-800 border border-zinc-700 rounded-xl pl-10 pr-4 py-3 text-white focus:outline-none focus:ring-2 focus:ring-orange-500 [color-scheme:dark]"
+                    className="w-full bg-zinc-800 border border-zinc-700 rounded-xl px-4 py-3 text-white focus:outline-none focus:ring-2 focus:ring-orange-500 [color-scheme:dark] text-sm"
                   />
                 </div>
               </div>
               <div>
                 <label className="block text-sm font-medium text-zinc-400 mb-1">End Date</label>
                 <div className="relative">
-                  <Calendar size={16} className="absolute left-3 top-3.5 text-zinc-500" />
                   <input
                     type="date"
                     required
                     value={formData.end_date}
                     onChange={e => setFormData({ ...formData, end_date: e.target.value })}
-                    className="w-full bg-zinc-800 border border-zinc-700 rounded-xl pl-10 pr-4 py-3 text-white focus:outline-none focus:ring-2 focus:ring-orange-500 [color-scheme:dark]"
+                    className="w-full bg-zinc-800 border border-zinc-700 rounded-xl px-4 py-3 text-white focus:outline-none focus:ring-2 focus:ring-orange-500 [color-scheme:dark] text-sm"
                   />
                 </div>
               </div>
@@ -335,6 +322,14 @@ export function CreateTripModal() {
               {loading ? 'Creating...' : 'Create Trip'}
             </button>
           </form>
+          {croppingImage && (
+            <ImageCropper
+              imageSrc={croppingImage}
+              aspect={16 / 9}
+              onCropComplete={handleCropComplete}
+              onCancel={() => setCroppingImage(null)}
+            />
+          )}
         </motion.div>
       </div>
     </AnimatePresence>

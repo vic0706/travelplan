@@ -100,6 +100,16 @@ async function ensureSchema(db: D1Database) {
     await db.prepare("UPDATE Users SET role = 'Member' WHERE role = 'member'").run();
     await db.prepare("UPDATE Users SET role = 'Guest' WHERE role = 'guest'").run();
   } catch (e) {}
+
+  try {
+    // 3. Add payment_info to Users
+    await db.prepare("ALTER TABLE Users ADD COLUMN payment_info TEXT DEFAULT '{}'").run();
+  } catch (e) {}
+
+  try {
+    // 4. Add category to Expenses
+    await db.prepare("ALTER TABLE Expenses ADD COLUMN category TEXT DEFAULT 'other'").run();
+  } catch (e) {}
 }
 
 // Helper: Get Weather for a specific date
@@ -292,7 +302,7 @@ app.post('/api/users', async (c) => {
 app.put('/api/users/:id', async (c) => {
   const id = c.req.param('id');
   try {
-    const { name, role, allow_login, password, avatar_url } = await c.req.json();
+    const { name, role, allow_login, password, avatar_url, payment_info } = await c.req.json();
     
     let query = 'UPDATE Users SET updated_at = ?';
     const params: any[] = [Date.now()];
@@ -301,6 +311,10 @@ app.put('/api/users/:id', async (c) => {
     if (role !== undefined) { query += ', role = ?'; params.push(role); }
     if (allow_login !== undefined) { query += ', allow_login = ?'; params.push(allow_login); }
     if (avatar_url !== undefined) { query += ', avatar_url = ?'; params.push(avatar_url); }
+    if (payment_info !== undefined) { 
+      query += ', payment_info = ?'; 
+      params.push(typeof payment_info === 'string' ? payment_info : JSON.stringify(payment_info)); 
+    }
     
     if (password) {
       query += ', password_hash = ?';
@@ -579,10 +593,39 @@ app.post('/api/trips/:id/expenses', async (c) => {
 
     const b = await c.req.json();
     const info = await c.env.DB.prepare(`
-      INSERT INTO Expenses (trip_id, item_name, amount, currency, date, payer_id, split_members, notes, created_at, updated_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `).bind(tripId, b.item_name, b.amount, b.currency, b.date, b.payer_id, JSON.stringify(b.split_members), b.notes, Date.now(), Date.now()).run();
+      INSERT INTO Expenses (trip_id, item_name, amount, currency, date, payer_id, split_members, notes, category, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).bind(tripId, b.item_name, b.amount, b.currency, b.date, b.payer_id, JSON.stringify(b.split_members), b.notes, b.category || 'other', Date.now(), Date.now()).run();
     return c.json({ success: true, id: info.meta.last_row_id });
+  } catch (error: any) { return c.json({ error: error.message }, 500); }
+});
+
+app.put('/api/trips/:id/expenses/:expenseId', async (c) => {
+  const tripId = c.req.param('id');
+  const expenseId = c.req.param('expenseId');
+  try {
+    const canEdit = await checkTripAccess(c, Number(tripId), 'edit');
+    if (!canEdit) return c.json({ error: 'Unauthorized' }, 403);
+
+    const b = await c.req.json();
+    await c.env.DB.prepare(`
+      UPDATE Expenses 
+      SET item_name = ?, amount = ?, currency = ?, date = ?, payer_id = ?, split_members = ?, notes = ?, category = ?, updated_at = ?
+      WHERE id = ? AND trip_id = ?
+    `).bind(b.item_name, b.amount, b.currency, b.date, b.payer_id, JSON.stringify(b.split_members), b.notes, b.category || 'other', Date.now(), expenseId, tripId).run();
+    return c.json({ success: true });
+  } catch (error: any) { return c.json({ error: error.message }, 500); }
+});
+
+app.delete('/api/trips/:id/expenses/:expenseId', async (c) => {
+  const tripId = c.req.param('id');
+  const expenseId = c.req.param('expenseId');
+  try {
+    const canEdit = await checkTripAccess(c, Number(tripId), 'edit');
+    if (!canEdit) return c.json({ error: 'Unauthorized' }, 403);
+
+    await c.env.DB.prepare('DELETE FROM Expenses WHERE id = ? AND trip_id = ?').bind(expenseId, tripId).run();
+    return c.json({ success: true });
   } catch (error: any) { return c.json({ error: error.message }, 500); }
 });
 

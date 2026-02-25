@@ -15,6 +15,7 @@ import { TripSettingsForm } from '../components/TripSettingsForm';
 import { WeatherWidget } from '../components/WeatherWidget';
 import { FlightForm } from '../components/FlightForm';
 import { AccommodationForm } from '../components/AccommodationForm';
+import { FinanceOverview } from '../components/FinanceOverview';
 import { motion, AnimatePresence } from 'framer-motion';
 
 export function TripDetails() {
@@ -348,36 +349,11 @@ export function TripDetails() {
           <div className="space-y-6">
             <div className="bg-zinc-900 border border-zinc-800 rounded-3xl p-6 shadow-lg">
               <h3 className="text-lg font-semibold text-white mb-6">Expenses Overview</h3>
-              <div className="bg-zinc-900 border border-zinc-800 rounded-3xl p-6 shadow-lg mb-4">
-                 <div className="text-zinc-500 text-xs font-bold uppercase tracking-widest mb-1">Total Expenses</div>
-                 <div className="text-3xl font-bold text-white">
-                   {trip.currencies?.[0] || 'TWD'} {totalExpenses.toLocaleString()}
-                 </div>
-              </div>
-              <div className="h-64">
-                <ResponsiveContainer width="100%" height="100%">
-                  <PieChart>
-                    <Pie
-                      data={expenseData}
-                      cx="50%"
-                      cy="50%"
-                      innerRadius={60}
-                      outerRadius={80}
-                      paddingAngle={5}
-                      dataKey="value"
-                      stroke="none"
-                    >
-                      {expenseData.map((entry, index) => (
-                        <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
-                      ))}
-                    </Pie>
-                    <Tooltip 
-                      contentStyle={{ backgroundColor: '#18181b', borderColor: '#27272a', borderRadius: '12px' }}
-                      itemStyle={{ color: '#fff' }}
-                    />
-                  </PieChart>
-                </ResponsiveContainer>
-              </div>
+              <FinanceOverview 
+                expenses={expenses} 
+                members={tripUsers || []} 
+                currency={trip.currencies?.[0] || 'TWD'} 
+              />
             </div>
 
             <div className="space-y-4">

@@ -3,6 +3,7 @@ import { useAppStore } from '../store';
 import { useNavigate } from 'react-router-dom';
 import { LogOut, Settings, Users, RefreshCw, User as UserIcon, Plus } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
+import { clsx } from 'clsx';
 
 export function TopAppBar() {
   const { user, isUserMenuOpen, setLoginModalOpen, setUserMenuOpen, logout, setCreateTripModalOpen } = useAppStore();
@@ -34,6 +35,23 @@ export function TopAppBar() {
     }
   };
 
+  const handleLogout = () => {
+    if (confirm('Are you sure you want to log out?')) {
+      // Show a brief notification or just delay
+      const notification = document.createElement('div');
+      notification.textContent = 'Logging out...';
+      notification.className = 'fixed top-4 left-1/2 -translate-x-1/2 bg-zinc-800 text-white px-4 py-2 rounded-full shadow-xl z-50 animate-pulse';
+      document.body.appendChild(notification);
+      
+      setTimeout(() => {
+        logout();
+        setUserMenuOpen(false);
+        document.body.removeChild(notification);
+        navigate('/');
+      }, 800);
+    }
+  };
+
   return (
     <header className="fixed top-0 left-0 right-0 z-40 bg-black/80 backdrop-blur-md border-b border-zinc-800 px-4 flex items-center justify-between safe-top h-[calc(4rem+env(safe-area-inset-top))] pt-[env(safe-area-inset-top)]">
       <div className="flex items-center gap-2 cursor-pointer" onClick={() => navigate('/')}>
@@ -45,9 +63,23 @@ export function TopAppBar() {
       <div className="relative" ref={menuRef}>
         <button
           onClick={() => setUserMenuOpen(!isUserMenuOpen)}
-          className="p-2 rounded-full hover:bg-zinc-900 transition-colors text-zinc-400 hover:text-white"
+          className={clsx(
+            "p-0.5 rounded-full transition-all relative group",
+            user ? "text-white" : "text-zinc-400 hover:text-white"
+          )}
         >
-          <Settings size={24} />
+          {user ? (
+            <div className="relative">
+               <div className="absolute inset-0 bg-orange-500 rounded-full blur-md opacity-50 animate-pulse"></div>
+               <div className="w-9 h-9 rounded-full overflow-hidden border-2 border-orange-500 relative z-10">
+                 <img src={user.avatar_url} alt={user.name} className="w-full h-full object-cover" />
+               </div>
+            </div>
+          ) : (
+            <div className="p-2 hover:bg-zinc-900 rounded-full">
+              <Settings size={24} />
+            </div>
+          )}
         </button>
 
         {/* User Menu Dropdown */}
@@ -58,7 +90,7 @@ export function TopAppBar() {
               animate={{ opacity: 1, y: 0, scale: 1 }}
               exit={{ opacity: 0, y: 10, scale: 0.95 }}
               transition={{ duration: 0.1 }}
-              className="absolute right-0 top-full mt-2 w-64 bg-zinc-900 rounded-2xl shadow-2xl border border-zinc-800 overflow-hidden origin-top-right z-50"
+              className="absolute right-0 top-full mt-4 w-64 bg-zinc-900 rounded-2xl shadow-2xl border border-zinc-800 overflow-hidden origin-top-right z-50"
             >
               {user ? (
                 <>
@@ -138,10 +170,7 @@ export function TopAppBar() {
 
                     <div className="h-px bg-zinc-800 my-1 mx-2"></div>
                     <button
-                      onClick={() => {
-                        logout();
-                        setUserMenuOpen(false);
-                      }}
+                      onClick={handleLogout}
                       className="w-full flex items-center gap-3 px-3 py-2.5 text-sm text-red-400 hover:bg-red-500/10 rounded-xl transition-colors text-left font-medium"
                     >
                       <LogOut size={16} />

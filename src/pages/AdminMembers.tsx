@@ -10,7 +10,13 @@ export function AdminMembers() {
   const { user } = useAppStore();
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingUser, setEditingUser] = useState<any>(null);
-  const [formData, setFormData] = useState({ name: '', password: '', role: 'Member', allow_login: 1 });
+  const [formData, setFormData] = useState({ 
+    name: '', 
+    password: '', 
+    role: 'Member', 
+    allow_login: 1,
+    payment_info: { cash: false, linepay: '', bank_accounts: [] as { bank_code: string, account: string }[] }
+  });
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
 
@@ -48,13 +54,32 @@ export function AdminMembers() {
 
   const openAddModal = () => {
     setEditingUser(null);
-    setFormData({ name: '', password: '123456', role: 'Member', allow_login: 1 });
+    setFormData({ 
+      name: '', 
+      password: '123456', 
+      role: 'Member', 
+      allow_login: 1,
+      payment_info: { cash: false, linepay: '', bank_accounts: [] }
+    });
     setIsModalOpen(true);
   };
 
   const openEditModal = (u: any) => {
     setEditingUser(u);
-    setFormData({ name: u.name, password: '', role: u.role, allow_login: u.allow_login });
+    let paymentInfo = { cash: false, linepay: '', bank_accounts: [] };
+    try {
+      if (u.payment_info) {
+        paymentInfo = typeof u.payment_info === 'string' ? JSON.parse(u.payment_info) : u.payment_info;
+      }
+    } catch (e) {}
+    
+    setFormData({ 
+      name: u.name, 
+      password: '', 
+      role: u.role, 
+      allow_login: u.allow_login,
+      payment_info: paymentInfo
+    });
     setIsModalOpen(true);
   };
 
@@ -234,6 +259,96 @@ export function AdminMembers() {
                       <option value={1}>Active</option>
                       <option value={0}>Disabled</option>
                     </select>
+                  </div>
+                </div>
+
+                <div className="space-y-4 pt-4 border-t border-zinc-800">
+                  <h3 className="text-sm font-bold text-zinc-400 uppercase tracking-wider">Payment Info</h3>
+                  
+                  {/* Cash */}
+                  <label className="flex items-center gap-3 p-3 bg-zinc-800 rounded-xl cursor-pointer hover:bg-zinc-700 transition-colors">
+                    <input
+                      type="checkbox"
+                      checked={formData.payment_info?.cash || false}
+                      onChange={e => setFormData({ 
+                        ...formData, 
+                        payment_info: { ...formData.payment_info, cash: e.target.checked } 
+                      })}
+                      className="w-5 h-5 rounded border-zinc-600 text-orange-500 focus:ring-orange-500 bg-zinc-700 accent-orange-500"
+                    />
+                    <span className="text-white font-medium">Accept Cash</span>
+                  </label>
+
+                  {/* LinePay */}
+                  <div>
+                    <label className="block text-xs font-medium text-zinc-500 mb-1">LINE Pay ID / Link</label>
+                    <input
+                      type="text"
+                      value={formData.payment_info?.linepay || ''}
+                      onChange={e => setFormData({ 
+                        ...formData, 
+                        payment_info: { ...formData.payment_info, linepay: e.target.value } 
+                      })}
+                      className="w-full bg-zinc-800 border border-zinc-700 rounded-xl px-4 py-2 text-white text-sm focus:outline-none focus:ring-2 focus:ring-orange-500"
+                      placeholder="Line ID or URL"
+                    />
+                  </div>
+
+                  {/* Bank Accounts */}
+                  <div className="space-y-2">
+                    <div className="flex items-center justify-between">
+                      <label className="text-xs font-medium text-zinc-500">Bank Accounts</label>
+                      <button
+                        type="button"
+                        onClick={() => setFormData({
+                          ...formData,
+                          payment_info: {
+                            ...formData.payment_info,
+                            bank_accounts: [...(formData.payment_info?.bank_accounts || []), { bank_code: '', account: '' }]
+                          }
+                        })}
+                        className="text-xs text-orange-500 font-bold hover:text-orange-400"
+                      >
+                        + Add Bank
+                      </button>
+                    </div>
+                    
+                    {formData.payment_info?.bank_accounts?.map((bank, idx) => (
+                      <div key={idx} className="flex gap-2 items-center">
+                        <input
+                          type="text"
+                          value={bank.bank_code}
+                          onChange={e => {
+                            const newBanks = [...(formData.payment_info.bank_accounts || [])];
+                            newBanks[idx].bank_code = e.target.value;
+                            setFormData({ ...formData, payment_info: { ...formData.payment_info, bank_accounts: newBanks } });
+                          }}
+                          className="w-24 bg-zinc-800 border border-zinc-700 rounded-xl px-3 py-2 text-white text-sm focus:outline-none focus:ring-2 focus:ring-orange-500"
+                          placeholder="Bank Code"
+                        />
+                        <input
+                          type="text"
+                          value={bank.account}
+                          onChange={e => {
+                            const newBanks = [...(formData.payment_info.bank_accounts || [])];
+                            newBanks[idx].account = e.target.value;
+                            setFormData({ ...formData, payment_info: { ...formData.payment_info, bank_accounts: newBanks } });
+                          }}
+                          className="flex-1 bg-zinc-800 border border-zinc-700 rounded-xl px-3 py-2 text-white text-sm focus:outline-none focus:ring-2 focus:ring-orange-500"
+                          placeholder="Account Number"
+                        />
+                        <button
+                          type="button"
+                          onClick={() => {
+                            const newBanks = formData.payment_info.bank_accounts.filter((_, i) => i !== idx);
+                            setFormData({ ...formData, payment_info: { ...formData.payment_info, bank_accounts: newBanks } });
+                          }}
+                          className="p-2 text-zinc-500 hover:text-red-500"
+                        >
+                          <X size={16} />
+                        </button>
+                      </div>
+                    ))}
                   </div>
                 </div>
 
