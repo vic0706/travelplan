@@ -313,7 +313,7 @@ app.get('/api/trips', async (c) => {
     await ensureSchema(c.env.DB);
 
     const user = c.get('user');
-    let query = 'SELECT id, title, cover_image_url, start_date, end_date, visible_status, default_city_id, is_public FROM Trips WHERE is_public = 1';
+    let query = 'SELECT id, title, cover_image_url, start_date, end_date, default_city_id, is_public FROM Trips WHERE is_public = 1';
     const params: any[] = [];
 
     if (user) {
@@ -323,7 +323,7 @@ app.get('/api/trips', async (c) => {
 
       // Admins can see all trips
       if (user.role === 'Admin') {
-        query = 'SELECT id, title, cover_image_url, start_date, end_date, visible_status, default_city_id, is_public FROM Trips';
+        query = 'SELECT id, title, cover_image_url, start_date, end_date, default_city_id, is_public FROM Trips';
         params.length = 0; // Clear params as admin query doesn't need them
       }
     }
@@ -346,11 +346,11 @@ app.post('/api/trips', async (c) => {
     if (!user || user.role !== 'Admin') return c.json({ error: 'Only Admins can create trips' }, 403);
 
     await ensureSchema(c.env.DB);
-    const { title, start_date, end_date, cover_image_url, visible_status, default_city_id, is_public } = await c.req.json();
+    const { title, start_date, end_date, cover_image_url, default_city_id, is_public } = await c.req.json();
     const info = await c.env.DB.prepare(`
       INSERT INTO Trips (title, start_date, end_date, cover_image_url, default_city_id, created_at, updated_at, currencies, is_public)
       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `).bind(title, start_date, end_date, cover_image_url || 1, default_city_id, Date.now(), Date.now(), JSON.stringify(['TWD']), is_public || 0).run();
+    `).bind(title, start_date, end_date, cover_image_url || '', default_city_id, Date.now(), Date.now(), JSON.stringify(['TWD']), is_public || 0).run();
     
     const idResult = await c.env.DB.prepare('SELECT last_insert_rowid() as id').first();
     const id = idResult ? (idResult as any).id : null;
@@ -396,7 +396,7 @@ app.put('/api/trips/:id', async (c) => {
     if (!canEdit) return c.json({ error: 'Unauthorized' }, 403);
 
     await ensureSchema(c.env.DB);
-    const { title, start_date, end_date, cover_image_url, visible_status, default_city_id, currencies, is_public } = await c.req.json();
+    const { title, start_date, end_date, cover_image_url, default_city_id, currencies, is_public } = await c.req.json();
     
     // Only Admin can change is_public
     let finalIsPublic = is_public;
@@ -408,10 +408,10 @@ app.put('/api/trips/:id', async (c) => {
 
     await c.env.DB.prepare(`
       UPDATE Trips 
-      SET title = ?, start_date = ?, end_date = ?, cover_image_url = ?, visible_status = ?, default_city_id = ?, currencies = ?, is_public = ?, updated_at = ?
+      SET title = ?, start_date = ?, end_date = ?, cover_image_url = ?, default_city_id = ?, currencies = ?, is_public = ?, updated_at = ?
       WHERE id = ?
     `).bind(
-      title, start_date, end_date, cover_image_url, visible_status, default_city_id, JSON.stringify(currencies || ['TWD']), finalIsPublic, Date.now(), id
+      title, start_date, end_date, cover_image_url, default_city_id, JSON.stringify(currencies || ['TWD']), finalIsPublic, Date.now(), id
     ).run();
     return c.json({ success: true });
   } catch (error: any) { return c.json({ error: error.message }, 500); }

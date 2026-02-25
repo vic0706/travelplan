@@ -33,7 +33,6 @@ export function TripSettingsForm({ trip, onSuccess }: TripSettingsFormProps) {
     start_date: trip.start_date,
     end_date: trip.end_date,
     cover_image_url: trip.cover_image_url || '',
-    visible_status: trip.visible_status,
     is_public: trip.is_public ? 1 : 0,
     default_city_id: trip.default_city_id ? String(trip.default_city_id) : '',
     currencies: trip.currencies || ['TWD']

@@ -26,7 +26,6 @@ export function CreateTripModal() {
     start_date: '',
     end_date: '',
     cover_image_url: '',
-    visible_status: 1,
     is_public: 0,
     default_city_id: ''
   });

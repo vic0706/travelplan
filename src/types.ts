@@ -23,7 +23,6 @@ export interface Trip {
   start_date: string;
   end_date: string;
   currencies: string[]; // Parsed from JSON
-  visible_status: number;
   default_city_id?: number;
   created_at?: number;
   updated_at?: number;
