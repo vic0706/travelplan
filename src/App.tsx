@@ -19,6 +19,24 @@ function AppContent() {
   const isTripDetails = location.pathname.startsWith('/trip/');
 
   useEffect(() => {
+    // iOS PWA Height Fix
+    const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) && !(window as any).MSStream;
+    const isStandalone = window.matchMedia('(display-mode: standalone)').matches || (navigator as any).standalone;
+
+    if (isIOS && isStandalone) {
+      const fixHeight = () => {
+        const height = window.screen.height;
+        document.documentElement.style.height = `${height}px`;
+        document.body.style.height = `${height}px`;
+      };
+      
+      fixHeight();
+      window.addEventListener('resize', fixHeight);
+      return () => window.removeEventListener('resize', fixHeight);
+    }
+  }, []);
+
+  useEffect(() => {
     if (!_hasHydrated) return;
     const fetchCities = async () => {
       try {
@@ -35,7 +53,7 @@ function AppContent() {
   }, [_hasHydrated, setCities]);
 
   return (
-    <div className="fixed inset-0 flex flex-col bg-black text-zinc-100 font-sans overflow-hidden selection:bg-orange-500/30">
+    <div className="fixed inset-0 h-[100dvh] w-full flex flex-col bg-black text-zinc-100 font-sans overflow-hidden selection:bg-orange-500/30">
       <OfflineStatusBar />
       {!isTripDetails && <TopAppBar />}
       <main className={clsx(

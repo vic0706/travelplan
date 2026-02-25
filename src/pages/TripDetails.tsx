@@ -227,7 +227,8 @@ export function TripDetails() {
         
         <button 
           onClick={() => navigate('/')}
-          className="absolute top-[calc(0.75rem+env(safe-area-inset-top,0px))] left-4 p-2 bg-black/30 backdrop-blur-md rounded-full text-white hover:bg-black/50 transition-colors z-20 border border-white/10"
+          className="absolute left-4 p-2 bg-black/30 backdrop-blur-md rounded-full text-white hover:bg-black/50 transition-colors z-20 border border-white/10"
+          style={{ top: 'max(1rem, env(safe-area-inset-top))' }}
         >
           <ArrowLeft size={20} />
         </button>
@@ -516,7 +517,10 @@ export function TripDetails() {
       </div>
 
       {/* Bottom Tabs */}
-      <div className="fixed bottom-0 left-0 right-0 bg-zinc-900/95 backdrop-blur-xl border-t border-zinc-800 flex items-center justify-around px-4 pt-2 pb-[calc(0.5rem+env(safe-area-inset-bottom,0px))] z-[100] shadow-[0_-4px_20px_rgba(0,0,0,0.5)]">
+      <div 
+        className="fixed bottom-0 left-0 right-0 bg-zinc-900/95 backdrop-blur-xl border-t border-zinc-800 flex items-center justify-around px-4 pt-2 z-[100] shadow-[0_-4px_20px_rgba(0,0,0,0.5)]"
+        style={{ paddingBottom: 'max(0.5rem, calc(env(safe-area-inset-bottom) + 0.5rem))' }}
+      >
         <button
           onClick={() => setActiveTab('itinerary')}
           className={clsx(
