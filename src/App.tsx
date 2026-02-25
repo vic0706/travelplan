@@ -35,7 +35,7 @@ function AppContent() {
   }, [_hasHydrated, setCities]);
 
   return (
-    <div className="flex flex-col h-full w-full bg-black text-zinc-100 font-sans overflow-hidden selection:bg-orange-500/30">
+    <div className="fixed inset-0 flex flex-col bg-black text-zinc-100 font-sans overflow-hidden selection:bg-orange-500/30">
       <OfflineStatusBar />
       {!isTripDetails && <TopAppBar />}
       <main className={clsx(
