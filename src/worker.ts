@@ -310,6 +310,8 @@ app.post('/api/upload', async (c) => {
   try {
     const body = await c.req.parseBody();
     const file = body['file']; 
+    const folder = body['folder'] || 'trips'; // Default to 'trips' if not specified
+
     if (!file || !(file instanceof File)) return c.json({ error: 'No file uploaded' }, 400);
 
     const supabaseUrl = c.env.VITE_SUPABASE_URL;
@@ -318,13 +320,13 @@ app.post('/api/upload', async (c) => {
     if (!supabaseUrl || !supabaseKey) return c.json({ error: 'Supabase not configured in worker' }, 500);
 
     const supabase = createClient(supabaseUrl, supabaseKey);
-    const fileName = `${Date.now()}-${Math.random().toString(36).substring(7)}.jpg`;
+    const fileName = `${folder}/${Date.now()}-${Math.random().toString(36).substring(7)}.jpg`;
     
     // Convert File to ArrayBuffer for upload
     const arrayBuffer = await file.arrayBuffer();
     
     const { data, error } = await supabase.storage
-      .from('trip-images')
+      .from('travelplan') // Bucket name
       .upload(fileName, arrayBuffer, {
         contentType: file.type,
         upsert: false
@@ -333,7 +335,7 @@ app.post('/api/upload', async (c) => {
     if (error) throw error;
 
     const { data: { publicUrl } } = supabase.storage
-      .from('trip-images')
+      .from('travelplan')
       .getPublicUrl(fileName);
 
     return c.json({ publicUrl });
@@ -723,6 +725,15 @@ app.post('/api/settings/categories', async (c) => {
   try {
     const { name, icon, color } = await c.req.json();
     await c.env.DB.prepare('INSERT INTO ExpenseCategories (name, icon, color, is_default, created_at) VALUES (?, ?, ?, 0, ?)').bind(name, icon, color, Date.now()).run();
+    return c.json({ success: true });
+  } catch (error: any) { return c.json({ error: error.message }, 500); }
+});
+
+app.put('/api/settings/categories/:id', async (c) => {
+  const id = c.req.param('id');
+  try {
+    const { name, icon, color } = await c.req.json();
+    await c.env.DB.prepare('UPDATE ExpenseCategories SET name = ?, icon = ?, color = ? WHERE id = ? AND is_default = 0').bind(name, icon, color, id).run();
     return c.json({ success: true });
   } catch (error: any) { return c.json({ error: error.message }, 500); }
 });

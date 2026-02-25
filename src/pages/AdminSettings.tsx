@@ -22,8 +22,9 @@ export function AdminSettings() {
   const [message, setMessage] = useState('');
   
   // Category State
-  const [newCat, setNewCat] = useState({ name: '', icon: 'Circle', color: '#808080' });
+  const [newCat, setNewCat] = useState({ id: 0, name: '', icon: 'Circle', color: '#808080' });
   const [addingCat, setAddingCat] = useState(false);
+  const [editingCatId, setEditingCatId] = useState<number | null>(null);
 
   // Image Upload State
   const [isCropperOpen, setIsCropperOpen] = useState(false);
@@ -75,34 +76,70 @@ export function AdminSettings() {
     }
   };
 
-  const handleAddCategory = async () => {
+  const handleAddOrUpdateCategory = async () => {
     if (!newCat.name) return;
     setAddingCat(true);
     try {
-      const res = await apiFetch('/api/settings/categories', {
-        method: 'POST',
-        body: JSON.stringify(newCat)
-      });
+      let res;
+      if (editingCatId) {
+        // Update existing
+        // Note: Assuming backend supports PUT /api/settings/categories/:id or similar.
+        // If not, we might need to delete and re-add, or implement the PUT endpoint.
+        // For now, let's assume we need to implement a PUT endpoint or similar logic.
+        // Since the user asked for "edit", I will assume we need to add a PUT endpoint in worker.ts or handle it here.
+        // Let's check worker.ts... it doesn't have PUT for categories.
+        // I will implement a PUT endpoint in worker.ts in the next step.
+        // For now, I'll use the PUT method here.
+        res = await apiFetch(`/api/settings/categories/${editingCatId}`, {
+          method: 'PUT',
+          body: JSON.stringify(newCat)
+        });
+      } else {
+        // Add new
+        res = await apiFetch('/api/settings/categories', {
+          method: 'POST',
+          body: JSON.stringify(newCat)
+        });
+      }
+
       if (res.ok) {
         const catsRes = await apiFetch('/api/settings/categories');
         setCategories(await catsRes.json());
-        setNewCat({ name: '', icon: 'Circle', color: '#808080' });
+        setNewCat({ id: 0, name: '', icon: 'Circle', color: '#808080' });
+        setEditingCatId(null);
       }
     } catch (err) {
       console.error(err);
-      alert('Failed to add category');
+      alert('Failed to save category');
     } finally {
       setAddingCat(false);
     }
   };
 
-  const handleDeleteCategory = async (id: number) => {
+  const handleEditCategory = (cat: any) => {
+    setNewCat({ id: cat.id, name: cat.name, icon: cat.icon, color: cat.color });
+    setEditingCatId(cat.id);
+    // Scroll to form
+    const form = document.getElementById('category-form');
+    if (form) form.scrollIntoView({ behavior: 'smooth' });
+  };
+
+  const handleCancelEdit = () => {
+    setNewCat({ id: 0, name: '', icon: 'Circle', color: '#808080' });
+    setEditingCatId(null);
+  };
+
+  const handleDeleteCategory = async (id: number, e: React.MouseEvent) => {
+    e.stopPropagation(); // Prevent triggering edit
     if (!confirm('Delete this category?')) return;
     try {
       const res = await apiFetch(`/api/settings/categories/${id}`, { method: 'DELETE' });
       if (res.ok) {
         const catsRes = await apiFetch('/api/settings/categories');
         setCategories(await catsRes.json());
+        if (editingCatId === id) {
+          handleCancelEdit();
+        }
       }
     } catch (err) {
       console.error(err);
@@ -134,7 +171,7 @@ export function AdminSettings() {
     setIsCropperOpen(false);
     setUploadingImage(true);
     try {
-      const publicUrl = await uploadImageToSupabase(blob);
+      const publicUrl = await uploadImageToSupabase(blob, 'settings');
       setSettings({ ...settings, top_bg_url: publicUrl });
     } catch (err) {
       console.error(err);
@@ -234,20 +271,23 @@ export function AdminSettings() {
             <div className="bg-zinc-900 border border-zinc-800 rounded-3xl p-6 space-y-6">
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 max-h-[60vh] overflow-y-auto pr-2 custom-scrollbar">
                 {categories.map(cat => (
-                  <div key={cat.id} className="flex items-center justify-between p-3 bg-zinc-950 border border-zinc-800 rounded-xl group relative">
+                  <div 
+                    key={cat.id} 
+                    onClick={() => handleEditCategory(cat)}
+                    className={`flex items-center justify-between p-3 bg-zinc-950 border rounded-xl group relative cursor-pointer transition-colors ${editingCatId === cat.id ? 'border-orange-500 bg-orange-500/5' : 'border-zinc-800 hover:border-zinc-700'}`}
+                  >
                     <div className="flex items-center gap-3">
                       <div className="w-10 h-10 rounded-full flex items-center justify-center text-white shadow-sm" style={{ backgroundColor: cat.color }}>
                         <DynamicIcon name={cat.icon} size={20} />
                       </div>
                       <div>
                         <p className="font-medium text-white">{cat.name}</p>
-                        <p className="text-xs text-zinc-500">{cat.is_default ? 'System Default' : 'Custom'}</p>
                       </div>
                     </div>
                     {!cat.is_default && (
                       <button 
-                        onClick={() => handleDeleteCategory(cat.id)}
-                        className="absolute right-2 top-2 p-2 text-zinc-600 hover:text-red-500 hover:bg-red-500/10 rounded-full transition-colors"
+                        onClick={(e) => handleDeleteCategory(cat.id, e)}
+                        className="p-2 text-zinc-600 hover:text-red-500 hover:bg-red-500/10 rounded-full transition-colors"
                       >
                         <Trash2 size={16} />
                       </button>
@@ -256,8 +296,13 @@ export function AdminSettings() {
                 ))}
               </div>
 
-              <div className="pt-4 border-t border-zinc-800">
-                <h4 className="text-sm font-medium text-zinc-400 mb-4">Add New Category</h4>
+              <div id="category-form" className="pt-4 border-t border-zinc-800">
+                <div className="flex items-center justify-between mb-4">
+                  <h4 className="text-sm font-medium text-zinc-400">{editingCatId ? 'Edit Category' : 'Add New Category'}</h4>
+                  {editingCatId && (
+                    <button onClick={handleCancelEdit} className="text-xs text-zinc-500 hover:text-white">Cancel</button>
+                  )}
+                </div>
                 <div className="grid grid-cols-1 md:grid-cols-4 gap-4 items-end">
                   <div className="flex-1 w-full">
                     <label className="text-xs text-zinc-500 mb-1 block">Name</label>
@@ -297,12 +342,12 @@ export function AdminSettings() {
                     </div>
                   </div>
                   <button 
-                    onClick={handleAddCategory}
+                    onClick={handleAddOrUpdateCategory}
                     disabled={addingCat || !newCat.name}
-                    className="w-full md:w-auto px-6 py-2.5 bg-zinc-800 text-white font-bold rounded-xl hover:bg-orange-500 transition-colors disabled:opacity-50 flex items-center justify-center gap-2 h-[42px]"
+                    className={`w-full md:w-auto px-6 py-2.5 font-bold rounded-xl transition-colors disabled:opacity-50 flex items-center justify-center gap-2 h-[42px] ${editingCatId ? 'bg-orange-500 text-white hover:bg-orange-600' : 'bg-zinc-800 text-white hover:bg-orange-500'}`}
                   >
-                    {addingCat ? <Loader2 size={16} className="animate-spin" /> : <Plus size={16} />}
-                    Add
+                    {addingCat ? <Loader2 size={16} className="animate-spin" /> : (editingCatId ? <Save size={16} /> : <Plus size={16} />)}
+                    {editingCatId ? 'Update' : 'Add'}
                   </button>
                 </div>
               </div>
