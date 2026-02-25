@@ -4,6 +4,7 @@ export interface User {
   name: string;
   avatar_url: string;
   allow_login: number;
+  payment_info?: string; // JSON string
   created_at?: number;
   updated_at?: number;
 }
@@ -71,6 +72,7 @@ export interface Expense {
   item_name: string;
   amount: number;
   currency: string;
+  category?: string;
   payer_id: number;
   split_members: number[]; // Parsed from JSON (User IDs)
   notes: string;

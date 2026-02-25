@@ -1,6 +1,7 @@
 import { Hono } from 'hono';
 import { cors } from 'hono/cors';
 import { getAssetFromKV } from '@cloudflare/kv-asset-handler';
+import { createClient } from '@supabase/supabase-js';
 
 // @ts-ignore
 import manifestJSON from '__STATIC_CONTENT_MANIFEST';
@@ -9,6 +10,8 @@ export interface Env {
   DB: D1Database;
   KV: KVNamespace;
   PASSWORD_SALT: string;
+  VITE_SUPABASE_URL: string;
+  VITE_SUPABASE_ANON_KEY: string;
   __STATIC_CONTENT: any;
   __STATIC_CONTENT_MANIFEST: string;
 }
@@ -110,6 +113,38 @@ async function ensureSchema(db: D1Database) {
     // 4. Add category to Expenses
     await db.prepare("ALTER TABLE Expenses ADD COLUMN category TEXT DEFAULT 'other'").run();
   } catch (e) {}
+
+  try {
+    // 5. Create ExpenseCategories table
+    await db.prepare(`
+      CREATE TABLE IF NOT EXISTS ExpenseCategories (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        name TEXT NOT NULL,
+        icon TEXT DEFAULT 'circle',
+        color TEXT DEFAULT '#808080',
+        is_default INTEGER DEFAULT 0,
+        created_at INTEGER
+      )
+    `).run();
+
+    // Seed default categories
+    const { count } = await db.prepare('SELECT COUNT(*) as count FROM ExpenseCategories').first() as any;
+    if (count === 0) {
+      const defaults = [
+        { name: 'Food', icon: 'Utensils', color: '#F97316' },
+        { name: 'Transport', icon: 'Car', color: '#3B82F6' },
+        { name: 'Hotel', icon: 'Bed', color: '#8B5CF6' },
+        { name: 'Fun', icon: 'PartyPopper', color: '#EC4899' },
+        { name: 'Shop', icon: 'ShoppingBag', color: '#F59E0B' },
+        { name: 'Other', icon: 'Package', color: '#6B7280' },
+      ];
+      for (const cat of defaults) {
+        await db.prepare('INSERT INTO ExpenseCategories (name, icon, color, is_default, created_at) VALUES (?, ?, ?, 1, ?)').bind(cat.name, cat.icon, cat.color, Date.now()).run();
+      }
+    }
+  } catch (e) {
+    console.error('Schema update failed:', e);
+  }
 }
 
 // Helper: Get Weather for a specific date
@@ -262,12 +297,51 @@ app.use('/api/users', requireAuthMiddleware);
 app.use('/api/users/*', requireAuthMiddleware);
 app.use('/api/settings', requireAuthMiddleware);
 app.use('/api/sync', requireAuthMiddleware);
+app.use('/api/upload', requireAuthMiddleware);
 
 // Trip mutations require auth
 app.post('/api/trips', requireAuthMiddleware);
 app.post('/api/trips/*', requireAuthMiddleware);
 app.put('/api/trips/*', requireAuthMiddleware);
 app.delete('/api/trips/*', requireAuthMiddleware);
+
+// Upload Proxy
+app.post('/api/upload', async (c) => {
+  try {
+    const body = await c.req.parseBody();
+    const file = body['file']; 
+    if (!file || !(file instanceof File)) return c.json({ error: 'No file uploaded' }, 400);
+
+    const supabaseUrl = c.env.VITE_SUPABASE_URL;
+    const supabaseKey = c.env.VITE_SUPABASE_ANON_KEY;
+
+    if (!supabaseUrl || !supabaseKey) return c.json({ error: 'Supabase not configured in worker' }, 500);
+
+    const supabase = createClient(supabaseUrl, supabaseKey);
+    const fileName = `${Date.now()}-${Math.random().toString(36).substring(7)}.jpg`;
+    
+    // Convert File to ArrayBuffer for upload
+    const arrayBuffer = await file.arrayBuffer();
+    
+    const { data, error } = await supabase.storage
+      .from('trip-images')
+      .upload(fileName, arrayBuffer, {
+        contentType: file.type,
+        upsert: false
+      });
+
+    if (error) throw error;
+
+    const { data: { publicUrl } } = supabase.storage
+      .from('trip-images')
+      .getPublicUrl(fileName);
+
+    return c.json({ publicUrl });
+  } catch (e: any) {
+    console.error('Upload error:', e);
+    return c.json({ error: e.message }, 500);
+  }
+});
 
 // GET routes for trips and cities are public but can be enhanced by knowing the user
 
@@ -634,6 +708,30 @@ app.get('/api/settings', async (c) => {
   try {
     const { results } = await c.env.DB.prepare('SELECT * FROM App_Settings').all();
     return c.json(results);
+  } catch (error: any) { return c.json({ error: error.message }, 500); }
+});
+
+// Categories Endpoints
+app.get('/api/settings/categories', async (c) => {
+  try {
+    const { results } = await c.env.DB.prepare('SELECT * FROM ExpenseCategories ORDER BY is_default DESC, created_at').all();
+    return c.json(results);
+  } catch (error: any) { return c.json({ error: error.message }, 500); }
+});
+
+app.post('/api/settings/categories', async (c) => {
+  try {
+    const { name, icon, color } = await c.req.json();
+    await c.env.DB.prepare('INSERT INTO ExpenseCategories (name, icon, color, is_default, created_at) VALUES (?, ?, ?, 0, ?)').bind(name, icon, color, Date.now()).run();
+    return c.json({ success: true });
+  } catch (error: any) { return c.json({ error: error.message }, 500); }
+});
+
+app.delete('/api/settings/categories/:id', async (c) => {
+  const id = c.req.param('id');
+  try {
+    await c.env.DB.prepare('DELETE FROM ExpenseCategories WHERE id = ? AND is_default = 0').bind(id).run();
+    return c.json({ success: true });
   } catch (error: any) { return c.json({ error: error.message }, 500); }
 });
 

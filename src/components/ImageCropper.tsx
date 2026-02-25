@@ -155,21 +155,26 @@ export function ImageCropper({ imageSrc, aspect = 16 / 9, onCropComplete, onCanc
 }
 
 export async function uploadImageToSupabase(file: File | Blob): Promise<string> {
-  if (!supabase) throw new Error('Supabase not configured');
-  
-  const fileName = `${Date.now()}-${Math.random().toString(36).substring(7)}.jpg`;
-  const { data, error } = await supabase.storage
-    .from('trip-images') // Ensure this bucket exists in Supabase
-    .upload(fileName, file, {
-      cacheControl: '3600',
-      upsert: false
-    });
+  const formData = new FormData();
+  formData.append('file', file);
 
-  if (error) throw error;
-  
-  const { data: { publicUrl } } = supabase.storage
-    .from('trip-images')
-    .getPublicUrl(fileName);
-    
-  return publicUrl;
+  const token = localStorage.getItem('token');
+  const headers: Record<string, string> = {};
+  if (token) {
+    headers['Authorization'] = `Bearer ${token}`;
+  }
+
+  const res = await fetch('/api/upload', {
+    method: 'POST',
+    headers,
+    body: formData
+  });
+
+  if (!res.ok) {
+    const error = await res.json() as any;
+    throw new Error(error.error || 'Upload failed');
+  }
+
+  const data = await res.json() as any;
+  return data.publicUrl;
 }

@@ -1,8 +1,9 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip, Legend } from 'recharts';
 import { Expense, User } from '../types';
 import { motion, AnimatePresence } from 'framer-motion';
 import { X, Wallet, ArrowRight, Copy, Check } from 'lucide-react';
+import { apiFetch } from '../utils/api';
 
 interface FinanceOverviewProps {
   expenses: Expense[];
@@ -10,20 +11,24 @@ interface FinanceOverviewProps {
   currency: string;
 }
 
-const COLORS = ['#F97316', '#3B82F6', '#10B981', '#F59E0B', '#EC4899', '#8B5CF6'];
-
-const CATEGORIES = {
-  food: { label: 'Food', icon: '🍔' },
-  transport: { label: 'Transport', icon: '🚕' },
-  accommodation: { label: 'Hotel', icon: '🏨' },
-  entertainment: { label: 'Fun', icon: '🎉' },
-  shopping: { label: 'Shop', icon: '🛍️' },
-  other: { label: 'Other', icon: '📦' },
-};
-
 export function FinanceOverview({ expenses, members, currency }: FinanceOverviewProps) {
   const [showSplitModal, setShowSplitModal] = useState(false);
   const [copiedText, setCopiedText] = useState<string | null>(null);
+  const [categories, setCategories] = useState<any[]>([]);
+
+  useEffect(() => {
+    const fetchCategories = async () => {
+      try {
+        const res = await apiFetch('/api/settings/categories');
+        if (res.ok) {
+          setCategories(await res.json());
+        }
+      } catch (err) {
+        console.error('Failed to fetch categories', err);
+      }
+    };
+    fetchCategories();
+  }, []);
 
   // 1. Calculate Total
   const totalAmount = useMemo(() => {
@@ -34,16 +39,19 @@ export function FinanceOverview({ expenses, members, currency }: FinanceOverview
   const categoryData = useMemo(() => {
     const data: Record<string, number> = {};
     expenses.forEach(exp => {
-      const cat = exp.category || 'other';
+      const cat = exp.category || 'Other';
       data[cat] = (data[cat] || 0) + exp.amount;
     });
     
-    return Object.entries(data).map(([name, value]) => ({
-      name: CATEGORIES[name as keyof typeof CATEGORIES]?.label || name,
-      value,
-      originalKey: name
-    })).sort((a, b) => b.value - a.value);
-  }, [expenses]);
+    return Object.entries(data).map(([name, value]) => {
+      const catDef = categories.find(c => c.name === name);
+      return {
+        name,
+        value,
+        color: catDef?.color || '#808080' // Default gray if not found
+      };
+    }).sort((a, b) => b.value - a.value);
+  }, [expenses, categories]);
 
   // 3. Calculate Debts (Simplified Split Logic)
   const debts = useMemo(() => {
@@ -151,7 +159,7 @@ export function FinanceOverview({ expenses, members, currency }: FinanceOverview
                 dataKey="value"
               >
                 {categoryData.map((entry, index) => (
-                  <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} stroke="rgba(0,0,0,0.5)" strokeWidth={2} />
+                  <Cell key={`cell-${index}`} fill={entry.color} stroke="rgba(0,0,0,0.5)" strokeWidth={2} />
                 ))}
               </Pie>
               <Tooltip 
