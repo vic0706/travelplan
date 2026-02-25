@@ -211,27 +211,32 @@ export function TripDetails() {
   };
 
   return (
-    <div className="flex flex-col min-h-screen bg-black pb-24">
+    <div className="flex flex-col min-h-full bg-black pb-32">
       {/* Trip Header */}
-      <div className="relative h-48 w-full overflow-hidden shrink-0">
+      <div className="relative h-64 w-full overflow-hidden shrink-0">
         <img 
           src={tripCoverImageUrl} 
           alt={trip.title} 
           className="w-full h-full object-cover"
           referrerPolicy="no-referrer"
         />
-        <div className="absolute inset-0 bg-gradient-to-t from-black via-black/40 to-transparent"></div>
+        {/* Top Gradient for Status Bar Visibility */}
+        <div className="absolute top-0 left-0 right-0 h-24 bg-gradient-to-b from-black/70 to-transparent pointer-events-none"></div>
+        {/* Bottom Gradient for Text Visibility */}
+        <div className="absolute bottom-0 left-0 right-0 h-32 bg-gradient-to-t from-black via-black/50 to-transparent pointer-events-none"></div>
+        
         <button 
           onClick={() => navigate('/')}
-          className="absolute top-[calc(1rem+env(safe-area-inset-top))] left-4 p-2 bg-black/40 backdrop-blur-md rounded-full text-white hover:bg-black/60 transition-colors z-10"
+          className="absolute top-[calc(0.5rem+env(safe-area-inset-top))] left-4 p-2 bg-black/30 backdrop-blur-md rounded-full text-white hover:bg-black/50 transition-colors z-20 border border-white/10"
         >
           <ArrowLeft size={20} />
         </button>
-        <div className="absolute bottom-0 left-0 right-0 p-4">
-          <h1 className="text-2xl font-bold text-white mb-1 drop-shadow-md">{trip.title}</h1>
-          <div className="flex items-center gap-3 text-zinc-300 text-sm">
-            <div className="flex items-center gap-1">
-              <Calendar size={14} />
+        
+        <div className="absolute bottom-0 left-0 right-0 p-4 z-10">
+          <h1 className="text-3xl font-bold text-white mb-1 drop-shadow-lg tracking-tight">{trip.title}</h1>
+          <div className="flex items-center gap-3 text-zinc-200 text-sm font-medium">
+            <div className="flex items-center gap-1.5 bg-black/30 backdrop-blur-sm px-2 py-1 rounded-lg border border-white/10">
+              <Calendar size={14} className="text-orange-500" />
               <span>{validTripStartDate ? format(validTripStartDate, 'MMM d') : ''} - {validTripEndDate ? format(validTripEndDate, 'MMM d, yyyy') : ''}</span>
             </div>
           </div>
@@ -240,7 +245,7 @@ export function TripDetails() {
 
       {/* Date Slider */}
       {(activeTab === 'itinerary' || activeTab === 'finance') && (
-        <div className="sticky top-0 z-20 bg-black/95 backdrop-blur-sm border-b border-zinc-800 py-3 px-4">
+        <div className="sticky top-0 z-30 bg-black/95 backdrop-blur-xl border-b border-zinc-800 py-3 px-4 shadow-xl">
           <div className="flex overflow-x-auto gap-3 no-scrollbar pb-1">
             {dates.map((date, index) => {
               const isActive = isSameDay(date, selectedDate);
@@ -511,47 +516,47 @@ export function TripDetails() {
       </div>
 
       {/* Bottom Tabs */}
-      <div className="fixed bottom-0 left-0 right-0 h-[calc(4rem+env(safe-area-inset-bottom))] bg-zinc-900 border-t border-zinc-800 flex items-start justify-around px-4 pt-2 pb-[env(safe-area-inset-bottom)] z-50">
+      <div className="fixed bottom-0 left-0 right-0 h-[calc(4rem+env(safe-area-inset-bottom))] bg-zinc-900/95 backdrop-blur-xl border-t border-zinc-800 flex items-start justify-around px-4 pt-2 pb-[env(safe-area-inset-bottom)] z-[100] shadow-[0_-4px_20px_rgba(0,0,0,0.5)]">
         <button
           onClick={() => setActiveTab('itinerary')}
           className={clsx(
-            "flex flex-col items-center justify-center w-full h-12 space-y-1 transition-colors",
+            "flex flex-col items-center justify-center w-full h-12 space-y-1 transition-colors active:scale-95",
             activeTab === 'itinerary' ? "text-orange-500" : "text-zinc-500 hover:text-zinc-300"
           )}
         >
-          <Map size={24} />
-          <span className="text-[10px] font-medium uppercase tracking-wider">Itinerary</span>
+          <Map size={24} strokeWidth={activeTab === 'itinerary' ? 2.5 : 2} />
+          <span className="text-[10px] font-bold uppercase tracking-wider">Itinerary</span>
         </button>
         <button
           onClick={() => setActiveTab('info')}
           className={clsx(
-            "flex flex-col items-center justify-center w-full h-12 space-y-1 transition-colors",
+            "flex flex-col items-center justify-center w-full h-12 space-y-1 transition-colors active:scale-95",
             activeTab === 'info' ? "text-orange-500" : "text-zinc-500 hover:text-zinc-300"
           )}
         >
-          <Info size={24} />
-          <span className="text-[10px] font-medium uppercase tracking-wider">Info</span>
+          <Info size={24} strokeWidth={activeTab === 'info' ? 2.5 : 2} />
+          <span className="text-[10px] font-bold uppercase tracking-wider">Info</span>
         </button>
         <button
           onClick={() => setActiveTab('finance')}
           className={clsx(
-            "flex flex-col items-center justify-center w-full h-12 space-y-1 transition-colors",
+            "flex flex-col items-center justify-center w-full h-12 space-y-1 transition-colors active:scale-95",
             activeTab === 'finance' ? "text-orange-500" : "text-zinc-500 hover:text-zinc-300"
           )}
         >
-          <Wallet size={24} />
-          <span className="text-[10px] font-medium uppercase tracking-wider">Finance</span>
+          <Wallet size={24} strokeWidth={activeTab === 'finance' ? 2.5 : 2} />
+          <span className="text-[10px] font-bold uppercase tracking-wider">Finance</span>
         </button>
         {user?.role === 'Admin' && (
           <button
             onClick={() => setActiveTab('settings')}
             className={clsx(
-              "flex flex-col items-center justify-center w-full h-12 space-y-1 transition-colors",
+              "flex flex-col items-center justify-center w-full h-12 space-y-1 transition-colors active:scale-95",
               activeTab === 'settings' ? "text-orange-500" : "text-zinc-500 hover:text-zinc-300"
             )}
           >
-            <Settings size={24} />
-            <span className="text-[10px] font-medium uppercase tracking-wider">Settings</span>
+            <Settings size={24} strokeWidth={activeTab === 'settings' ? 2.5 : 2} />
+            <span className="text-[10px] font-bold uppercase tracking-wider">Settings</span>
           </button>
         )}
       </div>
