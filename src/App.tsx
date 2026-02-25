@@ -35,12 +35,12 @@ function AppContent() {
   }, [_hasHydrated, setCities]);
 
   return (
-    <div className="flex flex-col h-[100dvh] w-screen bg-black text-zinc-100 font-sans overflow-hidden selection:bg-orange-500/30">
+    <div className="flex flex-col h-full w-full bg-black text-zinc-100 font-sans overflow-hidden selection:bg-orange-500/30">
       <OfflineStatusBar />
       {!isTripDetails && <TopAppBar />}
       <main className={clsx(
         "flex-1 overflow-y-auto relative z-10",
-        !isTripDetails && "pt-[calc(4rem+env(safe-area-inset-top))]"
+        !isTripDetails && "pt-[calc(4rem+env(safe-area-inset-top,0px))]"
       )}>
         <Routes>
           <Route path="/" element={<Home />} />

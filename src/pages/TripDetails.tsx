@@ -211,7 +211,10 @@ export function TripDetails() {
   };
 
   return (
-    <div className="flex flex-col min-h-full bg-black pb-32">
+    <div className="flex flex-col min-h-full bg-black pb-32 pt-[env(safe-area-inset-top,0px)]">
+      {/* Fixed Black Status Bar Background */}
+      <div className="fixed top-0 left-0 right-0 h-[env(safe-area-inset-top,0px)] bg-black z-50"></div>
+
       {/* Trip Header */}
       <div className="relative h-64 w-full overflow-hidden shrink-0">
         <img 
@@ -227,7 +230,7 @@ export function TripDetails() {
         
         <button 
           onClick={() => navigate('/')}
-          className="absolute top-[calc(0.5rem+env(safe-area-inset-top))] left-4 p-2 bg-black/30 backdrop-blur-md rounded-full text-white hover:bg-black/50 transition-colors z-20 border border-white/10"
+          className="absolute top-[calc(0.5rem+env(safe-area-inset-top,0px))] left-4 p-2 bg-black/30 backdrop-blur-md rounded-full text-white hover:bg-black/50 transition-colors z-20 border border-white/10"
         >
           <ArrowLeft size={20} />
         </button>
@@ -516,7 +519,7 @@ export function TripDetails() {
       </div>
 
       {/* Bottom Tabs */}
-      <div className="fixed bottom-0 left-0 right-0 h-[calc(4rem+env(safe-area-inset-bottom))] bg-zinc-900/95 backdrop-blur-xl border-t border-zinc-800 flex items-start justify-around px-4 pt-2 pb-[env(safe-area-inset-bottom)] z-[100] shadow-[0_-4px_20px_rgba(0,0,0,0.5)]">
+      <div className="fixed bottom-0 left-0 right-0 h-[calc(4rem+env(safe-area-inset-bottom,0px))] bg-zinc-900/95 backdrop-blur-xl border-t border-zinc-800 flex items-start justify-around px-4 pt-2 pb-[env(safe-area-inset-bottom,0px)] z-[100] shadow-[0_-4px_20px_rgba(0,0,0,0.5)]">
         <button
           onClick={() => setActiveTab('itinerary')}
           className={clsx(

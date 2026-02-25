@@ -70,7 +70,7 @@ export function TopAppBar() {
 
   return (
     <>
-      <header className="fixed top-0 left-0 right-0 z-40 bg-black/80 backdrop-blur-md border-b border-zinc-800 px-4 flex items-center justify-between safe-top h-[calc(4rem+env(safe-area-inset-top))] pt-[env(safe-area-inset-top)]">
+      <header className="fixed top-0 left-0 right-0 z-40 bg-black/80 backdrop-blur-md border-b border-zinc-800 px-4 flex items-center justify-between safe-top h-[calc(4rem+env(safe-area-inset-top,0px))] pt-[env(safe-area-inset-top,0px)]">
         <div className="flex items-center gap-2 cursor-pointer" onClick={() => navigate('/')}>
           <h1 className="text-xl font-black tracking-tighter text-orange-500 drop-shadow-[0_0_8px_rgba(249,115,22,0.6)] italic hover:scale-105 transition-transform">
             TRAVEL PLAN
