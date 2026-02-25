@@ -293,14 +293,23 @@ app.put('/api/users/:id', async (c) => {
   const id = c.req.param('id');
   try {
     const { name, role, allow_login, password, avatar_url } = await c.req.json();
-    let query = 'UPDATE Users SET name = ?, role = ?, allow_login = ?, avatar_url = ?, updated_at = ?';
-    const params: any[] = [name, role, allow_login, avatar_url, Date.now()];
+    
+    let query = 'UPDATE Users SET updated_at = ?';
+    const params: any[] = [Date.now()];
+
+    if (name !== undefined) { query += ', name = ?'; params.push(name); }
+    if (role !== undefined) { query += ', role = ?'; params.push(role); }
+    if (allow_login !== undefined) { query += ', allow_login = ?'; params.push(allow_login); }
+    if (avatar_url !== undefined) { query += ', avatar_url = ?'; params.push(avatar_url); }
+    
     if (password) {
       query += ', password_hash = ?';
       params.push(await generateHash(password, c.env.PASSWORD_SALT || 'salt'));
     }
+    
     query += ' WHERE id = ?';
     params.push(id);
+    
     await c.env.DB.prepare(query).bind(...params).run();
     return c.json({ success: true });
   } catch (error: any) { return c.json({ error: error.message }, 500); }

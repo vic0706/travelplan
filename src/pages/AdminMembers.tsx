@@ -14,12 +14,28 @@ export function AdminMembers() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
 
+  const sortUsers = (usersList: any[]) => {
+    return [...usersList].sort((a, b) => {
+      // 1. Active first (allow_login === 1)
+      const aActive = a.allow_login === 1;
+      const bActive = b.allow_login === 1;
+      if (aActive && !bActive) return -1;
+      if (!aActive && bActive) return 1;
+
+      // 2. Admin first
+      if (a.role === 'Admin' && b.role !== 'Admin') return -1;
+      if (a.role !== 'Admin' && b.role === 'Admin') return 1;
+
+      return 0;
+    });
+  };
+
   const fetchUsers = async () => {
     try {
       const res = await apiFetch('/api/users');
       if (res.ok) {
         const data = await res.json() as any[];
-        setUsers(data);
+        setUsers(sortUsers(data));
       }
     } catch (err) {
       console.error('Users fetch failed:', err);
@@ -32,7 +48,7 @@ export function AdminMembers() {
 
   const openAddModal = () => {
     setEditingUser(null);
-    setFormData({ name: '', password: '', role: 'Member', allow_login: 1 });
+    setFormData({ name: '', password: '123456', role: 'Member', allow_login: 1 });
     setIsModalOpen(true);
   };
 
@@ -64,10 +80,12 @@ export function AdminMembers() {
       const savedUser = await res.json();
 
       if (editingUser) {
-        setUsers(users.map(u => u.id === editingUser.id ? { ...u, ...formData, id: editingUser.id, avatar_url: editingUser.avatar_url } : u));
+        const updatedUsers = users.map(u => u.id === editingUser.id ? { ...u, ...formData, id: editingUser.id, avatar_url: editingUser.avatar_url } : u);
+        setUsers(sortUsers(updatedUsers));
       } else {
         // The server returns the newly created user with an ID
-        setUsers([...users, savedUser]);
+        const newUsers = [...users, savedUser];
+        setUsers(sortUsers(newUsers));
       }
 
       setIsModalOpen(false);
@@ -94,40 +112,43 @@ export function AdminMembers() {
       </div>
 
       <div className="space-y-4">
-        {users.map(u => (
-          <div
-            key={u.id}
-            className={clsx(
-              "bg-zinc-900 border border-zinc-800 rounded-3xl p-5 flex items-center justify-between transition-all hover:border-zinc-700",
-              !u.allow_login && "opacity-50 grayscale"
-            )}
-          >
-            <div className="flex items-center gap-4">
-              <div className="w-12 h-12 rounded-full bg-zinc-800 flex items-center justify-center shrink-0 overflow-hidden border border-zinc-700">
-                {u.avatar_url ? (
-                  <img src={u.avatar_url} alt={u.name} className="w-full h-full object-cover" />
-                ) : (
-                  <UserIcon className="text-zinc-400" size={20} />
-                )}
-              </div>
-              <div>
-                <h3 className="text-white font-medium">{u.name}</h3>
-                <div className="flex items-center gap-2 mt-1">
-                  <Shield size={12} className={u.role === 'Admin' ? 'text-orange-500' : 'text-zinc-500'} />
-                  <span className="text-[10px] uppercase tracking-wider text-zinc-500 font-semibold">{u.role}</span>
-                  {!u.allow_login && <span className="text-[10px] text-red-500 font-bold uppercase ml-2">Disabled</span>}
+        {users.map(u => {
+          const isDisabled = u.allow_login !== 1;
+          return (
+            <div
+              key={u.id}
+              className={clsx(
+                "bg-zinc-900 border border-zinc-800 rounded-3xl p-5 flex items-center justify-between transition-all hover:border-zinc-700",
+                isDisabled && "opacity-50 grayscale"
+              )}
+            >
+              <div className="flex items-center gap-4">
+                <div className="w-12 h-12 rounded-full bg-zinc-800 flex items-center justify-center shrink-0 overflow-hidden border border-zinc-700">
+                  {u.avatar_url ? (
+                    <img src={u.avatar_url} alt={u.name} className="w-full h-full object-cover" />
+                  ) : (
+                    <UserIcon className="text-zinc-400" size={20} />
+                  )}
+                </div>
+                <div>
+                  <h3 className="text-white font-medium">{u.name}</h3>
+                  <div className="flex items-center gap-2 mt-1">
+                    <Shield size={12} className={u.role === 'Admin' ? 'text-orange-500' : 'text-zinc-500'} />
+                    <span className="text-[10px] uppercase tracking-wider text-zinc-500 font-semibold">{u.role}</span>
+                    {isDisabled && <span className="text-[10px] text-red-500 font-bold uppercase ml-2">Disabled</span>}
+                  </div>
                 </div>
               </div>
+              
+              <button 
+                onClick={() => openEditModal(u)}
+                className="p-3 bg-zinc-800 hover:bg-zinc-700 text-zinc-400 hover:text-white rounded-full transition-colors"
+              >
+                <Edit2 size={16} />
+              </button>
             </div>
-            
-            <button 
-              onClick={() => openEditModal(u)}
-              className="p-3 bg-zinc-800 hover:bg-zinc-700 text-zinc-400 hover:text-white rounded-full transition-colors"
-            >
-              <Edit2 size={16} />
-            </button>
-          </div>
-        ))}
+          );
+        })}
       </div>
 
       {/* Member Modal */}
@@ -176,19 +197,20 @@ export function AdminMembers() {
                   />
                 </div>
 
-                <div>
-                  <label className="block text-sm font-medium text-zinc-400 mb-1">
-                    {editingUser ? 'New Password (leave blank to keep current)' : 'Password'}
-                  </label>
-                  <input
-                    type="password"
-                    required={!editingUser}
-                    value={formData.password}
-                    onChange={e => setFormData({ ...formData, password: e.target.value })}
-                    className="w-full bg-zinc-800 border border-zinc-700 rounded-xl px-4 py-3 text-white focus:outline-none focus:ring-2 focus:ring-orange-500"
-                    placeholder="••••••••"
-                  />
-                </div>
+                {editingUser && (
+                  <div>
+                    <label className="block text-sm font-medium text-zinc-400 mb-1">
+                      New Password (leave blank to keep current)
+                    </label>
+                    <input
+                      type="password"
+                      value={formData.password}
+                      onChange={e => setFormData({ ...formData, password: e.target.value })}
+                      className="w-full bg-zinc-800 border border-zinc-700 rounded-xl px-4 py-3 text-white focus:outline-none focus:ring-2 focus:ring-orange-500"
+                      placeholder="••••••••"
+                    />
+                  </div>
+                )}
 
                 <div className="grid grid-cols-2 gap-4">
                   <div>
@@ -200,7 +222,6 @@ export function AdminMembers() {
                     >
                       <option value="Member">Member</option>
                       <option value="Admin">Admin</option>
-                      <option value="Guest">Guest</option>
                     </select>
                   </div>
                   <div>
