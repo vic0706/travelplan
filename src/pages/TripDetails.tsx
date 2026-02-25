@@ -213,7 +213,7 @@ export function TripDetails() {
   return (
     <div className="flex flex-col min-h-screen bg-black pb-24">
       {/* Trip Header */}
-      <div className="relative h-48 w-full overflow-hidden">
+      <div className="relative h-48 w-full overflow-hidden shrink-0">
         <img 
           src={tripCoverImageUrl} 
           alt={trip.title} 
@@ -223,7 +223,7 @@ export function TripDetails() {
         <div className="absolute inset-0 bg-gradient-to-t from-black via-black/40 to-transparent"></div>
         <button 
           onClick={() => navigate('/')}
-          className="absolute top-4 left-4 p-2 bg-black/40 backdrop-blur-md rounded-full text-white hover:bg-black/60 transition-colors z-10"
+          className="absolute top-[calc(1rem+env(safe-area-inset-top))] left-4 p-2 bg-black/40 backdrop-blur-md rounded-full text-white hover:bg-black/60 transition-colors z-10"
         >
           <ArrowLeft size={20} />
         </button>
@@ -511,11 +511,11 @@ export function TripDetails() {
       </div>
 
       {/* Bottom Tabs */}
-      <div className="fixed bottom-0 left-0 right-0 h-16 bg-zinc-900 border-t border-zinc-800 flex items-center justify-around px-4 pb-[env(safe-area-inset-bottom)] z-50">
+      <div className="fixed bottom-0 left-0 right-0 h-[calc(4rem+env(safe-area-inset-bottom))] bg-zinc-900 border-t border-zinc-800 flex items-start justify-around px-4 pt-2 pb-[env(safe-area-inset-bottom)] z-50">
         <button
           onClick={() => setActiveTab('itinerary')}
           className={clsx(
-            "flex flex-col items-center justify-center w-full h-full space-y-1 transition-colors",
+            "flex flex-col items-center justify-center w-full h-12 space-y-1 transition-colors",
             activeTab === 'itinerary' ? "text-orange-500" : "text-zinc-500 hover:text-zinc-300"
           )}
         >
@@ -525,7 +525,7 @@ export function TripDetails() {
         <button
           onClick={() => setActiveTab('info')}
           className={clsx(
-            "flex flex-col items-center justify-center w-full h-full space-y-1 transition-colors",
+            "flex flex-col items-center justify-center w-full h-12 space-y-1 transition-colors",
             activeTab === 'info' ? "text-orange-500" : "text-zinc-500 hover:text-zinc-300"
           )}
         >
@@ -535,7 +535,7 @@ export function TripDetails() {
         <button
           onClick={() => setActiveTab('finance')}
           className={clsx(
-            "flex flex-col items-center justify-center w-full h-full space-y-1 transition-colors",
+            "flex flex-col items-center justify-center w-full h-12 space-y-1 transition-colors",
             activeTab === 'finance' ? "text-orange-500" : "text-zinc-500 hover:text-zinc-300"
           )}
         >
@@ -546,7 +546,7 @@ export function TripDetails() {
           <button
             onClick={() => setActiveTab('settings')}
             className={clsx(
-              "flex flex-col items-center justify-center w-full h-full space-y-1 transition-colors",
+              "flex flex-col items-center justify-center w-full h-12 space-y-1 transition-colors",
               activeTab === 'settings' ? "text-orange-500" : "text-zinc-500 hover:text-zinc-300"
             )}
           >

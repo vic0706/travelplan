@@ -154,11 +154,13 @@ export function ImageCropper({ imageSrc, aspect = 16 / 9, onCropComplete, onCanc
   );
 }
 
+import { useAppStore } from '../store';
+
 export async function uploadImageToSupabase(file: File | Blob): Promise<string> {
   const formData = new FormData();
   formData.append('file', file);
 
-  const token = localStorage.getItem('token');
+  const token = useAppStore.getState().token;
   const headers: Record<string, string> = {};
   if (token) {
     headers['Authorization'] = `Bearer ${token}`;
