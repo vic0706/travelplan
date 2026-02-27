@@ -149,6 +149,27 @@ async function ensureSchema(db: D1Database) {
     // 6. Add sub_items to Itineraries
     await db.prepare("ALTER TABLE Itineraries ADD COLUMN sub_items TEXT DEFAULT '[]'").run();
   } catch (e) {}
+
+  try {
+    // 7. Add stay_duration to Itineraries
+    await db.prepare("ALTER TABLE Itineraries ADD COLUMN stay_duration TEXT DEFAULT ''").run();
+  } catch (e) {}
+
+  try {
+    // 8. Create Sub_Itineraries table
+    await db.prepare(`
+      CREATE TABLE IF NOT EXISTS Sub_Itineraries (
+        id TEXT PRIMARY KEY,
+        itinerary_id INTEGER NOT NULL,
+        start_time TEXT NOT NULL,
+        end_time TEXT NOT NULL,
+        title TEXT NOT NULL,
+        tags TEXT,
+        notes TEXT,
+        FOREIGN KEY (itinerary_id) REFERENCES Itineraries(id) ON DELETE CASCADE
+      )
+    `).run();
+  } catch (e) {}
 }
 
 // Helper: Get Weather for a specific date
@@ -670,8 +691,8 @@ app.post('/api/trips/:id/itineraries', async (c) => {
 
     const b = await c.req.json();
     const info = await c.env.DB.prepare(`
-      INSERT INTO Itineraries (trip_id, city_id, date, start_time, end_time, title, address, image_url, notes, tags, sub_items)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      INSERT INTO Itineraries (trip_id, city_id, date, start_time, end_time, title, address, image_url, notes, tags, sub_items, stay_duration)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).bind(
       tripId, 
       b.city_id, 
@@ -683,7 +704,8 @@ app.post('/api/trips/:id/itineraries', async (c) => {
       b.image_url || '', 
       b.notes || '', 
       JSON.stringify(b.tags || []),
-      b.sub_items || '[]'
+      b.sub_items || '[]',
+      b.stay_duration || ''
     ).run();
     return c.json({ success: true, id: info.meta.last_row_id });
   } catch (error: any) { return c.json({ error: error.message }, 500); }
@@ -699,7 +721,7 @@ app.put('/api/trips/:id/itineraries/:itemId', async (c) => {
     const b = await c.req.json();
     await c.env.DB.prepare(`
       UPDATE Itineraries 
-      SET city_id = ?, date = ?, start_time = ?, end_time = ?, title = ?, address = ?, image_url = ?, notes = ?, tags = ?, sub_items = ?
+      SET city_id = ?, date = ?, start_time = ?, end_time = ?, title = ?, address = ?, image_url = ?, notes = ?, tags = ?, sub_items = ?, stay_duration = ?
       WHERE id = ? AND trip_id = ?
     `).bind(
       b.city_id, 
@@ -712,9 +734,53 @@ app.put('/api/trips/:id/itineraries/:itemId', async (c) => {
       b.notes || '', 
       JSON.stringify(b.tags || []),
       b.sub_items || '[]',
+      b.stay_duration || '',
       itemId,
       tripId
     ).run();
+    return c.json({ success: true });
+  } catch (error: any) { return c.json({ error: error.message }, 500); }
+});
+
+// Sub-Itineraries Endpoints
+app.get('/api/itineraries/:itineraryId/sub-items', async (c) => {
+  const itineraryId = c.req.param('itineraryId');
+  try {
+    const { results } = await c.env.DB.prepare('SELECT * FROM Sub_Itineraries WHERE itinerary_id = ? ORDER BY start_time').bind(itineraryId).all();
+    return c.json(results);
+  } catch (error: any) { return c.json({ error: error.message }, 500); }
+});
+
+app.post('/api/itineraries/:itineraryId/sub-items', async (c) => {
+  const itineraryId = c.req.param('itineraryId');
+  try {
+    const b = await c.req.json();
+    const id = crypto.randomUUID();
+    await c.env.DB.prepare(`
+      INSERT INTO Sub_Itineraries (id, itinerary_id, start_time, end_time, title, tags, notes)
+      VALUES (?, ?, ?, ?, ?, ?, ?)
+    `).bind(id, itineraryId, b.start_time, b.end_time, b.title, b.tags || '', b.notes || '').run();
+    return c.json({ success: true, id });
+  } catch (error: any) { return c.json({ error: error.message }, 500); }
+});
+
+app.put('/api/sub-items/:id', async (c) => {
+  const id = c.req.param('id');
+  try {
+    const b = await c.req.json();
+    await c.env.DB.prepare(`
+      UPDATE Sub_Itineraries 
+      SET start_time = ?, end_time = ?, title = ?, tags = ?, notes = ?
+      WHERE id = ?
+    `).bind(b.start_time, b.end_time, b.title, b.tags || '', b.notes || '', id).run();
+    return c.json({ success: true });
+  } catch (error: any) { return c.json({ error: error.message }, 500); }
+});
+
+app.delete('/api/sub-items/:id', async (c) => {
+  const id = c.req.param('id');
+  try {
+    await c.env.DB.prepare('DELETE FROM Sub_Itineraries WHERE id = ?').bind(id).run();
     return c.json({ success: true });
   } catch (error: any) { return c.json({ error: error.message }, 500); }
 });

@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useAppStore } from '../store';
 import { format, parseISO, addDays, differenceInDays, isSameDay, isPast } from 'date-fns';
-import { MapPin, Clock, Plus, Navigation, DollarSign, Plane, Bed, Map, Info, Wallet, ArrowLeft, Calendar, X, Settings, Edit3 } from 'lucide-react';
+import { MapPin, Clock, Plus, Navigation, DollarSign, Plane, Bed, Map, Info, Wallet, ArrowLeft, Calendar, X, Settings, Edit3, ChevronDown, ChevronUp, Image as ImageIcon } from 'lucide-react';
 import { Trip, Itinerary, Expense, User } from '../types';
 import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip } from 'recharts';
 import { clsx } from 'clsx';
@@ -17,6 +17,123 @@ import { FlightForm } from '../components/FlightForm';
 import { AccommodationForm } from '../components/AccommodationForm';
 import { FinanceOverview } from '../components/FinanceOverview';
 import { motion, AnimatePresence } from 'framer-motion';
+
+// ... (rest of imports)
+
+// Itinerary Card Component
+function ItineraryCard({ item, canEdit, onEdit }: { item: Itinerary; canEdit: boolean; onEdit: () => void }) {
+  const [isExpanded, setIsExpanded] = useState(false);
+  
+  const subItems = item.sub_items ? JSON.parse(item.sub_items) : [];
+  const hasSubItems = subItems.length > 0;
+  const itineraryImageUrl = item.image_url && typeof item.image_url === 'string' && item.image_url.startsWith('http')
+    ? item.image_url
+    : null;
+
+  return (
+    <div 
+      className={`bg-zinc-900 border border-zinc-800 rounded-3xl overflow-hidden shadow-lg group relative transition-all ${hasSubItems ? 'cursor-pointer hover:border-zinc-700' : ''}`}
+      onClick={() => hasSubItems && setIsExpanded(!isExpanded)}
+    >
+      {itineraryImageUrl && (
+        <div className="h-32 w-full relative">
+          <img src={itineraryImageUrl} alt={item.title} className="w-full h-full object-cover" referrerPolicy="no-referrer" />
+          <div className="absolute inset-0 bg-gradient-to-t from-zinc-900 to-transparent"></div>
+        </div>
+      )}
+      <div className="p-5">
+        <div className="flex items-center justify-between mb-3">
+          <div className="flex items-center gap-2">
+            <div className="flex items-center gap-2 text-orange-500 bg-orange-500/10 px-3 py-1 rounded-full">
+              <Clock size={14} />
+              <span className="text-xs font-bold tracking-wider">{item.start_time} - {item.end_time}</span>
+            </div>
+            {item.stay_duration && (
+               <span className="text-[10px] text-zinc-500 font-medium bg-zinc-800 px-2 py-1 rounded-full">
+                 Stay: {item.stay_duration}
+               </span>
+            )}
+          </div>
+          <div className="flex items-center gap-2">
+            {item.tags && item.tags.map((tag: string) => (
+              <span key={tag} className="text-[10px] font-medium uppercase tracking-wider text-zinc-500 border border-zinc-700 px-2 py-0.5 rounded-full">
+                {tag}
+              </span>
+            ))}
+            {canEdit && (
+              <button 
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onEdit();
+                }}
+                className="p-1.5 text-zinc-500 hover:text-white hover:bg-zinc-800 rounded-full transition-colors"
+              >
+                <Edit3 size={16} />
+              </button>
+            )}
+          </div>
+        </div>
+        
+        <div className="flex items-start justify-between gap-4">
+          <h3 className="text-xl font-semibold text-white mb-2 flex-1">{item.title}</h3>
+          
+          {/* Address Button on the right */}
+          <a 
+            href={item.address && item.address.startsWith('http') 
+              ? item.address 
+              : `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(item.address || item.title)}`}
+            target="_blank"
+            rel="noopener noreferrer"
+            onClick={(e) => e.stopPropagation()}
+            className="flex items-center gap-2 text-zinc-400 text-xs hover:text-orange-500 transition-colors bg-zinc-950/50 px-3 py-2 rounded-xl border border-zinc-800/50 shrink-0"
+          >
+            <MapPin size={14} />
+            <span className="max-w-[100px] truncate">{item.address ? 'Map' : 'Search'}</span>
+          </a>
+        </div>
+
+        {hasSubItems && (
+          <div className="flex items-center justify-center mt-2">
+            {isExpanded ? <ChevronUp size={16} className="text-zinc-600" /> : <ChevronDown size={16} className="text-zinc-600" />}
+          </div>
+        )}
+
+        <AnimatePresence>
+          {isExpanded && hasSubItems && (
+            <motion.div
+              initial={{ height: 0, opacity: 0 }}
+              animate={{ height: 'auto', opacity: 1 }}
+              exit={{ height: 0, opacity: 0 }}
+              className="overflow-hidden"
+            >
+              <div className="mt-4 space-y-2 pt-4 border-t border-zinc-800/50">
+                {subItems.map((sub: any, idx: number) => (
+                  <div key={sub.id || idx} className="flex items-start gap-3 text-sm text-zinc-400 bg-zinc-950/30 p-2 rounded-lg">
+                    <div className="mt-1 w-1.5 h-1.5 rounded-full bg-orange-500 shrink-0" />
+                    <div className="flex-1">
+                      <div className="text-zinc-300 font-medium">{sub.title || sub.text}</div>
+                      {(sub.start_time || sub.end_time) && (
+                        <div className="text-xs text-zinc-600">
+                          {sub.start_time} - {sub.end_time}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </motion.div>
+          )}
+        </AnimatePresence>
+
+        {item.notes && (
+          <p className="mt-4 text-sm text-zinc-500 leading-relaxed bg-zinc-950/50 p-3 rounded-xl border border-zinc-800/50">
+            {item.notes}
+          </p>
+        )}
+      </div>
+    </div>
+  );
+}
 
 export function TripDetails() {
   const { id } = useParams();
@@ -289,79 +406,19 @@ export function TripDetails() {
                   const itineraryImageUrl = item.image_url && typeof item.image_url === 'string' && item.image_url.startsWith('http')
                     ? item.image_url
                     : null;
-
+                  
+                  // Use local state for expansion if needed, but mapping inside map requires a component or state array.
+                  // I'll create a separate component for ItineraryCard to handle its own state.
                   return (
-                    <React.Fragment key={item.id}>
-                      <div className="bg-zinc-900 border border-zinc-800 rounded-3xl overflow-hidden shadow-lg group relative">
-                        {itineraryImageUrl && (
-                          <div className="h-32 w-full relative">
-                            <img src={itineraryImageUrl} alt={item.title} className="w-full h-full object-cover" referrerPolicy="no-referrer" />
-                            <div className="absolute inset-0 bg-gradient-to-t from-zinc-900 to-transparent"></div>
-                          </div>
-                        )}
-                        <div className="p-5">
-                          <div className="flex items-center justify-between mb-3">
-                            <div className="flex items-center gap-2">
-                              {/* City name hidden as per request */}
-                              <div className="flex items-center gap-2 text-orange-500 bg-orange-500/10 px-3 py-1 rounded-full">
-                                <Clock size={14} />
-                                <span className="text-xs font-bold tracking-wider">{item.start_time} - {item.end_time}</span>
-                              </div>
-                            </div>
-                            <div className="flex items-center gap-2">
-                              {item.tags && item.tags.map((tag: string) => (
-                                <span key={tag} className="text-[10px] font-medium uppercase tracking-wider text-zinc-500 border border-zinc-700 px-2 py-0.5 rounded-full">
-                                  {tag}
-                                </span>
-                              ))}
-                              {canEdit && (
-                                <button 
-                                  onClick={() => {
-                                    setEditingItinerary(item);
-                                    setIsItineraryFormOpen(true);
-                                  }}
-                                  className="p-1.5 text-zinc-500 hover:text-white hover:bg-zinc-800 rounded-full transition-colors"
-                                >
-                                  <Edit3 size={16} />
-                                </button>
-                              )}
-                            </div>
-                          </div>
-                          <h3 className="text-xl font-semibold text-white mb-2">{item.title}</h3>
-                          
-                          <div className="flex items-center gap-3 mt-3">
-                            <a 
-                              href={item.address && item.address.startsWith('http') 
-                                ? item.address 
-                                : `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(item.address || item.title)}`}
-                              target="_blank"
-                              rel="noopener noreferrer"
-                              className="flex items-center gap-2 text-zinc-400 text-sm hover:text-orange-500 transition-colors bg-zinc-950/50 px-3 py-2 rounded-xl border border-zinc-800/50 w-full"
-                            >
-                              <MapPin size={16} className="shrink-0" />
-                              <span className="leading-snug truncate">{item.address || 'View on Map'}</span>
-                            </a>
-                          </div>
-
-                          {item.sub_items && (
-                            <div className="mt-4 space-y-2">
-                              {JSON.parse(item.sub_items).map((sub: any) => (
-                                <div key={sub.id} className="flex items-center gap-2 text-sm text-zinc-400">
-                                  <div className={`w-1.5 h-1.5 rounded-full ${sub.completed ? 'bg-zinc-600' : 'bg-orange-500'}`} />
-                                  <span className={sub.completed ? 'line-through text-zinc-600' : ''}>{sub.text}</span>
-                                </div>
-                              ))}
-                            </div>
-                          )}
-
-                          {item.notes && (
-                            <p className="mt-4 text-sm text-zinc-500 leading-relaxed bg-zinc-950/50 p-3 rounded-xl border border-zinc-800/50">
-                              {item.notes}
-                            </p>
-                          )}
-                        </div>
-                      </div>
-                    </React.Fragment>
+                    <ItineraryCard 
+                      key={item.id} 
+                      item={item} 
+                      canEdit={canEdit}
+                      onEdit={() => {
+                        setEditingItinerary(item);
+                        setIsItineraryFormOpen(true);
+                      }}
+                    />
                   );
                 })
               ) : (

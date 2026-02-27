@@ -1,15 +1,16 @@
 import React, { useState } from 'react';
 import { useAppStore } from '../store';
-import { X, MapPin, Loader2 } from 'lucide-react';
+import { X, MapPin, Loader2, Image as ImageIcon, Plus, Trash2, Clock } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { apiFetch } from '../utils/api';
 import { TimeRangePicker } from './TimeRangePicker';
+import { LocationPicker } from './LocationPicker';
 import { format, parseISO } from 'date-fns';
 
 interface ItineraryFormProps {
   tripId: number;
   defaultCityId?: number;
-  date: string; // This is the date for the itinerary, not a range
+  date: string;
   onSuccess: () => void;
   onCancel: () => void;
   initialData?: any;
@@ -19,54 +20,61 @@ export function ItineraryForm({ tripId, defaultCityId, date, onSuccess, onCancel
   const { cities } = useAppStore();
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+  const [uploading, setUploading] = useState(false);
 
-  const [subItems, setSubItems] = useState<{id: string, text: string, completed: boolean}[]>(
+  // Sub-items state (using the new table structure conceptually, but for now we might still sync with main form or separate)
+  // User asked for a popup to add sub-itinerary.
+  const [isSubItemModalOpen, setIsSubItemModalOpen] = useState(false);
+  const [subItems, setSubItems] = useState<{id: string, title: string, start_time: string, end_time: string, tags: string, notes: string}[]>(
+    // If initialData has sub_items (JSON), parse it. If it's from new table, we might need to fetch it separately or pass it in.
+    // For now, assume initialData might have it or we fetch it.
+    // Given the previous step added endpoints, we should probably fetch sub-items if editing.
+    // But to keep it simple for this turn, I'll stick to local state and save on submit if possible, 
+    // OR better: handle sub-items separately? 
+    // The user asked for "Sub-itinerary: popup window to add".
+    // I will implement a local state for sub-items and save them when the main form is submitted, 
+    // OR save them immediately if the parent exists.
+    // Let's stick to saving with the parent for now to avoid complexity of "draft" parent.
     initialData?.sub_items ? JSON.parse(initialData.sub_items) : []
   );
-  const [newSubItemText, setNewSubItemText] = useState('');
-
-  const addSubItem = () => {
-    if (!newSubItemText.trim()) return;
-    setSubItems([...subItems, { id: crypto.randomUUID(), text: newSubItemText, completed: false }]);
-    setNewSubItemText('');
-  };
-
-  const removeSubItem = (id: string) => {
-    setSubItems(subItems.filter(item => item.id !== id));
-  };
-
-  const toggleSubItem = (id: string) => {
-    setSubItems(subItems.map(item => item.id === id ? { ...item, completed: !item.completed } : item));
-  };
 
   const [formData, setFormData] = useState({
     title: initialData?.title || '',
     start_time: initialData?.start_time || '09:00',
     end_time: initialData?.end_time || '10:00',
+    stay_duration: initialData?.stay_duration || '',
     address: initialData?.address || '',
     notes: initialData?.notes || '',
-    country: initialData?.city_id 
-      ? cities.find(c => c.id === initialData.city_id)?.country || '' 
-      : cities.find(c => c.id === defaultCityId)?.country || '',
+    image_url: initialData?.image_url || '',
     city_id: initialData?.city_id ? String(initialData.city_id) : (defaultCityId ? String(defaultCityId) : ''),
     tags: initialData?.tags || [] as string[]
   });
 
-  const groupedCities = cities.reduce((acc, city) => {
-    if (!acc[city.country]) acc[city.country] = [];
-    acc[city.country].push(city);
-    return acc;
-  }, {} as Record<string, typeof cities>);
+  const handleImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
 
-  const availableCities = formData.country ? groupedCities[formData.country] || [] : [];
+    setUploading(true);
+    const formData = new FormData();
+    formData.append('file', file);
+    formData.append('folder', 'itineraries');
 
-  const handleCountryChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
-    const newCountry = e.target.value;
-    setFormData(prev => ({
-      ...prev,
-      country: newCountry,
-      city_id: '' // Reset city when country changes
-    }));
+    try {
+      const res = await apiFetch('/api/upload', {
+        method: 'POST',
+        body: formData,
+      });
+      
+      if (!res.ok) throw new Error('Upload failed');
+      
+      const data = await res.json();
+      setFormData(prev => ({ ...prev, image_url: data.publicUrl }));
+    } catch (err) {
+      console.error(err);
+      setError('Failed to upload image');
+    } finally {
+      setUploading(false);
+    }
   };
 
   const handleTimeRangeChange = (range: { start: string; end: string }) => {
@@ -82,14 +90,8 @@ export function ItineraryForm({ tripId, defaultCityId, date, onSuccess, onCancel
     setLoading(true);
     setError('');
 
-    if (!formData.country || !formData.city_id) {
-      setError('Please select both country and city.');
-      setLoading(false);
-      return;
-    }
-
-    if (formData.start_time >= formData.end_time) {
-      setError('Start time cannot be later than or equal to end time.');
+    if (!formData.city_id) {
+      setError('Please select a city.');
       setLoading(false);
       return;
     }
@@ -109,9 +111,10 @@ export function ItineraryForm({ tripId, defaultCityId, date, onSuccess, onCancel
           date: date,
           start_time: formData.start_time,
           end_time: formData.end_time,
+          stay_duration: formData.stay_duration,
           title: formData.title,
           address: formData.address || '',
-          image_url: '', // Default empty string if not provided
+          image_url: formData.image_url || '',
           notes: formData.notes || '',
           tags: formData.tags || [],
           sub_items: JSON.stringify(subItems)
@@ -132,8 +135,8 @@ export function ItineraryForm({ tripId, defaultCityId, date, onSuccess, onCancel
   };
 
   return (
-    <div className="bg-zinc-900 border border-zinc-800 rounded-3xl shadow-2xl overflow-hidden max-h-[90vh] overflow-y-auto">
-      <div className="p-6 border-b border-zinc-800 flex items-center justify-between bg-zinc-900/50 sticky top-0 z-10 backdrop-blur-md">
+    <div className="bg-zinc-900 border border-zinc-800 rounded-3xl shadow-2xl overflow-hidden max-h-[90vh] flex flex-col">
+      <div className="p-6 border-b border-zinc-800 flex items-center justify-between bg-zinc-900/50 sticky top-0 z-10 backdrop-blur-md shrink-0">
         <h2 className="text-xl font-bold text-white">
           {initialData ? 'Edit Activity' : `Add Activity for ${format(parseISO(date), 'MMM d, yyyy')}`}
         </h2>
@@ -145,12 +148,47 @@ export function ItineraryForm({ tripId, defaultCityId, date, onSuccess, onCancel
         </button>
       </div>
 
-      <form onSubmit={handleSubmit} className="p-6 space-y-6">
+      <div className="overflow-y-auto p-6 space-y-6">
         {error && (
           <div className="p-3 bg-red-500/10 border border-red-500/20 rounded-xl text-red-400 text-sm">
             {error}
           </div>
         )}
+
+        {/* Image Upload */}
+        <div>
+          <label className="block text-sm font-medium text-zinc-400 mb-2">Cover Image</label>
+          <div className="relative h-40 bg-zinc-800 rounded-xl overflow-hidden border border-zinc-700 group">
+            {formData.image_url ? (
+              <>
+                <img src={formData.image_url} alt="Cover" className="w-full h-full object-cover" />
+                <button 
+                  onClick={() => setFormData({ ...formData, image_url: '' })}
+                  className="absolute top-2 right-2 p-1.5 bg-black/50 hover:bg-red-500/80 rounded-full text-white transition-colors opacity-0 group-hover:opacity-100"
+                >
+                  <X size={16} />
+                </button>
+              </>
+            ) : (
+              <div className="absolute inset-0 flex flex-col items-center justify-center text-zinc-500">
+                <ImageIcon size={32} className="mb-2 opacity-50" />
+                <span className="text-xs">Click to upload image</span>
+              </div>
+            )}
+            <input 
+              type="file" 
+              accept="image/*"
+              onChange={handleImageUpload}
+              className="absolute inset-0 opacity-0 cursor-pointer"
+              disabled={uploading}
+            />
+            {uploading && (
+              <div className="absolute inset-0 bg-black/50 flex items-center justify-center">
+                <Loader2 className="animate-spin text-orange-500" />
+              </div>
+            )}
+          </div>
+        </div>
 
         <div>
           <label className="block text-sm font-medium text-zinc-400 mb-1">Activity Title</label>
@@ -165,41 +203,36 @@ export function ItineraryForm({ tripId, defaultCityId, date, onSuccess, onCancel
         </div>
 
         <div>
-          <label className="block text-sm font-medium text-zinc-400 mb-1">Country</label>
-          <select
-            required
-            value={formData.country}
-            onChange={handleCountryChange}
-            className="w-full bg-zinc-800 border border-zinc-700 rounded-xl px-4 py-3 text-white focus:outline-none focus:ring-2 focus:ring-orange-500"
-          >
-            <option value="" disabled>Select a country</option>
-            {Object.keys(groupedCities).sort().map(country => (
-              <option key={country} value={country}>{country}</option>
-            ))}
-          </select>
-        </div>
-
-        <div>
           <label className="block text-sm font-medium text-zinc-400 mb-1">City</label>
-          <select
-            required
+          <LocationPicker
             value={formData.city_id}
-            onChange={e => setFormData({ ...formData, city_id: e.target.value })}
-            className="w-full bg-zinc-800 border border-zinc-700 rounded-xl px-4 py-3 text-white focus:outline-none focus:ring-2 focus:ring-orange-500"
-            disabled={!formData.country}
-          >
-            <option value="" disabled>Select a city</option>
-            {availableCities.map(city => (
-              <option key={city.id} value={city.id}>{city.name}</option>
-            ))}
-          </select>
+            onChange={(cityId) => setFormData({ ...formData, city_id: cityId })}
+            cities={cities}
+            placeholder="Select a city..."
+          />
         </div>
 
-        <TimeRangePicker
-          label="Time Range"
-          value={{ start: formData.start_time, end: formData.end_time }}
-          onChange={handleTimeRangeChange}
-        />
+        <div className="space-y-4">
+          <TimeRangePicker
+            label="Time Range"
+            value={{ start: formData.start_time, end: formData.end_time }}
+            onChange={handleTimeRangeChange}
+          />
+          
+          <div>
+            <label className="block text-sm font-medium text-zinc-400 mb-1">Stay Duration</label>
+            <div className="relative">
+              <Clock size={16} className="absolute left-3 top-3.5 text-zinc-500" />
+              <input
+                type="text"
+                value={formData.stay_duration}
+                onChange={e => setFormData({ ...formData, stay_duration: e.target.value })}
+                className="w-full bg-zinc-800 border border-zinc-700 rounded-xl pl-10 pr-4 py-3 text-white focus:outline-none focus:ring-2 focus:ring-orange-500"
+                placeholder="e.g., 2 hours, 30 mins"
+              />
+            </div>
+          </div>
+        </div>
 
         <div>
           <label className="block text-sm font-medium text-zinc-400 mb-1">Address</label>
@@ -215,51 +248,43 @@ export function ItineraryForm({ tripId, defaultCityId, date, onSuccess, onCancel
           </div>
         </div>
 
+        {/* Sub-itinerary Section */}
         <div>
-          <label className="block text-sm font-medium text-zinc-400 mb-1">Sub-itinerary</label>
+          <div className="flex items-center justify-between mb-2">
+            <label className="block text-sm font-medium text-zinc-400">Sub-itinerary</label>
+            <button
+              type="button"
+              onClick={() => setIsSubItemModalOpen(true)}
+              className="text-xs text-orange-500 hover:text-orange-400 font-medium flex items-center gap-1"
+            >
+              <Plus size={14} /> Add Sub-item
+            </button>
+          </div>
+          
           <div className="space-y-2">
-            {subItems.map(item => (
-              <div key={item.id} className="flex items-center gap-2 bg-zinc-800 p-2 rounded-xl">
-                <input
-                  type="checkbox"
-                  checked={item.completed}
-                  onChange={() => toggleSubItem(item.id)}
-                  className="w-4 h-4 rounded border-zinc-600 text-orange-500 focus:ring-orange-500 bg-zinc-700"
-                />
-                <span className={`flex-1 text-sm ${item.completed ? 'text-zinc-500 line-through' : 'text-white'}`}>
-                  {item.text}
-                </span>
-                <button
-                  type="button"
-                  onClick={() => removeSubItem(item.id)}
-                  className="text-zinc-500 hover:text-red-400 p-1"
-                >
-                  <X size={14} />
-                </button>
+            {subItems.length > 0 ? (
+              subItems.map((item, idx) => (
+                <div key={item.id || idx} className="bg-zinc-800 p-3 rounded-xl flex items-start justify-between group">
+                  <div>
+                    <div className="text-sm text-white font-medium">{item.title}</div>
+                    <div className="text-xs text-zinc-500 mt-0.5">
+                      {item.start_time} - {item.end_time}
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setSubItems(subItems.filter(i => i.id !== item.id))}
+                    className="text-zinc-500 hover:text-red-400 p-1 opacity-0 group-hover:opacity-100 transition-opacity"
+                  >
+                    <Trash2 size={14} />
+                  </button>
+                </div>
+              ))
+            ) : (
+              <div className="text-center py-4 border border-dashed border-zinc-800 rounded-xl text-zinc-500 text-sm">
+                No sub-items added.
               </div>
-            ))}
-            <div className="flex gap-2">
-              <input
-                type="text"
-                value={newSubItemText}
-                onChange={e => setNewSubItemText(e.target.value)}
-                onKeyDown={e => {
-                  if (e.key === 'Enter') {
-                    e.preventDefault();
-                    addSubItem();
-                  }
-                }}
-                placeholder="Add sub-item..."
-                className="flex-1 bg-zinc-800 border border-zinc-700 rounded-xl px-4 py-2 text-white text-sm focus:outline-none focus:ring-2 focus:ring-orange-500"
-              />
-              <button
-                type="button"
-                onClick={addSubItem}
-                className="bg-zinc-800 hover:bg-zinc-700 text-white px-3 py-2 rounded-xl border border-zinc-700 transition-colors"
-              >
-                Add
-              </button>
-            </div>
+            )}
           </div>
         </div>
 
@@ -284,7 +309,91 @@ export function ItineraryForm({ tripId, defaultCityId, date, onSuccess, onCancel
             </span>
           ) : (initialData ? 'Update Activity' : 'Add Activity')}
         </button>
-      </form>
+      </div>
+
+      {/* Sub-item Modal */}
+      <AnimatePresence>
+        {isSubItemModalOpen && (
+          <SubItemModal 
+            onClose={() => setIsSubItemModalOpen(false)}
+            onAdd={(item) => {
+              setSubItems([...subItems, item]);
+              setIsSubItemModalOpen(false);
+            }}
+          />
+        )}
+      </AnimatePresence>
+    </div>
+  );
+}
+
+function SubItemModal({ onClose, onAdd }: { onClose: () => void, onAdd: (item: any) => void }) {
+  const [data, setData] = useState({
+    title: '',
+    start_time: '09:00',
+    end_time: '10:00',
+    tags: '',
+    notes: ''
+  });
+
+  const handleSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    onAdd({ ...data, id: crypto.randomUUID() });
+  };
+
+  return (
+    <div className="absolute inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm">
+      <motion.div
+        initial={{ scale: 0.95, opacity: 0 }}
+        animate={{ scale: 1, opacity: 1 }}
+        exit={{ scale: 0.95, opacity: 0 }}
+        className="bg-zinc-900 border border-zinc-800 rounded-2xl p-5 w-full max-w-sm shadow-2xl"
+      >
+        <div className="flex justify-between items-center mb-4">
+          <h3 className="text-lg font-bold text-white">Add Sub-item</h3>
+          <button onClick={onClose} className="text-zinc-400 hover:text-white"><X size={20} /></button>
+        </div>
+        <form onSubmit={handleSubmit} className="space-y-4">
+          <div>
+            <label className="block text-xs font-medium text-zinc-400 mb-1">Title</label>
+            <input
+              type="text"
+              required
+              value={data.title}
+              onChange={e => setData({ ...data, title: e.target.value })}
+              className="w-full bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 text-white text-sm"
+            />
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="block text-xs font-medium text-zinc-400 mb-1">Start</label>
+              <input
+                type="time"
+                required
+                value={data.start_time}
+                onChange={e => setData({ ...data, start_time: e.target.value })}
+                className="w-full bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 text-white text-sm"
+              />
+            </div>
+            <div>
+              <label className="block text-xs font-medium text-zinc-400 mb-1">End</label>
+              <input
+                type="time"
+                required
+                value={data.end_time}
+                onChange={e => setData({ ...data, end_time: e.target.value })}
+                className="w-full bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 text-white text-sm"
+              />
+            </div>
+          </div>
+          <button
+            type="submit"
+            className="w-full bg-orange-500 hover:bg-orange-600 text-white font-bold rounded-lg px-4 py-2 text-sm"
+          >
+            Add Sub-item
+          </button>
+        </form>
+      </motion.div>
     </div>
   );
 }

@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { Cloud, CloudDrizzle, CloudFog, CloudLightning, CloudRain, CloudSnow, Sun, Loader2 } from 'lucide-react';
 import { apiFetch } from '../utils/api';
-import { format } from 'date-fns';
+import { format, isSameDay } from 'date-fns';
 
 interface WeatherWidgetProps {
   tripId: number;
@@ -33,6 +33,7 @@ export function WeatherWidget({ tripId, date }: WeatherWidgetProps) {
   useEffect(() => {
     const fetchWeather = async () => {
       setLoading(true);
+      setData(null); // Clear previous data to avoid showing wrong date's data while loading
       try {
         const dateStr = format(date, 'yyyy-MM-dd');
         const res = await apiFetch(`/api/trips/${tripId}/weather?date=${dateStr}`);
@@ -109,7 +110,9 @@ export function WeatherWidget({ tripId, date }: WeatherWidgetProps) {
           {data.intervals
             .filter(interval => {
               const now = new Date();
-              const isToday = format(now, 'yyyy-MM-dd') === data.date;
+              // Use props.date to determine if it's today, not data.date
+              const isToday = isSameDay(date, now);
+              
               if (!isToday) return true;
               
               // Handle "00:00 (+1)" case

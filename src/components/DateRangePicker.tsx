@@ -93,7 +93,7 @@ export function DateRangePicker({ value, onChange, label }: DateRangePickerProps
             animate={{ y: 0 }}
             exit={{ y: '100%' }}
             transition={{ type: 'spring', damping: 25, stiffness: 200 }}
-            className="fixed inset-x-0 bottom-0 z-50 bg-zinc-900 rounded-t-3xl shadow-lg p-6 flex flex-col max-h-[90vh]"
+            className="fixed inset-x-0 bottom-0 z-[150] bg-zinc-900 rounded-t-3xl shadow-lg p-6 flex flex-col max-h-[90vh]"
           >
             <div className="flex justify-between items-center mb-4">
               <h3 className="text-xl font-semibold text-white">Select Date Range</h3>
