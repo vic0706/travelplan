@@ -1,10 +1,11 @@
 import React, { useState } from 'react';
 import { useAppStore } from '../store';
-import { X, MapPin, Loader2, Image as ImageIcon, Plus, Trash2, Clock } from 'lucide-react';
+import { X, MapPin, Loader2, Image as ImageIcon, Plus, Trash2, Clock, Check } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { apiFetch } from '../utils/api';
 import { TimeRangePicker } from './TimeRangePicker';
 import { LocationPicker } from './LocationPicker';
+import { ImageCropper, uploadImageToSupabase } from './ImageCropper';
 import { format, parseISO } from 'date-fns';
 
 interface ItineraryFormProps {
@@ -21,6 +22,15 @@ export function ItineraryForm({ tripId, defaultCityId, date, onSuccess, onCancel
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [uploading, setUploading] = useState(false);
+  const [croppingImage, setCroppingImage] = useState<string | null>(null);
+  const [isLocationPickerOpen, setIsLocationPickerOpen] = useState(false);
+
+  // Group cities by country for LocationPicker
+  const groupedCities = cities.reduce((acc, city) => {
+    if (!acc[city.country]) acc[city.country] = [];
+    acc[city.country].push(city);
+    return acc;
+  }, {} as Record<string, typeof cities>);
 
   // Sub-items state (using the new table structure conceptually, but for now we might still sync with main form or separate)
   // User asked for a popup to add sub-itinerary.
@@ -50,28 +60,28 @@ export function ItineraryForm({ tripId, defaultCityId, date, onSuccess, onCancel
     tags: initialData?.tags || [] as string[]
   });
 
-  const handleImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
 
-    setUploading(true);
-    const formData = new FormData();
-    formData.append('file', file);
-    formData.append('folder', 'itineraries');
+    const reader = new FileReader();
+    reader.onload = () => {
+      setCroppingImage(reader.result as string);
+    };
+    reader.readAsDataURL(file);
+    e.target.value = ''; // Reset input
+  };
 
+  const handleCropComplete = async (croppedBlob: Blob) => {
+    setCroppingImage(null);
+    setUploading(true);
+    setError('');
     try {
-      const res = await apiFetch('/api/upload', {
-        method: 'POST',
-        body: formData,
-      });
-      
-      if (!res.ok) throw new Error('Upload failed');
-      
-      const data = await res.json();
-      setFormData(prev => ({ ...prev, image_url: data.publicUrl }));
-    } catch (err) {
-      console.error(err);
-      setError('Failed to upload image');
+      const publicUrl = await uploadImageToSupabase(croppedBlob);
+      setFormData(prev => ({ ...prev, image_url: publicUrl }));
+    } catch (err: any) {
+      console.error('Upload failed:', err);
+      setError('Failed to upload image: ' + err.message);
     } finally {
       setUploading(false);
     }
@@ -178,7 +188,7 @@ export function ItineraryForm({ tripId, defaultCityId, date, onSuccess, onCancel
             <input 
               type="file" 
               accept="image/*"
-              onChange={handleImageUpload}
+              onChange={handleFileSelect}
               className="absolute inset-0 opacity-0 cursor-pointer"
               disabled={uploading}
             />
@@ -204,11 +214,23 @@ export function ItineraryForm({ tripId, defaultCityId, date, onSuccess, onCancel
 
         <div>
           <label className="block text-sm font-medium text-zinc-400 mb-1">City</label>
+          <div 
+            onClick={() => setIsLocationPickerOpen(true)}
+            className="w-full bg-zinc-800 border border-zinc-700 rounded-xl px-4 py-3 text-white cursor-pointer hover:border-orange-500 transition-colors flex items-center justify-between"
+          >
+            <span className={formData.city_id ? 'text-white' : 'text-zinc-500'}>
+              {formData.city_id 
+                ? cities.find(c => String(c.id) === String(formData.city_id))?.name 
+                : 'Select a city...'}
+            </span>
+            <Check size={16} className={formData.city_id ? 'text-orange-500' : 'text-transparent'} />
+          </div>
+          
           <LocationPicker
-            value={formData.city_id}
-            onChange={(cityId) => setFormData({ ...formData, city_id: cityId })}
-            cities={cities}
-            placeholder="Select a city..."
+            isOpen={isLocationPickerOpen}
+            onClose={() => setIsLocationPickerOpen(false)}
+            onSelect={(cityId) => setFormData({ ...formData, city_id: String(cityId) })}
+            groupedCities={groupedCities}
           />
         </div>
 
@@ -323,6 +345,15 @@ export function ItineraryForm({ tripId, defaultCityId, date, onSuccess, onCancel
           />
         )}
       </AnimatePresence>
+
+      {croppingImage && (
+        <ImageCropper
+          imageSrc={croppingImage}
+          aspect={16 / 9}
+          onCropComplete={handleCropComplete}
+          onCancel={() => setCroppingImage(null)}
+        />
+      )}
     </div>
   );
 }
@@ -347,7 +378,7 @@ function SubItemModal({ onClose, onAdd }: { onClose: () => void, onAdd: (item: a
         initial={{ scale: 0.95, opacity: 0 }}
         animate={{ scale: 1, opacity: 1 }}
         exit={{ scale: 0.95, opacity: 0 }}
-        className="bg-zinc-900 border border-zinc-800 rounded-2xl p-5 w-full max-w-sm shadow-2xl"
+        className="bg-zinc-900 border border-zinc-800 rounded-2xl p-5 w-full max-w-sm shadow-2xl max-h-[90vh] overflow-y-auto custom-scrollbar"
       >
         <div className="flex justify-between items-center mb-4">
           <h3 className="text-lg font-bold text-white">Add Sub-item</h3>
@@ -385,6 +416,25 @@ function SubItemModal({ onClose, onAdd }: { onClose: () => void, onAdd: (item: a
                 className="w-full bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 text-white text-sm"
               />
             </div>
+          </div>
+          <div>
+            <label className="block text-xs font-medium text-zinc-400 mb-1">Tags (comma separated)</label>
+            <input
+              type="text"
+              value={data.tags}
+              onChange={e => setData({ ...data, tags: e.target.value })}
+              className="w-full bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 text-white text-sm"
+              placeholder="e.g. Food, Shopping"
+            />
+          </div>
+          <div>
+            <label className="block text-xs font-medium text-zinc-400 mb-1">Notes</label>
+            <textarea
+              value={data.notes}
+              onChange={e => setData({ ...data, notes: e.target.value })}
+              className="w-full bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 text-white text-sm min-h-[60px]"
+              placeholder="Details..."
+            />
           </div>
           <button
             type="submit"
