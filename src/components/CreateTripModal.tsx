@@ -190,23 +190,19 @@ export function CreateTripModal() {
               groupedCities={groupedCities}
             />
 
-            <div className="grid grid-cols-2 gap-4">
-              <div>
-                <label className="block text-sm font-medium text-zinc-400 mb-1">Start Date</label>
+            <div>
+              <label className="block text-sm font-medium text-zinc-400 mb-1">Trip Dates</label>
               <DateRangePicker
-                label="Start Date"
-                value={{ start: formData.start_date ? new Date(formData.start_date) : null, end: null }}
-                onChange={range => setFormData({ ...formData, start_date: range.start?.toISOString().split('T')[0] || '' })}
+                value={{ 
+                  start: formData.start_date ? new Date(formData.start_date) : null, 
+                  end: formData.end_date ? new Date(formData.end_date) : null 
+                }}
+                onChange={range => setFormData({ 
+                  ...formData, 
+                  start_date: range.start?.toISOString().split('T')[0] || '',
+                  end_date: range.end?.toISOString().split('T')[0] || ''
+                })}
               />
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-zinc-400 mb-1">End Date</label>
-              <DateRangePicker
-                label="End Date"
-                value={{ start: formData.end_date ? new Date(formData.end_date) : null, end: null }}
-                onChange={range => setFormData({ ...formData, end_date: range.start?.toISOString().split('T')[0] || '' })}
-              />
-              </div>
             </div>
 
             <div>

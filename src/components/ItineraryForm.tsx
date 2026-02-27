@@ -77,9 +77,16 @@ export function ItineraryForm({ tripId, defaultCityId, date, onSuccess, onCancel
       const res = await apiFetch(`/api/trips/${tripId}/itineraries`, {
         method: 'POST',
         body: JSON.stringify({
-          ...formData,
-          date, // Use the date prop for the itinerary date
-          city_id: Number(formData.city_id)
+          trip_id: tripId,
+          city_id: Number(formData.city_id),
+          date: date,
+          start_time: formData.start_time,
+          end_time: formData.end_time,
+          title: formData.title,
+          address: formData.address || '',
+          image_url: '', // Default empty string if not provided
+          notes: formData.notes || '',
+          tags: formData.tags || []
         })
       });
 

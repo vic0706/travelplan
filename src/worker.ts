@@ -650,7 +650,18 @@ app.post('/api/trips/:id/itineraries', async (c) => {
     const info = await c.env.DB.prepare(`
       INSERT INTO Itineraries (trip_id, city_id, date, start_time, end_time, title, address, image_url, notes, tags)
       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `).bind(tripId, b.city_id, b.date, b.start_time, b.end_time, b.title, b.address, b.image_url, b.notes, JSON.stringify(b.tags || [])).run();
+    `).bind(
+      tripId, 
+      b.city_id, 
+      b.date, 
+      b.start_time, 
+      b.end_time, 
+      b.title, 
+      b.address || '', 
+      b.image_url || '', 
+      b.notes || '', 
+      JSON.stringify(b.tags || [])
+    ).run();
     return c.json({ success: true, id: info.meta.last_row_id });
   } catch (error: any) { return c.json({ error: error.message }, 500); }
 });
