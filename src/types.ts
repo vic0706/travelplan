@@ -53,6 +53,7 @@ export interface Itinerary {
   image_url: string;
   notes: string;
   tags: string[]; // Parsed from JSON
+  sub_items?: string; // JSON string of sub-items
 }
 
 export interface SubItinerary {

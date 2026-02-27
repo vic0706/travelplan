@@ -40,6 +40,7 @@ export function TripDetails() {
   const [isFlightFormOpen, setIsFlightFormOpen] = useState(false);
   const [isAccommodationFormOpen, setIsAccommodationFormOpen] = useState(false);
   
+  const [editingItinerary, setEditingItinerary] = useState<Itinerary | null>(null);
   const [editingExpense, setEditingExpense] = useState<Expense | null>(null);
 
   const safeParse = (dateStr: any) => {
@@ -291,7 +292,7 @@ export function TripDetails() {
 
                   return (
                     <React.Fragment key={item.id}>
-                      <div className="bg-zinc-900 border border-zinc-800 rounded-3xl overflow-hidden shadow-lg group">
+                      <div className="bg-zinc-900 border border-zinc-800 rounded-3xl overflow-hidden shadow-lg group relative">
                         {itineraryImageUrl && (
                           <div className="h-32 w-full relative">
                             <img src={itineraryImageUrl} alt={item.title} className="w-full h-full object-cover" referrerPolicy="no-referrer" />
@@ -301,27 +302,58 @@ export function TripDetails() {
                         <div className="p-5">
                           <div className="flex items-center justify-between mb-3">
                             <div className="flex items-center gap-2">
-                              {item.city_name && (
-                                <span className="text-xs font-bold tracking-wider text-white bg-zinc-800 px-2 py-1 rounded-md border border-zinc-700">
-                                  [{item.city_name}]
-                                </span>
-                              )}
+                              {/* City name hidden as per request */}
                               <div className="flex items-center gap-2 text-orange-500 bg-orange-500/10 px-3 py-1 rounded-full">
                                 <Clock size={14} />
                                 <span className="text-xs font-bold tracking-wider">{item.start_time} - {item.end_time}</span>
                               </div>
                             </div>
-                            {item.tags && item.tags.map((tag: string) => (
-                              <span key={tag} className="text-[10px] font-medium uppercase tracking-wider text-zinc-500 border border-zinc-700 px-2 py-0.5 rounded-full">
-                                {tag}
-                              </span>
-                            ))}
+                            <div className="flex items-center gap-2">
+                              {item.tags && item.tags.map((tag: string) => (
+                                <span key={tag} className="text-[10px] font-medium uppercase tracking-wider text-zinc-500 border border-zinc-700 px-2 py-0.5 rounded-full">
+                                  {tag}
+                                </span>
+                              ))}
+                              {canEdit && (
+                                <button 
+                                  onClick={() => {
+                                    setEditingItinerary(item);
+                                    setIsItineraryFormOpen(true);
+                                  }}
+                                  className="p-1.5 text-zinc-500 hover:text-white hover:bg-zinc-800 rounded-full transition-colors"
+                                >
+                                  <Edit3 size={16} />
+                                </button>
+                              )}
+                            </div>
                           </div>
                           <h3 className="text-xl font-semibold text-white mb-2">{item.title}</h3>
-                          <div className="flex items-start gap-2 text-zinc-400 text-sm">
-                            <MapPin size={16} className="mt-0.5 shrink-0" />
-                            <span className="leading-snug">{item.address}</span>
+                          
+                          <div className="flex items-center gap-3 mt-3">
+                            <a 
+                              href={item.address && item.address.startsWith('http') 
+                                ? item.address 
+                                : `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(item.address || item.title)}`}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="flex items-center gap-2 text-zinc-400 text-sm hover:text-orange-500 transition-colors bg-zinc-950/50 px-3 py-2 rounded-xl border border-zinc-800/50 w-full"
+                            >
+                              <MapPin size={16} className="shrink-0" />
+                              <span className="leading-snug truncate">{item.address || 'View on Map'}</span>
+                            </a>
                           </div>
+
+                          {item.sub_items && (
+                            <div className="mt-4 space-y-2">
+                              {JSON.parse(item.sub_items).map((sub: any) => (
+                                <div key={sub.id} className="flex items-center gap-2 text-sm text-zinc-400">
+                                  <div className={`w-1.5 h-1.5 rounded-full ${sub.completed ? 'bg-zinc-600' : 'bg-orange-500'}`} />
+                                  <span className={sub.completed ? 'line-through text-zinc-600' : ''}>{sub.text}</span>
+                                </div>
+                              ))}
+                            </div>
+                          )}
+
                           {item.notes && (
                             <p className="mt-4 text-sm text-zinc-500 leading-relaxed bg-zinc-950/50 p-3 rounded-xl border border-zinc-800/50">
                               {item.notes}
@@ -622,14 +654,19 @@ export function TripDetails() {
                 tripId={Number(id)} 
                 defaultCityId={trip.default_city_id}
                 date={format(selectedDate, 'yyyy-MM-dd')}
+                initialData={editingItinerary}
                 onSuccess={() => {
                   setIsItineraryFormOpen(false);
+                  setEditingItinerary(null);
                   // Refresh itineraries
                   apiFetch(`/api/trips/${id}/itineraries`)
                     .then(res => res.json() as Promise<Itinerary[]>)
                     .then(data => db.itineraries.bulkPut(data));
                 }} 
-                onCancel={() => setIsItineraryFormOpen(false)} 
+                onCancel={() => {
+                  setIsItineraryFormOpen(false);
+                  setEditingItinerary(null);
+                }} 
               />
             </motion.div>
           </div>

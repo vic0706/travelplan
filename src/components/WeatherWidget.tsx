@@ -111,6 +111,10 @@ export function WeatherWidget({ tripId, date }: WeatherWidgetProps) {
               const now = new Date();
               const isToday = format(now, 'yyyy-MM-dd') === data.date;
               if (!isToday) return true;
+              
+              // Handle "00:00 (+1)" case
+              if (interval.time.includes('(+1)')) return true;
+
               const intervalHour = parseInt(interval.time.split(':')[0], 10);
               return intervalHour + 3 > now.getHours();
             })

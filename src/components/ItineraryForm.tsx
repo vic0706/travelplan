@@ -12,23 +12,44 @@ interface ItineraryFormProps {
   date: string; // This is the date for the itinerary, not a range
   onSuccess: () => void;
   onCancel: () => void;
+  initialData?: any;
 }
 
-export function ItineraryForm({ tripId, defaultCityId, date, onSuccess, onCancel }: ItineraryFormProps) {
+export function ItineraryForm({ tripId, defaultCityId, date, onSuccess, onCancel, initialData }: ItineraryFormProps) {
   const { cities } = useAppStore();
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
 
+  const [subItems, setSubItems] = useState<{id: string, text: string, completed: boolean}[]>(
+    initialData?.sub_items ? JSON.parse(initialData.sub_items) : []
+  );
+  const [newSubItemText, setNewSubItemText] = useState('');
+
+  const addSubItem = () => {
+    if (!newSubItemText.trim()) return;
+    setSubItems([...subItems, { id: crypto.randomUUID(), text: newSubItemText, completed: false }]);
+    setNewSubItemText('');
+  };
+
+  const removeSubItem = (id: string) => {
+    setSubItems(subItems.filter(item => item.id !== id));
+  };
+
+  const toggleSubItem = (id: string) => {
+    setSubItems(subItems.map(item => item.id === id ? { ...item, completed: !item.completed } : item));
+  };
+
   const [formData, setFormData] = useState({
-    title: '',
-    // Date is now handled by the parent component (TripDetails) and passed as a prop
-    start_time: '09:00',
-    end_time: '10:00',
-    address: '',
-    notes: '',
-    country: cities.find(c => c.id === defaultCityId)?.country || '',
-    city_id: defaultCityId ? String(defaultCityId) : '',
-    tags: [] as string[]
+    title: initialData?.title || '',
+    start_time: initialData?.start_time || '09:00',
+    end_time: initialData?.end_time || '10:00',
+    address: initialData?.address || '',
+    notes: initialData?.notes || '',
+    country: initialData?.city_id 
+      ? cities.find(c => c.id === initialData.city_id)?.country || '' 
+      : cities.find(c => c.id === defaultCityId)?.country || '',
+    city_id: initialData?.city_id ? String(initialData.city_id) : (defaultCityId ? String(defaultCityId) : ''),
+    tags: initialData?.tags || [] as string[]
   });
 
   const groupedCities = cities.reduce((acc, city) => {
@@ -74,8 +95,14 @@ export function ItineraryForm({ tripId, defaultCityId, date, onSuccess, onCancel
     }
 
     try {
-      const res = await apiFetch(`/api/trips/${tripId}/itineraries`, {
-        method: 'POST',
+      const endpoint = initialData 
+        ? `/api/trips/${tripId}/itineraries/${initialData.id}` 
+        : `/api/trips/${tripId}/itineraries`;
+      
+      const method = initialData ? 'PUT' : 'POST';
+
+      const res = await apiFetch(endpoint, {
+        method,
         body: JSON.stringify({
           trip_id: tripId,
           city_id: Number(formData.city_id),
@@ -86,13 +113,14 @@ export function ItineraryForm({ tripId, defaultCityId, date, onSuccess, onCancel
           address: formData.address || '',
           image_url: '', // Default empty string if not provided
           notes: formData.notes || '',
-          tags: formData.tags || []
+          tags: formData.tags || [],
+          sub_items: JSON.stringify(subItems)
         })
       });
 
       if (!res.ok) {
         const data = await res.json() as { error?: string };
-        throw new Error(data.error || 'Failed to add activity');
+        throw new Error(data.error || `Failed to ${initialData ? 'update' : 'add'} activity`);
       }
 
       onSuccess();
@@ -106,7 +134,9 @@ export function ItineraryForm({ tripId, defaultCityId, date, onSuccess, onCancel
   return (
     <div className="bg-zinc-900 border border-zinc-800 rounded-3xl shadow-2xl overflow-hidden max-h-[90vh] overflow-y-auto">
       <div className="p-6 border-b border-zinc-800 flex items-center justify-between bg-zinc-900/50 sticky top-0 z-10 backdrop-blur-md">
-        <h2 className="text-xl font-bold text-white">Add Activity for {format(parseISO(date), 'MMM d, yyyy')}</h2>
+        <h2 className="text-xl font-bold text-white">
+          {initialData ? 'Edit Activity' : `Add Activity for ${format(parseISO(date), 'MMM d, yyyy')}`}
+        </h2>
         <button
           onClick={onCancel}
           className="p-2 hover:bg-zinc-800 rounded-full transition-colors text-zinc-400 hover:text-white"
@@ -186,6 +216,54 @@ export function ItineraryForm({ tripId, defaultCityId, date, onSuccess, onCancel
         </div>
 
         <div>
+          <label className="block text-sm font-medium text-zinc-400 mb-1">Sub-itinerary</label>
+          <div className="space-y-2">
+            {subItems.map(item => (
+              <div key={item.id} className="flex items-center gap-2 bg-zinc-800 p-2 rounded-xl">
+                <input
+                  type="checkbox"
+                  checked={item.completed}
+                  onChange={() => toggleSubItem(item.id)}
+                  className="w-4 h-4 rounded border-zinc-600 text-orange-500 focus:ring-orange-500 bg-zinc-700"
+                />
+                <span className={`flex-1 text-sm ${item.completed ? 'text-zinc-500 line-through' : 'text-white'}`}>
+                  {item.text}
+                </span>
+                <button
+                  type="button"
+                  onClick={() => removeSubItem(item.id)}
+                  className="text-zinc-500 hover:text-red-400 p-1"
+                >
+                  <X size={14} />
+                </button>
+              </div>
+            ))}
+            <div className="flex gap-2">
+              <input
+                type="text"
+                value={newSubItemText}
+                onChange={e => setNewSubItemText(e.target.value)}
+                onKeyDown={e => {
+                  if (e.key === 'Enter') {
+                    e.preventDefault();
+                    addSubItem();
+                  }
+                }}
+                placeholder="Add sub-item..."
+                className="flex-1 bg-zinc-800 border border-zinc-700 rounded-xl px-4 py-2 text-white text-sm focus:outline-none focus:ring-2 focus:ring-orange-500"
+              />
+              <button
+                type="button"
+                onClick={addSubItem}
+                className="bg-zinc-800 hover:bg-zinc-700 text-white px-3 py-2 rounded-xl border border-zinc-700 transition-colors"
+              >
+                Add
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <div>
           <label className="block text-sm font-medium text-zinc-400 mb-1">Notes</label>
           <textarea
             value={formData.notes}
@@ -202,9 +280,9 @@ export function ItineraryForm({ tripId, defaultCityId, date, onSuccess, onCancel
         >
           {loading ? (
             <span className="flex items-center justify-center gap-2">
-              <Loader2 size={18} className="animate-spin" /> Adding...
+              <Loader2 size={18} className="animate-spin" /> {initialData ? 'Updating...' : 'Adding...'}
             </span>
-          ) : 'Add Activity'}
+          ) : (initialData ? 'Update Activity' : 'Add Activity')}
         </button>
       </form>
     </div>

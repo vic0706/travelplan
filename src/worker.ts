@@ -145,6 +145,10 @@ async function ensureSchema(db: D1Database) {
   } catch (e) {
     console.error('Schema update failed:', e);
   }
+  try {
+    // 6. Add sub_items to Itineraries
+    await db.prepare("ALTER TABLE Itineraries ADD COLUMN sub_items TEXT DEFAULT '[]'").run();
+  } catch (e) {}
 }
 
 // Helper: Get Weather for a specific date
@@ -163,7 +167,7 @@ async function getWeatherForDate(tripId: number, dateStr: string, env: Env) {
   if (tripResults.length === 0) return null;
   const trip = tripResults[0] as any;
 
-  const targetHours = ['00:00', '03:00', '06:00', '09:00', '12:00', '15:00', '18:00', '21:00'];
+  const targetHours = ['00:00', '03:00', '06:00', '09:00', '12:00', '15:00', '18:00', '21:00', '24:00'];
 
   const { results: itineraries } = await env.DB.prepare(`
     SELECT i.start_time, i.end_time, c.name as city, c.lat, c.lng 
@@ -175,13 +179,25 @@ async function getWeatherForDate(tripId: number, dateStr: string, env: Env) {
   const intervals = [];
   const uniqueCoords = new Map();
 
+  // Calculate next day string for 24:00 (which is next day 00:00)
+  const nextDate = new Date(dateStr);
+  nextDate.setDate(nextDate.getDate() + 1);
+  const nextDateStr = nextDate.toISOString().split('T')[0];
+
   for (const hour of targetHours) {
     let currentLat = trip.default_lat;
     let currentLng = trip.default_lng;
     let currentCity = trip.default_city;
 
+    // Use current day itineraries for 24:00 as well (or maybe check next day's? For now, stick to current day's last location or default)
+    // Actually, 24:00 usually implies the end of the current day, so the location should be where the user is at the end of the day.
+    // We'll use the latest itinerary of the current day for 24:00 if available.
+    
+    let checkHour = hour;
+    if (hour === '24:00') checkHour = '23:59';
+
     for (const item of itineraries as any[]) {
-      if (item.start_time && item.end_time && hour >= item.start_time && hour <= item.end_time) {
+      if (item.start_time && item.end_time && checkHour >= item.start_time && checkHour <= item.end_time) {
         currentLat = item.lat;
         currentLng = item.lng;
         currentCity = item.city;
@@ -192,8 +208,8 @@ async function getWeatherForDate(tripId: number, dateStr: string, env: Env) {
     const coordKey = `${currentLat},${currentLng}`;
     
     if (!uniqueCoords.has(coordKey)) {
-      // Use forecast endpoint which works for past 90 days and future
-      const url = `https://api.open-meteo.com/v1/forecast?latitude=${currentLat}&longitude=${currentLng}&hourly=temperature_2m,precipitation_probability,weathercode&daily=temperature_2m_max,temperature_2m_min,weathercode&timezone=auto&start_date=${dateStr}&end_date=${dateStr}`;
+      // Fetch 2 days to cover 24:00 (which is next day 00:00)
+      const url = `https://api.open-meteo.com/v1/forecast?latitude=${currentLat}&longitude=${currentLng}&hourly=temperature_2m,precipitation_probability,weathercode&daily=temperature_2m_max,temperature_2m_min,weathercode&timezone=auto&start_date=${dateStr}&end_date=${nextDateStr}`;
       const res = await fetch(url);
       if (res.ok) uniqueCoords.set(coordKey, await res.json());
     }
@@ -201,10 +217,16 @@ async function getWeatherForDate(tripId: number, dateStr: string, env: Env) {
     const weatherData = uniqueCoords.get(coordKey);
     
     if (weatherData) {
-      const timeString = `${dateStr}T${hour}`;
+      let timeString;
+      if (hour === '24:00') {
+        timeString = `${nextDateStr}T00:00`;
+      } else {
+        timeString = `${dateStr}T${hour}`;
+      }
+      
       const index = weatherData.hourly.time.indexOf(timeString);
       intervals.push({
-        time: hour,
+        time: hour === '24:00' ? '00:00 (+1)' : hour,
         city: currentCity,
         temp: index !== -1 ? Math.round(weatherData.hourly.temperature_2m[index]) : null,
         pop: index !== -1 ? weatherData.hourly.precipitation_probability[index] : null,
@@ -648,8 +670,8 @@ app.post('/api/trips/:id/itineraries', async (c) => {
 
     const b = await c.req.json();
     const info = await c.env.DB.prepare(`
-      INSERT INTO Itineraries (trip_id, city_id, date, start_time, end_time, title, address, image_url, notes, tags)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      INSERT INTO Itineraries (trip_id, city_id, date, start_time, end_time, title, address, image_url, notes, tags, sub_items)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).bind(
       tripId, 
       b.city_id, 
@@ -660,9 +682,40 @@ app.post('/api/trips/:id/itineraries', async (c) => {
       b.address || '', 
       b.image_url || '', 
       b.notes || '', 
-      JSON.stringify(b.tags || [])
+      JSON.stringify(b.tags || []),
+      b.sub_items || '[]'
     ).run();
     return c.json({ success: true, id: info.meta.last_row_id });
+  } catch (error: any) { return c.json({ error: error.message }, 500); }
+});
+
+app.put('/api/trips/:id/itineraries/:itemId', async (c) => {
+  const tripId = c.req.param('id');
+  const itemId = c.req.param('itemId');
+  try {
+    const canEdit = await checkTripAccess(c, Number(tripId), 'edit');
+    if (!canEdit) return c.json({ error: 'Unauthorized' }, 403);
+
+    const b = await c.req.json();
+    await c.env.DB.prepare(`
+      UPDATE Itineraries 
+      SET city_id = ?, date = ?, start_time = ?, end_time = ?, title = ?, address = ?, image_url = ?, notes = ?, tags = ?, sub_items = ?
+      WHERE id = ? AND trip_id = ?
+    `).bind(
+      b.city_id, 
+      b.date, 
+      b.start_time, 
+      b.end_time, 
+      b.title, 
+      b.address || '', 
+      b.image_url || '', 
+      b.notes || '', 
+      JSON.stringify(b.tags || []),
+      b.sub_items || '[]',
+      itemId,
+      tripId
+    ).run();
+    return c.json({ success: true });
   } catch (error: any) { return c.json({ error: error.message }, 500); }
 });
 
