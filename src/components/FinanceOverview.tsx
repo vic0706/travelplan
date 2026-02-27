@@ -134,11 +134,11 @@ export function FinanceOverview({ expenses, members, currency }: FinanceOverview
         </div>
         <button 
           onClick={() => setShowSplitModal(true)}
-          className="bg-orange-500 hover:bg-orange-600 text-white p-4 rounded-2xl flex flex-col justify-between transition-all shadow-lg shadow-orange-500/20 active:scale-95"
+          className="bg-zinc-900 border border-zinc-800 hover:bg-zinc-800 text-white p-4 rounded-2xl flex flex-col justify-between transition-all shadow-lg active:scale-95"
         >
-          <Wallet className="mb-2" />
+          <Wallet className="mb-2 text-orange-500" />
           <div className="text-left">
-            <p className="text-xs font-bold uppercase tracking-wider opacity-80">Settlement</p>
+            <p className="text-xs font-bold uppercase tracking-wider opacity-80 text-zinc-500">Settlement</p>
             <p className="font-bold">View Split Results</p>
           </div>
         </button>

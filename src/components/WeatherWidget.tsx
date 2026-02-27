@@ -105,9 +105,17 @@ export function WeatherWidget({ tripId, date }: WeatherWidgetProps) {
       </div>
 
       {isExpanded && (
-        <div className="grid grid-cols-4 gap-2 mt-4 pt-4 border-t border-zinc-800">
-          {data.intervals.map((interval, idx) => (
-            <div key={idx} className="flex flex-col items-center bg-zinc-950/50 rounded-2xl py-3 px-1 border border-zinc-800/50">
+        <div className="flex overflow-x-auto gap-2 mt-4 pt-4 border-t border-zinc-800 pb-2 no-scrollbar">
+          {data.intervals
+            .filter(interval => {
+              const now = new Date();
+              const isToday = format(now, 'yyyy-MM-dd') === data.date;
+              if (!isToday) return true;
+              const intervalHour = parseInt(interval.time.split(':')[0], 10);
+              return intervalHour + 3 > now.getHours();
+            })
+            .map((interval, idx) => (
+            <div key={idx} className="flex-none w-[calc(25%-6px)] flex flex-col items-center bg-zinc-950/50 rounded-2xl py-3 px-1 border border-zinc-800/50">
               <span className="text-[10px] font-medium text-zinc-500 mb-2">{interval.time}</span>
               {getWeatherIcon(interval.code, 20)}
               <span className="text-sm font-semibold text-white mt-2">

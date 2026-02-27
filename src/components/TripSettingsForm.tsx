@@ -4,6 +4,8 @@ import { X, Calendar, Upload, Loader2, User as UserIcon, Check, CloudLightning, 
 import { apiFetch } from '../utils/api';
 import { Trip } from '../types';
 import { ImageCropper, uploadImageToSupabase } from './ImageCropper';
+import { LocationPicker } from './LocationPicker';
+import { DateRangePicker } from './DateRangePicker';
 
 interface TripSettingsFormProps {
   trip: Trip;
@@ -24,6 +26,7 @@ export function TripSettingsForm({ trip, onSuccess }: TripSettingsFormProps) {
   
   const [selectedCountry, setSelectedCountry] = useState('');
   const [currencyInput, setCurrencyInput] = useState('');
+  const [isLocationPickerOpen, setIsLocationPickerOpen] = useState(false);
 
   const [formData, setFormData] = useState({
     title: trip.title,
@@ -184,65 +187,42 @@ export function TripSettingsForm({ trip, onSuccess }: TripSettingsFormProps) {
 
       <div className="space-y-3">
         <label className="block text-sm font-medium text-zinc-400">Primary City</label>
-        <div className="grid grid-cols-2 gap-4">
-          <div>
-            <label className="text-xs text-zinc-500 mb-1 block">Country</label>
-            <select
-              value={selectedCountry}
-              onChange={e => {
-                setSelectedCountry(e.target.value);
-                setFormData(prev => ({ ...prev, default_city_id: '' }));
-              }}
-              className="w-full bg-zinc-800 border border-zinc-700 rounded-xl px-4 py-3 text-white focus:outline-none focus:ring-2 focus:ring-orange-500"
-            >
-              <option value="" disabled>Select Country</option>
-              {countries.map(country => (
-                <option key={country} value={country}>{country}</option>
-              ))}
-            </select>
-          </div>
-          <div>
-            <label className="text-xs text-zinc-500 mb-1 block">City</label>
-            <select
-              required
-              value={formData.default_city_id}
-              onChange={e => setFormData({ ...formData, default_city_id: e.target.value })}
-              disabled={!selectedCountry}
-              className="w-full bg-zinc-800 border border-zinc-700 rounded-xl px-4 py-3 text-white focus:outline-none focus:ring-2 focus:ring-orange-500 disabled:opacity-50"
-            >
-              <option value="" disabled>Select City</option>
-              {selectedCountry && groupedCities[selectedCountry]?.map(city => (
-                <option key={city.id} value={city.id}>{city.name}</option>
-              ))}
-            </select>
-          </div>
+        <div 
+          onClick={() => setIsLocationPickerOpen(true)}
+          className="w-full bg-zinc-800 border border-zinc-700 rounded-xl px-4 py-3 text-white cursor-pointer hover:border-orange-500 transition-colors flex items-center justify-between"
+        >
+          <span className={formData.default_city_id ? 'text-white' : 'text-zinc-500'}>
+            {formData.default_city_id 
+              ? cities.find(c => String(c.id) === String(formData.default_city_id))?.name 
+              : 'Select a city'}
+          </span>
+          <Check size={16} className={formData.default_city_id ? 'text-orange-500' : 'text-transparent'} />
         </div>
+        
+        <LocationPicker
+          isOpen={isLocationPickerOpen}
+          onClose={() => setIsLocationPickerOpen(false)}
+          onSelect={(cityId) => setFormData({ ...formData, default_city_id: String(cityId) })}
+          groupedCities={groupedCities}
+        />
       </div>
 
       <div className="grid grid-cols-2 gap-4">
         <div>
           <label className="block text-sm font-medium text-zinc-400 mb-1">Start Date</label>
-          <div className="relative">
-            <input
-              type="date"
-              required
-              value={formData.start_date}
-              onChange={e => setFormData({ ...formData, start_date: e.target.value })}
-              className="w-full bg-zinc-800 border border-zinc-700 rounded-xl px-4 py-3 text-white focus:outline-none focus:ring-2 focus:ring-orange-500 [color-scheme:dark] text-sm"
-            />
-          </div>
+          <DateRangePicker
+            label="Start Date"
+            value={{ start: formData.start_date ? new Date(formData.start_date) : null, end: null }}
+            onChange={range => setFormData({ ...formData, start_date: range.start?.toISOString().split('T')[0] || '' })}
+          />
         </div>
         <div>
           <label className="block text-sm font-medium text-zinc-400 mb-1">End Date</label>
-          <div className="relative">
-            <input
-              type="date"
-              required
-              value={formData.end_date}
-              onChange={e => setFormData({ ...formData, end_date: e.target.value })}
-              className="w-full bg-zinc-800 border border-zinc-700 rounded-xl px-4 py-3 text-white focus:outline-none focus:ring-2 focus:ring-orange-500 [color-scheme:dark] text-sm"
-            />
-          </div>
+          <DateRangePicker
+            label="End Date"
+            value={{ start: formData.end_date ? new Date(formData.end_date) : null, end: null }}
+            onChange={range => setFormData({ ...formData, end_date: range.start?.toISOString().split('T')[0] || '' })}
+          />
         </div>
       </div>
 

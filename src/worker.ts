@@ -163,7 +163,7 @@ async function getWeatherForDate(tripId: number, dateStr: string, env: Env) {
   if (tripResults.length === 0) return null;
   const trip = tripResults[0] as any;
 
-  const targetHours = ['09:00', '12:00', '15:00', '18:00'];
+  const targetHours = ['00:00', '03:00', '06:00', '09:00', '12:00', '15:00', '18:00', '21:00'];
 
   const { results: itineraries } = await env.DB.prepare(`
     SELECT i.start_time, i.end_time, c.name as city, c.lat, c.lng 
