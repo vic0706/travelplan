@@ -156,20 +156,110 @@ async function ensureSchema(db: D1Database) {
   } catch (e) {}
 
   try {
-    // 8. Create Sub_Itineraries table
-    await db.prepare(`
-      CREATE TABLE IF NOT EXISTS Sub_Itineraries (
-        id TEXT PRIMARY KEY,
-        itinerary_id INTEGER NOT NULL,
-        start_time TEXT NOT NULL,
-        end_time TEXT NOT NULL,
-        title TEXT NOT NULL,
-        tags TEXT,
-        notes TEXT,
-        FOREIGN KEY (itinerary_id) REFERENCES Itineraries(id) ON DELETE CASCADE
-      )
-    `).run();
-  } catch (e) {}
+    // 9. Update Flights table schema
+    // Check if flight_code exists, if not, we might need to migrate or create
+    const flightInfo = await db.prepare("PRAGMA table_info(Flights)").all();
+    const hasFlightCode = flightInfo.results.some((col: any) => col.name === 'flight_code');
+    
+    if (!hasFlightCode) {
+      // If table exists but no flight_code, it's the old schema.
+      // Since SQLite ALTER TABLE is limited, and we want to change ID type too (TEXT -> INTEGER),
+      // we'll rename the old table and create a new one, then copy data if possible.
+      // However, for simplicity in this dev environment, we'll just create if not exists with new schema,
+      // or if it exists with old schema, we'll try to add columns or just let it be (but user asked for change).
+      // Let's try to add columns if missing, but ID change is hard.
+      // User said "改用數字 ID" (Change to number ID).
+      // If we can drop the table, it's easiest. But we lose data.
+      // Let's try to create the new table structure if it doesn't exist.
+      
+      // We will use a migration strategy:
+      // 1. Rename old table
+      // 2. Create new table
+      // 3. Copy data (mapping flight_number -> flight_code)
+      // 4. Drop old table
+      
+      const hasFlightsTable = flightInfo.results.length > 0;
+      if (hasFlightsTable) {
+        await db.prepare("ALTER TABLE Flights RENAME TO Flights_Old").run();
+      }
+
+      await db.prepare(`
+        CREATE TABLE IF NOT EXISTS Flights (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            trip_id INTEGER NOT NULL,
+            airline TEXT NOT NULL,
+            flight_code TEXT NOT NULL,
+            departure_date TEXT NOT NULL,
+            departure_time TEXT NOT NULL,
+            departure_airport TEXT,
+            departure_terminal TEXT,
+            arrival_date TEXT NOT NULL,
+            arrival_time TEXT NOT NULL,
+            arrival_airport TEXT,
+            arrival_terminal TEXT,
+            notes TEXT,
+            FOREIGN KEY (trip_id) REFERENCES Trips(id) ON DELETE CASCADE
+        )
+      `).run();
+
+      if (hasFlightsTable) {
+        // Migrate data
+        // Old schema: id (TEXT), trip_id, airline, flight_number, departure_date, departure_time, departure_airport, departure_terminal, arrival_date, arrival_time, arrival_airport, arrival_terminal, notes
+        // New schema: id (INTEGER), ... flight_code ...
+        // We can't keep text IDs in integer column. So we'll let ID auto-increment.
+        await db.prepare(`
+          INSERT INTO Flights (trip_id, airline, flight_code, departure_date, departure_time, departure_airport, departure_terminal, arrival_date, arrival_time, arrival_airport, arrival_terminal, notes)
+          SELECT trip_id, airline, flight_number, departure_date, departure_time, departure_airport, departure_terminal, arrival_date, arrival_time, arrival_airport, arrival_terminal, notes
+          FROM Flights_Old
+        `).run();
+        await db.prepare("DROP TABLE Flights_Old").run();
+      }
+    }
+  } catch (e) {
+    console.error('Flights schema update failed', e);
+  }
+
+  try {
+    // 10. Update Accommodations table schema
+    const accInfo = await db.prepare("PRAGMA table_info(Accommodations)").all();
+    const hasHotelName = accInfo.results.some((col: any) => col.name === 'hotel_name');
+    
+    if (!hasHotelName) {
+      const hasAccTable = accInfo.results.length > 0;
+      if (hasAccTable) {
+        await db.prepare("ALTER TABLE Accommodations RENAME TO Accommodations_Old").run();
+      }
+
+      await db.prepare(`
+        CREATE TABLE IF NOT EXISTS Accommodations (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            trip_id INTEGER NOT NULL,
+            hotel_name TEXT NOT NULL,
+            address TEXT,
+            check_in_date TEXT NOT NULL,
+            check_out_date TEXT NOT NULL,
+            order_id TEXT,
+            notes TEXT,
+            created_at INTEGER DEFAULT (strftime('%s', 'now') * 1000),
+            FOREIGN KEY (trip_id) REFERENCES Trips(id) ON DELETE CASCADE
+        )
+      `).run();
+
+      if (hasAccTable) {
+        // Migrate data
+        // Old schema: id (TEXT), trip_id, check_in_date, check_out_date, name, address, notes
+        // New schema: id (INTEGER), ... hotel_name ...
+        await db.prepare(`
+          INSERT INTO Accommodations (trip_id, hotel_name, address, check_in_date, check_out_date, notes)
+          SELECT trip_id, name, address, check_in_date, check_out_date, notes
+          FROM Accommodations_Old
+        `).run();
+        await db.prepare("DROP TABLE Accommodations_Old").run();
+      }
+    }
+  } catch (e) {
+    console.error('Accommodations schema update failed', e);
+  }
 }
 
 // Helper: Get Weather for a specific date
@@ -609,12 +699,12 @@ app.post('/api/trips/:id/flights', async (c) => {
     if (!canEdit) return c.json({ error: 'Unauthorized' }, 403);
 
     const b = await c.req.json();
-    const id = crypto.randomUUID();
-    await c.env.DB.prepare(`
-      INSERT INTO Flights (id, trip_id, airline, flight_number, departure_date, departure_time, departure_airport, departure_terminal, arrival_date, arrival_time, arrival_airport, arrival_terminal, notes)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `).bind(id, tripId, b.airline, b.flight_number, b.departure_date, b.departure_time, b.departure_airport, b.departure_terminal, b.arrival_date, b.arrival_time, b.arrival_airport, b.arrival_terminal, b.notes).run();
-    return c.json({ success: true, id });
+    // id is AUTOINCREMENT, so we don't bind it.
+    const info = await c.env.DB.prepare(`
+      INSERT INTO Flights (trip_id, airline, flight_code, departure_date, departure_time, departure_airport, departure_terminal, arrival_date, arrival_time, arrival_airport, arrival_terminal, notes)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).bind(tripId, b.airline, b.flight_code, b.departure_date, b.departure_time, b.departure_airport, b.departure_terminal, b.arrival_date, b.arrival_time, b.arrival_airport, b.arrival_terminal, b.notes).run();
+    return c.json({ success: true, id: info.meta.last_row_id });
   } catch (error: any) { return c.json({ error: error.message }, 500); }
 });
 
@@ -633,12 +723,12 @@ app.post('/api/trips/:id/accommodations', async (c) => {
     if (!canEdit) return c.json({ error: 'Unauthorized' }, 403);
 
     const b = await c.req.json();
-    const id = crypto.randomUUID();
-    await c.env.DB.prepare(`
-      INSERT INTO Accommodations (id, trip_id, check_in_date, check_out_date, name, address, notes)
-      VALUES (?, ?, ?, ?, ?, ?, ?)
-    `).bind(id, tripId, b.check_in_date, b.check_out_date, b.name, b.address, b.notes).run();
-    return c.json({ success: true, id });
+    // id is AUTOINCREMENT
+    const info = await c.env.DB.prepare(`
+      INSERT INTO Accommodations (trip_id, hotel_name, address, check_in_date, check_out_date, order_id, notes, created_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    `).bind(tripId, b.hotel_name, b.address, b.check_in_date, b.check_out_date, b.order_id, b.notes, Date.now()).run();
+    return c.json({ success: true, id: info.meta.last_row_id });
   } catch (error: any) { return c.json({ error: error.message }, 500); }
 });
 

@@ -321,7 +321,8 @@ export function ItineraryForm({ tripId, defaultCityId, date, onSuccess, onCancel
         </div>
 
         <button
-          type="submit"
+          type="button"
+          onClick={handleSubmit}
           disabled={loading}
           className="w-full bg-orange-500 hover:bg-orange-600 disabled:opacity-50 disabled:cursor-not-allowed text-white font-bold rounded-xl px-4 py-3 transition-all shadow-lg shadow-orange-500/20 active:scale-95"
         >

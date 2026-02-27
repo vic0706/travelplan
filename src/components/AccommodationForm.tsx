@@ -12,10 +12,11 @@ interface AccommodationFormProps {
 export function AccommodationForm({ tripId, onSuccess, onCancel }: AccommodationFormProps) {
   const [loading, setLoading] = useState(false);
   const [formData, setFormData] = useState({
-    name: '',
+    hotel_name: '',
     check_in_date: '',
     check_out_date: '',
     address: '',
+    order_id: '',
     notes: ''
   });
 
@@ -58,10 +59,24 @@ export function AccommodationForm({ tripId, onSuccess, onCancel }: Accommodation
               <input
                 type="text"
                 required
-                value={formData.name}
-                onChange={e => setFormData({ ...formData, name: e.target.value })}
+                value={formData.hotel_name}
+                onChange={e => setFormData({ ...formData, hotel_name: e.target.value })}
                 className="w-full bg-zinc-950 border border-zinc-800 rounded-xl pl-12 pr-4 py-4 text-white focus:outline-none focus:border-orange-500 transition-colors"
                 placeholder="e.g. Grand Hotel"
+              />
+            </div>
+          </div>
+
+          <div className="space-y-2">
+            <label className="text-xs font-bold text-zinc-500 uppercase tracking-wider">Order ID</label>
+            <div className="relative">
+              <FileText className="absolute left-4 top-1/2 -translate-y-1/2 text-zinc-500" size={18} />
+              <input
+                type="text"
+                value={formData.order_id}
+                onChange={e => setFormData({ ...formData, order_id: e.target.value })}
+                className="w-full bg-zinc-950 border border-zinc-800 rounded-xl pl-12 pr-4 py-4 text-white focus:outline-none focus:border-orange-500 transition-colors"
+                placeholder="Booking Reference"
               />
             </div>
           </div>

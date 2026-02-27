@@ -469,7 +469,7 @@ export function TripDetails() {
                       </div>
                       <div className="flex-1">
                         <div className="flex justify-between items-start">
-                          <h4 className="text-white font-medium">{flight.airline} {flight.flight_number}</h4>
+                          <h4 className="text-white font-medium">{flight.airline} {flight.flight_code}</h4>
                           <span className="text-[10px] text-zinc-500 font-bold uppercase tracking-wider">{format(parseISO(flight.departure_date), 'MMM d')}</span>
                         </div>
                         <p className="text-sm text-zinc-400 mt-1">
@@ -508,8 +508,11 @@ export function TripDetails() {
                         <Bed className="text-orange-500" size={24} />
                       </div>
                       <div className="flex-1">
-                        <h4 className="text-white font-medium">{acc.name}</h4>
+                        <h4 className="text-white font-medium">{acc.hotel_name}</h4>
                         <p className="text-sm text-zinc-400 mt-1">{acc.address}</p>
+                        {acc.order_id && (
+                          <div className="text-xs text-orange-500 mt-1">Order ID: {acc.order_id}</div>
+                        )}
                         <div className="flex gap-4 mt-2">
                           <div className="text-[10px] text-zinc-500 font-bold uppercase tracking-wider">
                             In: {format(parseISO(acc.check_in_date), 'MMM d')}

@@ -83,29 +83,31 @@ export interface Expense {
 }
 
 export interface Flight {
-  id: string;
+  id: number;
   trip_id: number;
   airline: string;
-  flight_number: string;
+  flight_code: string;
   departure_date: string;
   departure_time: string;
-  departure_airport: string;
-  departure_terminal: string;
+  departure_airport?: string;
+  departure_terminal?: string;
   arrival_date: string;
   arrival_time: string;
-  arrival_airport: string;
-  arrival_terminal: string;
-  notes: string;
+  arrival_airport?: string;
+  arrival_terminal?: string;
+  notes?: string;
 }
 
 export interface Accommodation {
-  id: string;
+  id: number;
   trip_id: number;
-  name: string;
+  hotel_name: string;
+  address?: string;
   check_in_date: string;
   check_out_date: string;
-  address: string;
-  notes: string;
+  order_id?: string;
+  notes?: string;
+  created_at?: number;
 }
 
 export interface AppSetting {

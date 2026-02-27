@@ -15,7 +15,7 @@ export function FlightForm({ tripId, onSuccess, onCancel }: FlightFormProps) {
   const [loading, setLoading] = useState(false);
   const [formData, setFormData] = useState({
     airline: '',
-    flight_number: '',
+    flight_code: '',
     departure_date: '',
     departure_time: '',
     departure_airport: '',
@@ -76,8 +76,8 @@ export function FlightForm({ tripId, onSuccess, onCancel }: FlightFormProps) {
             <input
               type="text"
               required
-              value={formData.flight_number}
-              onChange={e => setFormData({ ...formData, flight_number: e.target.value })}
+              value={formData.flight_code}
+              onChange={e => setFormData({ ...formData, flight_code: e.target.value })}
               className="w-full bg-zinc-950 border border-zinc-800 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-orange-500 transition-colors"
               placeholder="e.g. BR123"
             />
