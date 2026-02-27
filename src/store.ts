@@ -28,6 +28,7 @@ interface AppState {
   setUserMenuOpen: (isOpen: boolean) => void;
   setCreateTripModalOpen: (isOpen: boolean) => void;
   setHasHydrated: (hasHydHydrated: boolean) => void;
+  setUser: (user: User | null) => void;
 }
 
 export const useAppStore = create<AppState>()(
@@ -48,6 +49,7 @@ export const useAppStore = create<AppState>()(
       setUserMenuOpen: (isOpen) => set({ isUserMenuOpen: isOpen }),
       setCreateTripModalOpen: (isOpen) => set({ isCreateTripModalOpen: isOpen }),
       setHasHydrated: (hasHydrated) => set({ _hasHydrated: hasHydrated }),
+      setUser: (user) => set({ user }),
     }),
     {
       name: 'travel-plan-storage',

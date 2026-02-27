@@ -37,3 +37,7 @@ html, body, #root {
   background-color: rgba(249, 115, 22, 0.3); /* orange-500 with opacity */
   color: #ffffff;
 }
+
+.pb-safe-bottom {
+  padding-bottom: env(safe-area-inset-bottom);
+}

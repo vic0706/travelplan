@@ -315,11 +315,14 @@ app.post('/api/upload', async (c) => {
     if (!file || !(file instanceof File)) return c.json({ error: 'No file uploaded' }, 400);
 
     const supabaseUrl = c.env.VITE_SUPABASE_URL;
-    const supabaseKey = c.env.VITE_SUPABASE_ANON_KEY;
+    const supabaseAnonKey = c.env.VITE_SUPABASE_ANON_KEY;
+    const supabaseServiceKey = (c.env as any).SUPABASE_SERVICE_ROLE_KEY;
 
-    if (!supabaseUrl || !supabaseKey) return c.json({ error: 'Supabase not configured in worker' }, 500);
+    if (!supabaseUrl || (!supabaseAnonKey && !supabaseServiceKey)) {
+      return c.json({ error: 'Supabase not configured in worker' }, 500);
+    }
 
-    const supabase = createClient(supabaseUrl, supabaseKey);
+    const supabase = createClient(supabaseUrl, supabaseServiceKey || supabaseAnonKey);
     const fileName = `${folder}/${Date.now()}-${Math.random().toString(36).substring(7)}.jpg`;
     
     // Convert File to ArrayBuffer for upload

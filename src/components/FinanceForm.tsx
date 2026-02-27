@@ -1,7 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import { useAppStore } from '../store';
 import { apiFetch } from '../utils/api';
-import { Loader2, X, Delete, Check, ChevronDown } from 'lucide-react';
+import { Loader2, X, Delete, Check, ChevronDown, Calendar } from 'lucide-react';
+import { DateRangePicker } from './DateRangePicker';
 import * as LucideIcons from 'lucide-react';
 import { User } from '../types';
 import { clsx } from 'clsx';
@@ -151,7 +152,7 @@ export function FinanceForm({ tripId, defaultDate, currencies = ['TWD'], onSucce
 
   return (
     <>
-      <div className="bg-zinc-900 border border-zinc-800 rounded-3xl overflow-hidden shadow-2xl flex flex-col max-h-[90vh]">
+      <div className="bg-zinc-900 border border-zinc-800 rounded-3xl overflow-hidden shadow-2xl flex flex-col max-h-[90vh] pb-safe-bottom">
         {/* Header */}
         <div className="p-4 border-b border-zinc-800 flex items-center justify-between bg-zinc-900 z-10">
           <h3 className="text-lg font-semibold text-white">{initialData ? 'Edit Expense' : 'Add Expense'}</h3>
@@ -170,12 +171,11 @@ export function FinanceForm({ tripId, defaultDate, currencies = ['TWD'], onSucce
         <div className="flex-1 overflow-y-auto p-4 space-y-4">
           {/* Date & Category */}
           <div className="flex gap-3">
-            <input
-              type="date"
-              value={date}
-              onChange={e => setDate(e.target.value)}
-              className="flex-1 bg-zinc-950 border border-zinc-800 rounded-xl px-4 py-3 text-white text-base focus:outline-none focus:border-orange-500"
-            />
+          <DateRangePicker
+            label="Date"
+            value={{ start: new Date(date), end: new Date(date) }}
+            onChange={range => setDate(range.start?.toISOString().split('T')[0] || new Date().toISOString().split('T')[0])}
+          />
             <div className="relative flex-1">
               <select
                 value={category}

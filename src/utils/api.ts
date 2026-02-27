@@ -1,8 +1,15 @@
 import { useAppStore } from '../store';
 
 export const getApiUrl = (path: string): string => {
-  const baseUrl = "https://travelplan.vic070680.workers.dev";
   const cleanPath = path.startsWith('/') ? path : `/${path}`;
+  
+  // /api/upload is handled by the local Express server in AI Studio
+  if (cleanPath === '/api/upload') {
+    return cleanPath;
+  }
+
+  // All other API routes are currently handled by the external Cloudflare Worker
+  const baseUrl = "https://travelplan.vic070680.workers.dev";
   return `${baseUrl}${cleanPath}`;
 };
 

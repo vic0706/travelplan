@@ -164,7 +164,7 @@ export function TripSettingsForm({ trip, onSuccess }: TripSettingsFormProps) {
   };
 
   return (
-    <form onSubmit={handleSubmit} className="space-y-6">
+    <form onSubmit={handleSubmit} className="space-y-6 pb-safe-bottom">
       {error && (
         <div className="p-3 bg-red-500/10 border border-red-500/20 rounded-xl text-red-400 text-sm">
           {error}

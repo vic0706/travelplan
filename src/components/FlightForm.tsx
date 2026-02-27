@@ -1,5 +1,7 @@
 import React, { useState } from 'react';
 import { X, Plane, Calendar, Clock, MapPin, FileText, Loader2 } from 'lucide-react';
+import { DateRangePicker } from './DateRangePicker';
+import { TimeRangePicker } from './TimeRangePicker';
 import { apiFetch } from '../utils/api';
 import { Flight } from '../types';
 
@@ -44,7 +46,7 @@ export function FlightForm({ tripId, onSuccess, onCancel }: FlightFormProps) {
   };
 
   return (
-    <div className="bg-zinc-900 border border-zinc-800 rounded-3xl overflow-hidden shadow-2xl max-h-[90vh] overflow-y-auto">
+    <div className="bg-zinc-900 border border-zinc-800 rounded-3xl overflow-hidden shadow-2xl max-h-[90vh] overflow-y-auto pb-safe-bottom">
       <div className="p-4 border-b border-zinc-800 flex items-center justify-between sticky top-0 bg-zinc-900 z-10">
         <h3 className="text-lg font-semibold text-white flex items-center gap-2">
           <Plane className="text-orange-500" size={20} />
@@ -88,22 +90,18 @@ export function FlightForm({ tripId, onSuccess, onCancel }: FlightFormProps) {
           <div className="grid grid-cols-2 gap-4">
             <div className="space-y-2">
               <label className="text-xs font-bold text-zinc-500 uppercase tracking-wider">Date</label>
-              <input
-                type="date"
-                required
-                value={formData.departure_date}
-                onChange={e => setFormData({ ...formData, departure_date: e.target.value })}
-                className="w-full bg-zinc-900 border border-zinc-800 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-orange-500 transition-colors"
+              <DateRangePicker
+                label="Date"
+                value={{ start: formData.departure_date ? new Date(formData.departure_date) : null, end: formData.departure_date ? new Date(formData.departure_date) : null }}
+                onChange={range => setFormData({ ...formData, departure_date: range.start?.toISOString().split('T')[0] || '' })}
               />
             </div>
             <div className="space-y-2">
               <label className="text-xs font-bold text-zinc-500 uppercase tracking-wider">Time</label>
-              <input
-                type="time"
-                required
-                value={formData.departure_time}
-                onChange={e => setFormData({ ...formData, departure_time: e.target.value })}
-                className="w-full bg-zinc-900 border border-zinc-800 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-orange-500 transition-colors"
+              <TimeRangePicker
+                label="Time"
+                value={{ start: formData.departure_time, end: formData.departure_time }}
+                onChange={range => setFormData({ ...formData, departure_time: range.start || '' })}
               />
             </div>
           </div>
@@ -138,22 +136,18 @@ export function FlightForm({ tripId, onSuccess, onCancel }: FlightFormProps) {
           <div className="grid grid-cols-2 gap-4">
             <div className="space-y-2">
               <label className="text-xs font-bold text-zinc-500 uppercase tracking-wider">Date</label>
-              <input
-                type="date"
-                required
-                value={formData.arrival_date}
-                onChange={e => setFormData({ ...formData, arrival_date: e.target.value })}
-                className="w-full bg-zinc-900 border border-zinc-800 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-orange-500 transition-colors"
+              <DateRangePicker
+                label="Date"
+                value={{ start: formData.arrival_date ? new Date(formData.arrival_date) : null, end: formData.arrival_date ? new Date(formData.arrival_date) : null }}
+                onChange={range => setFormData({ ...formData, arrival_date: range.start?.toISOString().split('T')[0] || '' })}
               />
             </div>
             <div className="space-y-2">
               <label className="text-xs font-bold text-zinc-500 uppercase tracking-wider">Time</label>
-              <input
-                type="time"
-                required
-                value={formData.arrival_time}
-                onChange={e => setFormData({ ...formData, arrival_time: e.target.value })}
-                className="w-full bg-zinc-900 border border-zinc-800 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-orange-500 transition-colors"
+              <TimeRangePicker
+                label="Time"
+                value={{ start: formData.arrival_time, end: formData.arrival_time }}
+                onChange={range => setFormData({ ...formData, arrival_time: range.start || '' })}
               />
             </div>
           </div>

@@ -1,13 +1,15 @@
 import React, { useState } from 'react';
 import { useAppStore } from '../store';
-import { X, Clock, MapPin, Loader2 } from 'lucide-react';
+import { X, MapPin, Loader2 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { apiFetch } from '../utils/api';
+import { TimeRangePicker } from './TimeRangePicker';
+import { format, parseISO } from 'date-fns';
 
 interface ItineraryFormProps {
   tripId: number;
   defaultCityId?: number;
-  date: string;
+  date: string; // This is the date for the itinerary, not a range
   onSuccess: () => void;
   onCancel: () => void;
 }
@@ -19,6 +21,7 @@ export function ItineraryForm({ tripId, defaultCityId, date, onSuccess, onCancel
 
   const [formData, setFormData] = useState({
     title: '',
+    // Date is now handled by the parent component (TripDetails) and passed as a prop
     start_time: '09:00',
     end_time: '10:00',
     address: '',
@@ -45,6 +48,14 @@ export function ItineraryForm({ tripId, defaultCityId, date, onSuccess, onCancel
     }));
   };
 
+  const handleTimeRangeChange = (range: { start: string; end: string }) => {
+    setFormData(prev => ({
+      ...prev,
+      start_time: range.start,
+      end_time: range.end,
+    }));
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoading(true);
@@ -56,12 +67,18 @@ export function ItineraryForm({ tripId, defaultCityId, date, onSuccess, onCancel
       return;
     }
 
+    if (formData.start_time >= formData.end_time) {
+      setError('Start time cannot be later than or equal to end time.');
+      setLoading(false);
+      return;
+    }
+
     try {
       const res = await apiFetch(`/api/trips/${tripId}/itineraries`, {
         method: 'POST',
         body: JSON.stringify({
           ...formData,
-          date,
+          date, // Use the date prop for the itinerary date
           city_id: Number(formData.city_id)
         })
       });
@@ -82,7 +99,7 @@ export function ItineraryForm({ tripId, defaultCityId, date, onSuccess, onCancel
   return (
     <div className="bg-zinc-900 border border-zinc-800 rounded-3xl shadow-2xl overflow-hidden max-h-[90vh] overflow-y-auto">
       <div className="p-6 border-b border-zinc-800 flex items-center justify-between bg-zinc-900/50 sticky top-0 z-10 backdrop-blur-md">
-        <h2 className="text-xl font-bold text-white">Add Activity</h2>
+        <h2 className="text-xl font-bold text-white">Add Activity for {format(parseISO(date), 'MMM d, yyyy')}</h2>
         <button
           onClick={onCancel}
           className="p-2 hover:bg-zinc-800 rounded-full transition-colors text-zinc-400 hover:text-white"
@@ -141,34 +158,11 @@ export function ItineraryForm({ tripId, defaultCityId, date, onSuccess, onCancel
           </select>
         </div>
 
-        <div className="grid grid-cols-2 gap-4">
-          <div>
-            <label className="block text-sm font-medium text-zinc-400 mb-1">Start Time</label>
-            <div className="relative">
-              <Clock size={16} className="absolute left-3 top-3.5 text-zinc-500" />
-              <input
-                type="time"
-                required
-                value={formData.start_time}
-                onChange={e => setFormData({ ...formData, start_time: e.target.value })}
-                className="w-full bg-zinc-800 border border-zinc-700 rounded-xl pl-10 pr-4 py-3 text-white focus:outline-none focus:ring-2 focus:ring-orange-500 [color-scheme:dark]"
-              />
-            </div>
-          </div>
-          <div>
-            <label className="block text-sm font-medium text-zinc-400 mb-1">End Time</label>
-            <div className="relative">
-              <Clock size={16} className="absolute left-3 top-3.5 text-zinc-500" />
-              <input
-                type="time"
-                required
-                value={formData.end_time}
-                onChange={e => setFormData({ ...formData, end_time: e.target.value })}
-                className="w-full bg-zinc-800 border border-zinc-700 rounded-xl pl-10 pr-4 py-3 text-white focus:outline-none focus:ring-2 focus:ring-orange-500 [color-scheme:dark]"
-              />
-            </div>
-          </div>
-        </div>
+        <TimeRangePicker
+          label="Time Range"
+          value={{ start: formData.start_time, end: formData.end_time }}
+          onChange={handleTimeRangeChange}
+        />
 
         <div>
           <label className="block text-sm font-medium text-zinc-400 mb-1">Address</label>

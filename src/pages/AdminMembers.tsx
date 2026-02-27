@@ -1,9 +1,10 @@
 import React, { useEffect, useState } from 'react';
 import { useAppStore } from '../store';
-import { Shield, User as UserIcon, Plus, X, Loader2, Edit2 } from 'lucide-react';
+import { Shield, User as UserIcon, Plus, X, Loader2, Edit2, Camera } from 'lucide-react';
 import { clsx } from 'clsx';
 import { apiFetch } from '../utils/api';
 import { motion, AnimatePresence } from 'framer-motion';
+import { ImageCropper, uploadImageToSupabase } from '../components/ImageCropper';
 
 export function AdminMembers() {
   const [users, setUsers] = useState<any[]>([]);
@@ -15,10 +16,16 @@ export function AdminMembers() {
     password: '', 
     role: 'Member', 
     allow_login: 1,
-    payment_info: { cash: false, linepay: '', bank_accounts: [] as { bank_code: string, account: string }[] }
+    avatar_url: '',
+    payment_info: { bank_accounts: [] as { bank_code: string, account: string }[] }
   });
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+  
+  // Image Upload State
+  const [isCropperOpen, setIsCropperOpen] = useState(false);
+  const [selectedImage, setSelectedImage] = useState<string | null>(null);
+  const [uploadingImage, setUploadingImage] = useState(false);
 
   const sortUsers = (usersList: any[]) => {
     return [...usersList].sort((a, b) => {
@@ -59,17 +66,20 @@ export function AdminMembers() {
       password: '123456', 
       role: 'Member', 
       allow_login: 1,
-      payment_info: { cash: false, linepay: '', bank_accounts: [] }
+      avatar_url: '',
+      payment_info: { bank_accounts: [] }
     });
     setIsModalOpen(true);
   };
 
   const openEditModal = (u: any) => {
     setEditingUser(u);
-    let paymentInfo = { cash: false, linepay: '', bank_accounts: [] };
+    let paymentInfo = { bank_accounts: [] };
     try {
       if (u.payment_info) {
-        paymentInfo = typeof u.payment_info === 'string' ? JSON.parse(u.payment_info) : u.payment_info;
+        const parsed = typeof u.payment_info === 'string' ? JSON.parse(u.payment_info) : u.payment_info;
+        // Migrate old data if needed, or just extract bank_accounts
+        paymentInfo = { bank_accounts: parsed.bank_accounts || [] };
       }
     } catch (e) {}
     
@@ -78,9 +88,36 @@ export function AdminMembers() {
       password: '', 
       role: u.role, 
       allow_login: u.allow_login,
+      avatar_url: u.avatar_url || '',
       payment_info: paymentInfo
     });
     setIsModalOpen(true);
+  };
+
+  const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (e.target.files && e.target.files.length > 0) {
+      const file = e.target.files[0];
+      const reader = new FileReader();
+      reader.onload = () => {
+        setSelectedImage(reader.result as string);
+        setIsCropperOpen(true);
+      };
+      reader.readAsDataURL(file);
+    }
+  };
+
+  const handleCropComplete = async (blob: Blob) => {
+    setIsCropperOpen(false);
+    setUploadingImage(true);
+    try {
+      const publicUrl = await uploadImageToSupabase(blob, 'members');
+      setFormData({ ...formData, avatar_url: publicUrl });
+    } catch (err) {
+      console.error(err);
+      alert('Failed to upload image');
+    } finally {
+      setUploadingImage(false);
+    }
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -210,6 +247,30 @@ export function AdminMembers() {
                   </div>
                 )}
 
+                {/* Avatar Upload */}
+                <div className="flex justify-center mb-6">
+                  <div className="relative group">
+                    <div className="w-24 h-24 rounded-full overflow-hidden bg-zinc-800 border-2 border-zinc-700 group-hover:border-orange-500 transition-colors">
+                      {formData.avatar_url ? (
+                        <img src={formData.avatar_url} alt="Avatar" className="w-full h-full object-cover" />
+                      ) : (
+                        <div className="w-full h-full flex items-center justify-center text-zinc-500">
+                          <UserIcon size={40} />
+                        </div>
+                      )}
+                    </div>
+                    <label className="absolute bottom-0 right-0 p-2 bg-orange-500 rounded-full text-white cursor-pointer hover:bg-orange-600 transition-colors shadow-lg">
+                      <input 
+                        type="file" 
+                        accept="image/*" 
+                        className="hidden" 
+                        onChange={handleFileSelect}
+                      />
+                      {uploadingImage ? <Loader2 size={16} className="animate-spin" /> : <Camera size={16} />}
+                    </label>
+                  </div>
+                </div>
+
                 <div>
                   <label className="block text-sm font-medium text-zinc-400 mb-1">Name</label>
                   <input
@@ -265,36 +326,7 @@ export function AdminMembers() {
                 <div className="space-y-4 pt-4 border-t border-zinc-800">
                   <h3 className="text-sm font-bold text-zinc-400 uppercase tracking-wider">Payment Info</h3>
                   
-                  {/* Cash */}
-                  <label className="flex items-center gap-3 p-3 bg-zinc-800 rounded-xl cursor-pointer hover:bg-zinc-700 transition-colors">
-                    <input
-                      type="checkbox"
-                      checked={formData.payment_info?.cash || false}
-                      onChange={e => setFormData({ 
-                        ...formData, 
-                        payment_info: { ...formData.payment_info, cash: e.target.checked } 
-                      })}
-                      className="w-5 h-5 rounded border-zinc-600 text-orange-500 focus:ring-orange-500 bg-zinc-700 accent-orange-500"
-                    />
-                    <span className="text-white font-medium">Accept Cash</span>
-                  </label>
-
-                  {/* LinePay */}
-                  <div>
-                    <label className="block text-xs font-medium text-zinc-500 mb-1">LINE Pay ID / Link</label>
-                    <input
-                      type="text"
-                      value={formData.payment_info?.linepay || ''}
-                      onChange={e => setFormData({ 
-                        ...formData, 
-                        payment_info: { ...formData.payment_info, linepay: e.target.value } 
-                      })}
-                      className="w-full bg-zinc-800 border border-zinc-700 rounded-xl px-4 py-2 text-white text-sm focus:outline-none focus:ring-2 focus:ring-orange-500"
-                      placeholder="Line ID or URL"
-                    />
-                  </div>
-
-                  {/* Bank Accounts */}
+                  {/* Bank Accounts Only */}
                   <div className="space-y-2">
                     <div className="flex items-center justify-between">
                       <label className="text-xs font-medium text-zinc-500">Bank Accounts</label>
@@ -352,18 +384,40 @@ export function AdminMembers() {
                   </div>
                 </div>
 
-                <button
-                  type="submit"
-                  disabled={loading}
-                  className="w-full bg-orange-500 hover:bg-orange-600 disabled:opacity-50 disabled:cursor-not-allowed text-white font-bold rounded-xl px-4 py-3 transition-all shadow-lg shadow-orange-500/20 active:scale-95 mt-2"
-                >
-                  {loading ? 'Saving...' : (editingUser ? 'Update Member' : 'Create Member')}
-                </button>
+                <div className="flex gap-3 pt-2">
+                  <button
+                    type="button"
+                    onClick={() => setIsModalOpen(false)}
+                    className="flex-1 bg-zinc-800 hover:bg-zinc-700 text-zinc-400 hover:text-white font-medium rounded-xl px-4 py-3 transition-colors"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="submit"
+                    disabled={loading}
+                    className="flex-1 bg-orange-500 hover:bg-orange-600 disabled:opacity-50 disabled:cursor-not-allowed text-white font-bold rounded-xl px-4 py-3 transition-all shadow-lg shadow-orange-500/20 active:scale-95"
+                  >
+                    {loading ? 'Saving...' : (editingUser ? 'Update' : 'Create')}
+                  </button>
+                </div>
               </form>
             </motion.div>
           </div>
         )}
       </AnimatePresence>
+
+      {/* Image Cropper Modal */}
+      {isCropperOpen && selectedImage && (
+        <ImageCropper
+          imageSrc={selectedImage}
+          aspect={1}
+          onCropComplete={handleCropComplete}
+          onCancel={() => {
+            setIsCropperOpen(false);
+            setSelectedImage(null);
+          }}
+        />
+      )}
     </div>
   );
 }

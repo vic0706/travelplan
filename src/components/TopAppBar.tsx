@@ -1,15 +1,24 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { useAppStore } from '../store';
 import { useNavigate } from 'react-router-dom';
-import { LogOut, Settings, Users, RefreshCw, User as UserIcon, Plus } from 'lucide-react';
+import { LogOut, Settings, Users, RefreshCw, User as UserIcon, Plus, Loader2, Camera } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { clsx } from 'clsx';
+import { ImageCropper, uploadImageToSupabase } from './ImageCropper';
+import { apiFetch } from '../utils/api';
 
 export function TopAppBar() {
-  const { user, isUserMenuOpen, setLoginModalOpen, setUserMenuOpen, logout, setCreateTripModalOpen } = useAppStore();
+  const { user, isUserMenuOpen, setLoginModalOpen, setUserMenuOpen, logout, setCreateTripModalOpen, setUser } = useAppStore();
   const navigate = useNavigate();
   const menuRef = useRef<HTMLDivElement>(null);
   const [showLogoutConfirm, setShowLogoutConfirm] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // Image Upload State
+  const [isCropperOpen, setIsCropperOpen] = useState(false);
+  const [selectedImage, setSelectedImage] = useState<string | null>(null);
+  const [uploadingImage, setUploadingImage] = useState(false);
+  const [isCleaningCache, setIsCleaningCache] = useState(false);
 
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
@@ -29,9 +38,12 @@ export function TopAppBar() {
 
   const handleClearCache = () => {
     if (window.confirm('Are you sure you want to clear cache and reload?')) {
-      localStorage.clear();
-      sessionStorage.clear();
-      window.location.reload();
+      setIsCleaningCache(true);
+      setTimeout(() => {
+        localStorage.clear();
+        sessionStorage.clear();
+        window.location.reload();
+      }, 1500);
     }
   };
 
@@ -66,6 +78,51 @@ export function TopAppBar() {
       }
       navigate('/');
     }, 800);
+  };
+
+  const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (e.target.files && e.target.files.length > 0) {
+      const file = e.target.files[0];
+      const reader = new FileReader();
+      reader.onload = () => {
+        setSelectedImage(reader.result as string);
+        setIsCropperOpen(true);
+      };
+      reader.readAsDataURL(file);
+    }
+    // Reset input
+    e.target.value = '';
+  };
+
+  const handleCropComplete = async (blob: Blob) => {
+    setIsCropperOpen(false);
+    setUploadingImage(true);
+    try {
+      const publicUrl = await uploadImageToSupabase(blob, 'members');
+      
+      // Update user in backend
+      if (user) {
+        const res = await apiFetch(`/api/users/${user.id}`, {
+          method: 'PUT',
+          body: JSON.stringify({ avatar_url: publicUrl })
+        });
+        
+        if (res.ok) {
+          // Update local store
+          setUser({ ...user, avatar_url: publicUrl });
+        }
+      }
+    } catch (err) {
+      console.error(err);
+      alert('Failed to upload avatar');
+    } finally {
+      setUploadingImage(false);
+    }
+  };
+
+  const triggerFileInput = () => {
+    fileInputRef.current?.click();
+    setUserMenuOpen(false);
   };
 
   return (
@@ -162,17 +219,13 @@ export function TopAppBar() {
                         </>
                       )}
                       
-                      <button 
-                        onClick={() => {
-                          // Handle change avatar (placeholder for now)
-                          alert('Change Avatar feature coming soon!');
-                          setUserMenuOpen(false);
-                        }}
-                        className="w-full flex items-center gap-3 px-3 py-2.5 text-sm text-zinc-300 hover:bg-zinc-800 hover:text-white rounded-xl transition-colors text-left font-medium"
+                      <label 
+                        htmlFor="avatar-upload-topbar"
+                        className="w-full flex items-center gap-3 px-3 py-2.5 text-sm text-zinc-300 hover:bg-zinc-800 hover:text-white rounded-xl transition-colors text-left font-medium cursor-pointer"
                       >
-                        <UserIcon size={16} />
+                        {uploadingImage ? <Loader2 size={16} className="animate-spin" /> : <Camera size={16} />}
                         Change Avatar
-                      </button>
+                      </label>
 
                       <button 
                         onClick={() => {
@@ -224,6 +277,15 @@ export function TopAppBar() {
         </div>
       </header>
 
+      {/* Hidden File Input */}
+      <input 
+        type="file" 
+        id="avatar-upload-topbar"
+        className="hidden" 
+        accept="image/*" 
+        onChange={handleFileSelect} 
+      />
+
       {/* Logout Confirmation Modal */}
       <AnimatePresence>
         {showLogoutConfirm && (
@@ -254,6 +316,28 @@ export function TopAppBar() {
           </div>
         )}
       </AnimatePresence>
+
+      {/* Image Cropper Modal */}
+      {isCropperOpen && selectedImage && (
+        <ImageCropper
+          imageSrc={selectedImage}
+          aspect={1}
+          onCropComplete={handleCropComplete}
+          onCancel={() => {
+            setIsCropperOpen(false);
+            setSelectedImage(null);
+          }}
+        />
+      )}
+
+      {/* Cleaning Cache Overlay */}
+      {isCleaningCache && (
+        <div className="fixed inset-0 z-[100] bg-black/90 backdrop-blur-md flex flex-col items-center justify-center">
+          <Loader2 size={48} className="text-orange-500 animate-spin mb-4" />
+          <h3 className="text-xl font-bold text-white">Cleaning Cache...</h3>
+          <p className="text-zinc-400 mt-2">The application will reload shortly.</p>
+        </div>
+      )}
     </>
   );
 }

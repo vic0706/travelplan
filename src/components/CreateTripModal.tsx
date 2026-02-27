@@ -1,10 +1,12 @@
 import React, { useState, useEffect } from 'react';
 import { useAppStore, User } from '../store';
 import { X, Calendar, Upload, Loader2, User as UserIcon, Check } from 'lucide-react';
+import { DateRangePicker } from './DateRangePicker';
 import { motion, AnimatePresence } from 'framer-motion';
 import { apiFetch } from '../utils/api';
 import { ImageCropper, uploadImageToSupabase } from './ImageCropper';
 import { useNavigate } from 'react-router-dom';
+import { LocationPicker } from './LocationPicker';
 
 export function CreateTripModal() {
   const navigate = useNavigate();
@@ -15,6 +17,7 @@ export function CreateTripModal() {
   const [users, setUsers] = useState<User[]>([]);
   const [selectedMembers, setSelectedMembers] = useState<number[]>([]);
   const [croppingImage, setCroppingImage] = useState<string | null>(null);
+  const [isLocationPickerOpen, setIsLocationPickerOpen] = useState(false);
 
   const [formData, setFormData] = useState({
     title: '',
@@ -167,47 +170,42 @@ export function CreateTripModal() {
 
             <div>
               <label className="block text-sm font-medium text-zinc-400 mb-1">Primary City</label>
-              <select
-                required
-                value={formData.default_city_id}
-                onChange={e => setFormData({ ...formData, default_city_id: e.target.value })}
-                className="w-full bg-zinc-800 border border-zinc-700 rounded-xl px-4 py-3 text-white focus:outline-none focus:ring-2 focus:ring-orange-500"
+              <div 
+                onClick={() => setIsLocationPickerOpen(true)}
+                className="w-full bg-zinc-800 border border-zinc-700 rounded-xl px-4 py-3 text-white cursor-pointer hover:border-orange-500 transition-colors flex items-center justify-between"
               >
-                <option value="" disabled>Select a city</option>
-                {Object.entries(groupedCities).map(([country, countryCities]) => (
-                  <optgroup key={country} label={country}>
-                    {countryCities.map(city => (
-                      <option key={city.id} value={city.id}>{city.name}</option>
-                    ))}
-                  </optgroup>
-                ))}
-              </select>
+                <span className={formData.default_city_id ? 'text-white' : 'text-zinc-500'}>
+                  {formData.default_city_id 
+                    ? cities.find(c => String(c.id) === String(formData.default_city_id))?.name 
+                    : 'Select a city'}
+                </span>
+                <Check size={16} className={formData.default_city_id ? 'text-orange-500' : 'text-transparent'} />
+              </div>
             </div>
+
+            <LocationPicker
+              isOpen={isLocationPickerOpen}
+              onClose={() => setIsLocationPickerOpen(false)}
+              onSelect={(cityId) => setFormData({ ...formData, default_city_id: String(cityId) })}
+              groupedCities={groupedCities}
+            />
 
             <div className="grid grid-cols-2 gap-4">
               <div>
                 <label className="block text-sm font-medium text-zinc-400 mb-1">Start Date</label>
-                <div className="relative">
-                  <input
-                    type="date"
-                    required
-                    value={formData.start_date}
-                    onChange={e => setFormData({ ...formData, start_date: e.target.value })}
-                    className="w-full bg-zinc-800 border border-zinc-700 rounded-xl px-4 py-3 text-white focus:outline-none focus:ring-2 focus:ring-orange-500 [color-scheme:dark] text-sm"
-                  />
-                </div>
+              <DateRangePicker
+                label="Start Date"
+                value={{ start: formData.start_date ? new Date(formData.start_date) : null, end: null }}
+                onChange={range => setFormData({ ...formData, start_date: range.start?.toISOString().split('T')[0] || '' })}
+              />
               </div>
               <div>
                 <label className="block text-sm font-medium text-zinc-400 mb-1">End Date</label>
-                <div className="relative">
-                  <input
-                    type="date"
-                    required
-                    value={formData.end_date}
-                    onChange={e => setFormData({ ...formData, end_date: e.target.value })}
-                    className="w-full bg-zinc-800 border border-zinc-700 rounded-xl px-4 py-3 text-white focus:outline-none focus:ring-2 focus:ring-orange-500 [color-scheme:dark] text-sm"
-                  />
-                </div>
+              <DateRangePicker
+                label="End Date"
+                value={{ start: formData.end_date ? new Date(formData.end_date) : null, end: null }}
+                onChange={range => setFormData({ ...formData, end_date: range.start?.toISOString().split('T')[0] || '' })}
+              />
               </div>
             </div>
 
