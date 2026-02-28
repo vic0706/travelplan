@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { createPortal } from 'react-dom';
 import { Clock as ClockIcon, X } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { clsx } from 'clsx';
@@ -64,70 +65,80 @@ export function TimeRangePicker({ value, onChange, label }: TimeRangePickerProps
         </button>
       </div>
 
-      <AnimatePresence>
-        {isOpen && (
-          <motion.div
-            initial={{ y: '100%' }}
-            animate={{ y: 0 }}
-            exit={{ y: '100%' }}
-            transition={{ type: 'spring', damping: 25, stiffness: 200 }}
-            className="fixed inset-x-0 bottom-0 z-[150] bg-zinc-900 rounded-t-3xl shadow-lg p-6 flex flex-col max-h-[90vh]"
-          >
-            <div className="flex justify-between items-center mb-4">
-              <h3 className="text-xl font-semibold text-white">Select Time Range</h3>
-              <button onClick={handleCancel} className="text-zinc-400 hover:text-white">
-                <X size={24} />
-              </button>
-            </div>
+      {isOpen && createPortal(
+        <AnimatePresence>
+          <div className="fixed inset-0 z-[9999] flex items-end justify-center pointer-events-none">
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              className="absolute inset-0 bg-black/60 backdrop-blur-sm pointer-events-auto"
+              onClick={handleCancel}
+            />
+            <motion.div
+              initial={{ y: '100%' }}
+              animate={{ y: 0 }}
+              exit={{ y: '100%' }}
+              transition={{ type: 'spring', damping: 25, stiffness: 200 }}
+              className="relative w-full bg-zinc-900 rounded-t-3xl shadow-2xl p-6 flex flex-col max-h-[90vh] pointer-events-auto pb-safe-bottom"
+            >
+              <div className="flex justify-between items-center mb-4">
+                <h3 className="text-xl font-semibold text-white">Select Time Range</h3>
+                <button onClick={handleCancel} className="text-zinc-400 hover:text-white">
+                  <X size={24} />
+                </button>
+              </div>
 
-            <div className="flex-1 overflow-y-auto custom-scrollbar space-y-4">
-              {error && (
-                <div className="bg-red-500/10 text-red-500 p-3 rounded-xl text-sm">
-                  {error}
+              <div className="flex-1 overflow-y-auto custom-scrollbar space-y-4">
+                {error && (
+                  <div className="bg-red-500/10 text-red-500 p-3 rounded-xl text-sm">
+                    {error}
+                  </div>
+                )}
+                <div className="flex flex-col gap-2">
+                  <label htmlFor="start-time" className="text-sm font-medium text-zinc-400">Start Time</label>
+                  <input
+                    id="start-time"
+                    type="time"
+                    value={startTime}
+                    onChange={(e) => setStartTime(e.target.value)}
+                    className="w-full bg-zinc-800 border border-zinc-700 rounded-xl px-4 py-2 text-white text-lg focus:outline-none focus:border-orange-500"
+                  />
                 </div>
-              )}
-              <div className="flex flex-col gap-2">
-                <label htmlFor="start-time" className="text-sm font-medium text-zinc-400">Start Time</label>
-                <input
-                  id="start-time"
-                  type="time"
-                  value={startTime}
-                  onChange={(e) => setStartTime(e.target.value)}
-                  className="w-full bg-zinc-800 border border-zinc-700 rounded-xl px-4 py-2 text-white text-lg focus:outline-none focus:border-orange-500"
-                />
+                <div className="flex flex-col gap-2">
+                  <label htmlFor="end-time" className="text-sm font-medium text-zinc-400">End Time</label>
+                  <input
+                    id="end-time"
+                    type="time"
+                    value={endTime}
+                    onChange={(e) => setEndTime(e.target.value)}
+                    className="w-full bg-zinc-800 border border-zinc-700 rounded-xl px-4 py-2 text-white text-lg focus:outline-none focus:border-orange-500"
+                  />
+                </div>
               </div>
-              <div className="flex flex-col gap-2">
-                <label htmlFor="end-time" className="text-sm font-medium text-zinc-400">End Time</label>
-                <input
-                  id="end-time"
-                  type="time"
-                  value={endTime}
-                  onChange={(e) => setEndTime(e.target.value)}
-                  className="w-full bg-zinc-800 border border-zinc-700 rounded-xl px-4 py-2 text-white text-lg focus:outline-none focus:border-orange-500"
-                />
-              </div>
-            </div>
 
-            <div className="mt-6 flex gap-3 pb-safe-bottom pb-8">
-              <button
-                type="button"
-                onClick={handleCancel}
-                className="flex-1 py-3 rounded-xl bg-zinc-800 text-white font-medium hover:bg-zinc-700 transition-colors"
-              >
-                Cancel
-              </button>
-              <button
-                type="button"
-                onClick={handleConfirm}
-                disabled={!startTime || !endTime}
-                className="flex-1 py-3 rounded-xl bg-orange-500 text-white font-medium hover:bg-orange-600 transition-colors disabled:opacity-50"
-              >
-                Confirm
-              </button>
-            </div>
-          </motion.div>
-        )}
-      </AnimatePresence>
+              <div className="mt-6 flex gap-3 pb-8">
+                <button
+                  type="button"
+                  onClick={handleCancel}
+                  className="flex-1 py-3 rounded-xl bg-zinc-800 text-white font-medium hover:bg-zinc-700 transition-colors"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  onClick={handleConfirm}
+                  disabled={!startTime || !endTime}
+                  className="flex-1 py-3 rounded-xl bg-orange-500 text-white font-medium hover:bg-orange-600 transition-colors disabled:opacity-50"
+                >
+                  Confirm
+                </button>
+              </div>
+            </motion.div>
+          </div>
+        </AnimatePresence>,
+        document.body
+      )}
     </>
   );
 }

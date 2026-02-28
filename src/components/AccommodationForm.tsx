@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
-import { X, Bed, Calendar, MapPin, FileText, Loader2 } from 'lucide-react';
+import { X, Bed, Calendar, MapPin, FileText, Loader2, Clock } from 'lucide-react';
 import { DateRangePicker } from './DateRangePicker';
+import { TimePicker } from './TimePicker';
 import { apiFetch } from '../utils/api';
 
 interface AccommodationFormProps {
@@ -15,6 +16,10 @@ export function AccommodationForm({ tripId, onSuccess, onCancel }: Accommodation
     hotel_name: '',
     check_in_date: '',
     check_out_date: '',
+    check_in_time: '16:00',
+    check_out_time: '11:00',
+    daily_start_time: '08:00',
+    daily_end_time: '22:00',
     address: '',
     order_id: '',
     notes: ''
@@ -40,7 +45,7 @@ export function AccommodationForm({ tripId, onSuccess, onCancel }: Accommodation
 
   return (
     <div className="bg-zinc-900 border border-zinc-800 rounded-3xl overflow-hidden shadow-2xl max-h-[90vh] overflow-y-auto pb-safe-bottom">
-      <div className="p-4 border-b border-zinc-800 flex items-center justify-between">
+      <div className="p-4 border-b border-zinc-800 flex items-center justify-between sticky top-0 bg-zinc-900 z-10">
         <h3 className="text-lg font-semibold text-white flex items-center gap-2">
           <Bed className="text-orange-500" size={20} />
           Add Accommodation
@@ -81,21 +86,52 @@ export function AccommodationForm({ tripId, onSuccess, onCancel }: Accommodation
             </div>
           </div>
 
+          <div className="space-y-2">
+            <label className="text-xs font-bold text-zinc-500 uppercase tracking-wider">Dates</label>
+            <DateRangePicker
+              label="Stay Duration"
+              value={{ 
+                start: formData.check_in_date ? new Date(formData.check_in_date) : null, 
+                end: formData.check_out_date ? new Date(formData.check_out_date) : null 
+              }}
+              onChange={range => setFormData({ 
+                ...formData, 
+                check_in_date: range.start?.toISOString().split('T')[0] || '',
+                check_out_date: range.end?.toISOString().split('T')[0] || ''
+              })}
+            />
+          </div>
+
           <div className="grid grid-cols-2 gap-4">
             <div className="space-y-2">
-              <label className="text-xs font-bold text-zinc-500 uppercase tracking-wider">Check-in</label>
-              <DateRangePicker
-                label="Check-in"
-                value={{ start: formData.check_in_date ? new Date(formData.check_in_date) : null, end: formData.check_in_date ? new Date(formData.check_in_date) : null }}
-                onChange={range => setFormData({ ...formData, check_in_date: range.start?.toISOString().split('T')[0] || '' })}
+              <TimePicker
+                label="Check-in Time"
+                value={formData.check_in_time}
+                onChange={time => setFormData({ ...formData, check_in_time: time })}
               />
             </div>
             <div className="space-y-2">
-              <label className="text-xs font-bold text-zinc-500 uppercase tracking-wider">Check-out</label>
-              <DateRangePicker
-                label="Check-out"
-                value={{ start: formData.check_out_date ? new Date(formData.check_out_date) : null, end: formData.check_out_date ? new Date(formData.check_out_date) : null }}
-                onChange={range => setFormData({ ...formData, check_out_date: range.start?.toISOString().split('T')[0] || '' })}
+              <TimePicker
+                label="Check-out Time"
+                value={formData.check_out_time}
+                onChange={time => setFormData({ ...formData, check_out_time: time })}
+              />
+            </div>
+          </div>
+
+          <div className="grid grid-cols-2 gap-4">
+            <div className="space-y-2">
+              <TimePicker
+                label="Daily Leave Time"
+                value={formData.daily_start_time}
+                onChange={time => setFormData({ ...formData, daily_start_time: time })}
+              />
+            </div>
+            <div className="space-y-2">
+              <TimePicker
+                label="Daily Return Time"
+                value={formData.daily_end_time}
+                onChange={time => setFormData({ ...formData, daily_end_time: time })}
               />
             </div>
           </div>

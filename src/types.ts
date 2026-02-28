@@ -55,6 +55,8 @@ export interface Itinerary {
   tags: string[]; // Parsed from JSON
   sub_items?: string; // JSON string of sub-items (Legacy, but kept for compatibility if needed, or we can remove if we fully switch)
   stay_duration?: string;
+  type?: 'GENERAL' | 'FLIGHT' | 'ACCOMMODATION';
+  related_id?: number;
 }
 
 export interface SubItinerary {

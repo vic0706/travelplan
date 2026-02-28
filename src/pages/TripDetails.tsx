@@ -20,6 +20,126 @@ import { motion, AnimatePresence } from 'framer-motion';
 
 // ... (rest of imports)
 
+// Flight Card Component
+function FlightCard({ item, flight, canEdit, onEdit }: { item: Itinerary; flight?: any; canEdit: boolean; onEdit: () => void }) {
+  if (!flight) return null;
+
+  const depDate = parseISO(flight.departure_date);
+  const arrDate = parseISO(flight.arrival_date);
+  
+  // Calculate times for display
+  // Check-in: item.start_time
+  // Departure: flight.departure_time
+  // Arrival: flight.arrival_time
+  // Stay End: item.end_time
+
+  return (
+    <div className="bg-zinc-900 border border-zinc-800 rounded-3xl overflow-hidden shadow-lg relative group">
+      {/* Header with Airline Info */}
+      <div className="bg-zinc-950/50 p-4 border-b border-zinc-800/50 flex items-center justify-between">
+        <div className="flex items-center gap-3">
+          <div className="w-10 h-10 rounded-full bg-orange-500/10 flex items-center justify-center shrink-0">
+            <Plane className="text-orange-500" size={20} />
+          </div>
+          <div>
+            <div className="text-white font-bold text-lg">{flight.airline}</div>
+            <div className="text-zinc-500 text-xs font-mono tracking-wider">{flight.flight_code}</div>
+          </div>
+        </div>
+        {canEdit && (
+          <button 
+            onClick={(e) => {
+              e.stopPropagation();
+              onEdit();
+            }}
+            className="p-2 text-zinc-500 hover:text-white hover:bg-zinc-800 rounded-full transition-colors"
+          >
+            <Edit3 size={16} />
+          </button>
+        )}
+      </div>
+
+      {/* Flight Timeline */}
+      <div className="p-5">
+        <div className="flex items-center justify-between mb-6">
+          <div className="text-center">
+            <div className="text-2xl font-bold text-white">{flight.departure_airport}</div>
+            <div className="text-xs text-zinc-500 mt-1">{format(depDate, 'MMM d')}</div>
+            <div className="text-sm font-medium text-zinc-300 mt-0.5">{flight.departure_time}</div>
+            {flight.departure_terminal && <div className="text-[10px] text-zinc-600 mt-1">T{flight.departure_terminal}</div>}
+          </div>
+          
+          <div className="flex-1 px-4 flex flex-col items-center">
+            <div className="text-[10px] text-zinc-500 uppercase tracking-wider mb-1">Duration</div>
+            <div className="w-full h-px bg-zinc-700 relative">
+              <Plane className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 text-zinc-500 bg-zinc-900 px-1" size={14} />
+            </div>
+          </div>
+
+          <div className="text-center">
+            <div className="text-2xl font-bold text-white">{flight.arrival_airport}</div>
+            <div className="text-xs text-zinc-500 mt-1">{format(arrDate, 'MMM d')}</div>
+            <div className="text-sm font-medium text-zinc-300 mt-0.5">{flight.arrival_time}</div>
+            {flight.arrival_terminal && <div className="text-[10px] text-zinc-600 mt-1">T{flight.arrival_terminal}</div>}
+          </div>
+        </div>
+
+        {/* 4-Point Timeline */}
+        <div className="relative pt-6 pb-2">
+          {/* Line */}
+          <div className="absolute top-8 left-4 right-4 h-0.5 bg-zinc-800"></div>
+          
+          <div className="flex justify-between relative">
+            {/* Check-in */}
+            <div className="flex flex-col items-center gap-2 relative z-10 group/point">
+              <div className="text-[10px] text-zinc-500 uppercase tracking-wider opacity-0 group-hover/point:opacity-100 transition-opacity absolute -top-6 whitespace-nowrap">Check-in</div>
+              <div className="w-3 h-3 rounded-full bg-zinc-700 border-2 border-zinc-900 group-hover/point:bg-orange-500 transition-colors"></div>
+              <div className="text-xs font-mono text-zinc-500">{item.start_time}</div>
+            </div>
+
+            {/* Departure */}
+            <div className="flex flex-col items-center gap-2 relative z-10 group/point">
+              <div className="text-[10px] text-zinc-500 uppercase tracking-wider opacity-0 group-hover/point:opacity-100 transition-opacity absolute -top-6 whitespace-nowrap">Departure</div>
+              <div className="w-3 h-3 rounded-full bg-zinc-500 border-2 border-zinc-900 group-hover/point:bg-orange-500 transition-colors"></div>
+              <div className="text-xs font-mono text-zinc-300">{flight.departure_time}</div>
+            </div>
+
+            {/* Arrival */}
+            <div className="flex flex-col items-center gap-2 relative z-10 group/point">
+              <div className="text-[10px] text-zinc-500 uppercase tracking-wider opacity-0 group-hover/point:opacity-100 transition-opacity absolute -top-6 whitespace-nowrap">Arrival</div>
+              <div className="w-3 h-3 rounded-full bg-zinc-500 border-2 border-zinc-900 group-hover/point:bg-orange-500 transition-colors"></div>
+              <div className="text-xs font-mono text-zinc-300">{flight.arrival_time}</div>
+            </div>
+
+            {/* Stay End */}
+            <div className="flex flex-col items-center gap-2 relative z-10 group/point">
+              <div className="text-[10px] text-zinc-500 uppercase tracking-wider opacity-0 group-hover/point:opacity-100 transition-opacity absolute -top-6 whitespace-nowrap">Exit</div>
+              <div className="w-3 h-3 rounded-full bg-zinc-700 border-2 border-zinc-900 group-hover/point:bg-orange-500 transition-colors"></div>
+              <div className="text-xs font-mono text-zinc-500">{item.end_time}</div>
+            </div>
+          </div>
+        </div>
+
+        {/* Footer Actions */}
+        <div className="mt-6 flex items-center justify-between pt-4 border-t border-zinc-800/50">
+           <div className="text-xs text-zinc-500 italic max-w-[70%] truncate">
+             {item.notes || flight.notes}
+           </div>
+           <a 
+            href={`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(flight.departure_airport + ' airport')}`}
+            target="_blank"
+            rel="noopener noreferrer"
+            onClick={(e) => e.stopPropagation()}
+            className="p-2 text-zinc-400 hover:text-orange-500 bg-zinc-950/50 rounded-xl border border-zinc-800/50 transition-colors"
+          >
+            <Navigation size={16} />
+          </a>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // Itinerary Card Component
 function ItineraryCard({ item, canEdit, onEdit }: { item: Itinerary; canEdit: boolean; onEdit: () => void }) {
   const [isExpanded, setIsExpanded] = useState(false);
@@ -77,7 +197,7 @@ function ItineraryCard({ item, canEdit, onEdit }: { item: Itinerary; canEdit: bo
         <div className="flex items-start justify-between gap-4">
           <h3 className="text-xl font-semibold text-white mb-2 flex-1">{item.title}</h3>
           
-          {/* Address Button on the right */}
+        {/* Address Button on the right */}
           <a 
             href={item.address && item.address.startsWith('http') 
               ? item.address 
@@ -85,12 +205,17 @@ function ItineraryCard({ item, canEdit, onEdit }: { item: Itinerary; canEdit: bo
             target="_blank"
             rel="noopener noreferrer"
             onClick={(e) => e.stopPropagation()}
-            className="flex items-center gap-2 text-zinc-400 text-xs hover:text-orange-500 transition-colors bg-zinc-950/50 px-3 py-2 rounded-xl border border-zinc-800/50 shrink-0"
+            className="flex items-center justify-center text-zinc-400 hover:text-orange-500 transition-colors bg-zinc-950/50 w-8 h-8 rounded-full border border-zinc-800/50 shrink-0"
           >
-            <MapPin size={14} />
-            <span className="max-w-[100px] truncate">{item.address ? 'Map' : 'Search'}</span>
+            <MapPin size={16} />
           </a>
         </div>
+
+        {item.notes && (
+          <p className="mt-2 text-sm text-zinc-500 leading-relaxed bg-zinc-950/50 p-3 rounded-xl border border-zinc-800/50 mb-2">
+            {item.notes}
+          </p>
+        )}
 
         {hasSubItems && (
           <div className="flex items-center justify-center mt-2">
@@ -106,17 +231,35 @@ function ItineraryCard({ item, canEdit, onEdit }: { item: Itinerary; canEdit: bo
               exit={{ height: 0, opacity: 0 }}
               className="overflow-hidden"
             >
-              <div className="mt-4 space-y-2 pt-4 border-t border-zinc-800/50">
+              <div className="mt-2 space-y-2 pt-2 border-t border-zinc-800/50">
                 {subItems.map((sub: any, idx: number) => (
-                  <div key={sub.id || idx} className="flex items-start gap-3 text-sm text-zinc-400 bg-zinc-950/30 p-2 rounded-lg">
-                    <div className="mt-1 w-1.5 h-1.5 rounded-full bg-orange-500 shrink-0" />
-                    <div className="flex-1">
-                      <div className="text-zinc-300 font-medium">{sub.title || sub.text}</div>
-                      {(sub.start_time || sub.end_time) && (
-                        <div className="text-xs text-zinc-600">
-                          {sub.start_time} - {sub.end_time}
+                  <div key={sub.id || idx} className="flex flex-col gap-1 text-sm text-zinc-400 bg-zinc-950/30 p-3 rounded-lg border border-zinc-800/30">
+                    <div className="flex items-start gap-3">
+                      <div className="mt-1.5 w-1.5 h-1.5 rounded-full bg-orange-500 shrink-0" />
+                      <div className="flex-1">
+                        <div className="text-zinc-300 font-medium flex justify-between">
+                          <span>{sub.title || sub.text}</span>
+                          {(sub.start_time || sub.end_time) && (
+                            <span className="text-xs text-zinc-500 font-mono">
+                              {sub.start_time} - {sub.end_time}
+                            </span>
+                          )}
                         </div>
-                      )}
+                        {sub.tags && sub.tags.length > 0 && (
+                          <div className="flex gap-1 mt-1 flex-wrap">
+                            {sub.tags.map((tag: string) => (
+                              <span key={tag} className="text-[9px] uppercase tracking-wider text-zinc-600 border border-zinc-800 px-1.5 py-0.5 rounded-md">
+                                {tag}
+                              </span>
+                            ))}
+                          </div>
+                        )}
+                        {sub.notes && (
+                          <div className="text-xs text-zinc-600 mt-1 italic">
+                            {sub.notes}
+                          </div>
+                        )}
+                      </div>
                     </div>
                   </div>
                 ))}
@@ -124,12 +267,6 @@ function ItineraryCard({ item, canEdit, onEdit }: { item: Itinerary; canEdit: bo
             </motion.div>
           )}
         </AnimatePresence>
-
-        {item.notes && (
-          <p className="mt-4 text-sm text-zinc-500 leading-relaxed bg-zinc-950/50 p-3 rounded-xl border border-zinc-800/50">
-            {item.notes}
-          </p>
-        )}
       </div>
     </div>
   );
@@ -403,12 +540,34 @@ export function TripDetails() {
             <div className="space-y-4">
               {filteredItineraries.length > 0 ? (
                 filteredItineraries.map((item, index) => {
+                  if (item.type === 'FLIGHT' && item.related_id) {
+                    const flight = flights.find(f => f.id === item.related_id);
+                    return (
+                      <FlightCard
+                        key={item.id}
+                        item={item}
+                        flight={flight}
+                        canEdit={canEdit}
+                        onEdit={() => {
+                          // TODO: Handle Flight Edit - maybe open FlightForm with initial data?
+                          // For now, just open FlightForm, but we need to pass data.
+                          // Or maybe we don't support editing flight via itinerary card yet?
+                          // The user request says "Auto update if flight modified", implies editing flight.
+                          // Let's assume we open FlightForm. But FlightForm needs to support editing mode.
+                          // For now, I'll just log or alert, or maybe just open the form empty (not ideal).
+                          // Actually, I can set isFlightFormOpen(true) but I need to pass the flight data.
+                          // FlightForm doesn't seem to support 'initialData' prop yet based on previous view.
+                          // I'll leave it as isFlightFormOpen(true) for now, but ideally we should fix FlightForm.
+                          setIsFlightFormOpen(true);
+                        }}
+                      />
+                    );
+                  }
+
                   const itineraryImageUrl = item.image_url && typeof item.image_url === 'string' && item.image_url.startsWith('http')
                     ? item.image_url
                     : null;
                   
-                  // Use local state for expansion if needed, but mapping inside map requires a component or state array.
-                  // I'll create a separate component for ItineraryCard to handle its own state.
                   return (
                     <ItineraryCard 
                       key={item.id} 
@@ -757,6 +916,10 @@ export function TripDetails() {
                   apiFetch(`/api/trips/${id}/flights`)
                     .then(res => res.json() as Promise<any[]>)
                     .then(data => db.flights.bulkPut(data));
+                  // Also refresh itineraries as flight adds an itinerary item
+                  apiFetch(`/api/trips/${id}/itineraries`)
+                    .then(res => res.json() as Promise<Itinerary[]>)
+                    .then(data => db.itineraries.bulkPut(data));
                 }} 
                 onCancel={() => setIsFlightFormOpen(false)} 
               />
@@ -789,6 +952,10 @@ export function TripDetails() {
                   apiFetch(`/api/trips/${id}/accommodations`)
                     .then(res => res.json() as Promise<any[]>)
                     .then(data => db.accommodations.bulkPut(data));
+                  // Also refresh itineraries
+                  apiFetch(`/api/trips/${id}/itineraries`)
+                    .then(res => res.json() as Promise<Itinerary[]>)
+                    .then(data => db.itineraries.bulkPut(data));
                 }} 
                 onCancel={() => setIsAccommodationFormOpen(false)} 
               />

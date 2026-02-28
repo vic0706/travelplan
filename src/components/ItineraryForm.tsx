@@ -370,7 +370,8 @@ function SubItemModal({ onClose, onAdd }: { onClose: () => void, onAdd: (item: a
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    onAdd({ ...data, id: crypto.randomUUID() });
+    const tagsArray = data.tags.split(',').map(t => t.trim()).filter(Boolean);
+    onAdd({ ...data, tags: tagsArray, id: crypto.randomUUID() });
   };
 
   return (
@@ -383,7 +384,7 @@ function SubItemModal({ onClose, onAdd }: { onClose: () => void, onAdd: (item: a
       >
         <div className="flex justify-between items-center mb-4">
           <h3 className="text-lg font-bold text-white">Add Sub-item</h3>
-          <button onClick={onClose} className="text-zinc-400 hover:text-white"><X size={20} /></button>
+          <button type="button" onClick={onClose} className="text-zinc-400 hover:text-white"><X size={20} /></button>
         </div>
         <form onSubmit={handleSubmit} className="space-y-4">
           <div>
@@ -393,38 +394,23 @@ function SubItemModal({ onClose, onAdd }: { onClose: () => void, onAdd: (item: a
               required
               value={data.title}
               onChange={e => setData({ ...data, title: e.target.value })}
-              className="w-full bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 text-white text-sm"
+              className="w-full bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:ring-2 focus:ring-orange-500"
             />
           </div>
-          <div className="grid grid-cols-2 gap-3">
-            <div>
-              <label className="block text-xs font-medium text-zinc-400 mb-1">Start</label>
-              <input
-                type="time"
-                required
-                value={data.start_time}
-                onChange={e => setData({ ...data, start_time: e.target.value })}
-                className="w-full bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 text-white text-sm"
-              />
-            </div>
-            <div>
-              <label className="block text-xs font-medium text-zinc-400 mb-1">End</label>
-              <input
-                type="time"
-                required
-                value={data.end_time}
-                onChange={e => setData({ ...data, end_time: e.target.value })}
-                className="w-full bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 text-white text-sm"
-              />
-            </div>
-          </div>
+          
+          <TimeRangePicker
+            label="Time Range"
+            value={{ start: data.start_time, end: data.end_time }}
+            onChange={(range) => setData({ ...data, start_time: range.start, end_time: range.end })}
+          />
+
           <div>
             <label className="block text-xs font-medium text-zinc-400 mb-1">Tags (comma separated)</label>
             <input
               type="text"
               value={data.tags}
               onChange={e => setData({ ...data, tags: e.target.value })}
-              className="w-full bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 text-white text-sm"
+              className="w-full bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:ring-2 focus:ring-orange-500"
               placeholder="e.g. Food, Shopping"
             />
           </div>
@@ -433,13 +419,13 @@ function SubItemModal({ onClose, onAdd }: { onClose: () => void, onAdd: (item: a
             <textarea
               value={data.notes}
               onChange={e => setData({ ...data, notes: e.target.value })}
-              className="w-full bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 text-white text-sm min-h-[60px]"
+              className="w-full bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 text-white text-sm min-h-[60px] focus:outline-none focus:ring-2 focus:ring-orange-500"
               placeholder="Details..."
             />
           </div>
           <button
             type="submit"
-            className="w-full bg-orange-500 hover:bg-orange-600 text-white font-bold rounded-lg px-4 py-2 text-sm"
+            className="w-full bg-orange-500 hover:bg-orange-600 text-white font-bold rounded-lg px-4 py-2 text-sm transition-colors"
           >
             Add Sub-item
           </button>

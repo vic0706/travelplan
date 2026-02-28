@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { X, Plane, Calendar, Clock, MapPin, FileText, Loader2 } from 'lucide-react';
-import { DateRangePicker } from './DateRangePicker';
-import { TimeRangePicker } from './TimeRangePicker';
+import { DatePicker } from './DatePicker';
+import { TimePicker } from './TimePicker';
 import { apiFetch } from '../utils/api';
 import { Flight } from '../types';
 
@@ -20,10 +20,13 @@ export function FlightForm({ tripId, onSuccess, onCancel }: FlightFormProps) {
     departure_time: '',
     departure_airport: '',
     departure_terminal: '',
+    checkin_duration: 120, // Default 2 hours
     arrival_date: '',
     arrival_time: '',
     arrival_airport: '',
     arrival_terminal: '',
+    exit_duration: 60, // Default 1 hour
+    stay_duration: 0,
     notes: ''
   });
 
@@ -87,21 +90,36 @@ export function FlightForm({ tripId, onSuccess, onCancel }: FlightFormProps) {
         {/* Departure */}
         <div className="space-y-4 border border-zinc-800/50 rounded-2xl p-4 bg-zinc-950/30">
           <h4 className="text-sm font-semibold text-orange-500 uppercase tracking-wider">Departure</h4>
+          
+          <div className="space-y-2">
+             <label className="text-xs font-bold text-zinc-500 uppercase tracking-wider flex justify-between">
+               <span>Check-in Buffer</span>
+               <span className="text-orange-500">{formData.checkin_duration} min</span>
+             </label>
+             <input 
+               type="range" 
+               min="0" 
+               max="240" 
+               step="15"
+               value={formData.checkin_duration}
+               onChange={(e) => setFormData({...formData, checkin_duration: parseInt(e.target.value)})}
+               className="w-full h-2 bg-zinc-800 rounded-lg appearance-none cursor-pointer accent-orange-500"
+             />
+          </div>
+
           <div className="grid grid-cols-2 gap-4">
             <div className="space-y-2">
-              <label className="text-xs font-bold text-zinc-500 uppercase tracking-wider">Date</label>
-              <DateRangePicker
+              <DatePicker
                 label="Date"
-                value={{ start: formData.departure_date ? new Date(formData.departure_date) : null, end: formData.departure_date ? new Date(formData.departure_date) : null }}
-                onChange={range => setFormData({ ...formData, departure_date: range.start?.toISOString().split('T')[0] || '' })}
+                value={formData.departure_date ? new Date(formData.departure_date) : null}
+                onChange={date => setFormData({ ...formData, departure_date: date.toISOString().split('T')[0] })}
               />
             </div>
             <div className="space-y-2">
-              <label className="text-xs font-bold text-zinc-500 uppercase tracking-wider">Time</label>
-              <TimeRangePicker
+              <TimePicker
                 label="Time"
-                value={{ start: formData.departure_time, end: formData.departure_time }}
-                onChange={range => setFormData({ ...formData, departure_time: range.start || '' })}
+                value={formData.departure_time}
+                onChange={time => setFormData({ ...formData, departure_time: time })}
               />
             </div>
           </div>
@@ -133,21 +151,53 @@ export function FlightForm({ tripId, onSuccess, onCancel }: FlightFormProps) {
         {/* Arrival */}
         <div className="space-y-4 border border-zinc-800/50 rounded-2xl p-4 bg-zinc-950/30">
           <h4 className="text-sm font-semibold text-orange-500 uppercase tracking-wider">Arrival</h4>
+          
           <div className="grid grid-cols-2 gap-4">
             <div className="space-y-2">
-              <label className="text-xs font-bold text-zinc-500 uppercase tracking-wider">Date</label>
-              <DateRangePicker
+               <label className="text-xs font-bold text-zinc-500 uppercase tracking-wider flex justify-between">
+                 <span>Exit Buffer</span>
+                 <span className="text-orange-500">{formData.exit_duration} min</span>
+               </label>
+               <input 
+                 type="range" 
+                 min="0" 
+                 max="240" 
+                 step="15"
+                 value={formData.exit_duration}
+                 onChange={(e) => setFormData({...formData, exit_duration: parseInt(e.target.value)})}
+                 className="w-full h-2 bg-zinc-800 rounded-lg appearance-none cursor-pointer accent-orange-500"
+               />
+            </div>
+            <div className="space-y-2">
+               <label className="text-xs font-bold text-zinc-500 uppercase tracking-wider flex justify-between">
+                 <span>Stay Time</span>
+                 <span className="text-orange-500">{formData.stay_duration} min</span>
+               </label>
+               <input 
+                 type="range" 
+                 min="0" 
+                 max="240" 
+                 step="15"
+                 value={formData.stay_duration}
+                 onChange={(e) => setFormData({...formData, stay_duration: parseInt(e.target.value)})}
+                 className="w-full h-2 bg-zinc-800 rounded-lg appearance-none cursor-pointer accent-orange-500"
+               />
+            </div>
+          </div>
+
+          <div className="grid grid-cols-2 gap-4">
+            <div className="space-y-2">
+              <DatePicker
                 label="Date"
-                value={{ start: formData.arrival_date ? new Date(formData.arrival_date) : null, end: formData.arrival_date ? new Date(formData.arrival_date) : null }}
-                onChange={range => setFormData({ ...formData, arrival_date: range.start?.toISOString().split('T')[0] || '' })}
+                value={formData.arrival_date ? new Date(formData.arrival_date) : null}
+                onChange={date => setFormData({ ...formData, arrival_date: date.toISOString().split('T')[0] })}
               />
             </div>
             <div className="space-y-2">
-              <label className="text-xs font-bold text-zinc-500 uppercase tracking-wider">Time</label>
-              <TimeRangePicker
+              <TimePicker
                 label="Time"
-                value={{ start: formData.arrival_time, end: formData.arrival_time }}
-                onChange={range => setFormData({ ...formData, arrival_time: range.start || '' })}
+                value={formData.arrival_time}
+                onChange={time => setFormData({ ...formData, arrival_time: time })}
               />
             </div>
           </div>
