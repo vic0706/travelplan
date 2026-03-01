@@ -503,11 +503,13 @@ export function TripDetails() {
     isOpen: boolean;
     title: string;
     message: string;
+    confirmText?: string;
     onConfirm: () => void;
   }>({
     isOpen: false,
     title: '',
     message: '',
+    confirmText: 'Confirm Delete',
     onConfirm: () => {}
   });
 
@@ -516,6 +518,7 @@ export function TripDetails() {
       isOpen: true,
       title: '刪除活動',
       message: '您確定要刪除此活動嗎？此操作無法復原。',
+      confirmText: 'Deleting activity...',
       onConfirm: async () => {
         if (!id) return;
         try {
@@ -538,6 +541,7 @@ export function TripDetails() {
       isOpen: true,
       title: '刪除航班',
       message: '您確定要刪除此航班嗎？相關的行程項目也會一併刪除。',
+      confirmText: 'Deleting flight...',
       onConfirm: async () => {
         if (!id) return;
         try {
@@ -565,6 +569,7 @@ export function TripDetails() {
       isOpen: true,
       title: '刪除住宿',
       message: '您確定要刪除此住宿資訊嗎？',
+      confirmText: 'Deleting accommodation...',
       onConfirm: async () => {
         if (!id) return;
         try {
@@ -1142,6 +1147,7 @@ export function TripDetails() {
         isOpen={confirmConfig.isOpen}
         title={confirmConfig.title}
         message={confirmConfig.message}
+        confirmText={confirmConfig.confirmText}
         onConfirm={confirmConfig.onConfirm}
         onCancel={() => setConfirmConfig({ ...confirmConfig, isOpen: false })}
       />

@@ -70,24 +70,27 @@ export function ConfirmDialog({
                 {message}
               </p>
 
-              <div className="flex gap-3">
+              <div className={`flex gap-3 ${confirmText && confirmText.length > 20 ? 'flex-col-reverse' : ''}`}>
                 <button
                   onClick={onCancel}
                   disabled={loading}
-                  className="flex-1 py-3 rounded-xl font-semibold text-zinc-400 hover:bg-zinc-800 transition-colors disabled:opacity-50"
+                  className={`${confirmText && confirmText.length > 20 ? 'w-full py-3' : 'flex-1 py-3'} rounded-xl font-semibold text-zinc-400 hover:bg-zinc-800 transition-colors disabled:opacity-50`}
                 >
                   {cancelText}
                 </button>
                 <button
                   onClick={handleConfirm}
                   disabled={loading}
-                  className={`flex-1 py-3 rounded-xl font-bold text-white transition-all shadow-lg flex items-center justify-center gap-2 disabled:opacity-50 ${
+                  className={`${confirmText && confirmText.length > 20 ? 'w-full py-3' : 'flex-1 py-3'} rounded-xl font-bold text-white transition-all shadow-lg flex items-center justify-center gap-2 disabled:opacity-50 ${
                     type === 'danger' ? 'bg-red-500 hover:bg-red-600 shadow-red-500/20' : 
                     type === 'warning' ? 'bg-orange-500 hover:bg-orange-600 shadow-orange-500/20' : 
                     'bg-blue-500 hover:bg-blue-600 shadow-blue-500/20'
                   }`}
                 >
-                  {loading ? <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin" /> : confirmText}
+                  {loading && <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin shrink-0" />}
+                  <span className={`text-center leading-tight ${confirmText && confirmText.length > 20 ? 'text-sm' : 'text-base'}`}>
+                    {confirmText}
+                  </span>
                 </button>
               </div>
             </div>

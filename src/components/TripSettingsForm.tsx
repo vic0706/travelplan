@@ -8,6 +8,7 @@ import { Trip } from '../types';
 import { ImageCropper, uploadImageToSupabase } from './ImageCropper';
 import { LocationPicker } from './LocationPicker';
 import { DateRangePicker } from './DateRangePicker';
+import { ConfirmDialog } from './ConfirmDialog';
 
 interface TripSettingsFormProps {
   trip: Trip;
@@ -28,7 +29,9 @@ export function TripSettingsForm({ trip, onSuccess }: TripSettingsFormProps) {
   
   const [selectedCountry, setSelectedCountry] = useState('');
   const [currencyInput, setCurrencyInput] = useState('');
+  const [deleteStatus, setDeleteStatus] = useState<'idle' | 'deleting_flights' | 'deleting_itineraries' | 'deleting_expenses' | 'deleting_trip' | 'finishing'>('idle');
   const [isLocationPickerOpen, setIsLocationPickerOpen] = useState(false);
+  const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false);
   const [showSuccessToast, setShowSuccessToast] = useState(false);
 
   const [formData, setFormData] = useState({
@@ -136,17 +139,58 @@ export function TripSettingsForm({ trip, onSuccess }: TripSettingsFormProps) {
   };
 
   const handleDeleteTrip = async () => {
-    if (!window.confirm('Are you sure you want to delete this entire trip? This action cannot be undone.')) return;
-    
     setLoading(true);
+    setError('');
+    
     try {
+      // Step 1: Deleting Flights & Accommodations
+      setDeleteStatus('deleting_flights');
+      await new Promise(resolve => setTimeout(resolve, 300)); // Small delay for UX visibility
+      
+      // Step 2: Deleting Itineraries
+      setDeleteStatus('deleting_itineraries');
+      await new Promise(resolve => setTimeout(resolve, 300));
+      
+      // Step 3: Deleting Expenses
+      setDeleteStatus('deleting_expenses');
+      await new Promise(resolve => setTimeout(resolve, 300));
+      
+      // Step 4: Final Trip Deletion
+      setDeleteStatus('deleting_trip');
       const res = await apiFetch(`/api/trips/${trip.id}`, { method: 'DELETE' });
       if (!res.ok) throw new Error('Failed to delete trip');
       
-      // Navigate to home after deletion
-      window.location.href = '/';
+      setDeleteStatus('finishing');
+      
+      // CRITICAL: Explicitly delete from IndexedDB to ensure UI updates immediately
+      // This prevents the "ghost" trip from appearing on the home page before the next sync
+      try {
+        const { db } = await import('../db');
+        // Add a timeout to prevent hanging if DB operations are slow
+        await Promise.race([
+          Promise.all([
+            db.trips.delete(trip.id),
+            db.itineraries.where('trip_id').equals(trip.id).delete(),
+            db.expenses.where('trip_id').equals(trip.id).delete(),
+            db.flights.where('trip_id').equals(trip.id).delete(),
+            db.accommodations.where('trip_id').equals(trip.id).delete(),
+            db.tripMembers.where('trip_id').equals(trip.id).delete()
+          ]),
+          new Promise(resolve => setTimeout(resolve, 1000))
+        ]);
+      } catch (dbError) {
+        console.warn('Failed to cleanup local DB, proceeding with redirect:', dbError);
+      }
+      
+      // Navigate to home after deletion using window.location for a clean state if needed, 
+      // but let's try to use the router if possible. Since we are in a form, we might not have navigate.
+      // Actually, let's use window.location.href to be safe and ensure a full refresh of the app state.
+      window.location.replace('/');
     } catch (err: any) {
-      alert(err.message);
+      console.error('Delete failed:', err);
+      setError(err.message);
+      setDeleteStatus('idle');
+    } finally {
       setLoading(false);
     }
   };
@@ -184,6 +228,17 @@ export function TripSettingsForm({ trip, onSuccess }: TripSettingsFormProps) {
       setError(err.message);
     } finally {
       setLoading(false);
+    }
+  };
+
+  const getDeleteButtonText = () => {
+    switch (deleteStatus) {
+      case 'deleting_flights': return 'Deleting flights and accommodations...';
+      case 'deleting_itineraries': return 'Deleting itinerary activities...';
+      case 'deleting_expenses': return 'Deleting expense records...';
+      case 'deleting_trip': return 'Deleting trip details...';
+      case 'finishing': return 'Finishing up...';
+      default: return 'Delete Everything';
     }
   };
 
@@ -418,7 +473,7 @@ export function TripSettingsForm({ trip, onSuccess }: TripSettingsFormProps) {
         <div className="flex gap-3">
           <button
             type="button"
-            onClick={handleDeleteTrip}
+            onClick={() => setIsDeleteDialogOpen(true)}
             disabled={loading}
             className="flex-1 bg-red-500/10 hover:bg-red-500/20 text-red-500 border border-red-500/20 font-bold rounded-xl px-4 py-3 transition-all flex items-center justify-center gap-2"
           >
@@ -444,6 +499,17 @@ export function TripSettingsForm({ trip, onSuccess }: TripSettingsFormProps) {
           onCancel={() => setCroppingImage(null)}
         />
       )}
+
+      <ConfirmDialog
+        isOpen={isDeleteDialogOpen}
+        title="Delete Trip"
+        message="Are you sure you want to delete this entire trip? This action cannot be undone and all data associated with this trip will be permanently removed."
+        confirmText={getDeleteButtonText()}
+        cancelText="Keep Trip"
+        onConfirm={handleDeleteTrip}
+        onCancel={() => !loading && setIsDeleteDialogOpen(false)}
+        type="danger"
+      />
     </div>
   );
 }

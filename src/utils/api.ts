@@ -36,7 +36,7 @@ export const apiFetch = async (path: string, options: RequestInit = {}) => {
 
     return response;
   } catch (error) {
-    console.error('API Request Failed:', error);
+    console.error(`API Request Failed for ${getApiUrl(path)}:`, error);
     throw error;
   }
 };

@@ -16,7 +16,19 @@ export interface Env {
 
 type Variables = { user: { id: number; role: string; name: string } };
 export const app = new Hono<{ Bindings: Env; Variables: Variables }>();
-app.use('*', cors());
+
+// CORS Middleware
+app.use('*', cors({
+  origin: '*',
+  allowMethods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+  allowHeaders: ['Content-Type', 'Authorization'],
+  exposeHeaders: ['Content-Length'],
+  maxAge: 600,
+}));
+
+// Health Check
+app.get('/', (c) => c.text('Worker is running!'));
+app.get('/api/health', (c) => c.json({ status: 'ok', timestamp: new Date().toISOString() }));
 
 // Custom 404 for API
 app.notFound((c) => c.json({ error: 'API route not found' }, 404));
