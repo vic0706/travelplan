@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { X, Bed, Calendar, MapPin, FileText, Loader2, Clock, Trash2 } from 'lucide-react';
+import { format } from 'date-fns';
 import { DateRangePicker } from './DateRangePicker';
 import { TimePicker } from './TimePicker';
 import { apiFetch } from '../utils/api';
@@ -105,8 +106,8 @@ export function AccommodationForm({ tripId, onSuccess, onCancel, onDelete, initi
               }}
               onChange={range => setFormData({ 
                 ...formData, 
-                check_in_date: range.start?.toISOString().split('T')[0] || '',
-                check_out_date: range.end?.toISOString().split('T')[0] || ''
+                check_in_date: range.start ? format(range.start, 'yyyy-MM-dd') : '',
+                check_out_date: range.end ? format(range.end, 'yyyy-MM-dd') : ''
               })}
             />
           </div>

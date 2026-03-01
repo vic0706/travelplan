@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useAppStore, User } from '../store';
 import { X, Calendar, Upload, Loader2, User as UserIcon, Check, CloudLightning, Plus, Trash2 } from 'lucide-react';
+import { format } from 'date-fns';
 import { motion, AnimatePresence } from 'framer-motion';
 import { apiFetch } from '../utils/api';
 import { Trip } from '../types';
@@ -134,6 +135,22 @@ export function TripSettingsForm({ trip, onSuccess }: TripSettingsFormProps) {
     }
   };
 
+  const handleDeleteTrip = async () => {
+    if (!window.confirm('Are you sure you want to delete this entire trip? This action cannot be undone.')) return;
+    
+    setLoading(true);
+    try {
+      const res = await apiFetch(`/api/trips/${trip.id}`, { method: 'DELETE' });
+      if (!res.ok) throw new Error('Failed to delete trip');
+      
+      // Navigate to home after deletion
+      window.location.href = '/';
+    } catch (err: any) {
+      alert(err.message);
+      setLoading(false);
+    }
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoading(true);
@@ -235,8 +252,8 @@ export function TripSettingsForm({ trip, onSuccess }: TripSettingsFormProps) {
           }}
           onChange={range => setFormData({ 
             ...formData, 
-            start_date: range.start?.toISOString().split('T')[0] || '',
-            end_date: range.end?.toISOString().split('T')[0] || ''
+            start_date: range.start ? format(range.start, 'yyyy-MM-dd') : '',
+            end_date: range.end ? format(range.end, 'yyyy-MM-dd') : ''
           })}
         />
       </div>
@@ -387,24 +404,36 @@ export function TripSettingsForm({ trip, onSuccess }: TripSettingsFormProps) {
         </div>
       </div>
 
-      <div className="pt-4 border-t border-zinc-800">
+      <div className="pt-4 border-t border-zinc-800 space-y-4">
         <button
           type="button"
           onClick={handleSyncWeather}
           disabled={syncingWeather}
-          className="w-full bg-blue-500/10 hover:bg-blue-500/20 text-blue-400 border border-blue-500/30 disabled:opacity-50 disabled:cursor-not-allowed font-medium rounded-xl px-4 py-3 transition-all flex items-center justify-center gap-2 mb-4"
+          className="w-full bg-blue-500/10 hover:bg-blue-500/20 text-blue-400 border border-blue-500/30 disabled:opacity-50 disabled:cursor-not-allowed font-medium rounded-xl px-4 py-3 transition-all flex items-center justify-center gap-2"
         >
           {syncingWeather ? <Loader2 size={18} className="animate-spin" /> : <CloudLightning size={18} />}
           {syncingWeather ? 'Syncing Weather...' : 'Sync Weather Now'}
         </button>
 
-        <button
-          type="submit"
-          disabled={loading || uploading}
-          className="w-full bg-orange-500 hover:bg-orange-600 disabled:opacity-50 disabled:cursor-not-allowed text-white font-bold rounded-xl px-4 py-3 transition-all shadow-lg shadow-orange-500/20 active:scale-95"
-        >
-          {loading ? 'Saving...' : 'Save Settings'}
-        </button>
+        <div className="flex gap-3">
+          <button
+            type="button"
+            onClick={handleDeleteTrip}
+            disabled={loading}
+            className="flex-1 bg-red-500/10 hover:bg-red-500/20 text-red-500 border border-red-500/20 font-bold rounded-xl px-4 py-3 transition-all flex items-center justify-center gap-2"
+          >
+            <Trash2 size={18} />
+            Delete Trip
+          </button>
+          
+          <button
+            type="submit"
+            disabled={loading || uploading}
+            className="flex-[2] bg-orange-500 hover:bg-orange-600 disabled:opacity-50 disabled:cursor-not-allowed text-white font-bold rounded-xl px-4 py-3 transition-all shadow-lg shadow-orange-500/20 active:scale-95"
+          >
+            {loading ? 'Saving...' : 'Save Settings'}
+          </button>
+        </div>
       </div>
     </form>
       {croppingImage && (

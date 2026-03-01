@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { X, Plane, Calendar, Clock, MapPin, FileText, Loader2, Trash2 } from 'lucide-react';
+import { format } from 'date-fns';
 import { DatePicker } from './DatePicker';
 import { TimePicker } from './TimePicker';
 import { apiFetch } from '../utils/api';
@@ -119,7 +120,7 @@ export function FlightForm({ tripId, onSuccess, onCancel, onDelete, initialData 
               <DatePicker
                 label="Date"
                 value={formData.departure_date ? new Date(formData.departure_date) : null}
-                onChange={date => setFormData({ ...formData, departure_date: date.toISOString().split('T')[0] })}
+                onChange={date => setFormData({ ...formData, departure_date: format(date, 'yyyy-MM-dd') })}
               />
             </div>
             <div className="space-y-2">
@@ -197,7 +198,7 @@ export function FlightForm({ tripId, onSuccess, onCancel, onDelete, initialData 
               <DatePicker
                 label="Date"
                 value={formData.arrival_date ? new Date(formData.arrival_date) : null}
-                onChange={date => setFormData({ ...formData, arrival_date: date.toISOString().split('T')[0] })}
+                onChange={date => setFormData({ ...formData, arrival_date: format(date, 'yyyy-MM-dd') })}
               />
             </div>
             <div className="space-y-2">
