@@ -269,6 +269,31 @@ async function ensureSchema(db: D1Database) {
   try {
     await db.prepare("ALTER TABLE Itineraries ADD COLUMN related_id INTEGER").run();
   } catch (e) {}
+
+  try {
+    // 12. Add durations to Flights
+    await db.prepare("ALTER TABLE Flights ADD COLUMN checkin_duration INTEGER DEFAULT 120").run();
+  } catch (e) {}
+  try {
+    await db.prepare("ALTER TABLE Flights ADD COLUMN exit_duration INTEGER DEFAULT 60").run();
+  } catch (e) {}
+  try {
+    await db.prepare("ALTER TABLE Flights ADD COLUMN stay_duration INTEGER DEFAULT 0").run();
+  } catch (e) {}
+
+  try {
+    // 13. Add times to Accommodations
+    await db.prepare("ALTER TABLE Accommodations ADD COLUMN check_in_time TEXT DEFAULT '15:00'").run();
+  } catch (e) {}
+  try {
+    await db.prepare("ALTER TABLE Accommodations ADD COLUMN check_out_time TEXT DEFAULT '11:00'").run();
+  } catch (e) {}
+  try {
+    await db.prepare("ALTER TABLE Accommodations ADD COLUMN daily_start_time TEXT DEFAULT '08:00'").run();
+  } catch (e) {}
+  try {
+    await db.prepare("ALTER TABLE Accommodations ADD COLUMN daily_end_time TEXT DEFAULT '22:00'").run();
+  } catch (e) {}
 }
 
 // Helper: Get Weather for a specific date
@@ -710,10 +735,11 @@ app.post('/api/trips/:id/flights', async (c) => {
     const b = await c.req.json();
     // id is AUTOINCREMENT, so we don't bind it.
     const info = await c.env.DB.prepare(`
-      INSERT INTO Flights (trip_id, airline, flight_code, departure_date, departure_time, departure_airport, departure_terminal, arrival_date, arrival_time, arrival_airport, arrival_terminal, notes)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `).bind(tripId, b.airline, b.flight_code, b.departure_date, b.departure_time, b.departure_airport, b.departure_terminal, b.arrival_date, b.arrival_time, b.arrival_airport, b.arrival_terminal, b.notes).run();
+      INSERT INTO Flights (trip_id, airline, flight_code, departure_date, departure_time, departure_airport, departure_terminal, arrival_date, arrival_time, arrival_airport, arrival_terminal, checkin_duration, exit_duration, stay_duration, notes)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).bind(tripId, b.airline, b.flight_code, b.departure_date, b.departure_time, b.departure_airport, b.departure_terminal, b.arrival_date, b.arrival_time, b.arrival_airport, b.arrival_terminal, b.checkin_duration || 120, b.exit_duration || 60, b.stay_duration || 0, b.notes).run();
     
+    // @ts-ignore
     const flightId = info.meta.last_row_id;
 
     // Create Itinerary Item for Flight
@@ -724,10 +750,11 @@ app.post('/api/trips/:id/flights', async (c) => {
     const checkInDate = depDateTime.toISOString().split('T')[0];
     const checkInTime = depDateTime.toTimeString().substring(0, 5);
 
-    // Calculate Stay End Time (Arrival + exit_duration)
+    // Calculate Stay End Time (Arrival + exit_duration + stay_duration)
     const arrDateTime = new Date(`${b.arrival_date}T${b.arrival_time}`);
     const exitDuration = b.exit_duration || 60; // Default 60 mins
-    arrDateTime.setMinutes(arrDateTime.getMinutes() + exitDuration);
+    const stayDuration = b.stay_duration || 0;
+    arrDateTime.setMinutes(arrDateTime.getMinutes() + exitDuration + stayDuration);
     // const stayEndDate = arrDateTime.toISOString().split('T')[0]; 
     const stayEndTime = arrDateTime.toTimeString().substring(0, 5);
 
@@ -751,6 +778,54 @@ app.post('/api/trips/:id/flights', async (c) => {
   } catch (error: any) { return c.json({ error: error.message }, 500); }
 });
 
+app.put('/api/trips/:id/flights/:flightId', async (c) => {
+  const tripId = c.req.param('id');
+  const flightId = c.req.param('flightId');
+  try {
+    const canEdit = await checkTripAccess(c, Number(tripId), 'edit');
+    if (!canEdit) return c.json({ error: 'Unauthorized' }, 403);
+
+    const b = await c.req.json();
+    
+    await c.env.DB.prepare(`
+      UPDATE Flights 
+      SET airline = ?, flight_code = ?, departure_date = ?, departure_time = ?, departure_airport = ?, departure_terminal = ?, arrival_date = ?, arrival_time = ?, arrival_airport = ?, arrival_terminal = ?, checkin_duration = ?, exit_duration = ?, stay_duration = ?, notes = ?
+      WHERE id = ? AND trip_id = ?
+    `).bind(b.airline, b.flight_code, b.departure_date, b.departure_time, b.departure_airport, b.departure_terminal, b.arrival_date, b.arrival_time, b.arrival_airport, b.arrival_terminal, b.checkin_duration || 120, b.exit_duration || 60, b.stay_duration || 0, b.notes, flightId, tripId).run();
+
+    // Update Itinerary Item
+    // Calculate Check-in Time
+    const depDateTime = new Date(`${b.departure_date}T${b.departure_time}`);
+    const checkinDuration = b.checkin_duration || 120; 
+    depDateTime.setMinutes(depDateTime.getMinutes() - checkinDuration);
+    const checkInDate = depDateTime.toISOString().split('T')[0];
+    const checkInTime = depDateTime.toTimeString().substring(0, 5);
+
+    // Calculate Stay End Time
+    const arrDateTime = new Date(`${b.arrival_date}T${b.arrival_time}`);
+    const exitDuration = b.exit_duration || 60;
+    const stayDuration = b.stay_duration || 0;
+    arrDateTime.setMinutes(arrDateTime.getMinutes() + exitDuration + stayDuration);
+    const stayEndTime = arrDateTime.toTimeString().substring(0, 5);
+
+    await c.env.DB.prepare(`
+      UPDATE Itineraries 
+      SET date = ?, start_time = ?, end_time = ?, title = ?, notes = ?
+      WHERE type = 'FLIGHT' AND related_id = ? AND trip_id = ?
+    `).bind(
+      checkInDate,
+      checkInTime,
+      stayEndTime,
+      `Flight: ${b.airline} ${b.flight_code}`,
+      b.notes || '',
+      flightId,
+      tripId
+    ).run();
+
+    return c.json({ success: true });
+  } catch (error: any) { return c.json({ error: error.message }, 500); }
+});
+
 app.get('/api/trips/:id/accommodations', async (c) => {
   const tripId = c.req.param('id');
   try {
@@ -768,10 +843,11 @@ app.post('/api/trips/:id/accommodations', async (c) => {
     const b = await c.req.json();
     // id is AUTOINCREMENT
     const info = await c.env.DB.prepare(`
-      INSERT INTO Accommodations (trip_id, hotel_name, address, check_in_date, check_out_date, order_id, notes, created_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-    `).bind(tripId, b.hotel_name, b.address, b.check_in_date, b.check_out_date, b.order_id, b.notes, Date.now()).run();
+      INSERT INTO Accommodations (trip_id, hotel_name, address, check_in_date, check_out_date, check_in_time, check_out_time, daily_start_time, daily_end_time, order_id, notes, created_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).bind(tripId, b.hotel_name, b.address, b.check_in_date, b.check_out_date, b.check_in_time || '15:00', b.check_out_time || '11:00', b.daily_start_time || '08:00', b.daily_end_time || '22:00', b.order_id, b.notes, Date.now()).run();
     
+    // @ts-ignore
     const accId = info.meta.last_row_id;
 
     // Create Itinerary Items for Accommodation
@@ -829,6 +905,82 @@ app.post('/api/trips/:id/accommodations', async (c) => {
     }
 
     return c.json({ success: true, id: accId });
+  } catch (error: any) { return c.json({ error: error.message }, 500); }
+});
+
+app.put('/api/trips/:id/accommodations/:accId', async (c) => {
+  const tripId = c.req.param('id');
+  const accId = c.req.param('accId');
+  try {
+    const canEdit = await checkTripAccess(c, Number(tripId), 'edit');
+    if (!canEdit) return c.json({ error: 'Unauthorized' }, 403);
+
+    const b = await c.req.json();
+    
+    await c.env.DB.prepare(`
+      UPDATE Accommodations 
+      SET hotel_name = ?, address = ?, check_in_date = ?, check_out_date = ?, check_in_time = ?, check_out_time = ?, daily_start_time = ?, daily_end_time = ?, order_id = ?, notes = ?
+      WHERE id = ? AND trip_id = ?
+    `).bind(b.hotel_name, b.address, b.check_in_date, b.check_out_date, b.check_in_time || '15:00', b.check_out_time || '11:00', b.daily_start_time || '08:00', b.daily_end_time || '22:00', b.order_id, b.notes, accId, tripId).run();
+
+    // Delete existing Itinerary Items
+    await c.env.DB.prepare("DELETE FROM Itineraries WHERE type = 'ACCOMMODATION' AND related_id = ? AND trip_id = ?").bind(accId, tripId).run();
+
+    // Recreate Itinerary Items
+    const startDate = new Date(b.check_in_date);
+    const endDate = new Date(b.check_out_date);
+    const checkInTime = b.check_in_time || '16:00';
+    const checkOutTime = b.check_out_time || '11:00';
+    const dailyStartTime = b.daily_start_time || '08:00';
+    const dailyEndTime = b.daily_end_time || '22:00';
+
+    const currentDate = new Date(startDate);
+    
+    // Loop through dates
+    while (currentDate <= endDate) {
+      const dateStr = currentDate.toISOString().split('T')[0];
+      const isCheckInDay = dateStr === b.check_in_date;
+      const isCheckOutDay = dateStr === b.check_out_date;
+
+      if (isCheckInDay) {
+        // Check-in Item
+        await c.env.DB.prepare(`
+          INSERT INTO Itineraries (trip_id, date, start_time, end_time, title, type, related_id, notes)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        `).bind(tripId, dateStr, checkInTime, '', `Check-in: ${b.hotel_name}`, 'ACCOMMODATION', accId, b.notes || '').run();
+        
+        // Return to Hotel Item (if not also checkout day)
+        if (!isCheckOutDay) {
+             await c.env.DB.prepare(`
+              INSERT INTO Itineraries (trip_id, date, start_time, end_time, title, type, related_id, notes)
+              VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            `).bind(tripId, dateStr, dailyEndTime, '', `Back to Hotel`, 'ACCOMMODATION', accId, '').run();
+        }
+      } else if (isCheckOutDay) {
+        // Check-out Item
+        await c.env.DB.prepare(`
+          INSERT INTO Itineraries (trip_id, date, start_time, end_time, title, type, related_id, notes)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        `).bind(tripId, dateStr, checkOutTime, '', `Check-out: ${b.hotel_name}`, 'ACCOMMODATION', accId, '').run();
+      } else {
+        // Intermediate Day
+        // Leave Hotel
+        await c.env.DB.prepare(`
+          INSERT INTO Itineraries (trip_id, date, start_time, end_time, title, type, related_id, notes)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        `).bind(tripId, dateStr, dailyStartTime, '', `Leave Hotel`, 'ACCOMMODATION', accId, '').run();
+
+        // Return to Hotel
+        await c.env.DB.prepare(`
+          INSERT INTO Itineraries (trip_id, date, start_time, end_time, title, type, related_id, notes)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        `).bind(tripId, dateStr, dailyEndTime, '', `Back to Hotel`, 'ACCOMMODATION', accId, '').run();
+      }
+
+      currentDate.setDate(currentDate.getDate() + 1);
+    }
+
+    return c.json({ success: true });
   } catch (error: any) { return c.json({ error: error.message }, 500); }
 });
 

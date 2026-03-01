@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useAppStore } from '../store';
 import { format, parseISO, addDays, differenceInDays, isSameDay, isPast } from 'date-fns';
-import { MapPin, Clock, Plus, Navigation, DollarSign, Plane, Bed, Map, Info, Wallet, ArrowLeft, Calendar, X, Settings, Edit3, ChevronDown, ChevronUp, Image as ImageIcon } from 'lucide-react';
+import { MapPin, Clock, Plus, Navigation, DollarSign, Plane, Bed, Map, Info, Wallet, ArrowLeft, Calendar, X, Settings, Edit3, ChevronDown, ChevronUp, Image as ImageIcon, Lock, Unlock, Trash2 } from 'lucide-react';
 import { Trip, Itinerary, Expense, User } from '../types';
 import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip } from 'recharts';
 import { clsx } from 'clsx';
@@ -16,25 +16,26 @@ import { WeatherWidget } from '../components/WeatherWidget';
 import { FlightForm } from '../components/FlightForm';
 import { AccommodationForm } from '../components/AccommodationForm';
 import { FinanceOverview } from '../components/FinanceOverview';
+import { ConfirmDialog } from '../components/ConfirmDialog';
 import { motion, AnimatePresence } from 'framer-motion';
 
 // ... (rest of imports)
 
 // Flight Card Component
-function FlightCard({ item, flight, canEdit, onEdit }: { item: Itinerary; flight?: any; canEdit: boolean; onEdit: () => void }) {
+function FlightCard({ item, flight, canEdit, onEdit }: { item?: Itinerary; flight?: any; canEdit: boolean; onEdit: () => void }) {
   if (!flight) return null;
 
   const depDate = parseISO(flight.departure_date);
   const arrDate = parseISO(flight.arrival_date);
   
-  // Calculate times for display
-  // Check-in: item.start_time
-  // Departure: flight.departure_time
-  // Arrival: flight.arrival_time
-  // Stay End: item.end_time
-
   return (
-    <div className="bg-zinc-900 border border-zinc-800 rounded-3xl overflow-hidden shadow-lg relative group">
+    <div 
+      className={clsx(
+        "bg-zinc-900 border border-zinc-800 rounded-3xl overflow-hidden shadow-lg relative group transition-all",
+        canEdit && "cursor-pointer hover:border-orange-500/50"
+      )}
+      onClick={() => canEdit && onEdit()}
+    >
       {/* Header with Airline Info */}
       <div className="bg-zinc-950/50 p-4 border-b border-zinc-800/50 flex items-center justify-between">
         <div className="flex items-center gap-3">
@@ -46,84 +47,88 @@ function FlightCard({ item, flight, canEdit, onEdit }: { item: Itinerary; flight
             <div className="text-zinc-500 text-xs font-mono tracking-wider">{flight.flight_code}</div>
           </div>
         </div>
-        {canEdit && (
-          <button 
-            onClick={(e) => {
-              e.stopPropagation();
-              onEdit();
-            }}
-            className="p-2 text-zinc-500 hover:text-white hover:bg-zinc-800 rounded-full transition-colors"
-          >
-            <Edit3 size={16} />
-          </button>
-        )}
+        <div className="flex items-center gap-2">
+          <div className="text-right">
+            <div className="text-[10px] text-zinc-500 uppercase tracking-wider">Departure</div>
+            <div className="text-xs font-bold text-zinc-300">{format(depDate, 'MMM d')}</div>
+          </div>
+        </div>
       </div>
 
       {/* Flight Timeline */}
       <div className="p-5">
         <div className="flex items-center justify-between mb-6">
-          <div className="text-center">
+          <div className="flex-1">
             <div className="text-2xl font-bold text-white">{flight.departure_airport}</div>
-            <div className="text-xs text-zinc-500 mt-1">{format(depDate, 'MMM d')}</div>
             <div className="text-sm font-medium text-zinc-300 mt-0.5">{flight.departure_time}</div>
-            {flight.departure_terminal && <div className="text-[10px] text-zinc-600 mt-1">T{flight.departure_terminal}</div>}
+            {flight.departure_terminal && (
+              <div className="mt-2 inline-flex items-center gap-1 px-2 py-0.5 bg-zinc-800 rounded-md border border-zinc-700">
+                <span className="text-[10px] text-zinc-500 font-bold uppercase">Terminal</span>
+                <span className="text-xs font-bold text-orange-500">{flight.departure_terminal}</span>
+              </div>
+            )}
           </div>
           
-          <div className="flex-1 px-4 flex flex-col items-center">
-            <div className="text-[10px] text-zinc-500 uppercase tracking-wider mb-1">Duration</div>
-            <div className="w-full h-px bg-zinc-700 relative">
-              <Plane className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 text-zinc-500 bg-zinc-900 px-1" size={14} />
+          <div className="px-4 flex flex-col items-center">
+            <div className="w-16 h-px bg-zinc-700 relative">
+              <Plane className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 text-zinc-600 bg-zinc-900 px-1" size={14} />
             </div>
           </div>
 
-          <div className="text-center">
+          <div className="flex-1 text-right">
             <div className="text-2xl font-bold text-white">{flight.arrival_airport}</div>
-            <div className="text-xs text-zinc-500 mt-1">{format(arrDate, 'MMM d')}</div>
             <div className="text-sm font-medium text-zinc-300 mt-0.5">{flight.arrival_time}</div>
-            {flight.arrival_terminal && <div className="text-[10px] text-zinc-600 mt-1">T{flight.arrival_terminal}</div>}
+            {flight.arrival_terminal && (
+              <div className="mt-2 inline-flex items-center gap-1 px-2 py-0.5 bg-zinc-800 rounded-md border border-zinc-700">
+                <span className="text-[10px] text-zinc-500 font-bold uppercase">Terminal</span>
+                <span className="text-xs font-bold text-orange-500">{flight.arrival_terminal}</span>
+              </div>
+            )}
           </div>
         </div>
 
-        {/* 4-Point Timeline */}
-        <div className="relative pt-6 pb-2">
-          {/* Line */}
-          <div className="absolute top-8 left-4 right-4 h-0.5 bg-zinc-800"></div>
-          
-          <div className="flex justify-between relative">
-            {/* Check-in */}
-            <div className="flex flex-col items-center gap-2 relative z-10 group/point">
-              <div className="text-[10px] text-zinc-500 uppercase tracking-wider opacity-0 group-hover/point:opacity-100 transition-opacity absolute -top-6 whitespace-nowrap">Check-in</div>
-              <div className="w-3 h-3 rounded-full bg-zinc-700 border-2 border-zinc-900 group-hover/point:bg-orange-500 transition-colors"></div>
-              <div className="text-xs font-mono text-zinc-500">{item.start_time}</div>
-            </div>
+        {/* 4-Point Timeline - Only show if part of itinerary */}
+        {item && (
+          <div className="relative pt-6 pb-2">
+            {/* Line */}
+            <div className="absolute top-8 left-4 right-4 h-0.5 bg-zinc-800"></div>
+            
+            <div className="flex justify-between relative">
+              {/* Check-in */}
+              <div className="flex flex-col items-center gap-2 relative z-10 group/point">
+                <div className="text-[10px] text-zinc-500 uppercase tracking-wider opacity-0 group-hover/point:opacity-100 transition-opacity absolute -top-6 whitespace-nowrap">Check-in</div>
+                <div className="w-3 h-3 rounded-full bg-zinc-700 border-2 border-zinc-900 group-hover/point:bg-orange-500 transition-colors"></div>
+                <div className="text-xs font-mono text-zinc-500">{item.start_time}</div>
+              </div>
 
-            {/* Departure */}
-            <div className="flex flex-col items-center gap-2 relative z-10 group/point">
-              <div className="text-[10px] text-zinc-500 uppercase tracking-wider opacity-0 group-hover/point:opacity-100 transition-opacity absolute -top-6 whitespace-nowrap">Departure</div>
-              <div className="w-3 h-3 rounded-full bg-zinc-500 border-2 border-zinc-900 group-hover/point:bg-orange-500 transition-colors"></div>
-              <div className="text-xs font-mono text-zinc-300">{flight.departure_time}</div>
-            </div>
+              {/* Departure */}
+              <div className="flex flex-col items-center gap-2 relative z-10 group/point">
+                <div className="text-[10px] text-zinc-500 uppercase tracking-wider opacity-0 group-hover/point:opacity-100 transition-opacity absolute -top-6 whitespace-nowrap">Departure</div>
+                <div className="w-3 h-3 rounded-full bg-zinc-500 border-2 border-zinc-900 group-hover/point:bg-orange-500 transition-colors"></div>
+                <div className="text-xs font-mono text-zinc-300">{flight.departure_time}</div>
+              </div>
 
-            {/* Arrival */}
-            <div className="flex flex-col items-center gap-2 relative z-10 group/point">
-              <div className="text-[10px] text-zinc-500 uppercase tracking-wider opacity-0 group-hover/point:opacity-100 transition-opacity absolute -top-6 whitespace-nowrap">Arrival</div>
-              <div className="w-3 h-3 rounded-full bg-zinc-500 border-2 border-zinc-900 group-hover/point:bg-orange-500 transition-colors"></div>
-              <div className="text-xs font-mono text-zinc-300">{flight.arrival_time}</div>
-            </div>
+              {/* Arrival */}
+              <div className="flex flex-col items-center gap-2 relative z-10 group/point">
+                <div className="text-[10px] text-zinc-500 uppercase tracking-wider opacity-0 group-hover/point:opacity-100 transition-opacity absolute -top-6 whitespace-nowrap">Arrival</div>
+                <div className="w-3 h-3 rounded-full bg-zinc-500 border-2 border-zinc-900 group-hover/point:bg-orange-500 transition-colors"></div>
+                <div className="text-xs font-mono text-zinc-300">{flight.arrival_time}</div>
+              </div>
 
-            {/* Stay End */}
-            <div className="flex flex-col items-center gap-2 relative z-10 group/point">
-              <div className="text-[10px] text-zinc-500 uppercase tracking-wider opacity-0 group-hover/point:opacity-100 transition-opacity absolute -top-6 whitespace-nowrap">Exit</div>
-              <div className="w-3 h-3 rounded-full bg-zinc-700 border-2 border-zinc-900 group-hover/point:bg-orange-500 transition-colors"></div>
-              <div className="text-xs font-mono text-zinc-500">{item.end_time}</div>
+              {/* Stay End */}
+              <div className="flex flex-col items-center gap-2 relative z-10 group/point">
+                <div className="text-[10px] text-zinc-500 uppercase tracking-wider opacity-0 group-hover/point:opacity-100 transition-opacity absolute -top-6 whitespace-nowrap">Exit</div>
+                <div className="w-3 h-3 rounded-full bg-zinc-700 border-2 border-zinc-900 group-hover/point:bg-orange-500 transition-colors"></div>
+                <div className="text-xs font-mono text-zinc-500">{item.end_time}</div>
+              </div>
             </div>
           </div>
-        </div>
+        )}
 
         {/* Footer Actions */}
         <div className="mt-6 flex items-center justify-between pt-4 border-t border-zinc-800/50">
            <div className="text-xs text-zinc-500 italic max-w-[70%] truncate">
-             {item.notes || flight.notes}
+             {item?.notes || flight.notes}
            </div>
            <a 
             href={`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(flight.departure_airport + ' airport')}`}
@@ -140,6 +145,93 @@ function FlightCard({ item, flight, canEdit, onEdit }: { item: Itinerary; flight
   );
 }
 
+// Accommodation Card Component
+function AccommodationCard({ acc, canEdit, onEdit }: { acc: any; canEdit: boolean; onEdit: () => void }) {
+  const handleLocationClick = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (!acc.address && !acc.hotel_name) return;
+
+    // 1. If URL, jump to URL
+    if (acc.address && (acc.address.startsWith('http://') || acc.address.startsWith('https://'))) {
+      window.open(acc.address, '_blank');
+      return;
+    }
+
+    // 2. If text, search text on Google Maps. If empty, search hotel name.
+    const query = acc.address || acc.hotel_name;
+    window.open(`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(query)}`, '_blank');
+  };
+
+  return (
+    <div 
+      className={clsx(
+        "bg-zinc-900 border border-zinc-800 rounded-3xl overflow-hidden shadow-lg relative group transition-all",
+        canEdit && "cursor-pointer hover:border-orange-500/50"
+      )}
+      onClick={() => canEdit && onEdit()}
+    >
+      {/* Header */}
+      <div className="bg-zinc-950/50 p-4 border-b border-zinc-800/50 flex items-center justify-between">
+        <div className="flex items-center gap-3">
+          <div className="w-10 h-10 rounded-full bg-orange-500/10 flex items-center justify-center shrink-0">
+            <Bed className="text-orange-500" size={20} />
+          </div>
+          <div>
+            <div className="text-white font-bold text-lg">{acc.hotel_name}</div>
+            {acc.order_id && <div className="text-orange-500 text-[10px] font-bold uppercase tracking-wider">ID: {acc.order_id}</div>}
+          </div>
+        </div>
+        <div className="text-right">
+          <div className="text-[10px] text-zinc-500 uppercase tracking-wider">Stay</div>
+          <div className="text-xs font-bold text-zinc-300">
+            {format(parseISO(acc.check_in_date), 'MMM d')} - {format(parseISO(acc.check_out_date), 'MMM d')}
+          </div>
+        </div>
+      </div>
+
+      <div className="p-5">
+        <div className="flex items-start justify-between gap-4 mb-4">
+          <div className="flex-1">
+            <div className="flex gap-6">
+              <div>
+                <div className="text-[10px] text-zinc-500 uppercase tracking-wider mb-1">Check-in</div>
+                <div className="text-sm font-bold text-white">{acc.check_in_time || '16:00'}</div>
+              </div>
+              <div>
+                <div className="text-[10px] text-zinc-500 uppercase tracking-wider mb-1">Check-out</div>
+                <div className="text-sm font-bold text-white">{acc.check_out_time || '11:00'}</div>
+              </div>
+            </div>
+            
+            {acc.address && (
+              <div className="mt-4 flex items-start gap-2 text-sm text-zinc-400">
+                <MapPin size={14} className="mt-0.5 shrink-0 text-zinc-600" />
+                <span className="line-clamp-2">{acc.address}</span>
+              </div>
+            )}
+          </div>
+
+          <button 
+            onClick={handleLocationClick}
+            className="p-3 text-zinc-400 hover:text-orange-500 bg-zinc-950/50 rounded-2xl border border-zinc-800/50 transition-colors shadow-inner shrink-0"
+          >
+            <Navigation size={20} />
+          </button>
+        </div>
+
+        {/* Footer */}
+        {acc.notes && (
+          <div className="mt-4 pt-4 border-t border-zinc-800/50">
+            <div className="text-xs text-zinc-500 italic line-clamp-2">
+              "{acc.notes}"
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
 // Itinerary Card Component
 function ItineraryCard({ item, canEdit, onEdit }: { item: Itinerary; canEdit: boolean; onEdit: () => void }) {
   const [isExpanded, setIsExpanded] = useState(false);
@@ -150,10 +242,21 @@ function ItineraryCard({ item, canEdit, onEdit }: { item: Itinerary; canEdit: bo
     ? item.image_url
     : null;
 
+  const handleClick = () => {
+    if (canEdit) {
+      onEdit();
+    } else if (hasSubItems) {
+      setIsExpanded(!isExpanded);
+    }
+  };
+
   return (
     <div 
-      className={`bg-zinc-900 border border-zinc-800 rounded-3xl overflow-hidden shadow-lg group relative transition-all ${hasSubItems ? 'cursor-pointer hover:border-zinc-700' : ''}`}
-      onClick={() => hasSubItems && setIsExpanded(!isExpanded)}
+      className={clsx(
+        "bg-zinc-900 border border-zinc-800 rounded-3xl overflow-hidden shadow-lg group relative transition-all",
+        canEdit ? "cursor-pointer hover:border-orange-500/50" : (hasSubItems ? "cursor-pointer hover:border-zinc-700" : "")
+      )}
+      onClick={handleClick}
     >
       {itineraryImageUrl && (
         <div className="h-32 w-full relative">
@@ -168,29 +271,13 @@ function ItineraryCard({ item, canEdit, onEdit }: { item: Itinerary; canEdit: bo
               <Clock size={14} />
               <span className="text-xs font-bold tracking-wider">{item.start_time} - {item.end_time}</span>
             </div>
-            {item.stay_duration && (
-               <span className="text-[10px] text-zinc-500 font-medium bg-zinc-800 px-2 py-1 rounded-full">
-                 Stay: {item.stay_duration}
-               </span>
-            )}
           </div>
           <div className="flex items-center gap-2">
-            {item.tags && item.tags.map((tag: string) => (
+            {Array.isArray(item.tags) && item.tags.map((tag: string) => (
               <span key={tag} className="text-[10px] font-medium uppercase tracking-wider text-zinc-500 border border-zinc-700 px-2 py-0.5 rounded-full">
                 {tag}
               </span>
             ))}
-            {canEdit && (
-              <button 
-                onClick={(e) => {
-                  e.stopPropagation();
-                  onEdit();
-                }}
-                className="p-1.5 text-zinc-500 hover:text-white hover:bg-zinc-800 rounded-full transition-colors"
-              >
-                <Edit3 size={16} />
-              </button>
-            )}
           </div>
         </div>
         
@@ -217,14 +304,14 @@ function ItineraryCard({ item, canEdit, onEdit }: { item: Itinerary; canEdit: bo
           </p>
         )}
 
-        {hasSubItems && (
+        {hasSubItems && !canEdit && (
           <div className="flex items-center justify-center mt-2">
             {isExpanded ? <ChevronUp size={16} className="text-zinc-600" /> : <ChevronDown size={16} className="text-zinc-600" />}
           </div>
         )}
 
         <AnimatePresence>
-          {isExpanded && hasSubItems && (
+          {isExpanded && hasSubItems && !canEdit && (
             <motion.div
               initial={{ height: 0, opacity: 0 }}
               animate={{ height: 'auto', opacity: 1 }}
@@ -245,7 +332,7 @@ function ItineraryCard({ item, canEdit, onEdit }: { item: Itinerary; canEdit: bo
                             </span>
                           )}
                         </div>
-                        {sub.tags && sub.tags.length > 0 && (
+                        {Array.isArray(sub.tags) && sub.tags.length > 0 && (
                           <div className="flex gap-1 mt-1 flex-wrap">
                             {sub.tags.map((tag: string) => (
                               <span key={tag} className="text-[9px] uppercase tracking-wider text-zinc-600 border border-zinc-800 px-1.5 py-0.5 rounded-md">
@@ -309,7 +396,7 @@ export function TripDetails() {
 
   // 2. Smart Caching & On-Demand Fetching Logic
   useEffect(() => {
-    if (!id || !navigator.onLine || !_hasHydrated || !token) return;
+    if (!id || !navigator.onLine || !_hasHydrated) return;
 
     const fetchTripDetails = async () => {
       setIsLoading(true);
@@ -414,10 +501,98 @@ export function TripDetails() {
     return db.users.where('id').anyOf(userIds).toArray();
   }, [id]);
 
+  const [isEditMode, setIsEditMode] = useState(false);
+  const [editingFlight, setEditingFlight] = useState<any>(null);
+  const [editingAccommodation, setEditingAccommodation] = useState<any>(null);
+
+  const [confirmConfig, setConfirmConfig] = useState<{
+    isOpen: boolean;
+    title: string;
+    message: string;
+    onConfirm: () => void;
+  }>({
+    isOpen: false,
+    title: '',
+    message: '',
+    onConfirm: () => {}
+  });
+
+  const handleDeleteItinerary = async (itineraryId: number) => {
+    setConfirmConfig({
+      isOpen: true,
+      title: '刪除活動',
+      message: '您確定要刪除此活動嗎？此操作無法復原。',
+      onConfirm: async () => {
+        if (!id) return;
+        try {
+          const res = await apiFetch(`/api/trips/${id}/itineraries/${itineraryId}`, { method: 'DELETE' });
+          if (!res.ok) throw new Error('Failed to delete itinerary');
+          await db.itineraries.delete(itineraryId);
+          setIsItineraryFormOpen(false);
+          setEditingItinerary(null);
+        } catch (err) {
+          console.error(err);
+          alert('Failed to delete activity');
+        }
+      }
+    });
+  };
+
+  const handleDeleteFlight = async (flightId: number) => {
+    setConfirmConfig({
+      isOpen: true,
+      title: '刪除航班',
+      message: '您確定要刪除此航班嗎？相關的行程項目也會一併刪除。',
+      onConfirm: async () => {
+        if (!id) return;
+        try {
+          const res = await apiFetch(`/api/trips/${id}/flights/${flightId}`, { method: 'DELETE' });
+          if (!res.ok) throw new Error('Failed to delete flight');
+          await db.flights.delete(flightId);
+          // Also need to delete the associated itinerary item
+          const relatedItinerary = itineraries.find(i => i.type === 'FLIGHT' && i.related_id === flightId);
+          if (relatedItinerary) {
+            await db.itineraries.delete(relatedItinerary.id);
+          }
+          setIsFlightFormOpen(false);
+          setEditingFlight(null);
+        } catch (err) {
+          console.error(err);
+          alert('Failed to delete flight');
+        }
+      }
+    });
+  };
+
+  const handleDeleteAccommodation = async (accId: number) => {
+    setConfirmConfig({
+      isOpen: true,
+      title: '刪除住宿',
+      message: '您確定要刪除此住宿資訊嗎？',
+      onConfirm: async () => {
+        if (!id) return;
+        try {
+          const res = await apiFetch(`/api/trips/${id}/accommodations/${accId}`, { method: 'DELETE' });
+          if (!res.ok) throw new Error('Failed to delete accommodation');
+          await db.accommodations.delete(accId);
+          setIsAccommodationFormOpen(false);
+          setEditingAccommodation(null);
+        } catch (err) {
+          console.error(err);
+          alert('Failed to delete accommodation');
+        }
+      }
+    });
+  };
+
   // Access Control Logic
-  const isMember = user && members.some(m => m.user_id === user.id);
-  const isAdmin = user?.role === 'Admin';
-  const canEdit = isMember || isAdmin;
+  const isMember = user && (
+    members.some(m => Number(m.user_id) === Number(user.id)) ||
+    (trip?.members && Array.isArray(trip.members) && trip.members.some((m: any) => Number(m.user_id) === Number(user.id)))
+  );
+  const isAdmin = user?.role?.toLowerCase() === 'admin';
+  const hasEditPermission = !!(isMember || isAdmin);
+  const canEdit = hasEditPermission && isEditMode;
 
   if (!trip) {
     return (
@@ -440,7 +615,8 @@ export function TripDetails() {
   const filteredItineraries = itineraries.filter(i => {
     const parsed = safeParse(i.date);
     return parsed ? isSameDay(parsed, selectedDate) : false;
-  });
+  }).sort((a, b) => a.start_time.localeCompare(b.start_time)); // Ensure sorted by time
+
   const filteredExpenses = expenses.filter(e => {
     const parsed = safeParse(e.date);
     return parsed ? isSameDay(parsed, selectedDate) : false;
@@ -487,6 +663,25 @@ export function TripDetails() {
         >
           <ArrowLeft size={20} />
         </button>
+
+        {user && (
+          <button 
+            onClick={() => {
+              if (hasEditPermission) {
+                setIsEditMode(!isEditMode);
+              } else {
+                alert('您沒有編輯此行程的權限。');
+              }
+            }}
+            className={clsx(
+              "absolute right-4 p-2 backdrop-blur-md rounded-full transition-all z-20 border border-white/10 shadow-lg",
+              isEditMode ? "bg-orange-500 text-white" : "bg-black/50 text-white hover:bg-orange-500 transition-all"
+            )}
+            style={{ top: 'max(1rem, env(safe-area-inset-top))' }}
+          >
+            {isEditMode ? <Unlock size={20} /> : <Edit3 size={20} />}
+          </button>
+        )}
         
         <div className="absolute bottom-0 left-0 right-0 p-4 z-10">
           <h1 className="text-3xl font-bold text-white mb-1 drop-shadow-lg tracking-tight">{trip.title}</h1>
@@ -549,16 +744,10 @@ export function TripDetails() {
                         flight={flight}
                         canEdit={canEdit}
                         onEdit={() => {
-                          // TODO: Handle Flight Edit - maybe open FlightForm with initial data?
-                          // For now, just open FlightForm, but we need to pass data.
-                          // Or maybe we don't support editing flight via itinerary card yet?
-                          // The user request says "Auto update if flight modified", implies editing flight.
-                          // Let's assume we open FlightForm. But FlightForm needs to support editing mode.
-                          // For now, I'll just log or alert, or maybe just open the form empty (not ideal).
-                          // Actually, I can set isFlightFormOpen(true) but I need to pass the flight data.
-                          // FlightForm doesn't seem to support 'initialData' prop yet based on previous view.
-                          // I'll leave it as isFlightFormOpen(true) for now, but ideally we should fix FlightForm.
-                          setIsFlightFormOpen(true);
+                          if (flight) {
+                            setEditingFlight(flight);
+                            setIsFlightFormOpen(true);
+                          }
                         }}
                       />
                     );
@@ -621,29 +810,15 @@ export function TripDetails() {
               </div>
               {flights.length > 0 ? (
                 flights.map(flight => (
-                  <div key={flight.id} className="bg-zinc-900 border border-zinc-800 rounded-3xl p-5 shadow-lg flex flex-col gap-3">
-                    <div className="flex items-center gap-4">
-                      <div className="w-12 h-12 rounded-full bg-orange-500/10 flex items-center justify-center shrink-0">
-                        <Plane className="text-orange-500" size={24} />
-                      </div>
-                      <div className="flex-1">
-                        <div className="flex justify-between items-start">
-                          <h4 className="text-white font-medium">{flight.airline} {flight.flight_code}</h4>
-                          <span className="text-[10px] text-zinc-500 font-bold uppercase tracking-wider">{format(parseISO(flight.departure_date), 'MMM d')}</span>
-                        </div>
-                        <p className="text-sm text-zinc-400 mt-1">
-                          {flight.departure_airport} ({flight.departure_time}) → {flight.arrival_airport} ({flight.arrival_time})
-                        </p>
-                      </div>
-                    </div>
-                    {(flight.departure_terminal || flight.arrival_terminal || flight.notes) && (
-                      <div className="bg-zinc-950/50 rounded-xl p-3 text-xs text-zinc-400 space-y-1">
-                        {flight.departure_terminal && <div>Dep Terminal: {flight.departure_terminal}</div>}
-                        {flight.arrival_terminal && <div>Arr Terminal: {flight.arrival_terminal}</div>}
-                        {flight.notes && <div className="italic mt-1">"{flight.notes}"</div>}
-                      </div>
-                    )}
-                  </div>
+                  <FlightCard
+                    key={flight.id}
+                    flight={flight}
+                    canEdit={canEdit}
+                    onEdit={() => {
+                      setEditingFlight(flight);
+                      setIsFlightFormOpen(true);
+                    }}
+                  />
                 ))
               ) : (
                 <div className="bg-zinc-900/50 border border-dashed border-zinc-800 rounded-3xl p-6 text-center text-zinc-500 text-sm">
@@ -661,33 +836,15 @@ export function TripDetails() {
               </div>
               {accommodations.length > 0 ? (
                 accommodations.map(acc => (
-                  <div key={acc.id} className="bg-zinc-900 border border-zinc-800 rounded-3xl p-5 shadow-lg flex flex-col gap-3">
-                    <div className="flex items-center gap-4">
-                      <div className="w-12 h-12 rounded-full bg-orange-500/10 flex items-center justify-center shrink-0">
-                        <Bed className="text-orange-500" size={24} />
-                      </div>
-                      <div className="flex-1">
-                        <h4 className="text-white font-medium">{acc.hotel_name}</h4>
-                        <p className="text-sm text-zinc-400 mt-1">{acc.address}</p>
-                        {acc.order_id && (
-                          <div className="text-xs text-orange-500 mt-1">Order ID: {acc.order_id}</div>
-                        )}
-                        <div className="flex gap-4 mt-2">
-                          <div className="text-[10px] text-zinc-500 font-bold uppercase tracking-wider">
-                            In: {format(parseISO(acc.check_in_date), 'MMM d')}
-                          </div>
-                          <div className="text-[10px] text-zinc-500 font-bold uppercase tracking-wider">
-                            Out: {format(parseISO(acc.check_out_date), 'MMM d')}
-                          </div>
-                        </div>
-                      </div>
-                    </div>
-                    {acc.notes && (
-                       <div className="bg-zinc-950/50 rounded-xl p-3 text-xs text-zinc-400 italic">
-                         "{acc.notes}"
-                       </div>
-                    )}
-                  </div>
+                  <AccommodationCard
+                    key={acc.id}
+                    acc={acc}
+                    canEdit={canEdit}
+                    onEdit={() => {
+                      setEditingAccommodation(acc);
+                      setIsAccommodationFormOpen(true);
+                    }}
+                  />
                 ))
               ) : (
                 <div className="bg-zinc-900/50 border border-dashed border-zinc-800 rounded-3xl p-6 text-center text-zinc-500 text-sm">
@@ -750,7 +907,7 @@ export function TripDetails() {
           </div>
         )}
 
-        {activeTab === 'settings' && user?.role === 'Admin' && (
+        {activeTab === 'settings' && hasEditPermission && (
           <div className="space-y-6">
             <div className="bg-zinc-900 border border-zinc-800 rounded-3xl p-6 shadow-lg">
               <h3 className="text-lg font-semibold text-white mb-6">Trip Settings</h3>
@@ -802,7 +959,7 @@ export function TripDetails() {
           <Wallet size={24} strokeWidth={activeTab === 'finance' ? 2.5 : 2} />
           <span className="text-[10px] font-bold uppercase tracking-wider">Finance</span>
         </button>
-        {user?.role === 'Admin' && (
+        {hasEditPermission && (
           <button
             onClick={() => setActiveTab('settings')}
             className={clsx(
@@ -816,10 +973,10 @@ export function TripDetails() {
         )}
       </div>
 
-      {/* Finance Form Modal */}
+      {/* Modals */}
       <AnimatePresence>
         {isFinanceFormOpen && id && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+          <div className="fixed inset-0 z-[200] flex items-center justify-center p-4">
             <motion.div
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
@@ -874,6 +1031,7 @@ export function TripDetails() {
                 defaultCityId={trip.default_city_id}
                 date={format(selectedDate, 'yyyy-MM-dd')}
                 initialData={editingItinerary}
+                onDelete={handleDeleteItinerary}
                 onSuccess={() => {
                   setIsItineraryFormOpen(false);
                   setEditingItinerary(null);
@@ -895,12 +1053,15 @@ export function TripDetails() {
       {/* Flight Form Modal */}
       <AnimatePresence>
         {isFlightFormOpen && id && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+          <div className="fixed inset-0 z-[200] flex items-center justify-center p-4">
             <motion.div
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
               exit={{ opacity: 0 }}
-              onClick={() => setIsFlightFormOpen(false)}
+              onClick={() => {
+                setIsFlightFormOpen(false);
+                setEditingFlight(null);
+              }}
               className="absolute inset-0 bg-black/80 backdrop-blur-sm"
             />
             <motion.div
@@ -911,8 +1072,11 @@ export function TripDetails() {
             >
               <FlightForm 
                 tripId={Number(id)} 
+                initialData={editingFlight}
+                onDelete={handleDeleteFlight}
                 onSuccess={() => {
                   setIsFlightFormOpen(false);
+                  setEditingFlight(null);
                   apiFetch(`/api/trips/${id}/flights`)
                     .then(res => res.json() as Promise<any[]>)
                     .then(data => db.flights.bulkPut(data));
@@ -921,7 +1085,10 @@ export function TripDetails() {
                     .then(res => res.json() as Promise<Itinerary[]>)
                     .then(data => db.itineraries.bulkPut(data));
                 }} 
-                onCancel={() => setIsFlightFormOpen(false)} 
+                onCancel={() => {
+                  setIsFlightFormOpen(false);
+                  setEditingFlight(null);
+                }} 
               />
             </motion.div>
           </div>
@@ -931,12 +1098,15 @@ export function TripDetails() {
       {/* Accommodation Form Modal */}
       <AnimatePresence>
         {isAccommodationFormOpen && id && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+          <div className="fixed inset-0 z-[200] flex items-center justify-center p-4">
             <motion.div
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
               exit={{ opacity: 0 }}
-              onClick={() => setIsAccommodationFormOpen(false)}
+              onClick={() => {
+                setIsAccommodationFormOpen(false);
+                setEditingAccommodation(null);
+              }}
               className="absolute inset-0 bg-black/80 backdrop-blur-sm"
             />
             <motion.div
@@ -947,8 +1117,11 @@ export function TripDetails() {
             >
               <AccommodationForm 
                 tripId={Number(id)} 
+                initialData={editingAccommodation}
+                onDelete={handleDeleteAccommodation}
                 onSuccess={() => {
                   setIsAccommodationFormOpen(false);
+                  setEditingAccommodation(null);
                   apiFetch(`/api/trips/${id}/accommodations`)
                     .then(res => res.json() as Promise<any[]>)
                     .then(data => db.accommodations.bulkPut(data));
@@ -957,12 +1130,24 @@ export function TripDetails() {
                     .then(res => res.json() as Promise<Itinerary[]>)
                     .then(data => db.itineraries.bulkPut(data));
                 }} 
-                onCancel={() => setIsAccommodationFormOpen(false)} 
+                onCancel={() => {
+                  setIsAccommodationFormOpen(false);
+                  setEditingAccommodation(null);
+                }} 
               />
             </motion.div>
           </div>
         )}
       </AnimatePresence>
+
+      {/* Global Confirm Dialog - Rendered last to stay on top */}
+      <ConfirmDialog
+        isOpen={confirmConfig.isOpen}
+        title={confirmConfig.title}
+        message={confirmConfig.message}
+        onConfirm={confirmConfig.onConfirm}
+        onCancel={() => setConfirmConfig({ ...confirmConfig, isOpen: false })}
+      />
     </div>
   );
 }

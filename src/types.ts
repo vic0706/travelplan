@@ -93,10 +93,13 @@ export interface Flight {
   departure_time: string;
   departure_airport?: string;
   departure_terminal?: string;
+  checkin_duration?: number; // Minutes
   arrival_date: string;
   arrival_time: string;
   arrival_airport?: string;
   arrival_terminal?: string;
+  exit_duration?: number; // Minutes
+  stay_duration?: number; // Minutes
   notes?: string;
 }
 
@@ -106,7 +109,11 @@ export interface Accommodation {
   hotel_name: string;
   address?: string;
   check_in_date: string;
+  check_in_time?: string;
   check_out_date: string;
+  check_out_time?: string;
+  daily_start_time?: string;
+  daily_end_time?: string;
   order_id?: string;
   notes?: string;
   created_at?: number;

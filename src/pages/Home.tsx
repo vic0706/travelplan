@@ -146,11 +146,6 @@ export function Home() {
                   <div className="absolute top-4 right-4 bg-black/60 backdrop-blur-md px-3 py-1 rounded-full text-xs font-medium text-white border border-white/10">
                     {days} Days
                   </div>
-                  {!canEdit && (
-                    <div className="absolute inset-0 flex items-center justify-center bg-black/50 text-white text-lg font-bold">
-                      View Only
-                    </div>
-                  )}
                 </div>
                 
                 <div className="absolute bottom-0 left-0 right-0 p-6">

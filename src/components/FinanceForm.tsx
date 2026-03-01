@@ -1,8 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import { useAppStore } from '../store';
 import { apiFetch } from '../utils/api';
-import { Loader2, X, Delete, Check, ChevronDown, Calendar } from 'lucide-react';
-import { DateRangePicker } from './DateRangePicker';
+import { format, parseISO } from 'date-fns';
+import { Loader2, X, Delete, Check, ChevronDown, Calendar, Circle } from 'lucide-react';
 import * as LucideIcons from 'lucide-react';
 import { User } from '../types';
 import { clsx } from 'clsx';
@@ -41,6 +41,9 @@ export function FinanceForm({ tripId, defaultDate, currencies = ['TWD'], onSucce
   
   const [categories, setCategories] = useState<any[]>([]);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const [isPayerModalOpen, setIsPayerModalOpen] = useState(false);
+  const [isSplitModalOpen, setIsSplitModalOpen] = useState(false);
+  const [isDatePickerOpen, setIsDatePickerOpen] = useState(false);
 
   useEffect(() => {
     const fetchData = async () => {
@@ -168,82 +171,104 @@ export function FinanceForm({ tripId, defaultDate, currencies = ['TWD'], onSucce
           </div>
         </div>
 
-        <div className="flex-1 overflow-y-auto p-4 space-y-4">
+        <div className="flex-1 overflow-y-auto p-4 space-y-6">
           {/* Date & Category */}
-          <div className="flex gap-3">
-          <DateRangePicker
-            label="Date"
-            value={{ start: new Date(date), end: new Date(date) }}
-            onChange={range => setDate(range.start?.toISOString().split('T')[0] || new Date().toISOString().split('T')[0])}
-          />
-            <div className="relative flex-1">
-              <select
-                value={category}
-                onChange={e => setCategory(e.target.value)}
-                className="w-full h-full appearance-none bg-zinc-950 border border-zinc-800 rounded-xl px-4 py-3 text-white text-base focus:outline-none focus:border-orange-500 pr-10"
+          <div className="grid grid-cols-2 gap-4">
+            <div className="space-y-1">
+              <label className="text-[10px] font-bold text-zinc-500 uppercase tracking-widest ml-1">Date</label>
+              <button
+                onClick={() => setIsDatePickerOpen(true)}
+                className="w-full flex items-center justify-between bg-zinc-950 border border-zinc-800 rounded-2xl px-4 py-3 text-white hover:border-orange-500 transition-colors"
               >
+                <div className="flex items-center gap-2">
+                  <Calendar size={16} className="text-orange-500" />
+                  <span className="text-sm font-medium">{format(parseISO(date), 'MMM d, yyyy')}</span>
+                </div>
+              </button>
+            </div>
+
+            <div className="space-y-1">
+              <label className="text-[10px] font-bold text-zinc-500 uppercase tracking-widest ml-1">Category</label>
+              <div className="flex flex-wrap gap-2">
                 {categories.map(c => (
-                  <option key={c.id} value={c.name}>{c.name}</option>
+                  <button
+                    key={c.id}
+                    onClick={() => setCategory(c.name)}
+                    className={clsx(
+                      "w-10 h-10 rounded-xl flex items-center justify-center transition-all border",
+                      category === c.name 
+                        ? "bg-orange-500 border-orange-500 text-white shadow-lg shadow-orange-500/20 scale-110 z-10" 
+                        : "bg-zinc-950 border-zinc-800 text-zinc-500 hover:border-zinc-700"
+                    )}
+                    title={c.name}
+                  >
+                    <DynamicIcon name={c.icon} size={20} />
+                  </button>
                 ))}
-              </select>
-              <div className="absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none text-zinc-400">
-                 {/* Show icon of selected category */}
-                 <DynamicIcon name={categories.find(c => c.name === category)?.icon || 'Circle'} size={18} />
               </div>
-              <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 text-zinc-500 pointer-events-none" size={16} />
             </div>
           </div>
 
           {/* Name */}
-          <input
-            type="text"
-            value={itemName}
-            onChange={e => setItemName(e.target.value)}
-            placeholder="Expense Name"
-            className="w-full bg-zinc-950 border border-zinc-800 rounded-xl px-4 py-3 text-white text-base focus:outline-none focus:border-orange-500"
-          />
-
-          {/* Paid By */}
           <div className="space-y-1">
-            <label className="text-xs font-bold text-zinc-500 uppercase tracking-wider ml-1">Paid By</label>
-            <div className="flex overflow-x-auto gap-2 no-scrollbar pb-1">
-              {members.map(m => (
-                <button
-                  key={m.id}
-                  onClick={() => setPayerId(m.id)}
-                  className={clsx(
-                    "flex items-center gap-2 px-3 py-2 rounded-full border transition-all shrink-0",
-                    payerId === m.id ? "bg-orange-500 border-orange-500 text-white" : "bg-zinc-950 border-zinc-800 text-zinc-400"
-                  )}
-                >
-                  <div className="w-5 h-5 rounded-full bg-zinc-800 overflow-hidden">
-                     <img src={m.avatar_url || `https://ui-avatars.com/api/?name=${m.name}`} alt={m.name} className="w-full h-full object-cover" />
-                  </div>
-                  <span className="text-xs font-medium">{m.name}</span>
-                </button>
-              ))}
-            </div>
+            <label className="text-[10px] font-bold text-zinc-500 uppercase tracking-widest ml-1">Description</label>
+            <input
+              type="text"
+              value={itemName}
+              onChange={e => setItemName(e.target.value)}
+              placeholder="What was this for?"
+              className="w-full bg-zinc-950 border border-zinc-800 rounded-2xl px-4 py-3 text-white text-base focus:outline-none focus:border-orange-500 placeholder:text-zinc-600"
+            />
           </div>
 
-          {/* Split Among */}
-          <div className="space-y-1">
-            <label className="text-xs font-bold text-zinc-500 uppercase tracking-wider ml-1">Split Among</label>
-            <div className="flex overflow-x-auto gap-2 no-scrollbar pb-1">
-              {members.map(m => (
-                <button
-                  key={m.id}
-                  onClick={() => toggleSplitMember(m.id)}
-                  className={clsx(
-                    "flex items-center gap-2 px-3 py-2 rounded-full border transition-all shrink-0",
-                    splitMembers.includes(m.id) ? "bg-orange-500 border-orange-500 text-white shadow-lg shadow-orange-500/20" : "bg-zinc-950 border-zinc-800 text-zinc-500 opacity-50"
-                  )}
-                >
-                  <div className="w-5 h-5 rounded-full bg-zinc-800 overflow-hidden">
-                     <img src={m.avatar_url || `https://ui-avatars.com/api/?name=${m.name}`} alt={m.name} className="w-full h-full object-cover" />
+          {/* Pay & Split Buttons */}
+          <div className="grid grid-cols-2 gap-4">
+            <div className="space-y-1">
+              <label className="text-[10px] font-bold text-zinc-500 uppercase tracking-widest ml-1">Paid By</label>
+              <button
+                onClick={() => setIsPayerModalOpen(true)}
+                className="w-full flex items-center gap-3 bg-zinc-950 border border-zinc-800 rounded-2xl p-2 text-left hover:border-orange-500 transition-colors"
+              >
+                <div className="w-8 h-8 rounded-full bg-zinc-800 overflow-hidden shrink-0 border border-zinc-700">
+                  <img 
+                    src={members.find(m => m.id === payerId)?.avatar_url || `https://ui-avatars.com/api/?name=${members.find(m => m.id === payerId)?.name || '?'}`} 
+                    alt="Payer" 
+                    className="w-full h-full object-cover" 
+                  />
+                </div>
+                <div className="flex-1 min-w-0">
+                  <div className="text-xs font-bold text-white truncate">
+                    {members.find(m => m.id === payerId)?.name || 'Select Payer'}
                   </div>
-                  <span className="text-xs font-medium">{m.name}</span>
-                </button>
-              ))}
+                </div>
+              </button>
+            </div>
+
+            <div className="space-y-1">
+              <label className="text-[10px] font-bold text-zinc-500 uppercase tracking-widest ml-1">Split With</label>
+              <button
+                onClick={() => setIsSplitModalOpen(true)}
+                className="w-full flex items-center gap-2 bg-zinc-950 border border-zinc-800 rounded-2xl p-2 text-left hover:border-orange-500 transition-colors"
+              >
+                <div className="flex -space-x-2 overflow-hidden shrink-0">
+                  {splitMembers.slice(0, 3).map(id => {
+                    const m = members.find(member => member.id === id);
+                    return (
+                      <div key={id} className="w-6 h-6 rounded-full border-2 border-zinc-950 bg-zinc-800 overflow-hidden">
+                        <img src={m?.avatar_url || `https://ui-avatars.com/api/?name=${m?.name || '?'}`} alt="" className="w-full h-full object-cover" />
+                      </div>
+                    );
+                  })}
+                  {splitMembers.length > 3 && (
+                    <div className="w-6 h-6 rounded-full border-2 border-zinc-950 bg-zinc-800 flex items-center justify-center text-[8px] text-zinc-400 font-bold">
+                      +{splitMembers.length - 3}
+                    </div>
+                  )}
+                </div>
+                <div className="text-[10px] font-bold text-zinc-400 uppercase tracking-tighter">
+                  {splitMembers.length === members.length ? 'Everyone' : `${splitMembers.length} People`}
+                </div>
+              </button>
             </div>
           </div>
         </div>
@@ -322,7 +347,7 @@ export function FinanceForm({ tripId, defaultDate, currencies = ['TWD'], onSucce
       {/* Delete Confirmation Modal */}
       <AnimatePresence>
         {showDeleteConfirm && (
-          <div className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm">
+          <div className="fixed inset-0 z-[110] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm">
             <motion.div
               initial={{ opacity: 0, scale: 0.95 }}
               animate={{ opacity: 1, scale: 1 }}
@@ -344,6 +369,122 @@ export function FinanceForm({ tripId, defaultDate, currencies = ['TWD'], onSucce
                 >
                   Delete
                 </button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+
+        {/* Payer Selection Modal */}
+        {isPayerModalOpen && (
+          <div className="fixed inset-0 z-[110] flex items-end sm:items-center justify-center p-4 bg-black/60 backdrop-blur-sm">
+            <motion.div
+              initial={{ opacity: 0, y: 100 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: 100 }}
+              className="bg-zinc-900 border border-zinc-800 rounded-t-3xl sm:rounded-3xl p-6 w-full max-w-md shadow-2xl"
+            >
+              <div className="flex justify-between items-center mb-6">
+                <h3 className="text-xl font-bold text-white">Who Paid?</h3>
+                <button onClick={() => setIsPayerModalOpen(false)} className="p-2 text-zinc-500 hover:text-white"><X size={20} /></button>
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                {members.map(m => (
+                  <button
+                    key={m.id}
+                    onClick={() => {
+                      setPayerId(m.id);
+                      setIsPayerModalOpen(false);
+                    }}
+                    className={clsx(
+                      "flex items-center gap-3 p-3 rounded-2xl border transition-all",
+                      payerId === m.id ? "bg-orange-500 border-orange-500 text-white" : "bg-zinc-950 border-zinc-800 text-zinc-400 hover:border-zinc-700"
+                    )}
+                  >
+                    <div className="w-8 h-8 rounded-full bg-zinc-800 overflow-hidden shrink-0">
+                      <img src={m.avatar_url || `https://ui-avatars.com/api/?name=${m.name}`} alt="" className="w-full h-full object-cover" />
+                    </div>
+                    <span className="text-sm font-bold truncate">{m.name}</span>
+                  </button>
+                ))}
+              </div>
+            </motion.div>
+          </div>
+        )}
+
+        {/* Split Selection Modal */}
+        {isSplitModalOpen && (
+          <div className="fixed inset-0 z-[110] flex items-end sm:items-center justify-center p-4 bg-black/60 backdrop-blur-sm">
+            <motion.div
+              initial={{ opacity: 0, y: 100 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: 100 }}
+              className="bg-zinc-900 border border-zinc-800 rounded-t-3xl sm:rounded-3xl p-6 w-full max-w-md shadow-2xl"
+            >
+              <div className="flex justify-between items-center mb-6">
+                <h3 className="text-xl font-bold text-white">Split With</h3>
+                <div className="flex gap-2">
+                  <button 
+                    onClick={() => setSplitMembers(members.map(m => m.id))}
+                    className="text-xs text-orange-500 font-bold uppercase tracking-wider"
+                  >
+                    All
+                  </button>
+                  <button onClick={() => setIsSplitModalOpen(false)} className="p-2 text-zinc-500 hover:text-white"><X size={20} /></button>
+                </div>
+              </div>
+              <div className="grid grid-cols-2 gap-3 max-h-[50vh] overflow-y-auto no-scrollbar">
+                {members.map(m => (
+                  <button
+                    key={m.id}
+                    onClick={() => toggleSplitMember(m.id)}
+                    className={clsx(
+                      "flex items-center gap-3 p-3 rounded-2xl border transition-all",
+                      splitMembers.includes(m.id) ? "bg-orange-500 border-orange-500 text-white" : "bg-zinc-950 border-zinc-800 text-zinc-400 hover:border-zinc-700"
+                    )}
+                  >
+                    <div className="w-8 h-8 rounded-full bg-zinc-800 overflow-hidden shrink-0">
+                      <img src={m.avatar_url || `https://ui-avatars.com/api/?name=${m.name}`} alt="" className="w-full h-full object-cover" />
+                    </div>
+                    <span className="text-sm font-bold truncate">{m.name}</span>
+                    {splitMembers.includes(m.id) && <Check size={16} className="ml-auto" />}
+                  </button>
+                ))}
+              </div>
+              <button
+                onClick={() => setIsSplitModalOpen(false)}
+                className="w-full mt-6 bg-orange-500 text-white font-bold py-3 rounded-2xl shadow-lg shadow-orange-500/20"
+              >
+                Done
+              </button>
+            </motion.div>
+          </div>
+        )}
+
+        {/* Simple Date Picker Modal */}
+        {isDatePickerOpen && (
+          <div className="fixed inset-0 z-[110] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm">
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.95 }}
+              className="bg-zinc-900 border border-zinc-800 rounded-3xl p-6 w-full max-w-sm shadow-2xl"
+            >
+              <div className="flex justify-between items-center mb-4">
+                <h3 className="text-xl font-bold text-white">Select Date</h3>
+                <button onClick={() => setIsDatePickerOpen(false)} className="p-2 text-zinc-500 hover:text-white"><X size={20} /></button>
+              </div>
+              <div className="space-y-2 max-h-[60vh] overflow-y-auto no-scrollbar">
+                {/* We can fetch trip dates or just show a simple list for now if trip dates are available */}
+                {/* For simplicity, let's use an input type="date" or a simple list of days if we have trip dates */}
+                <input 
+                  type="date"
+                  value={date}
+                  onChange={(e) => {
+                    setDate(e.target.value);
+                    setIsDatePickerOpen(false);
+                  }}
+                  className="w-full bg-zinc-950 border border-zinc-800 rounded-2xl px-4 py-3 text-white text-lg focus:outline-none focus:border-orange-500"
+                />
               </div>
             </motion.div>
           </div>

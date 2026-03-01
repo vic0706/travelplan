@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useAppStore, User } from '../store';
 import { X, Calendar, Upload, Loader2, User as UserIcon, Check, CloudLightning, Plus, Trash2 } from 'lucide-react';
+import { motion, AnimatePresence } from 'framer-motion';
 import { apiFetch } from '../utils/api';
 import { Trip } from '../types';
 import { ImageCropper, uploadImageToSupabase } from './ImageCropper';
@@ -27,6 +28,7 @@ export function TripSettingsForm({ trip, onSuccess }: TripSettingsFormProps) {
   const [selectedCountry, setSelectedCountry] = useState('');
   const [currencyInput, setCurrencyInput] = useState('');
   const [isLocationPickerOpen, setIsLocationPickerOpen] = useState(false);
+  const [showSuccessToast, setShowSuccessToast] = useState(false);
 
   const [formData, setFormData] = useState({
     title: trip.title,
@@ -158,6 +160,8 @@ export function TripSettingsForm({ trip, onSuccess }: TripSettingsFormProps) {
         body: JSON.stringify({ userIds: selectedMembers })
       });
 
+      setShowSuccessToast(true);
+      setTimeout(() => setShowSuccessToast(false), 3000);
       onSuccess();
     } catch (err: any) {
       setError(err.message);
@@ -167,7 +171,22 @@ export function TripSettingsForm({ trip, onSuccess }: TripSettingsFormProps) {
   };
 
   return (
-    <form onSubmit={handleSubmit} className="space-y-6 pb-safe-bottom">
+    <div className="relative">
+      <AnimatePresence>
+        {showSuccessToast && (
+          <motion.div
+            initial={{ opacity: 0, y: -20 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -20 }}
+            className="fixed top-4 left-1/2 -translate-x-1/2 z-[200] bg-emerald-500 text-white px-6 py-3 rounded-2xl shadow-xl flex items-center gap-2 font-bold"
+          >
+            <Check size={20} />
+            <span>Settings saved successfully!</span>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      <form onSubmit={handleSubmit} className="space-y-6 pb-safe-bottom">
       {error && (
         <div className="p-3 bg-red-500/10 border border-red-500/20 rounded-xl text-red-400 text-sm">
           {error}
@@ -387,6 +406,7 @@ export function TripSettingsForm({ trip, onSuccess }: TripSettingsFormProps) {
           {loading ? 'Saving...' : 'Save Settings'}
         </button>
       </div>
+    </form>
       {croppingImage && (
         <ImageCropper
           imageSrc={croppingImage}
@@ -395,6 +415,6 @@ export function TripSettingsForm({ trip, onSuccess }: TripSettingsFormProps) {
           onCancel={() => setCroppingImage(null)}
         />
       )}
-    </form>
+    </div>
   );
 }

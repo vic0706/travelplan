@@ -1,12 +1,15 @@
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import { useAppStore } from '../store';
-import { X, MapPin, Loader2, Image as ImageIcon, Plus, Trash2, Clock, Check } from 'lucide-react';
+import { X, MapPin, Loader2, Image as ImageIcon, Plus, Trash2, Clock, Check, AlertCircle } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { apiFetch } from '../utils/api';
 import { TimeRangePicker } from './TimeRangePicker';
 import { LocationPicker } from './LocationPicker';
 import { ImageCropper, uploadImageToSupabase } from './ImageCropper';
-import { format, parseISO } from 'date-fns';
+import { format, parseISO, isSameDay, addMinutes, subMinutes } from 'date-fns';
+import { useLiveQuery } from 'dexie-react-hooks';
+import { db } from '../db';
+import { Flight } from '../types';
 
 interface ItineraryFormProps {
   tripId: number;
@@ -14,10 +17,11 @@ interface ItineraryFormProps {
   date: string;
   onSuccess: () => void;
   onCancel: () => void;
+  onDelete?: (id: number) => void;
   initialData?: any;
 }
 
-export function ItineraryForm({ tripId, defaultCityId, date, onSuccess, onCancel, initialData }: ItineraryFormProps) {
+export function ItineraryForm({ tripId, defaultCityId, date, onSuccess, onCancel, onDelete, initialData }: ItineraryFormProps) {
   const { cities } = useAppStore();
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
@@ -52,13 +56,64 @@ export function ItineraryForm({ tripId, defaultCityId, date, onSuccess, onCancel
     title: initialData?.title || '',
     start_time: initialData?.start_time || '09:00',
     end_time: initialData?.end_time || '10:00',
-    stay_duration: initialData?.stay_duration || '',
     address: initialData?.address || '',
     notes: initialData?.notes || '',
     image_url: initialData?.image_url || '',
     city_id: initialData?.city_id ? String(initialData.city_id) : (defaultCityId ? String(defaultCityId) : ''),
     tags: initialData?.tags || [] as string[]
   });
+
+  const flights = useLiveQuery(() => db.flights.where('trip_id').equals(tripId).toArray(), [tripId]) || [];
+
+  const blockedRanges = useMemo(() => {
+    const ranges: { start: string, end: string, flightInfo: string }[] = [];
+    const targetDate = new Date(`${date}T00:00`);
+    
+    flights.forEach(f => {
+      // Calculate absolute start/end
+      const depDateTime = new Date(`${f.departure_date}T${f.departure_time}`);
+      const blockedStart = subMinutes(depDateTime, f.checkin_duration || 0);
+      
+      const arrDateTime = new Date(`${f.arrival_date}T${f.arrival_time}`);
+      const blockedEnd = addMinutes(arrDateTime, (f.exit_duration || 0) + (f.stay_duration || 0));
+      
+      // Check if this blocked period overlaps with targetDate (00:00 to 23:59)
+      const dayStart = new Date(`${date}T00:00`);
+      const dayEnd = new Date(`${date}T23:59:59`);
+      
+      if (blockedStart <= dayEnd && blockedEnd >= dayStart) {
+        let rangeStart = "00:00";
+        let rangeEnd = "23:59";
+        
+        if (isSameDay(blockedStart, targetDate)) {
+          rangeStart = format(blockedStart, 'HH:mm');
+        }
+        
+        if (isSameDay(blockedEnd, targetDate)) {
+          rangeEnd = format(blockedEnd, 'HH:mm');
+        }
+        
+        ranges.push({ 
+          start: rangeStart, 
+          end: rangeEnd, 
+          flightInfo: `${f.airline} ${f.flight_code}` 
+        });
+      }
+    });
+    return ranges;
+  }, [flights, date]);
+
+  const checkFlightOverlap = (start: string, end: string) => {
+    // If editing a flight itinerary, don't check against itself
+    if (initialData?.type === 'FLIGHT') return null;
+
+    for (const range of blockedRanges) {
+      if (start < range.end && end > range.start) {
+        return range.flightInfo;
+      }
+    }
+    return null;
+  };
 
   const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -106,6 +161,23 @@ export function ItineraryForm({ tripId, defaultCityId, date, onSuccess, onCancel
       return;
     }
 
+    // Flight Overlap Check
+    const overlappingFlight = checkFlightOverlap(formData.start_time, formData.end_time);
+    if (overlappingFlight) {
+      setError(`This time range overlaps with flight ${overlappingFlight} (including check-in and stay time).`);
+      setLoading(false);
+      return;
+    }
+
+    // Sub-item Time Validation
+    for (const sub of subItems) {
+      if (sub.start_time < formData.start_time || sub.end_time > formData.end_time) {
+        setError(`Sub-item "${sub.title}" must be within the parent activity's time range (${formData.start_time} - ${formData.end_time}).`);
+        setLoading(false);
+        return;
+      }
+    }
+
     try {
       const endpoint = initialData 
         ? `/api/trips/${tripId}/itineraries/${initialData.id}` 
@@ -121,7 +193,6 @@ export function ItineraryForm({ tripId, defaultCityId, date, onSuccess, onCancel
           date: date,
           start_time: formData.start_time,
           end_time: formData.end_time,
-          stay_duration: formData.stay_duration,
           title: formData.title,
           address: formData.address || '',
           image_url: formData.image_url || '',
@@ -240,20 +311,6 @@ export function ItineraryForm({ tripId, defaultCityId, date, onSuccess, onCancel
             value={{ start: formData.start_time, end: formData.end_time }}
             onChange={handleTimeRangeChange}
           />
-          
-          <div>
-            <label className="block text-sm font-medium text-zinc-400 mb-1">Stay Duration</label>
-            <div className="relative">
-              <Clock size={16} className="absolute left-3 top-3.5 text-zinc-500" />
-              <input
-                type="text"
-                value={formData.stay_duration}
-                onChange={e => setFormData({ ...formData, stay_duration: e.target.value })}
-                className="w-full bg-zinc-800 border border-zinc-700 rounded-xl pl-10 pr-4 py-3 text-white focus:outline-none focus:ring-2 focus:ring-orange-500"
-                placeholder="e.g., 2 hours, 30 mins"
-              />
-            </div>
-          </div>
         </div>
 
         <div>
@@ -320,18 +377,31 @@ export function ItineraryForm({ tripId, defaultCityId, date, onSuccess, onCancel
           />
         </div>
 
-        <button
-          type="button"
-          onClick={handleSubmit}
-          disabled={loading}
-          className="w-full bg-orange-500 hover:bg-orange-600 disabled:opacity-50 disabled:cursor-not-allowed text-white font-bold rounded-xl px-4 py-3 transition-all shadow-lg shadow-orange-500/20 active:scale-95"
-        >
-          {loading ? (
-            <span className="flex items-center justify-center gap-2">
-              <Loader2 size={18} className="animate-spin" /> {initialData ? 'Updating...' : 'Adding...'}
-            </span>
-          ) : (initialData ? 'Update Activity' : 'Add Activity')}
-        </button>
+        <div className="flex flex-col gap-3">
+          <button
+            type="button"
+            onClick={handleSubmit}
+            disabled={loading}
+            className="w-full bg-orange-500 hover:bg-orange-600 disabled:opacity-50 disabled:cursor-not-allowed text-white font-bold rounded-xl px-4 py-3 transition-all shadow-lg shadow-orange-500/20 active:scale-95"
+          >
+            {loading ? (
+              <span className="flex items-center justify-center gap-2">
+                <Loader2 size={18} className="animate-spin" /> {initialData ? 'Updating...' : 'Adding...'}
+              </span>
+            ) : (initialData ? 'Update Activity' : 'Add Activity')}
+          </button>
+
+          {initialData && onDelete && (
+            <button
+              type="button"
+              onClick={() => onDelete(initialData.id)}
+              className="w-full bg-red-500/10 hover:bg-red-500/20 text-red-500 border border-red-500/20 font-bold rounded-xl px-4 py-3 transition-all active:scale-95 flex items-center justify-center gap-2"
+            >
+              <Trash2 size={18} />
+              Delete Activity
+            </button>
+          )}
+        </div>
       </div>
 
       {/* Sub-item Modal */}
@@ -339,6 +409,8 @@ export function ItineraryForm({ tripId, defaultCityId, date, onSuccess, onCancel
         {isSubItemModalOpen && (
           <SubItemModal 
             onClose={() => setIsSubItemModalOpen(false)}
+            parentStartTime={formData.start_time}
+            parentEndTime={formData.end_time}
             onAdd={(item) => {
               setSubItems([...subItems, item]);
               setIsSubItemModalOpen(false);
@@ -359,17 +431,24 @@ export function ItineraryForm({ tripId, defaultCityId, date, onSuccess, onCancel
   );
 }
 
-function SubItemModal({ onClose, onAdd }: { onClose: () => void, onAdd: (item: any) => void }) {
+function SubItemModal({ onClose, onAdd, parentStartTime, parentEndTime }: { onClose: () => void, onAdd: (item: any) => void, parentStartTime: string, parentEndTime: string }) {
   const [data, setData] = useState({
     title: '',
-    start_time: '09:00',
-    end_time: '10:00',
+    start_time: parentStartTime,
+    end_time: parentEndTime,
     tags: '',
     notes: ''
   });
+  const [error, setError] = useState('');
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
+    
+    if (data.start_time < parentStartTime || data.end_time > parentEndTime) {
+      setError(`Time must be within ${parentStartTime} - ${parentEndTime}`);
+      return;
+    }
+
     const tagsArray = data.tags.split(',').map(t => t.trim()).filter(Boolean);
     onAdd({ ...data, tags: tagsArray, id: crypto.randomUUID() });
   };
@@ -386,6 +465,14 @@ function SubItemModal({ onClose, onAdd }: { onClose: () => void, onAdd: (item: a
           <h3 className="text-lg font-bold text-white">Add Sub-item</h3>
           <button type="button" onClick={onClose} className="text-zinc-400 hover:text-white"><X size={20} /></button>
         </div>
+
+        {error && (
+          <div className="mb-4 p-3 bg-red-500/10 border border-red-500/20 rounded-xl text-red-400 text-xs flex items-center gap-2">
+            <AlertCircle size={14} />
+            {error}
+          </div>
+        )}
+
         <form onSubmit={handleSubmit} className="space-y-4">
           <div>
             <label className="block text-xs font-medium text-zinc-400 mb-1">Title</label>

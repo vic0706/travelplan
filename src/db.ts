@@ -11,8 +11,8 @@ export class TravelPlanDB extends Dexie {
   itineraries!: Table<Itinerary, number>;
   subItineraries!: Table<SubItinerary, string>;
   expenses!: Table<Expense, number>;
-  flights!: Table<Flight, string>;
-  accommodations!: Table<Accommodation, string>;
+  flights!: Table<Flight, number>;
+  accommodations!: Table<Accommodation, number>;
   appSettings!: Table<AppSetting, string>;
 
   constructor() {

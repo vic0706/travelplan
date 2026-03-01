@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { X, Plane, Calendar, Clock, MapPin, FileText, Loader2 } from 'lucide-react';
+import { X, Plane, Calendar, Clock, MapPin, FileText, Loader2, Trash2 } from 'lucide-react';
 import { DatePicker } from './DatePicker';
 import { TimePicker } from './TimePicker';
 import { apiFetch } from '../utils/api';
@@ -9,40 +9,47 @@ interface FlightFormProps {
   tripId: number;
   onSuccess: () => void;
   onCancel: () => void;
+  onDelete?: (id: number) => void;
+  initialData?: Flight;
 }
 
-export function FlightForm({ tripId, onSuccess, onCancel }: FlightFormProps) {
+export function FlightForm({ tripId, onSuccess, onCancel, onDelete, initialData }: FlightFormProps) {
   const [loading, setLoading] = useState(false);
   const [formData, setFormData] = useState({
-    airline: '',
-    flight_code: '',
-    departure_date: '',
-    departure_time: '',
-    departure_airport: '',
-    departure_terminal: '',
-    checkin_duration: 120, // Default 2 hours
-    arrival_date: '',
-    arrival_time: '',
-    arrival_airport: '',
-    arrival_terminal: '',
-    exit_duration: 60, // Default 1 hour
-    stay_duration: 0,
-    notes: ''
+    airline: initialData?.airline || '',
+    flight_code: initialData?.flight_code || '',
+    departure_date: initialData?.departure_date || '',
+    departure_time: initialData?.departure_time || '',
+    departure_airport: initialData?.departure_airport || '',
+    departure_terminal: initialData?.departure_terminal || '',
+    checkin_duration: initialData?.checkin_duration || 120,
+    arrival_date: initialData?.arrival_date || '',
+    arrival_time: initialData?.arrival_time || '',
+    arrival_airport: initialData?.arrival_airport || '',
+    arrival_terminal: initialData?.arrival_terminal || '',
+    exit_duration: initialData?.exit_duration || 60,
+    stay_duration: initialData?.stay_duration || 0,
+    notes: initialData?.notes || ''
   });
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoading(true);
     try {
-      const res = await apiFetch(`/api/trips/${tripId}/flights`, {
-        method: 'POST',
+      const endpoint = initialData 
+        ? `/api/trips/${tripId}/flights/${initialData.id}` 
+        : `/api/trips/${tripId}/flights`;
+      const method = initialData ? 'PUT' : 'POST';
+
+      const res = await apiFetch(endpoint, {
+        method,
         body: JSON.stringify(formData)
       });
-      if (!res.ok) throw new Error('Failed to add flight');
+      if (!res.ok) throw new Error(`Failed to ${initialData ? 'update' : 'add'} flight`);
       onSuccess();
     } catch (error) {
       console.error(error);
-      alert('Failed to add flight');
+      alert(`Failed to ${initialData ? 'update' : 'add'} flight`);
     } finally {
       setLoading(false);
     }
@@ -53,7 +60,7 @@ export function FlightForm({ tripId, onSuccess, onCancel }: FlightFormProps) {
       <div className="p-4 border-b border-zinc-800 flex items-center justify-between sticky top-0 bg-zinc-900 z-10">
         <h3 className="text-lg font-semibold text-white flex items-center gap-2">
           <Plane className="text-orange-500" size={20} />
-          Add Flight
+          {initialData ? 'Edit Flight' : 'Add Flight'}
         </h3>
         <button onClick={onCancel} className="p-2 hover:bg-zinc-800 rounded-full text-zinc-400">
           <X size={20} />
@@ -237,21 +244,34 @@ export function FlightForm({ tripId, onSuccess, onCancel }: FlightFormProps) {
           />
         </div>
 
-        <div className="pt-4 flex gap-3">
-          <button
-            type="button"
-            onClick={onCancel}
-            className="flex-1 py-4 rounded-xl font-semibold text-zinc-400 hover:bg-zinc-800 transition-colors"
-          >
-            Cancel
-          </button>
-          <button
-            type="submit"
-            disabled={loading}
-            className="flex-1 py-4 bg-orange-500 hover:bg-orange-600 text-white rounded-xl font-bold shadow-lg shadow-orange-500/20 transition-all disabled:opacity-50 flex items-center justify-center gap-2"
-          >
-            {loading ? <Loader2 className="animate-spin" /> : 'Add Flight'}
-          </button>
+        <div className="pt-4 flex flex-col gap-3">
+          <div className="flex gap-3">
+            <button
+              type="button"
+              onClick={onCancel}
+              className="flex-1 py-4 rounded-xl font-semibold text-zinc-400 hover:bg-zinc-800 transition-colors"
+            >
+              Cancel
+            </button>
+            <button
+              type="submit"
+              disabled={loading}
+              className="flex-1 py-4 bg-orange-500 hover:bg-orange-600 text-white rounded-xl font-bold shadow-lg shadow-orange-500/20 transition-all disabled:opacity-50 flex items-center justify-center gap-2"
+            >
+              {loading ? <Loader2 className="animate-spin" /> : (initialData ? 'Update Flight' : 'Add Flight')}
+            </button>
+          </div>
+
+          {initialData && onDelete && (
+            <button
+              type="button"
+              onClick={() => onDelete(initialData.id)}
+              className="w-full py-4 bg-red-500/10 hover:bg-red-500/20 text-red-500 border border-red-500/20 font-bold rounded-xl transition-all flex items-center justify-center gap-2"
+            >
+              <Trash2 size={18} />
+              Delete Flight
+            </button>
+          )}
         </div>
       </form>
     </div>
