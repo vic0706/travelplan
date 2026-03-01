@@ -1,10 +1,16 @@
 import { Hono } from 'hono';
 import { cors } from 'hono/cors';
-import { getAssetFromKV } from '@cloudflare/kv-asset-handler';
 import { createClient } from '@supabase/supabase-js';
 
 // @ts-ignore
-import manifestJSON from '__STATIC_CONTENT_MANIFEST';
+let manifestJSON: any = {};
+try {
+  // @ts-ignore
+  import m from '__STATIC_CONTENT_MANIFEST';
+  manifestJSON = m;
+} catch (e) {
+  // Ignore if not in Cloudflare environment
+}
 
 export interface Env {
   DB: D1Database;
@@ -18,7 +24,7 @@ export interface Env {
 }
 
 type Variables = { user: { id: number; role: string; name: string } };
-const app = new Hono<{ Bindings: Env; Variables: Variables }>();
+export const app = new Hono<{ Bindings: Env; Variables: Variables }>();
 app.use('*', cors());
 
 // Custom 404 for API
@@ -826,6 +832,23 @@ app.put('/api/trips/:id/flights/:flightId', async (c) => {
   } catch (error: any) { return c.json({ error: error.message }, 500); }
 });
 
+app.delete('/api/trips/:id/flights/:flightId', async (c) => {
+  const tripId = c.req.param('id');
+  const flightId = c.req.param('flightId');
+  try {
+    const canEdit = await checkTripAccess(c, Number(tripId), 'edit');
+    if (!canEdit) return c.json({ error: 'Unauthorized' }, 403);
+
+    // Delete the flight
+    await c.env.DB.prepare('DELETE FROM Flights WHERE id = ? AND trip_id = ?').bind(flightId, tripId).run();
+    
+    // Delete associated itinerary items
+    await c.env.DB.prepare("DELETE FROM Itineraries WHERE type = 'FLIGHT' AND related_id = ? AND trip_id = ?").bind(flightId, tripId).run();
+
+    return c.json({ success: true });
+  } catch (error: any) { return c.json({ error: error.message }, 500); }
+});
+
 app.get('/api/trips/:id/accommodations', async (c) => {
   const tripId = c.req.param('id');
   try {
@@ -984,6 +1007,23 @@ app.put('/api/trips/:id/accommodations/:accId', async (c) => {
   } catch (error: any) { return c.json({ error: error.message }, 500); }
 });
 
+app.delete('/api/trips/:id/accommodations/:accId', async (c) => {
+  const tripId = c.req.param('id');
+  const accId = c.req.param('accId');
+  try {
+    const canEdit = await checkTripAccess(c, Number(tripId), 'edit');
+    if (!canEdit) return c.json({ error: 'Unauthorized' }, 403);
+
+    // Delete the accommodation
+    await c.env.DB.prepare('DELETE FROM Accommodations WHERE id = ? AND trip_id = ?').bind(accId, tripId).run();
+    
+    // Delete associated itinerary items
+    await c.env.DB.prepare("DELETE FROM Itineraries WHERE type = 'ACCOMMODATION' AND related_id = ? AND trip_id = ?").bind(accId, tripId).run();
+
+    return c.json({ success: true });
+  } catch (error: any) { return c.json({ error: error.message }, 500); }
+});
+
 // --- Trip Members ---
 app.get('/api/trips/:id/members', async (c) => {
   const tripId = c.req.param('id');
@@ -1082,6 +1122,18 @@ app.put('/api/trips/:id/itineraries/:itemId', async (c) => {
       itemId,
       tripId
     ).run();
+    return c.json({ success: true });
+  } catch (error: any) { return c.json({ error: error.message }, 500); }
+});
+
+app.delete('/api/trips/:id/itineraries/:itemId', async (c) => {
+  const tripId = c.req.param('id');
+  const itemId = c.req.param('itemId');
+  try {
+    const canEdit = await checkTripAccess(c, Number(tripId), 'edit');
+    if (!canEdit) return c.json({ error: 'Unauthorized' }, 403);
+
+    await c.env.DB.prepare('DELETE FROM Itineraries WHERE id = ? AND trip_id = ?').bind(itemId, tripId).run();
     return c.json({ success: true });
   } catch (error: any) { return c.json({ error: error.message }, 500); }
 });
@@ -1246,14 +1298,17 @@ export default {
         return response;
       } catch (e: any) { return new Response(JSON.stringify({ error: 'Error', message: e.message }), { status: 500, headers: { 'Content-Type': 'application/json' } }); }
     }
-    // SPA Fallback
+    // SPA Fallback - Only if getAssetFromKV is available
     try {
-      const assetManifest = JSON.parse(manifestJSON);
+      const { getAssetFromKV } = await import('@cloudflare/kv-asset-handler');
+      const assetManifest = typeof manifestJSON === 'string' ? JSON.parse(manifestJSON) : manifestJSON;
       return await getAssetFromKV({ request, waitUntil: ctx.waitUntil.bind(ctx) }, { ASSET_NAMESPACE: env.__STATIC_CONTENT, ASSET_MANIFEST: assetManifest });
     } catch (e: any) {
       try {
+        const { getAssetFromKV } = await import('@cloudflare/kv-asset-handler');
         const indexRequest = new Request(new URL('/index.html', request.url), request);
-        return await getAssetFromKV({ request: indexRequest, waitUntil: ctx.waitUntil.bind(ctx) }, { ASSET_NAMESPACE: env.__STATIC_CONTENT, ASSET_MANIFEST: JSON.parse(manifestJSON) });
+        const assetManifest = typeof manifestJSON === 'string' ? JSON.parse(manifestJSON) : manifestJSON;
+        return await getAssetFromKV({ request: indexRequest, waitUntil: ctx.waitUntil.bind(ctx) }, { ASSET_NAMESPACE: env.__STATIC_CONTENT, ASSET_MANIFEST: assetManifest });
       } catch (fallbackError) { return new Response('Not Found', { status: 404 }); }
     }
   },

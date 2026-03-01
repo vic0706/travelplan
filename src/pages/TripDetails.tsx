@@ -27,6 +27,7 @@ function FlightCard({ item, flight, canEdit, onEdit }: { item?: Itinerary; fligh
 
   const depDate = parseISO(flight.departure_date);
   const arrDate = parseISO(flight.arrival_date);
+  const isCrossDay = flight.departure_date !== flight.arrival_date;
   
   return (
     <div 
@@ -50,7 +51,10 @@ function FlightCard({ item, flight, canEdit, onEdit }: { item?: Itinerary; fligh
         <div className="flex items-center gap-2">
           <div className="text-right">
             <div className="text-[10px] text-zinc-500 uppercase tracking-wider">Departure</div>
-            <div className="text-xs font-bold text-zinc-300">{format(depDate, 'MMM d')}</div>
+            <div className="text-xs font-bold text-zinc-300">
+              {format(depDate, 'MMM d')}
+              {isCrossDay && <span className="text-orange-500 ml-1">+{differenceInDays(arrDate, depDate)}d</span>}
+            </div>
           </div>
         </div>
       </div>
@@ -190,7 +194,7 @@ function AccommodationCard({ acc, canEdit, onEdit }: { acc: any; canEdit: boolea
       </div>
 
       <div className="p-5">
-        <div className="flex items-start justify-between gap-4 mb-4">
+        <div className="flex items-start justify-between gap-4 mb-2">
           <div className="flex-1">
             <div className="flex gap-6">
               <div>
@@ -202,31 +206,21 @@ function AccommodationCard({ acc, canEdit, onEdit }: { acc: any; canEdit: boolea
                 <div className="text-sm font-bold text-white">{acc.check_out_time || '11:00'}</div>
               </div>
             </div>
-            
-            {acc.address && (
-              <div className="mt-4 flex items-start gap-2 text-sm text-zinc-400">
-                <MapPin size={14} className="mt-0.5 shrink-0 text-zinc-600" />
-                <span className="line-clamp-2">{acc.address}</span>
-              </div>
-            )}
           </div>
-
-          <button 
-            onClick={handleLocationClick}
-            className="p-3 text-zinc-400 hover:text-orange-500 bg-zinc-950/50 rounded-2xl border border-zinc-800/50 transition-colors shadow-inner shrink-0"
-          >
-            <Navigation size={20} />
-          </button>
         </div>
 
         {/* Footer */}
-        {acc.notes && (
-          <div className="mt-4 pt-4 border-t border-zinc-800/50">
-            <div className="text-xs text-zinc-500 italic line-clamp-2">
-              "{acc.notes}"
-            </div>
+        <div className="mt-4 pt-4 border-t border-zinc-800/50 flex items-center justify-between gap-4">
+          <div className="text-xs text-zinc-500 italic line-clamp-2 flex-1">
+            {acc.notes ? `"${acc.notes}"` : "No notes"}
           </div>
-        )}
+          <button 
+            onClick={handleLocationClick}
+            className="p-2 text-zinc-400 hover:text-orange-500 bg-zinc-950/50 rounded-xl border border-zinc-800/50 transition-colors shadow-inner shrink-0"
+          >
+            <Navigation size={16} />
+          </button>
+        </div>
       </div>
     </div>
   );
@@ -530,6 +524,7 @@ export function TripDetails() {
           await db.itineraries.delete(itineraryId);
           setIsItineraryFormOpen(false);
           setEditingItinerary(null);
+          setConfirmConfig(prev => ({ ...prev, isOpen: false }));
         } catch (err) {
           console.error(err);
           alert('Failed to delete activity');
@@ -556,6 +551,7 @@ export function TripDetails() {
           }
           setIsFlightFormOpen(false);
           setEditingFlight(null);
+          setConfirmConfig(prev => ({ ...prev, isOpen: false }));
         } catch (err) {
           console.error(err);
           alert('Failed to delete flight');
@@ -577,6 +573,7 @@ export function TripDetails() {
           await db.accommodations.delete(accId);
           setIsAccommodationFormOpen(false);
           setEditingAccommodation(null);
+          setConfirmConfig(prev => ({ ...prev, isOpen: false }));
         } catch (err) {
           console.error(err);
           alert('Failed to delete accommodation');

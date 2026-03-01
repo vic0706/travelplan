@@ -258,7 +258,7 @@ export function FlightForm({ tripId, onSuccess, onCancel, onDelete, initialData 
               disabled={loading}
               className="flex-1 py-4 bg-orange-500 hover:bg-orange-600 text-white rounded-xl font-bold shadow-lg shadow-orange-500/20 transition-all disabled:opacity-50 flex items-center justify-center gap-2"
             >
-              {loading ? <Loader2 className="animate-spin" /> : (initialData ? 'Update Flight' : 'Add Flight')}
+              {loading ? <Loader2 className="animate-spin" /> : (initialData ? 'Update FLIGHT' : 'Add FLIGHT')}
             </button>
           </div>
 
@@ -269,7 +269,7 @@ export function FlightForm({ tripId, onSuccess, onCancel, onDelete, initialData 
               className="w-full py-4 bg-red-500/10 hover:bg-red-500/20 text-red-500 border border-red-500/20 font-bold rounded-xl transition-all flex items-center justify-center gap-2"
             >
               <Trash2 size={18} />
-              Delete Flight
+              Delete FLIGHT
             </button>
           )}
         </div>

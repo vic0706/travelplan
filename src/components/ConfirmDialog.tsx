@@ -8,7 +8,7 @@ interface ConfirmDialogProps {
   message: string;
   confirmText?: string;
   cancelText?: string;
-  onConfirm: () => void;
+  onConfirm: () => void | Promise<void>;
   onCancel: () => void;
   type?: 'danger' | 'warning' | 'info';
 }
@@ -23,6 +23,20 @@ export function ConfirmDialog({
   onCancel,
   type = 'danger'
 }: ConfirmDialogProps) {
+  const [loading, setLoading] = React.useState(false);
+
+  const handleConfirm = async () => {
+    setLoading(true);
+    try {
+      await onConfirm();
+      onCancel();
+    } catch (error) {
+      console.error('Confirm action failed:', error);
+    } finally {
+      setLoading(false);
+    }
+  };
+
   return (
     <AnimatePresence>
       {isOpen && (
@@ -31,7 +45,7 @@ export function ConfirmDialog({
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
-            onClick={onCancel}
+            onClick={loading ? undefined : onCancel}
             className="absolute inset-0 bg-black/80 backdrop-blur-sm"
           />
           <motion.div
@@ -59,22 +73,21 @@ export function ConfirmDialog({
               <div className="flex gap-3">
                 <button
                   onClick={onCancel}
-                  className="flex-1 py-3 rounded-xl font-semibold text-zinc-400 hover:bg-zinc-800 transition-colors"
+                  disabled={loading}
+                  className="flex-1 py-3 rounded-xl font-semibold text-zinc-400 hover:bg-zinc-800 transition-colors disabled:opacity-50"
                 >
                   {cancelText}
                 </button>
                 <button
-                  onClick={() => {
-                    onConfirm();
-                    onCancel();
-                  }}
-                  className={`flex-1 py-3 rounded-xl font-bold text-white transition-all shadow-lg ${
+                  onClick={handleConfirm}
+                  disabled={loading}
+                  className={`flex-1 py-3 rounded-xl font-bold text-white transition-all shadow-lg flex items-center justify-center gap-2 disabled:opacity-50 ${
                     type === 'danger' ? 'bg-red-500 hover:bg-red-600 shadow-red-500/20' : 
                     type === 'warning' ? 'bg-orange-500 hover:bg-orange-600 shadow-orange-500/20' : 
                     'bg-blue-500 hover:bg-blue-600 shadow-blue-500/20'
                   }`}
                 >
-                  {confirmText}
+                  {loading ? <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin" /> : confirmText}
                 </button>
               </div>
             </div>
