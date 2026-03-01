@@ -116,6 +116,7 @@ if (!dbExists) {
 }
 
 async function startServer() {
+  console.log('Starting server...');
   const app = express();
   const PORT = 3000;
 

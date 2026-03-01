@@ -15,7 +15,7 @@ export interface Env {
 }
 
 type Variables = { user: { id: number; role: string; name: string } };
-const app = new Hono<{ Bindings: Env; Variables: Variables }>();
+export const app = new Hono<{ Bindings: Env; Variables: Variables }>();
 app.use('*', cors());
 
 // Custom 404 for API
