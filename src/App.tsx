@@ -43,6 +43,7 @@ function AppContent() {
         const res = await apiFetch('/api/cities');
         if (res.ok) {
           const data = await res.json() as City[];
+          console.log(`Fetched ${data.length} cities:`, data.slice(0, 5));
           setCities(data);
         }
       } catch (err) {

@@ -64,7 +64,8 @@ export function LoginModal({ onClose }: LoginModalProps) {
       try {
         data = JSON.parse(text);
       } catch (e) {
-        throw new Error('API returned non-JSON response (likely HTML)');
+        console.error('API returned non-JSON:', text.substring(0, 200));
+        throw new Error(`API returned non-JSON response (status: ${res.status}). Expected JSON but got: ${text.substring(0, 50)}...`);
       }
 
       if (!res.ok) {

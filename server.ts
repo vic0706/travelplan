@@ -135,19 +135,41 @@ async function startServer() {
     // Skip /api/upload as it's handled below
     if (req.path === '/api/upload') return next();
 
+    console.log(`[Proxy] ${req.method} ${req.originalUrl}`);
+
     try {
       // Create a fetch-like request for Hono
-      const url = new URL(req.url, `http://${req.headers.host}`);
+      // Use originalUrl to ensure we have the full path including /api
+      const url = new URL(req.originalUrl, `http://${req.headers.host || 'localhost:3000'}`);
+      
+      const headers = new Headers();
+      for (const [key, value] of Object.entries(req.headers)) {
+        if (value) {
+          if (Array.isArray(value)) {
+            value.forEach(v => headers.append(key, v));
+          } else {
+            headers.set(key, value);
+          }
+        }
+      }
+
+      // Remove content-length as we might change the body size by stringifying
+      headers.delete('content-length');
+
+      const body = ['POST', 'PUT', 'PATCH'].includes(req.method) && req.body 
+        ? JSON.stringify(req.body) 
+        : undefined;
+
       const honoReq = new Request(url.toString(), {
         method: req.method,
-        headers: req.headers as any,
-        body: ['POST', 'PUT', 'PATCH'].includes(req.method) ? JSON.stringify(req.body) : undefined
+        headers,
+        body
       });
 
       const env = {
         DB: d1,
         KV: kv,
-        PASSWORD_SALT: process.env.PASSWORD_SALT || 'salt',
+        PASSWORD_SALT: process.env.PASSWORD_SALT || 'default_salt',
         VITE_SUPABASE_URL: process.env.VITE_SUPABASE_URL,
         VITE_SUPABASE_ANON_KEY: process.env.VITE_SUPABASE_ANON_KEY,
         SUPABASE_SERVICE_ROLE_KEY: process.env.SUPABASE_SERVICE_ROLE_KEY
@@ -156,16 +178,41 @@ async function startServer() {
       const honoRes = await honoApp.fetch(honoReq, env as any);
       
       res.status(honoRes.status);
+      
+      let hasContentType = false;
       honoRes.headers.forEach((value, key) => {
+        if (key.toLowerCase() === 'content-type') hasContentType = true;
         res.setHeader(key, value);
       });
 
-      const body = await honoRes.text();
-      res.send(body);
+      // Ensure we always have a content-type for API responses
+      if (!hasContentType) {
+        res.setHeader('Content-Type', 'application/json');
+      }
+
+      const responseBody = await honoRes.text();
+      
+      // Log non-JSON responses for debugging
+      if (honoRes.status >= 400 || !hasContentType || !honoRes.headers.get('content-type')?.includes('json')) {
+        console.warn(`[Proxy] Non-JSON or Error Response from Hono: ${honoRes.status}`, responseBody.substring(0, 200));
+      }
+
+      res.send(responseBody);
     } catch (err) {
       console.error('Hono proxy error:', err);
-      res.status(500).json({ error: 'Internal Server Error' });
+      res.status(500).json({ error: 'Internal Server Error', details: String(err) });
     }
+  });
+
+  // Final catch-all for /api/* to prevent falling through to Vite SPA fallback
+  app.all('/api/*', (req, res) => {
+    console.warn(`[Server] Unhandled API route: ${req.method} ${req.originalUrl}`);
+    res.status(404).json({ 
+      error: 'API route not found', 
+      path: req.originalUrl,
+      method: req.method,
+      tip: 'This request fell through the proxy and was caught by the API catch-all.'
+    });
   });
 
   app.post('/api/upload', upload.single('file'), async (req: MulterRequest, res) => {

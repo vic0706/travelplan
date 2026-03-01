@@ -96,11 +96,6 @@ async function ensureSchema(db: D1Database) {
   } catch (e) {}
 
   try {
-    // 1.1 Ensure default_city_id column exists in Trips table
-    await db.prepare('ALTER TABLE Trips ADD COLUMN default_city_id INTEGER').run();
-  } catch (e) {}
-
-  try {
     // 2. Normalize roles to Title Case (Admin, Member, Guest)
     await db.prepare("UPDATE Users SET role = 'Admin' WHERE role = 'admin'").run();
     await db.prepare("UPDATE Users SET role = 'Member' WHERE role = 'member'").run();
@@ -160,27 +155,10 @@ async function ensureSchema(db: D1Database) {
 
   try {
     // 9. Update Flights table schema
-    // Check if flight_code exists, if not, we might need to migrate or create
     const flightInfo = await db.prepare("PRAGMA table_info(Flights)").all();
     const hasFlightCode = flightInfo.results.some((col: any) => col.name === 'flight_code');
     
     if (!hasFlightCode) {
-      // If table exists but no flight_code, it's the old schema.
-      // Since SQLite ALTER TABLE is limited, and we want to change ID type too (TEXT -> INTEGER),
-      // we'll rename the old table and create a new one, then copy data if possible.
-      // However, for simplicity in this dev environment, we'll just create if not exists with new schema,
-      // or if it exists with old schema, we'll try to add columns or just let it be (but user asked for change).
-      // Let's try to add columns if missing, but ID change is hard.
-      // User said "改用數字 ID" (Change to number ID).
-      // If we can drop the table, it's easiest. But we lose data.
-      // Let's try to create the new table structure if it doesn't exist.
-      
-      // We will use a migration strategy:
-      // 1. Rename old table
-      // 2. Create new table
-      // 3. Copy data (mapping flight_number -> flight_code)
-      // 4. Drop old table
-      
       const hasFlightsTable = flightInfo.results.length > 0;
       if (hasFlightsTable) {
         await db.prepare("ALTER TABLE Flights RENAME TO Flights_Old").run();
@@ -206,13 +184,27 @@ async function ensureSchema(db: D1Database) {
       `).run();
 
       if (hasFlightsTable) {
-        // Migrate data
-        // Old schema: id (TEXT), trip_id, airline, flight_number, departure_date, departure_time, departure_airport, departure_terminal, arrival_date, arrival_time, arrival_airport, arrival_terminal, notes
-        // New schema: id (INTEGER), ... flight_code ...
-        // We can't keep text IDs in integer column. So we'll let ID auto-increment.
+        // Check columns in old table to avoid errors during migration
+        const oldCols = (await db.prepare("PRAGMA table_info(Flights_Old)").all()).results.map((c: any) => c.name);
+        
+        const selectCols = [
+          'trip_id',
+          oldCols.includes('airline') ? 'airline' : "'Unknown'",
+          oldCols.includes('flight_code') ? 'flight_code' : (oldCols.includes('flight_number') ? 'flight_number' : "'?'"),
+          oldCols.includes('departure_date') ? 'departure_date' : (oldCols.includes('date') ? 'date' : "''"),
+          oldCols.includes('departure_time') ? 'departure_time' : "''",
+          oldCols.includes('departure_airport') ? 'departure_airport' : "''",
+          oldCols.includes('departure_terminal') ? 'departure_terminal' : "''",
+          oldCols.includes('arrival_date') ? 'arrival_date' : (oldCols.includes('date') ? 'date' : "''"),
+          oldCols.includes('arrival_time') ? 'arrival_time' : "''",
+          oldCols.includes('arrival_airport') ? 'arrival_airport' : "''",
+          oldCols.includes('arrival_terminal') ? 'arrival_terminal' : "''",
+          oldCols.includes('notes') ? 'notes' : "''"
+        ];
+
         await db.prepare(`
           INSERT INTO Flights (trip_id, airline, flight_code, departure_date, departure_time, departure_airport, departure_terminal, arrival_date, arrival_time, arrival_airport, arrival_terminal, notes)
-          SELECT trip_id, airline, flight_number, departure_date, departure_time, departure_airport, departure_terminal, arrival_date, arrival_time, arrival_airport, arrival_terminal, notes
+          SELECT ${selectCols.join(', ')}
           FROM Flights_Old
         `).run();
         await db.prepare("DROP TABLE Flights_Old").run();
@@ -249,12 +241,22 @@ async function ensureSchema(db: D1Database) {
       `).run();
 
       if (hasAccTable) {
-        // Migrate data
-        // Old schema: id (TEXT), trip_id, check_in_date, check_out_date, name, address, notes
-        // New schema: id (INTEGER), ... hotel_name ...
+        // Check columns in old table to avoid errors during migration
+        const oldCols = (await db.prepare("PRAGMA table_info(Accommodations_Old)").all()).results.map((c: any) => c.name);
+        
+        const selectCols = [
+          'trip_id',
+          oldCols.includes('hotel_name') ? 'hotel_name' : (oldCols.includes('name') ? 'name' : "'Unknown'"),
+          'address',
+          'check_in_date',
+          'check_out_date',
+          oldCols.includes('order_id') ? 'order_id' : "''",
+          'notes'
+        ];
+
         await db.prepare(`
-          INSERT INTO Accommodations (trip_id, hotel_name, address, check_in_date, check_out_date, notes)
-          SELECT trip_id, name, address, check_in_date, check_out_date, notes
+          INSERT INTO Accommodations (trip_id, hotel_name, address, check_in_date, check_out_date, order_id, notes)
+          SELECT ${selectCols.join(', ')}
           FROM Accommodations_Old
         `).run();
         await db.prepare("DROP TABLE Accommodations_Old").run();
@@ -688,6 +690,17 @@ app.put('/api/trips/:id', async (c) => {
   } catch (error: any) { return c.json({ error: error.message }, 500); }
 });
 
+app.delete('/api/trips/:id', async (c) => {
+  const id = c.req.param('id');
+  try {
+    const canEdit = await checkTripAccess(c, Number(id), 'admin');
+    if (!canEdit) return c.json({ error: 'Unauthorized' }, 403);
+
+    await c.env.DB.prepare('DELETE FROM Trips WHERE id = ?').bind(id).run();
+    return c.json({ success: true });
+  } catch (error: any) { return c.json({ error: error.message }, 500); }
+});
+
 // Weather API
 app.get('/api/trips/:id/weather', async (c) => {
   const tripId = c.req.param('id');
@@ -824,6 +837,21 @@ app.put('/api/trips/:id/flights/:flightId', async (c) => {
       tripId
     ).run();
 
+    return c.json({ success: true });
+  } catch (error: any) { return c.json({ error: error.message }, 500); }
+});
+
+app.delete('/api/trips/:id/flights/:flightId', async (c) => {
+  const tripId = c.req.param('id');
+  const flightId = c.req.param('flightId');
+  try {
+    const canEdit = await checkTripAccess(c, Number(tripId), 'edit');
+    if (!canEdit) return c.json({ error: 'Unauthorized' }, 403);
+
+    await c.env.DB.prepare('DELETE FROM Flights WHERE id = ? AND trip_id = ?').bind(flightId, tripId).run();
+    // Also delete associated itinerary
+    await c.env.DB.prepare("DELETE FROM Itineraries WHERE type = 'FLIGHT' AND related_id = ? AND trip_id = ?").bind(flightId, tripId).run();
+    
     return c.json({ success: true });
   } catch (error: any) { return c.json({ error: error.message }, 500); }
 });
@@ -978,10 +1006,24 @@ app.put('/api/trips/:id/accommodations/:accId', async (c) => {
           VALUES (?, ?, ?, ?, ?, ?, ?, ?)
         `).bind(tripId, dateStr, dailyEndTime, '', `Back to Hotel`, 'ACCOMMODATION', accId, '').run();
       }
-
       currentDate.setDate(currentDate.getDate() + 1);
     }
 
+    return c.json({ success: true });
+  } catch (error: any) { return c.json({ error: error.message }, 500); }
+});
+
+app.delete('/api/trips/:id/accommodations/:accId', async (c) => {
+  const tripId = c.req.param('id');
+  const accId = c.req.param('accId');
+  try {
+    const canEdit = await checkTripAccess(c, Number(tripId), 'edit');
+    if (!canEdit) return c.json({ error: 'Unauthorized' }, 403);
+
+    await c.env.DB.prepare('DELETE FROM Accommodations WHERE id = ? AND trip_id = ?').bind(accId, tripId).run();
+    // Also delete associated itineraries
+    await c.env.DB.prepare("DELETE FROM Itineraries WHERE type = 'ACCOMMODATION' AND related_id = ? AND trip_id = ?").bind(accId, tripId).run();
+    
     return c.json({ success: true });
   } catch (error: any) { return c.json({ error: error.message }, 500); }
 });
@@ -1084,6 +1126,18 @@ app.put('/api/trips/:id/itineraries/:itemId', async (c) => {
       itemId,
       tripId
     ).run();
+    return c.json({ success: true });
+  } catch (error: any) { return c.json({ error: error.message }, 500); }
+});
+
+app.delete('/api/trips/:id/itineraries/:itemId', async (c) => {
+  const tripId = c.req.param('id');
+  const itemId = c.req.param('itemId');
+  try {
+    const canEdit = await checkTripAccess(c, Number(tripId), 'edit');
+    if (!canEdit) return c.json({ error: 'Unauthorized' }, 403);
+
+    await c.env.DB.prepare('DELETE FROM Itineraries WHERE id = ? AND trip_id = ?').bind(itemId, tripId).run();
     return c.json({ success: true });
   } catch (error: any) { return c.json({ error: error.message }, 500); }
 });

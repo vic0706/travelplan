@@ -1,13 +1,3 @@
-DROP TABLE IF EXISTS TripMembers;
-DROP TABLE IF EXISTS Sub_Itineraries;
-DROP TABLE IF EXISTS Expenses;
-DROP TABLE IF EXISTS Flights;
-DROP TABLE IF EXISTS Accommodations;
-DROP TABLE IF EXISTS Itineraries;
-DROP TABLE IF EXISTS Trips;
-DROP TABLE IF EXISTS Users;
-DROP TABLE IF EXISTS App_Settings;
-
 CREATE TABLE Users (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     role TEXT NOT NULL DEFAULT 'user',
@@ -15,22 +5,41 @@ CREATE TABLE Users (
     avatar_url TEXT,
     password_hash TEXT NOT NULL,
     allow_login INTEGER DEFAULT 1,
+    payment_info TEXT DEFAULT '{}',
     created_at INTEGER, 
     updated_at INTEGER
 );
+
+CREATE TABLE Cities (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT NOT NULL,
+    country TEXT NOT NULL,
+    lat REAL NOT NULL,
+    lng REAL NOT NULL
+);
+
+INSERT INTO Cities (name, country, lat, lng) VALUES ('台北', '台灣', 25.0330, 121.5654);
+INSERT INTO Cities (name, country, lat, lng) VALUES ('東京', '日本', 35.6762, 139.6503);
+INSERT INTO Cities (name, country, lat, lng) VALUES ('大阪', '日本', 34.6937, 135.5023);
+INSERT INTO Cities (name, country, lat, lng) VALUES ('首爾', '韓國', 37.5665, 126.9780);
+INSERT INTO Cities (name, country, lat, lng) VALUES ('曼谷', '泰國', 13.7563, 100.5018);
+INSERT INTO Cities (name, country, lat, lng) VALUES ('倫敦', '英國', 51.5074, -0.1278);
+INSERT INTO Cities (name, country, lat, lng) VALUES ('巴黎', '法國', 48.8566, 2.3522);
+INSERT INTO Cities (name, country, lat, lng) VALUES ('紐約', '美國', 40.7128, -74.0060);
 
 CREATE TABLE Trips (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     title TEXT NOT NULL, 
     cover_image_url TEXT,
     start_date TEXT NOT NULL, 
-    end_date TEXT NOT NULL, -- 格式 YYYY-MM-DD
+    end_date TEXT NOT NULL,
     currencies TEXT DEFAULT '["TWD"]', 
-    is_public INTEGER DEFAULT 0,
-    default_city_id INTEGER,
     timezone TEXT DEFAULT 'UTC',
+    default_city_id INTEGER,
+    is_public INTEGER DEFAULT 0,
     created_at INTEGER, 
-    updated_at INTEGER
+    updated_at INTEGER,
+    FOREIGN KEY (default_city_id) REFERENCES Cities(id)
 );
 
 CREATE TABLE TripMembers (
@@ -53,6 +62,10 @@ CREATE TABLE Itineraries (
     image_url TEXT, 
     notes TEXT, 
     tags TEXT DEFAULT '[]',
+    sub_items TEXT DEFAULT '[]',
+    stay_duration TEXT DEFAULT '',
+    type TEXT DEFAULT 'GENERAL',
+    related_id INTEGER,
     FOREIGN KEY (trip_id) REFERENCES Trips(id) ON DELETE CASCADE
 );
 
@@ -67,6 +80,15 @@ CREATE TABLE Sub_Itineraries (
   FOREIGN KEY (itinerary_id) REFERENCES Itineraries(id) ON DELETE CASCADE
 );
 
+CREATE TABLE ExpenseCategories (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT NOT NULL,
+    icon TEXT DEFAULT 'circle',
+    color TEXT DEFAULT '#808080',
+    is_default INTEGER DEFAULT 0,
+    created_at INTEGER
+);
+
 CREATE TABLE Expenses (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     trip_id INTEGER, 
@@ -76,6 +98,7 @@ CREATE TABLE Expenses (
     date TEXT NOT NULL,
     payer_id INTEGER, 
     split_members TEXT, 
+    category TEXT DEFAULT 'other',
     notes TEXT,
     created_at INTEGER, 
     updated_at INTEGER,
@@ -84,26 +107,40 @@ CREATE TABLE Expenses (
 );
 
 CREATE TABLE Flights (
-  id TEXT PRIMARY KEY,
-  trip_id INTEGER,
-  date TEXT,
-  flight_number TEXT,
-  departure_airport TEXT,
-  arrival_airport TEXT,
-  departure_time TEXT,
-  arrival_time TEXT,
-  FOREIGN KEY (trip_id) REFERENCES Trips(id) ON DELETE CASCADE
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    trip_id INTEGER NOT NULL,
+    airline TEXT NOT NULL,
+    flight_code TEXT NOT NULL,
+    departure_date TEXT NOT NULL,
+    departure_time TEXT NOT NULL,
+    departure_airport TEXT,
+    departure_terminal TEXT,
+    arrival_date TEXT NOT NULL,
+    arrival_time TEXT NOT NULL,
+    arrival_airport TEXT,
+    arrival_terminal TEXT,
+    checkin_duration INTEGER DEFAULT 120,
+    exit_duration INTEGER DEFAULT 60,
+    stay_duration INTEGER DEFAULT 0,
+    notes TEXT,
+    FOREIGN KEY (trip_id) REFERENCES Trips(id) ON DELETE CASCADE
 );
 
 CREATE TABLE Accommodations (
-  id TEXT PRIMARY KEY,
-  trip_id INTEGER,
-  check_in_date TEXT,
-  check_out_date TEXT,
-  name TEXT,
-  address TEXT,
-  notes TEXT,
-  FOREIGN KEY (trip_id) REFERENCES Trips(id) ON DELETE CASCADE
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    trip_id INTEGER NOT NULL,
+    hotel_name TEXT NOT NULL,
+    address TEXT,
+    check_in_date TEXT NOT NULL,
+    check_out_date TEXT NOT NULL,
+    check_in_time TEXT DEFAULT '15:00',
+    check_out_time TEXT DEFAULT '11:00',
+    daily_start_time TEXT DEFAULT '08:00',
+    daily_end_time TEXT DEFAULT '22:00',
+    order_id TEXT,
+    notes TEXT,
+    created_at INTEGER DEFAULT (strftime('%s', 'now') * 1000),
+    FOREIGN KEY (trip_id) REFERENCES Trips(id) ON DELETE CASCADE
 );
 
 CREATE TABLE App_Settings (

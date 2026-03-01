@@ -17,8 +17,8 @@ export class TravelPlanDB extends Dexie {
 
   constructor() {
     super('TravelPlanDB');
-    this.version(4).stores({
-      users: 'id, role, allow_login',
+    this.version(5).stores({
+      users: 'id, username, role, allow_login',
       trips: 'id, title, start_date, end_date, visible_status, is_public, default_city_id, last_accessed',
       tripMembers: '[trip_id+user_id], trip_id, user_id',
       itineraries: 'id, trip_id, date, start_time',

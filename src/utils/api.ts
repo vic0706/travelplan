@@ -3,9 +3,8 @@ import { useAppStore } from '../store';
 export const getApiUrl = (path: string): string => {
   const cleanPath = path.startsWith('/') ? path : `/${path}`;
   
-  // Use VITE_API_BASE_URL if defined (e.g., in production), otherwise use relative path (local server)
-  const baseUrl = import.meta.env.VITE_API_BASE_URL || '';
-  return `${baseUrl}${cleanPath}`;
+  // Use user's worker URL as requested
+  return `https://travelplan.vic070680.workers.dev${cleanPath}`;
 };
 
 export const apiFetch = async (path: string, options: RequestInit = {}) => {

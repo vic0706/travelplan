@@ -37,8 +37,8 @@ export function Home() {
         try {
           data = JSON.parse(text);
         } catch (e) {
-          console.error('API returned non-JSON:', text.substring(0, 100));
-          throw new Error('API returned non-JSON response (likely HTML)');
+          console.error('API returned non-JSON:', text.substring(0, 200));
+          throw new Error(`API returned non-JSON response (status: ${res.status}). Expected JSON but got: ${text.substring(0, 50)}...`);
         }
 
         if (Array.isArray(data)) {
