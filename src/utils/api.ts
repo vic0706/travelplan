@@ -3,8 +3,9 @@ import { useAppStore } from '../store';
 export const getApiUrl = (path: string): string => {
   const cleanPath = path.startsWith('/') ? path : `/${path}`;
   
-  // Use local server for all API routes in development
-  return cleanPath;
+  // Use VITE_API_BASE_URL if defined (e.g., in production), otherwise use relative path (local server)
+  const baseUrl = import.meta.env.VITE_API_BASE_URL || '';
+  return `${baseUrl}${cleanPath}`;
 };
 
 export const apiFetch = async (path: string, options: RequestInit = {}) => {

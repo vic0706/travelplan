@@ -26,7 +26,8 @@ CREATE TABLE Trips (
     start_date TEXT NOT NULL, 
     end_date TEXT NOT NULL, -- 格式 YYYY-MM-DD
     currencies TEXT DEFAULT '["TWD"]', 
-    visible_status INTEGER DEFAULT 1,
+    is_public INTEGER DEFAULT 0,
+    default_city_id INTEGER,
     timezone TEXT DEFAULT 'UTC',
     created_at INTEGER, 
     updated_at INTEGER

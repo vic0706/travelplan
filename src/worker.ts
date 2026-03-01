@@ -96,6 +96,11 @@ async function ensureSchema(db: D1Database) {
   } catch (e) {}
 
   try {
+    // 1.1 Ensure default_city_id column exists in Trips table
+    await db.prepare('ALTER TABLE Trips ADD COLUMN default_city_id INTEGER').run();
+  } catch (e) {}
+
+  try {
     // 2. Normalize roles to Title Case (Admin, Member, Guest)
     await db.prepare("UPDATE Users SET role = 'Admin' WHERE role = 'admin'").run();
     await db.prepare("UPDATE Users SET role = 'Member' WHERE role = 'member'").run();

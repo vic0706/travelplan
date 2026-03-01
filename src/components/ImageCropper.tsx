@@ -2,6 +2,7 @@ import React, { useState, useCallback } from 'react';
 import Cropper from 'react-easy-crop';
 import { Loader2, Check, X, ZoomIn, ZoomOut } from 'lucide-react';
 import { createClient } from '@supabase/supabase-js';
+import { getApiUrl } from '../utils/api';
 
 // Initialize Supabase client
 // Note: In a real app, these should be environment variables.
@@ -168,7 +169,7 @@ export async function uploadImageToSupabase(blob: Blob, folder: string = 'trips'
     headers['Authorization'] = `Bearer ${token}`;
   }
 
-  const res = await fetch('/api/upload', {
+  const res = await fetch(getApiUrl('/api/upload'), {
     method: 'POST',
     headers,
     body: formData
