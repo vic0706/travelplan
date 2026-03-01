@@ -1,5 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useAppStore, User } from '../store';
+import { useNavigate } from 'react-router-dom';
+import { db } from '../db';
 import { X, Calendar, Upload, Loader2, User as UserIcon, Check, CloudLightning, Plus, Trash2 } from 'lucide-react';
 import { format } from 'date-fns';
 import { motion, AnimatePresence } from 'framer-motion';
@@ -19,6 +21,7 @@ const COMMON_CURRENCIES = ['TWD', 'USD', 'JPY', 'EUR', 'GBP', 'AUD', 'CAD', 'CNY
 
 export function TripSettingsForm({ trip, onSuccess }: TripSettingsFormProps) {
   const { cities } = useAppStore();
+  const navigate = useNavigate();
   const [loading, setLoading] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [syncingWeather, setSyncingWeather] = useState(false);
@@ -162,14 +165,14 @@ export function TripSettingsForm({ trip, onSuccess }: TripSettingsFormProps) {
       
       setDeleteStatus('finishing');
       
-      // CRITICAL: Explicitly delete from IndexedDB to ensure UI updates immediately
-      // This prevents the "ghost" trip from appearing on the home page before the next sync
+      // CRITICAL: Explicitly delete related data from IndexedDB
+      // NOTE: We do NOT delete the trip record itself here to prevent the UI from unmounting prematurely
+      // The Home page logic will handle the cleanup of the trip record upon sync
       try {
-        const { db } = await import('../db');
         // Add a timeout to prevent hanging if DB operations are slow
         await Promise.race([
           Promise.all([
-            db.trips.delete(trip.id),
+            // db.trips.delete(trip.id), // REMOVED: Let Home.tsx handle this to avoid unmount race condition
             db.itineraries.where('trip_id').equals(trip.id).delete(),
             db.expenses.where('trip_id').equals(trip.id).delete(),
             db.flights.where('trip_id').equals(trip.id).delete(),
@@ -182,10 +185,9 @@ export function TripSettingsForm({ trip, onSuccess }: TripSettingsFormProps) {
         console.warn('Failed to cleanup local DB, proceeding with redirect:', dbError);
       }
       
-      // Navigate to home after deletion using window.location for a clean state if needed, 
-      // but let's try to use the router if possible. Since we are in a form, we might not have navigate.
-      // Actually, let's use window.location.href to be safe and ensure a full refresh of the app state.
-      window.location.replace('/');
+      // Force redirect to home using React Router for smoother transition
+      navigate('/', { replace: true });
+      
     } catch (err: any) {
       console.error('Delete failed:', err);
       setError(err.message);

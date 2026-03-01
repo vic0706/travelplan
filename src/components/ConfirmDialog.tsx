@@ -88,7 +88,7 @@ export function ConfirmDialog({
                   }`}
                 >
                   {loading && <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin shrink-0" />}
-                  <span className={`text-center leading-tight ${confirmText && confirmText.length > 20 ? 'text-sm' : 'text-base'}`}>
+                  <span className={`text-center leading-tight ${confirmText && confirmText.length > 30 ? 'text-xs' : confirmText && confirmText.length > 20 ? 'text-sm' : 'text-base'}`}>
                     {confirmText}
                   </span>
                 </button>
