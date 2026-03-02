@@ -109,21 +109,29 @@ CREATE TABLE Expenses (
 CREATE TABLE Transportations (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     trip_id INTEGER NOT NULL,
-    type TEXT NOT NULL DEFAULT 'FLIGHT',
-    provider TEXT NOT NULL,
-    transport_code TEXT NOT NULL,
-    departure_date TEXT NOT NULL,
-    departure_time TEXT NOT NULL,
-    departure_station TEXT,
-    departure_terminal TEXT,
-    arrival_date TEXT NOT NULL,
-    arrival_time TEXT NOT NULL,
-    arrival_station TEXT,
-    arrival_terminal TEXT,
-    checkin_duration INTEGER DEFAULT 120,
-    exit_duration INTEGER DEFAULT 60,
-    stay_duration INTEGER DEFAULT 0,
-    notes TEXT,
+    type TEXT NOT NULL,           -- 'FLIGHT', 'TRAIN', 'BUS', 'FERRY', 'DRIVING'
+    provider TEXT,                -- 航空公司/鐵路公司 (例如：長榮航空, 台灣高鐵)
+    code TEXT,                    -- 班次編號 (例如：BR192, 0648)
+    
+    -- 出發資訊
+    dep_station TEXT NOT NULL,    -- 出發站/機場 (如: TPE)
+    dep_date TEXT NOT NULL,       -- 出發日期 (YYYY-MM-DD)
+    dep_time TEXT NOT NULL,       -- 出發時間 (HH:mm)
+    dep_terminal TEXT,            -- 出發航廈/月台
+    dep_checkin_buffer INTEGER DEFAULT 120, -- 🛫 報到預留分鐘數
+    
+    -- 抵達資訊
+    arr_station TEXT NOT NULL,    -- 抵達站/機場 (如: NRT)
+    arr_date TEXT NOT NULL,       -- 抵達日期 (YYYY-MM-DD)
+    arr_time TEXT NOT NULL,       -- 抵達時間 (HH:mm)
+    arr_terminal TEXT,            -- 抵達航廈/月台
+    arr_exit_buffer INTEGER DEFAULT 60,   -- 🛬 出關/接駁預留分鐘數
+    
+    -- 其他資訊
+    order_id TEXT,                -- 訂購代號/預約編號
+    notes TEXT,                   -- 備註 (可在此自行輸入座位、行李限制等)
+    
+    -- 關聯
     FOREIGN KEY (trip_id) REFERENCES Trips(id) ON DELETE CASCADE
 );
 

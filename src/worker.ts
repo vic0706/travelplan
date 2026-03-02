@@ -72,10 +72,6 @@ app.get('/api/images/search', async (c) => {
   }
 });
 
-// Health Check
-app.get('/', (c) => c.text('Worker is running!'));
-app.get('/api/health', (c) => c.json({ status: 'ok', timestamp: new Date().toISOString() }));
-
 // GET /api/flights/lookup?code=BR192
 app.get('/api/flights/lookup', async (c) => {
   const inputCode = c.req.query('code') || '';
@@ -85,38 +81,37 @@ app.get('/api/flights/lookup', async (c) => {
   
   if (!code) return c.json({ error: '請輸入正確的航班編號' }, 400);
 
-  try {
-    // 呼叫 AviationStack (需在環境變數設定 FLIGHT_API_KEY)
-    const response = await fetch(
-      `http://api.aviationstack.com/v1/flights?access_key=${c.env.FLIGHT_API_KEY}&flight_iata=${code}`
-    );
+  // 呼叫 AviationStack (需在環境變數設定 FLIGHT_API_KEY)
+  const response = await fetch(
+    `http://api.aviationstack.com/v1/flights?access_key=${c.env.FLIGHT_API_KEY}&flight_iata=${code}`
+  );
 
-    const data = await response.json() as any;
-    
-    if (!data.data || data.data.length === 0) {
-      return c.json({ error: '找不到該航班資訊' }, 404);
-    }
-
-    // 取得最新的一筆航班紀錄
-    const f = data.data[0];
-
-    return c.json({
-      airline: f.airline.name,
-      flight_number: f.flight.iata,
-      departure_airport: f.departure.iata,
-      departure_terminal: f.departure.terminal,
-      departure_date: f.departure.scheduled.split('T')[0],
-      departure_time: f.departure.scheduled.split('T')[1].substring(0, 5),
-      arrival_airport: f.arrival.iata,
-      arrival_terminal: f.arrival.terminal,
-      arrival_date: f.arrival.scheduled.split('T')[0],
-      arrival_time: f.arrival.scheduled.split('T')[1].substring(0, 5),
-    });
-  } catch (error) {
-    console.error('Flight lookup error:', error);
-    return c.json({ error: 'Internal server error fetching flight data' }, 500);
+  const data = await response.json() as any;
+  
+  if (!data.data || data.data.length === 0) {
+    return c.json({ error: '找不到該航班資訊' }, 404);
   }
+
+  // 取得最新的一筆航班紀錄
+  const f = data.data[0];
+
+  return c.json({
+    airline: f.airline.name,
+    flight_number: f.flight.iata,
+    departure_airport: f.departure.iata,
+    departure_terminal: f.departure.terminal,
+    departure_date: f.departure.scheduled.split('T')[0],
+    departure_time: f.departure.scheduled.split('T')[1].substring(0, 5),
+    arrival_airport: f.arrival.iata,
+    arrival_terminal: f.arrival.terminal,
+    arrival_date: f.arrival.scheduled.split('T')[0],
+    arrival_time: f.arrival.scheduled.split('T')[1].substring(0, 5),
+  });
 });
+
+// Health Check
+app.get('/', (c) => c.text('Worker is running!'));
+app.get('/api/health', (c) => c.json({ status: 'ok', timestamp: new Date().toISOString() }));
 
 // Custom 404 for API
 app.notFound((c) => c.json({ error: 'API route not found' }, 404));
@@ -840,7 +835,7 @@ app.post('/api/trips/:id/weather/sync', async (c) => {
 app.get('/api/trips/:id/transportations', async (c) => {
   const tripId = c.req.param('id');
   try {
-    const { results } = await c.env.DB.prepare('SELECT * FROM Transportations WHERE trip_id = ? ORDER BY departure_date, departure_time').bind(tripId).all();
+    const { results } = await c.env.DB.prepare('SELECT * FROM Transportations WHERE trip_id = ? ORDER BY dep_date, dep_time').bind(tripId).all();
     return c.json(results);
   } catch (error: any) { return c.json({ error: error.message }, 500); }
 });
@@ -852,29 +847,45 @@ app.post('/api/trips/:id/transportations', async (c) => {
     if (!canEdit) return c.json({ error: 'Unauthorized' }, 403);
 
     const b = await c.req.json();
-    // id is AUTOINCREMENT, so we don't bind it.
+    // id is AUTOINCREMENT
     const info = await c.env.DB.prepare(`
-      INSERT INTO Transportations (trip_id, type, provider, transport_code, departure_date, departure_time, departure_station, departure_terminal, arrival_date, arrival_time, arrival_station, arrival_terminal, checkin_duration, exit_duration, stay_duration, notes)
+      INSERT INTO Transportations (trip_id, type, provider, code, dep_station, dep_date, dep_time, dep_terminal, dep_checkin_buffer, arr_station, arr_date, arr_time, arr_terminal, arr_exit_buffer, order_id, notes)
       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `).bind(tripId, b.type || 'FLIGHT', b.provider, b.transport_code, b.departure_date, b.departure_time, b.departure_station, b.departure_terminal, b.arrival_date, b.arrival_time, b.arrival_station, b.arrival_terminal, b.checkin_duration || 120, b.exit_duration || 60, b.stay_duration || 0, b.notes).run();
+    `).bind(
+      tripId, 
+      b.type || 'FLIGHT', 
+      b.provider, 
+      b.code, 
+      b.dep_station, 
+      b.dep_date,
+      b.dep_time,
+      b.dep_terminal,
+      b.dep_checkin_buffer || 120,
+      b.arr_station, 
+      b.arr_date,
+      b.arr_time,
+      b.arr_terminal,
+      b.arr_exit_buffer || 60,
+      b.order_id, 
+      b.notes
+    ).run();
     
     // @ts-ignore
     const transportId = info.meta.last_row_id;
 
     // Create Itinerary Item for Transportation
-    // Calculate Check-in Time (Departure - checkin_duration)
-    const depDateTime = new Date(`${b.departure_date}T${b.departure_time}`);
-    const checkinDuration = b.checkin_duration || 120; 
-    depDateTime.setMinutes(depDateTime.getMinutes() - checkinDuration);
+    // Calculate Check-in Time (Departure - checkin_buffer)
+    const depDateTime = new Date(`${b.dep_date}T${b.dep_time}`); 
+    const checkinBuffer = b.dep_checkin_buffer || 120; 
+    depDateTime.setMinutes(depDateTime.getMinutes() - checkinBuffer);
     const checkInDate = depDateTime.toISOString().split('T')[0];
     const checkInTime = depDateTime.toTimeString().substring(0, 5);
 
-    // Calculate Stay End Time (Arrival + exit_duration + stay_duration)
-    const arrDateTime = new Date(`${b.arrival_date}T${b.arrival_time}`);
-    const exitDuration = b.exit_duration || 60; 
-    const stayDuration = b.stay_duration || 0;
-    arrDateTime.setMinutes(arrDateTime.getMinutes() + exitDuration + stayDuration);
-    const stayEndTime = arrDateTime.toTimeString().substring(0, 5);
+    // Calculate Exit End Time (Arrival + exit_buffer)
+    const arrDateTime = new Date(`${b.arr_date}T${b.arr_time}`);
+    const exitBuffer = b.arr_exit_buffer || 60; 
+    arrDateTime.setMinutes(arrDateTime.getMinutes() + exitBuffer);
+    const exitEndTime = arrDateTime.toTimeString().substring(0, 5);
 
     await c.env.DB.prepare(`
       INSERT INTO Itineraries (trip_id, date, start_time, end_time, title, type, related_id, notes)
@@ -883,8 +894,8 @@ app.post('/api/trips/:id/transportations', async (c) => {
       tripId,
       checkInDate,
       checkInTime,
-      stayEndTime,
-      `${b.type || 'Transport'}: ${b.provider} ${b.transport_code}`,
+      exitEndTime,
+      `${b.type || 'Transport'}: ${b.provider} ${b.code}`,
       'TRANSPORTATION',
       transportId,
       b.notes || ''
@@ -905,22 +916,39 @@ app.put('/api/trips/:id/transportations/:transportId', async (c) => {
     
     await c.env.DB.prepare(`
       UPDATE Transportations 
-      SET type = ?, provider = ?, transport_code = ?, departure_date = ?, departure_time = ?, departure_station = ?, departure_terminal = ?, arrival_date = ?, arrival_time = ?, arrival_station = ?, arrival_terminal = ?, checkin_duration = ?, exit_duration = ?, stay_duration = ?, notes = ?
+      SET type = ?, provider = ?, code = ?, dep_station = ?, dep_date = ?, dep_time = ?, dep_terminal = ?, dep_checkin_buffer = ?, arr_station = ?, arr_date = ?, arr_time = ?, arr_terminal = ?, arr_exit_buffer = ?, order_id = ?, notes = ?
       WHERE id = ? AND trip_id = ?
-    `).bind(b.type || 'FLIGHT', b.provider, b.transport_code, b.departure_date, b.departure_time, b.departure_station, b.departure_terminal, b.arrival_date, b.arrival_time, b.arrival_station, b.arrival_terminal, b.checkin_duration || 120, b.exit_duration || 60, b.stay_duration || 0, b.notes, transportId, tripId).run();
+    `).bind(
+      b.type || 'FLIGHT', 
+      b.provider, 
+      b.code, 
+      b.dep_station, 
+      b.dep_date,
+      b.dep_time,
+      b.dep_terminal,
+      b.dep_checkin_buffer || 120,
+      b.arr_station, 
+      b.arr_date,
+      b.arr_time,
+      b.arr_terminal,
+      b.arr_exit_buffer || 60,
+      b.order_id, 
+      b.notes, 
+      transportId, 
+      tripId
+    ).run();
 
     // Update Itinerary Item
-    const depDateTime = new Date(`${b.departure_date}T${b.departure_time}`);
-    const checkinDuration = b.checkin_duration || 120; 
-    depDateTime.setMinutes(depDateTime.getMinutes() - checkinDuration);
+    const depDateTime = new Date(`${b.dep_date}T${b.dep_time}`);
+    const checkinBuffer = b.dep_checkin_buffer || 120; 
+    depDateTime.setMinutes(depDateTime.getMinutes() - checkinBuffer);
     const checkInDate = depDateTime.toISOString().split('T')[0];
     const checkInTime = depDateTime.toTimeString().substring(0, 5);
 
-    const arrDateTime = new Date(`${b.arrival_date}T${b.arrival_time}`);
-    const exitDuration = b.exit_duration || 60;
-    const stayDuration = b.stay_duration || 0;
-    arrDateTime.setMinutes(arrDateTime.getMinutes() + exitDuration + stayDuration);
-    const stayEndTime = arrDateTime.toTimeString().substring(0, 5);
+    const arrDateTime = new Date(`${b.arr_date}T${b.arr_time}`);
+    const exitBuffer = b.arr_exit_buffer || 60;
+    arrDateTime.setMinutes(arrDateTime.getMinutes() + exitBuffer);
+    const exitEndTime = arrDateTime.toTimeString().substring(0, 5);
 
     await c.env.DB.prepare(`
       UPDATE Itineraries 
@@ -929,8 +957,8 @@ app.put('/api/trips/:id/transportations/:transportId', async (c) => {
     `).bind(
       checkInDate,
       checkInTime,
-      stayEndTime,
-      `${b.type || 'Transport'}: ${b.provider} ${b.transport_code}`,
+      exitEndTime,
+      `${b.type || 'Transport'}: ${b.provider} ${b.code}`,
       b.notes || '',
       transportId,
       tripId

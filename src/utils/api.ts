@@ -3,8 +3,14 @@ import { useAppStore } from '../store';
 export const getApiUrl = (path: string): string => {
   const cleanPath = path.startsWith('/') ? path : `/${path}`;
   
-  // Use relative path for local development with Express/Vite
-  // In production, this will also work if served from the same domain
+  // Use VITE_WORKER_URL if provided, otherwise fallback to relative path
+  const workerUrl = import.meta.env.VITE_WORKER_URL;
+  if (workerUrl) {
+    // Ensure workerUrl doesn't end with a slash and cleanPath starts with one
+    const baseUrl = workerUrl.endsWith('/') ? workerUrl.slice(0, -1) : workerUrl;
+    return `${baseUrl}${cleanPath}`;
+  }
+  
   return cleanPath;
 };
 

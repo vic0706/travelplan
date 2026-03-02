@@ -25,16 +25,16 @@ import { motion, AnimatePresence } from 'framer-motion';
 function TransportationCard({ item, transportation, canEdit, onEdit }: { item?: Itinerary; transportation?: Transportation; canEdit: boolean; onEdit: () => void }) {
   if (!transportation) return null;
 
-  const depDate = parseISO(transportation.departure_date);
-  const arrDate = parseISO(transportation.arrival_date);
-  const isCrossDay = transportation.departure_date !== transportation.arrival_date;
+  const depDate = parseISO(transportation.dep_time);
+  const arrDate = parseISO(transportation.arr_time);
+  const isCrossDay = !isSameDay(depDate, arrDate);
   
   const getIcon = () => {
     switch (transportation.type) {
       case 'TRAIN': return Train;
-      case 'BOAT': return Ship;
+      case 'FERRY': return Ship;
       case 'BUS': return Bus;
-      case 'OTHER': return Car;
+      case 'DRIVING': return Car;
       default: return Plane;
     }
   };
@@ -45,8 +45,7 @@ function TransportationCard({ item, transportation, canEdit, onEdit }: { item?: 
     switch (transportation.type) {
       case 'FLIGHT': return { station: 'Airport', terminal: 'Terminal' };
       case 'TRAIN': return { station: 'Station', terminal: 'Platform' };
-      case 'BOAT': return { station: 'Port', terminal: 'Pier' };
-      case 'BUS': return { station: 'Station', terminal: 'Platform' };
+      case 'FERRY': return { station: 'Port', terminal: 'Pier' };
       default: return { station: 'Location', terminal: 'Point' };
     }
   };
@@ -69,7 +68,7 @@ function TransportationCard({ item, transportation, canEdit, onEdit }: { item?: 
           </div>
           <div>
             <div className="text-white font-bold text-lg">{transportation.provider}</div>
-            <div className="text-zinc-500 text-xs font-mono tracking-wider">{transportation.transport_code}</div>
+            <div className="text-zinc-500 text-xs font-mono tracking-wider">{transportation.code}</div>
           </div>
         </div>
         <div className="flex items-center gap-2">
@@ -87,12 +86,12 @@ function TransportationCard({ item, transportation, canEdit, onEdit }: { item?: 
       <div className="p-5">
         <div className="flex items-center justify-between mb-6">
           <div className="flex-1">
-            <div className="text-2xl font-bold text-white">{transportation.departure_station}</div>
-            <div className="text-sm font-medium text-zinc-300 mt-0.5">{transportation.departure_time}</div>
-            {transportation.departure_terminal && (
+            <div className="text-2xl font-bold text-white">{transportation.dep_station}</div>
+            <div className="text-sm font-medium text-zinc-300 mt-0.5">{format(depDate, 'HH:mm')}</div>
+            {transportation.dep_terminal && (
               <div className="mt-2 inline-flex items-center gap-1 px-2 py-0.5 bg-zinc-800 rounded-md border border-zinc-700">
                 <span className="text-[10px] text-zinc-500 font-bold uppercase">{labels.terminal}</span>
-                <span className="text-xs font-bold text-orange-500">{transportation.departure_terminal}</span>
+                <span className="text-xs font-bold text-orange-500">{transportation.dep_terminal}</span>
               </div>
             )}
           </div>
@@ -104,12 +103,12 @@ function TransportationCard({ item, transportation, canEdit, onEdit }: { item?: 
           </div>
 
           <div className="flex-1 text-right">
-            <div className="text-2xl font-bold text-white">{transportation.arrival_station}</div>
-            <div className="text-sm font-medium text-zinc-300 mt-0.5">{transportation.arrival_time}</div>
-            {transportation.arrival_terminal && (
+            <div className="text-2xl font-bold text-white">{transportation.arr_station}</div>
+            <div className="text-sm font-medium text-zinc-300 mt-0.5">{format(arrDate, 'HH:mm')}</div>
+            {transportation.arr_terminal && (
               <div className="mt-2 inline-flex items-center gap-1 px-2 py-0.5 bg-zinc-800 rounded-md border border-zinc-700">
                 <span className="text-[10px] text-zinc-500 font-bold uppercase">{labels.terminal}</span>
-                <span className="text-xs font-bold text-orange-500">{transportation.arrival_terminal}</span>
+                <span className="text-xs font-bold text-orange-500">{transportation.arr_terminal}</span>
               </div>
             )}
           </div>
@@ -133,14 +132,14 @@ function TransportationCard({ item, transportation, canEdit, onEdit }: { item?: 
               <div className="flex flex-col items-center gap-2 relative z-10 group/point">
                 <div className="text-[10px] text-zinc-500 uppercase tracking-wider opacity-0 group-hover/point:opacity-100 transition-opacity absolute -top-6 whitespace-nowrap">Departure</div>
                 <div className="w-3 h-3 rounded-full bg-zinc-500 border-2 border-zinc-900 group-hover/point:bg-orange-500 transition-colors"></div>
-                <div className="text-xs font-mono text-zinc-300">{transportation.departure_time}</div>
+                <div className="text-xs font-mono text-zinc-300">{format(depDate, 'HH:mm')}</div>
               </div>
 
               {/* Arrival */}
               <div className="flex flex-col items-center gap-2 relative z-10 group/point">
                 <div className="text-[10px] text-zinc-500 uppercase tracking-wider opacity-0 group-hover/point:opacity-100 transition-opacity absolute -top-6 whitespace-nowrap">Arrival</div>
                 <div className="w-3 h-3 rounded-full bg-zinc-500 border-2 border-zinc-900 group-hover/point:bg-orange-500 transition-colors"></div>
-                <div className="text-xs font-mono text-zinc-300">{transportation.arrival_time}</div>
+                <div className="text-xs font-mono text-zinc-300">{format(arrDate, 'HH:mm')}</div>
               </div>
 
               {/* Stay End */}
@@ -159,7 +158,7 @@ function TransportationCard({ item, transportation, canEdit, onEdit }: { item?: 
              {item?.notes || transportation.notes}
            </div>
            <a 
-            href={`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(transportation.departure_station + ' ' + labels.station)}`}
+            href={`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(transportation.dep_station + ' ' + labels.station)}`}
             target="_blank"
             rel="noopener noreferrer"
             onClick={(e) => e.stopPropagation()}

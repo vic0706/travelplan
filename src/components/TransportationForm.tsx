@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { X, Plane, Calendar, Clock, MapPin, FileText, Loader2, Trash2, Train, Ship, Bus, Car, Search } from 'lucide-react';
+import { X, Plane, Train, Ship, Search, Hash, Loader2, Trash2 } from 'lucide-react';
 import { format } from 'date-fns';
 import { DatePicker } from './DatePicker';
 import { TimePicker } from './TimePicker';
@@ -17,31 +17,65 @@ interface TransportationFormProps {
 const TRANSPORT_TYPES = [
   { id: 'FLIGHT', label: 'Flight', icon: Plane },
   { id: 'TRAIN', label: 'Train', icon: Train },
-  { id: 'BOAT', label: 'Boat', icon: Ship },
-  { id: 'BUS', label: 'Bus', icon: Bus },
-  { id: 'OTHER', label: 'Other', icon: Car },
+  { id: 'FERRY', label: 'Ferry', icon: Ship },
 ] as const;
 
 export function TransportationForm({ tripId, onSuccess, onCancel, onDelete, initialData }: TransportationFormProps) {
   const [loading, setLoading] = useState(false);
-  const [lookupLoading, setLookupLoading] = useState(false);
+  const [searching, setSearching] = useState(false);
+  const [step, setStep] = useState(initialData ? 'form' : 'select');
+  
   const [formData, setFormData] = useState({
     type: initialData?.type || 'FLIGHT',
     provider: initialData?.provider || '',
-    transport_code: initialData?.transport_code || '',
-    departure_date: initialData?.departure_date || '',
-    departure_time: initialData?.departure_time || '',
-    departure_station: initialData?.departure_station || '',
-    departure_terminal: initialData?.departure_terminal || '',
-    checkin_duration: initialData?.checkin_duration || 120,
-    arrival_date: initialData?.arrival_date || '',
-    arrival_time: initialData?.arrival_time || '',
-    arrival_station: initialData?.arrival_station || '',
-    arrival_terminal: initialData?.arrival_terminal || '',
-    exit_duration: initialData?.exit_duration || 60,
-    stay_duration: initialData?.stay_duration || 0,
-    notes: initialData?.notes || ''
+    code: initialData?.code || '',
+    dep_station: initialData?.dep_station || '',
+    dep_date: initialData?.dep_date || format(new Date(), 'yyyy-MM-dd'),
+    dep_time: initialData?.dep_time || '10:00',
+    dep_terminal: initialData?.dep_terminal || '',
+    dep_checkin_buffer: initialData?.dep_checkin_buffer || 120,
+    arr_station: initialData?.arr_station || '',
+    arr_date: initialData?.arr_date || format(new Date(), 'yyyy-MM-dd'),
+    arr_time: initialData?.arr_time || '14:00',
+    arr_terminal: initialData?.arr_terminal || '',
+    arr_exit_buffer: initialData?.arr_exit_buffer || 60,
+    order_id: initialData?.order_id || '',
+    notes: initialData?.notes || '',
   });
+
+  const handleSearchFlight = async () => {
+    if (!formData.code) return;
+    setSearching(true);
+    try {
+      const res = await apiFetch(`/api/flights/lookup?code=${encodeURIComponent(formData.code)}`);
+      if (!res.ok) {
+        const err = await res.json() as { error?: string };
+        alert(err.error || 'Flight not found');
+        return;
+      }
+      const data = await res.json() as any;
+      
+      setFormData(prev => ({
+        ...prev,
+        provider: data.airline || prev.provider,
+        dep_station: data.departure_airport || prev.dep_station,
+        dep_date: data.departure_date || prev.dep_date,
+        dep_time: data.departure_time || prev.dep_time,
+        dep_terminal: data.departure_terminal || prev.dep_terminal,
+        arr_station: data.arrival_airport || prev.arr_station,
+        arr_date: data.arrival_date || prev.arr_date,
+        arr_time: data.arrival_time || prev.arr_time,
+        arr_terminal: data.arrival_terminal || prev.arr_terminal,
+      }));
+
+      alert(`航班資訊已參考 ${format(new Date(), 'yyyy-MM-dd')} 自動填入。`);
+    } catch (error) {
+      console.error(error);
+      alert('Failed to lookup flight');
+    } finally {
+      setSearching(false);
+    }
+  };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -66,47 +100,44 @@ export function TransportationForm({ tripId, onSuccess, onCancel, onDelete, init
     }
   };
 
-  const handleFlightLookup = async () => {
-    if (!formData.transport_code) return;
-    setLookupLoading(true);
-    try {
-      const res = await apiFetch(`/api/flights/lookup?code=${encodeURIComponent(formData.transport_code)}`);
-      if (!res.ok) {
-        throw new Error('找不到航班資訊，請手動填入');
-      }
-      const data: any = await res.json();
-      setFormData(prev => ({
-        ...prev,
-        provider: data.airline || prev.provider,
-        transport_code: data.flight_number || prev.transport_code,
-        departure_station: data.departure_airport || prev.departure_station,
-        departure_terminal: data.departure_terminal || prev.departure_terminal,
-        departure_date: data.departure_date || prev.departure_date,
-        departure_time: data.departure_time || prev.departure_time,
-        arrival_station: data.arrival_airport || prev.arrival_station,
-        arrival_terminal: data.arrival_terminal || prev.arrival_terminal,
-        arrival_date: data.arrival_date || prev.arrival_date,
-        arrival_time: data.arrival_time || prev.arrival_time,
-      }));
-    } catch (error: any) {
-      alert(error.message || '找不到航班資訊，請手動填入');
-    } finally {
-      setLookupLoading(false);
-    }
-  };
-
   const getLabels = () => {
     switch (formData.type) {
       case 'FLIGHT': return { provider: 'Airline', code: 'Flight No.', station: 'Airport', terminal: 'Terminal' };
       case 'TRAIN': return { provider: 'Operator', code: 'Train No.', station: 'Station', terminal: 'Platform' };
-      case 'BOAT': return { provider: 'Operator', code: 'Vessel/Ferry', station: 'Port', terminal: 'Pier' };
-      case 'BUS': return { provider: 'Operator', code: 'Bus No.', station: 'Station', terminal: 'Platform' };
+      case 'FERRY': return { provider: 'Operator', code: 'Vessel', station: 'Port', terminal: 'Pier' };
       default: return { provider: 'Provider', code: 'Reference', station: 'Location', terminal: 'Point' };
     }
   };
 
   const labels = getLabels();
+  // @ts-ignore
   const CurrentIcon = TRANSPORT_TYPES.find(t => t.id === formData.type)?.icon || Plane;
+
+  if (step === 'select') {
+    return (
+      <div className="bg-zinc-900 border border-zinc-800 rounded-3xl overflow-hidden shadow-2xl p-6">
+        <div className="flex justify-between items-center mb-6">
+          <h3 className="text-lg font-semibold text-white">Select Transportation</h3>
+          <button onClick={onCancel} className="p-2 hover:bg-zinc-800 rounded-full text-zinc-400">
+            <X size={20} />
+          </button>
+        </div>
+        <div className="grid grid-cols-3 gap-4">
+          {TRANSPORT_TYPES.map(type => (
+            <button
+              key={type.id}
+              // @ts-ignore
+              onClick={() => { setFormData({ ...formData, type: type.id }); setStep('form'); }}
+              className="flex flex-col items-center gap-3 p-6 rounded-2xl bg-zinc-800 hover:bg-zinc-700 transition-colors border border-zinc-700 hover:border-orange-500 group"
+            >
+              <type.icon size={32} className="text-zinc-400 group-hover:text-orange-500 transition-colors" />
+              <span className="text-sm font-bold text-white">{type.label}</span>
+            </button>
+          ))}
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="bg-zinc-900 border border-zinc-800 rounded-3xl overflow-hidden shadow-2xl max-h-[90vh] overflow-y-auto pb-safe-bottom">
@@ -121,25 +152,6 @@ export function TransportationForm({ tripId, onSuccess, onCancel, onDelete, init
       </div>
 
       <form onSubmit={handleSubmit} className="p-6 space-y-6">
-        {/* Type Selection */}
-        <div className="grid grid-cols-5 gap-2">
-          {TRANSPORT_TYPES.map(type => (
-            <button
-              key={type.id}
-              type="button"
-              onClick={() => setFormData({ ...formData, type: type.id })}
-              className={`flex flex-col items-center gap-1 p-2 rounded-xl border transition-all ${
-                formData.type === type.id
-                  ? 'bg-orange-500/20 border-orange-500 text-orange-500'
-                  : 'bg-zinc-950 border-zinc-800 text-zinc-500 hover:bg-zinc-800'
-              }`}
-            >
-              <type.icon size={20} />
-              <span className="text-[10px] font-bold uppercase">{type.label}</span>
-            </button>
-          ))}
-        </div>
-
         {/* Provider & Code */}
         <div className="grid grid-cols-2 gap-4">
           <div className="space-y-2">
@@ -153,26 +165,26 @@ export function TransportationForm({ tripId, onSuccess, onCancel, onDelete, init
               placeholder={`e.g. ${formData.type === 'FLIGHT' ? 'EVA Air' : 'Amtrak'}`}
             />
           </div>
-          <div className="space-y-2">
+          <div className="space-y-2 relative">
             <label className="text-xs font-bold text-zinc-500 uppercase tracking-wider">{labels.code}</label>
             <div className="relative">
               <input
                 type="text"
                 required
-                value={formData.transport_code}
-                onChange={e => setFormData({ ...formData, transport_code: e.target.value })}
-                className="w-full bg-zinc-950 border border-zinc-800 rounded-xl px-4 py-3 pr-12 text-white focus:outline-none focus:border-orange-500 transition-colors"
+                value={formData.code}
+                onChange={e => setFormData({ ...formData, code: e.target.value })}
+                className="w-full bg-zinc-950 border border-zinc-800 rounded-xl pl-4 pr-12 py-3 text-white focus:outline-none focus:border-orange-500 transition-colors"
                 placeholder={`e.g. ${formData.type === 'FLIGHT' ? 'BR123' : '101'}`}
               />
               {formData.type === 'FLIGHT' && (
                 <button
                   type="button"
-                  onClick={handleFlightLookup}
-                  disabled={lookupLoading || !formData.transport_code}
-                  className="absolute right-2 top-1/2 -translate-y-1/2 p-2 text-zinc-400 hover:text-orange-500 disabled:opacity-50 transition-colors"
-                  title="查詢航班資訊"
+                  onClick={handleSearchFlight}
+                  disabled={searching || !formData.code}
+                  className="absolute right-2 top-1/2 -translate-y-1/2 p-2 text-zinc-400 hover:text-white disabled:opacity-50"
+                  title="Search Flight"
                 >
-                  {lookupLoading ? <Loader2 size={18} className="animate-spin" /> : <Search size={18} />}
+                  {searching ? <Loader2 className="animate-spin" size={18} /> : <Search size={18} />}
                 </button>
               )}
             </div>
@@ -186,15 +198,15 @@ export function TransportationForm({ tripId, onSuccess, onCancel, onDelete, init
           <div className="space-y-2">
              <label className="text-xs font-bold text-zinc-500 uppercase tracking-wider flex justify-between">
                <span>Check-in Buffer</span>
-               <span className="text-orange-500">{formData.checkin_duration} min</span>
+               <span className="text-orange-500">{formData.dep_checkin_buffer} min</span>
              </label>
              <input 
                type="range" 
                min="0" 
                max="240" 
                step="15"
-               value={formData.checkin_duration}
-               onChange={(e) => setFormData({...formData, checkin_duration: parseInt(e.target.value)})}
+               value={formData.dep_checkin_buffer}
+               onChange={(e) => setFormData({...formData, dep_checkin_buffer: parseInt(e.target.value)})}
                className="w-full h-2 bg-zinc-800 rounded-lg appearance-none cursor-pointer accent-orange-500"
              />
           </div>
@@ -203,15 +215,15 @@ export function TransportationForm({ tripId, onSuccess, onCancel, onDelete, init
             <div className="space-y-2">
               <DatePicker
                 label="Date"
-                value={formData.departure_date ? new Date(formData.departure_date) : null}
-                onChange={date => setFormData({ ...formData, departure_date: format(date, 'yyyy-MM-dd') })}
+                value={formData.dep_date ? new Date(formData.dep_date) : null}
+                onChange={date => setFormData({ ...formData, dep_date: format(date, 'yyyy-MM-dd') })}
               />
             </div>
             <div className="space-y-2">
               <TimePicker
                 label="Time"
-                value={formData.departure_time}
-                onChange={time => setFormData({ ...formData, departure_time: time })}
+                value={formData.dep_time}
+                onChange={time => setFormData({ ...formData, dep_time: time })}
               />
             </div>
           </div>
@@ -221,8 +233,8 @@ export function TransportationForm({ tripId, onSuccess, onCancel, onDelete, init
               <input
                 type="text"
                 required
-                value={formData.departure_station}
-                onChange={e => setFormData({ ...formData, departure_station: e.target.value })}
+                value={formData.dep_station}
+                onChange={e => setFormData({ ...formData, dep_station: e.target.value })}
                 className="w-full bg-zinc-900 border border-zinc-800 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-orange-500 transition-colors"
                 placeholder="e.g. TPE"
               />
@@ -231,8 +243,8 @@ export function TransportationForm({ tripId, onSuccess, onCancel, onDelete, init
               <label className="text-xs font-bold text-zinc-500 uppercase tracking-wider">{labels.terminal}</label>
               <input
                 type="text"
-                value={formData.departure_terminal}
-                onChange={e => setFormData({ ...formData, departure_terminal: e.target.value })}
+                value={formData.dep_terminal}
+                onChange={e => setFormData({ ...formData, dep_terminal: e.target.value })}
                 className="w-full bg-zinc-900 border border-zinc-800 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-orange-500 transition-colors"
                 placeholder="e.g. 2"
               />
@@ -244,52 +256,35 @@ export function TransportationForm({ tripId, onSuccess, onCancel, onDelete, init
         <div className="space-y-4 border border-zinc-800/50 rounded-2xl p-4 bg-zinc-950/30">
           <h4 className="text-sm font-semibold text-orange-500 uppercase tracking-wider">Arrival</h4>
           
-          <div className="grid grid-cols-2 gap-4">
-            <div className="space-y-2">
-               <label className="text-xs font-bold text-zinc-500 uppercase tracking-wider flex justify-between">
-                 <span>Exit Buffer</span>
-                 <span className="text-orange-500">{formData.exit_duration} min</span>
-               </label>
-               <input 
-                 type="range" 
-                 min="0" 
-                 max="240" 
-                 step="15"
-                 value={formData.exit_duration}
-                 onChange={(e) => setFormData({...formData, exit_duration: parseInt(e.target.value)})}
-                 className="w-full h-2 bg-zinc-800 rounded-lg appearance-none cursor-pointer accent-orange-500"
-               />
-            </div>
-            <div className="space-y-2">
-               <label className="text-xs font-bold text-zinc-500 uppercase tracking-wider flex justify-between">
-                 <span>Stay Time</span>
-                 <span className="text-orange-500">{formData.stay_duration} min</span>
-               </label>
-               <input 
-                 type="range" 
-                 min="0" 
-                 max="240" 
-                 step="15"
-                 value={formData.stay_duration}
-                 onChange={(e) => setFormData({...formData, stay_duration: parseInt(e.target.value)})}
-                 className="w-full h-2 bg-zinc-800 rounded-lg appearance-none cursor-pointer accent-orange-500"
-               />
-            </div>
+          <div className="space-y-2">
+             <label className="text-xs font-bold text-zinc-500 uppercase tracking-wider flex justify-between">
+               <span>Exit Buffer</span>
+               <span className="text-orange-500">{formData.arr_exit_buffer} min</span>
+             </label>
+             <input 
+               type="range" 
+               min="0" 
+               max="240" 
+               step="15"
+               value={formData.arr_exit_buffer}
+               onChange={(e) => setFormData({...formData, arr_exit_buffer: parseInt(e.target.value)})}
+               className="w-full h-2 bg-zinc-800 rounded-lg appearance-none cursor-pointer accent-orange-500"
+             />
           </div>
 
           <div className="grid grid-cols-2 gap-4">
             <div className="space-y-2">
               <DatePicker
                 label="Date"
-                value={formData.arrival_date ? new Date(formData.arrival_date) : null}
-                onChange={date => setFormData({ ...formData, arrival_date: format(date, 'yyyy-MM-dd') })}
+                value={formData.arr_date ? new Date(formData.arr_date) : null}
+                onChange={date => setFormData({ ...formData, arr_date: format(date, 'yyyy-MM-dd') })}
               />
             </div>
             <div className="space-y-2">
               <TimePicker
                 label="Time"
-                value={formData.arrival_time}
-                onChange={time => setFormData({ ...formData, arrival_time: time })}
+                value={formData.arr_time}
+                onChange={time => setFormData({ ...formData, arr_time: time })}
               />
             </div>
           </div>
@@ -299,8 +294,8 @@ export function TransportationForm({ tripId, onSuccess, onCancel, onDelete, init
               <input
                 type="text"
                 required
-                value={formData.arrival_station}
-                onChange={e => setFormData({ ...formData, arrival_station: e.target.value })}
+                value={formData.arr_station}
+                onChange={e => setFormData({ ...formData, arr_station: e.target.value })}
                 className="w-full bg-zinc-900 border border-zinc-800 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-orange-500 transition-colors"
                 placeholder="e.g. NRT"
               />
@@ -309,13 +304,27 @@ export function TransportationForm({ tripId, onSuccess, onCancel, onDelete, init
               <label className="text-xs font-bold text-zinc-500 uppercase tracking-wider">{labels.terminal}</label>
               <input
                 type="text"
-                value={formData.arrival_terminal}
-                onChange={e => setFormData({ ...formData, arrival_terminal: e.target.value })}
+                value={formData.arr_terminal}
+                onChange={e => setFormData({ ...formData, arr_terminal: e.target.value })}
                 className="w-full bg-zinc-900 border border-zinc-800 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-orange-500 transition-colors"
                 placeholder="e.g. 1"
               />
             </div>
           </div>
+        </div>
+
+        {/* Order Info */}
+        <div className="space-y-2">
+          <label className="text-xs font-bold text-zinc-500 uppercase tracking-wider flex items-center gap-1">
+            <Hash size={12} /> Order ID
+          </label>
+          <input
+            type="text"
+            value={formData.order_id}
+            onChange={e => setFormData({ ...formData, order_id: e.target.value })}
+            className="w-full bg-zinc-950 border border-zinc-800 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-orange-500 transition-colors"
+            placeholder="e.g. #123456"
+          />
         </div>
 
         {/* Notes */}
@@ -325,7 +334,7 @@ export function TransportationForm({ tripId, onSuccess, onCancel, onDelete, init
             value={formData.notes}
             onChange={e => setFormData({ ...formData, notes: e.target.value })}
             className="w-full bg-zinc-950 border border-zinc-800 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-orange-500 transition-colors min-h-[80px]"
-            placeholder="Booking reference, seat number, etc."
+            placeholder="Additional notes..."
           />
         </div>
 

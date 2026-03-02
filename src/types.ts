@@ -87,20 +87,25 @@ export interface Expense {
 export interface Transportation {
   id: number;
   trip_id: number;
-  type: 'FLIGHT' | 'TRAIN' | 'BOAT' | 'BUS' | 'OTHER';
-  provider: string; // airline, train company, etc.
-  transport_code: string; // flight number, train number, etc.
-  departure_date: string;
-  departure_time: string;
-  departure_station?: string; // airport, station, port
-  departure_terminal?: string;
-  checkin_duration?: number; // Minutes
-  arrival_date: string;
-  arrival_time: string;
-  arrival_station?: string; // airport, station, port
-  arrival_terminal?: string;
-  exit_duration?: number; // Minutes
-  stay_duration?: number; // Minutes
+  type: 'FLIGHT' | 'TRAIN' | 'BUS' | 'FERRY' | 'DRIVING';
+  provider?: string;
+  code?: string;
+  
+  // Departure
+  dep_station: string;
+  dep_date: string; // YYYY-MM-DD
+  dep_time: string; // HH:mm
+  dep_terminal?: string;
+  dep_checkin_buffer?: number; // Minutes
+
+  // Arrival
+  arr_station: string;
+  arr_date: string; // YYYY-MM-DD
+  arr_time: string; // HH:mm
+  arr_terminal?: string;
+  arr_exit_buffer?: number; // Minutes
+
+  order_id?: string;
   notes?: string;
 }
 

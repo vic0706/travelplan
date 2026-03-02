@@ -17,14 +17,14 @@ export class TravelPlanDB extends Dexie {
 
   constructor() {
     super('TravelPlanDB');
-    this.version(4).stores({
+    this.version(5).stores({
       users: 'id, role, allow_login',
       trips: 'id, title, start_date, end_date, visible_status, is_public, last_accessed',
       tripMembers: '[trip_id+user_id], trip_id, user_id',
       itineraries: 'id, trip_id, date, start_time',
       subItineraries: 'id, itinerary_id, start_time',
       expenses: 'id, trip_id, date, payer_id',
-      transportations: 'id, trip_id, departure_date, type',
+      transportations: 'id, trip_id, dep_date, type',
       accommodations: 'id, trip_id, check_in_date',
       appSettings: 'id, key_name'
     });

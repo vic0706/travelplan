@@ -177,7 +177,20 @@ async function startServer() {
         FLIGHT_API_KEY: process.env.FLIGHT_API_KEY
       };
 
-      const honoRes = await honoApp.fetch(honoReq, env as any);
+      const workerUrl = process.env.VITE_WORKER_URL;
+      let honoRes: Response;
+
+      if (workerUrl && !workerUrl.includes('localhost')) {
+        console.log(`[Proxy] Forwarding to external worker: ${workerUrl}`);
+        const remoteUrl = new URL(req.originalUrl, workerUrl);
+        honoRes = await fetch(remoteUrl.toString(), {
+          method: req.method,
+          headers,
+          body
+        });
+      } else {
+        honoRes = await honoApp.fetch(honoReq, env as any);
+      }
       
       res.status(honoRes.status);
       

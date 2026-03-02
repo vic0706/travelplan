@@ -71,11 +71,11 @@ export function ItineraryForm({ tripId, defaultCityId, date, onSuccess, onCancel
     
     transportations.forEach(t => {
       // Calculate absolute start/end
-      const depDateTime = new Date(`${t.departure_date}T${t.departure_time}`);
-      const blockedStart = subMinutes(depDateTime, t.checkin_duration || 0);
+      const depDateTime = new Date(`${t.dep_date}T${t.dep_time}`);
+      const blockedStart = subMinutes(depDateTime, t.dep_checkin_buffer || 0);
       
-      const arrDateTime = new Date(`${t.arrival_date}T${t.arrival_time}`);
-      const blockedEnd = addMinutes(arrDateTime, (t.exit_duration || 0) + (t.stay_duration || 0));
+      const arrDateTime = new Date(`${t.arr_date}T${t.arr_time}`);
+      const blockedEnd = addMinutes(arrDateTime, t.arr_exit_buffer || 0);
       
       // Check if this blocked period overlaps with targetDate (00:00 to 23:59)
       const dayStart = new Date(`${date}T00:00`);
@@ -96,7 +96,7 @@ export function ItineraryForm({ tripId, defaultCityId, date, onSuccess, onCancel
         ranges.push({ 
           start: rangeStart, 
           end: rangeEnd, 
-          transportInfo: `${t.provider} ${t.transport_code}` 
+          transportInfo: `${t.provider} ${t.code}` 
         });
       }
     });
@@ -164,9 +164,10 @@ export function ItineraryForm({ tripId, defaultCityId, date, onSuccess, onCancel
     // Transportation Overlap Check
     const overlappingTransport = checkTransportationOverlap(formData.start_time, formData.end_time);
     if (overlappingTransport) {
-      setError(`This time range overlaps with transportation ${overlappingTransport} (including check-in and stay time).`);
-      setLoading(false);
-      return;
+      if (!confirm(`This time range overlaps with transportation ${overlappingTransport} (including check-in and stay time). Do you want to continue?`)) {
+        setLoading(false);
+        return;
+      }
     }
 
     // Sub-item Time Validation
