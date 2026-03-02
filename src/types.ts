@@ -1,6 +1,5 @@
 export interface User {
   id: number;
-  username?: string;
   role: string;
   name: string;
   avatar_url: string;
@@ -56,7 +55,7 @@ export interface Itinerary {
   tags: string[]; // Parsed from JSON
   sub_items?: string; // JSON string of sub-items (Legacy, but kept for compatibility if needed, or we can remove if we fully switch)
   stay_duration?: string;
-  type?: 'GENERAL' | 'FLIGHT' | 'ACCOMMODATION';
+  type?: 'GENERAL' | 'TRANSPORTATION' | 'ACCOMMODATION';
   related_id?: number;
 }
 
@@ -85,19 +84,20 @@ export interface Expense {
   updated_at?: number;
 }
 
-export interface Flight {
+export interface Transportation {
   id: number;
   trip_id: number;
-  airline: string;
-  flight_code: string;
+  type: 'FLIGHT' | 'TRAIN' | 'BOAT' | 'BUS' | 'OTHER';
+  provider: string; // airline, train company, etc.
+  transport_code: string; // flight number, train number, etc.
   departure_date: string;
   departure_time: string;
-  departure_airport?: string;
+  departure_station?: string; // airport, station, port
   departure_terminal?: string;
   checkin_duration?: number; // Minutes
   arrival_date: string;
   arrival_time: string;
-  arrival_airport?: string;
+  arrival_station?: string; // airport, station, port
   arrival_terminal?: string;
   exit_duration?: number; // Minutes
   stay_duration?: number; // Minutes

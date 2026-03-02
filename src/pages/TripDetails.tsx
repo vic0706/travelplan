@@ -2,8 +2,8 @@ import React, { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useAppStore } from '../store';
 import { format, parseISO, addDays, differenceInDays, isSameDay, isPast } from 'date-fns';
-import { MapPin, Clock, Plus, Navigation, DollarSign, Plane, Bed, Map, Info, Wallet, ArrowLeft, Calendar, X, Settings, Edit3, ChevronDown, ChevronUp, Image as ImageIcon, Lock, Unlock, Trash2 } from 'lucide-react';
-import { Trip, Itinerary, Expense, User } from '../types';
+import { MapPin, Clock, Plus, Navigation, DollarSign, Plane, Bed, Map, Info, Wallet, ArrowLeft, Calendar, X, Settings, Edit3, ChevronDown, ChevronUp, Image as ImageIcon, Lock, Unlock, Trash2, Train, Ship, Bus, Car } from 'lucide-react';
+import { Trip, Itinerary, Expense, User, Transportation } from '../types';
 import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip } from 'recharts';
 import { clsx } from 'clsx';
 import { db } from '../db';
@@ -13,7 +13,7 @@ import { FinanceForm } from '../components/FinanceForm';
 import { ItineraryForm } from '../components/ItineraryForm';
 import { TripSettingsForm } from '../components/TripSettingsForm';
 import { WeatherWidget } from '../components/WeatherWidget';
-import { FlightForm } from '../components/FlightForm';
+import { TransportationForm } from '../components/TransportationForm';
 import { AccommodationForm } from '../components/AccommodationForm';
 import { FinanceOverview } from '../components/FinanceOverview';
 import { ConfirmDialog } from '../components/ConfirmDialog';
@@ -21,14 +21,38 @@ import { motion, AnimatePresence } from 'framer-motion';
 
 // ... (rest of imports)
 
-// Flight Card Component
-function FlightCard({ item, flight, canEdit, onEdit }: { item?: Itinerary; flight?: any; canEdit: boolean; onEdit: () => void }) {
-  if (!flight) return null;
+// Transportation Card Component
+function TransportationCard({ item, transportation, canEdit, onEdit }: { item?: Itinerary; transportation?: Transportation; canEdit: boolean; onEdit: () => void }) {
+  if (!transportation) return null;
 
-  const depDate = parseISO(flight.departure_date);
-  const arrDate = parseISO(flight.arrival_date);
-  const isCrossDay = flight.departure_date !== flight.arrival_date;
+  const depDate = parseISO(transportation.departure_date);
+  const arrDate = parseISO(transportation.arrival_date);
+  const isCrossDay = transportation.departure_date !== transportation.arrival_date;
   
+  const getIcon = () => {
+    switch (transportation.type) {
+      case 'TRAIN': return Train;
+      case 'BOAT': return Ship;
+      case 'BUS': return Bus;
+      case 'OTHER': return Car;
+      default: return Plane;
+    }
+  };
+
+  const Icon = getIcon();
+
+  const getLabels = () => {
+    switch (transportation.type) {
+      case 'FLIGHT': return { station: 'Airport', terminal: 'Terminal' };
+      case 'TRAIN': return { station: 'Station', terminal: 'Platform' };
+      case 'BOAT': return { station: 'Port', terminal: 'Pier' };
+      case 'BUS': return { station: 'Station', terminal: 'Platform' };
+      default: return { station: 'Location', terminal: 'Point' };
+    }
+  };
+
+  const labels = getLabels();
+
   return (
     <div 
       className={clsx(
@@ -37,15 +61,15 @@ function FlightCard({ item, flight, canEdit, onEdit }: { item?: Itinerary; fligh
       )}
       onClick={() => canEdit && onEdit()}
     >
-      {/* Header with Airline Info */}
+      {/* Header with Provider Info */}
       <div className="bg-zinc-950/50 p-4 border-b border-zinc-800/50 flex items-center justify-between">
         <div className="flex items-center gap-3">
           <div className="w-10 h-10 rounded-full bg-orange-500/10 flex items-center justify-center shrink-0">
-            <Plane className="text-orange-500" size={20} />
+            <Icon className="text-orange-500" size={20} />
           </div>
           <div>
-            <div className="text-white font-bold text-lg">{flight.airline}</div>
-            <div className="text-zinc-500 text-xs font-mono tracking-wider">{flight.flight_code}</div>
+            <div className="text-white font-bold text-lg">{transportation.provider}</div>
+            <div className="text-zinc-500 text-xs font-mono tracking-wider">{transportation.transport_code}</div>
           </div>
         </div>
         <div className="flex items-center gap-2">
@@ -59,33 +83,33 @@ function FlightCard({ item, flight, canEdit, onEdit }: { item?: Itinerary; fligh
         </div>
       </div>
 
-      {/* Flight Timeline */}
+      {/* Timeline */}
       <div className="p-5">
         <div className="flex items-center justify-between mb-6">
           <div className="flex-1">
-            <div className="text-2xl font-bold text-white">{flight.departure_airport}</div>
-            <div className="text-sm font-medium text-zinc-300 mt-0.5">{flight.departure_time}</div>
-            {flight.departure_terminal && (
+            <div className="text-2xl font-bold text-white">{transportation.departure_station}</div>
+            <div className="text-sm font-medium text-zinc-300 mt-0.5">{transportation.departure_time}</div>
+            {transportation.departure_terminal && (
               <div className="mt-2 inline-flex items-center gap-1 px-2 py-0.5 bg-zinc-800 rounded-md border border-zinc-700">
-                <span className="text-[10px] text-zinc-500 font-bold uppercase">Terminal</span>
-                <span className="text-xs font-bold text-orange-500">{flight.departure_terminal}</span>
+                <span className="text-[10px] text-zinc-500 font-bold uppercase">{labels.terminal}</span>
+                <span className="text-xs font-bold text-orange-500">{transportation.departure_terminal}</span>
               </div>
             )}
           </div>
           
           <div className="px-4 flex flex-col items-center">
             <div className="w-16 h-px bg-zinc-700 relative">
-              <Plane className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 text-zinc-600 bg-zinc-900 px-1" size={14} />
+              <Icon className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 text-zinc-600 bg-zinc-900 px-1" size={14} />
             </div>
           </div>
 
           <div className="flex-1 text-right">
-            <div className="text-2xl font-bold text-white">{flight.arrival_airport}</div>
-            <div className="text-sm font-medium text-zinc-300 mt-0.5">{flight.arrival_time}</div>
-            {flight.arrival_terminal && (
+            <div className="text-2xl font-bold text-white">{transportation.arrival_station}</div>
+            <div className="text-sm font-medium text-zinc-300 mt-0.5">{transportation.arrival_time}</div>
+            {transportation.arrival_terminal && (
               <div className="mt-2 inline-flex items-center gap-1 px-2 py-0.5 bg-zinc-800 rounded-md border border-zinc-700">
-                <span className="text-[10px] text-zinc-500 font-bold uppercase">Terminal</span>
-                <span className="text-xs font-bold text-orange-500">{flight.arrival_terminal}</span>
+                <span className="text-[10px] text-zinc-500 font-bold uppercase">{labels.terminal}</span>
+                <span className="text-xs font-bold text-orange-500">{transportation.arrival_terminal}</span>
               </div>
             )}
           </div>
@@ -109,14 +133,14 @@ function FlightCard({ item, flight, canEdit, onEdit }: { item?: Itinerary; fligh
               <div className="flex flex-col items-center gap-2 relative z-10 group/point">
                 <div className="text-[10px] text-zinc-500 uppercase tracking-wider opacity-0 group-hover/point:opacity-100 transition-opacity absolute -top-6 whitespace-nowrap">Departure</div>
                 <div className="w-3 h-3 rounded-full bg-zinc-500 border-2 border-zinc-900 group-hover/point:bg-orange-500 transition-colors"></div>
-                <div className="text-xs font-mono text-zinc-300">{flight.departure_time}</div>
+                <div className="text-xs font-mono text-zinc-300">{transportation.departure_time}</div>
               </div>
 
               {/* Arrival */}
               <div className="flex flex-col items-center gap-2 relative z-10 group/point">
                 <div className="text-[10px] text-zinc-500 uppercase tracking-wider opacity-0 group-hover/point:opacity-100 transition-opacity absolute -top-6 whitespace-nowrap">Arrival</div>
                 <div className="w-3 h-3 rounded-full bg-zinc-500 border-2 border-zinc-900 group-hover/point:bg-orange-500 transition-colors"></div>
-                <div className="text-xs font-mono text-zinc-300">{flight.arrival_time}</div>
+                <div className="text-xs font-mono text-zinc-300">{transportation.arrival_time}</div>
               </div>
 
               {/* Stay End */}
@@ -132,10 +156,10 @@ function FlightCard({ item, flight, canEdit, onEdit }: { item?: Itinerary; fligh
         {/* Footer Actions */}
         <div className="mt-6 flex items-center justify-between pt-4 border-t border-zinc-800/50">
            <div className="text-xs text-zinc-500 italic max-w-[70%] truncate">
-             {item?.notes || flight.notes}
+             {item?.notes || transportation.notes}
            </div>
            <a 
-            href={`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(flight.departure_airport + ' airport')}`}
+            href={`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(transportation.departure_station + ' ' + labels.station)}`}
             target="_blank"
             rel="noopener noreferrer"
             onClick={(e) => e.stopPropagation()}
@@ -363,7 +387,7 @@ export function TripDetails() {
   const itineraries = useLiveQuery(() => db.itineraries.where('trip_id').equals(Number(id) || 0).toArray(), [id]) || [];
   const expenses = useLiveQuery(() => db.expenses.where('trip_id').equals(Number(id) || 0).toArray(), [id]) || [];
   const members = useLiveQuery(() => db.tripMembers.where('trip_id').equals(Number(id) || 0).toArray(), [id]) || [];
-  const flights = useLiveQuery(() => db.flights.where('trip_id').equals(Number(id) || 0).toArray(), [id]) || [];
+  const transportations = useLiveQuery(() => db.transportations.where('trip_id').equals(Number(id) || 0).toArray(), [id]) || [];
   const accommodations = useLiveQuery(() => db.accommodations.where('trip_id').equals(Number(id) || 0).toArray(), [id]) || [];
 
   const [activeTab, setActiveTab] = useState<'itinerary' | 'info' | 'finance' | 'settings'>('itinerary');
@@ -372,7 +396,7 @@ export function TripDetails() {
   
   const [isFinanceFormOpen, setIsFinanceFormOpen] = useState(false);
   const [isItineraryFormOpen, setIsItineraryFormOpen] = useState(false);
-  const [isFlightFormOpen, setIsFlightFormOpen] = useState(false);
+  const [isTransportationFormOpen, setIsTransportationFormOpen] = useState(false);
   const [isAccommodationFormOpen, setIsAccommodationFormOpen] = useState(false);
   
   const [editingItinerary, setEditingItinerary] = useState<Itinerary | null>(null);
@@ -411,11 +435,11 @@ export function TripDetails() {
           is_fully_synced: shouldDeepCache
         });
 
-        const [itinerariesRes, expensesRes, membersRes, flightsRes, accommodationsRes] = await Promise.all([
+        const [itinerariesRes, expensesRes, membersRes, transportationsRes, accommodationsRes] = await Promise.all([
           apiFetch(`/api/trips/${id}/itineraries`),
           apiFetch(`/api/trips/${id}/expenses`),
           apiFetch(`/api/trips/${id}/members`),
-          apiFetch(`/api/trips/${id}/flights`),
+          apiFetch(`/api/trips/${id}/transportations`),
           apiFetch(`/api/trips/${id}/accommodations`)
         ]);
 
@@ -454,10 +478,10 @@ export function TripDetails() {
           }
         }
 
-        if (flightsRes.ok) {
-          const flightsData = await flightsRes.json();
-          if (Array.isArray(flightsData)) {
-            await db.flights.bulkPut(flightsData);
+        if (transportationsRes.ok) {
+          const transportationsData = await transportationsRes.json();
+          if (Array.isArray(transportationsData)) {
+            await db.transportations.bulkPut(transportationsData);
           }
         }
 
@@ -496,7 +520,7 @@ export function TripDetails() {
   }, [id]);
 
   const [isEditMode, setIsEditMode] = useState(false);
-  const [editingFlight, setEditingFlight] = useState<any>(null);
+  const [editingTransportation, setEditingTransportation] = useState<any>(null);
   const [editingAccommodation, setEditingAccommodation] = useState<any>(null);
 
   const [confirmConfig, setConfirmConfig] = useState<{
@@ -536,29 +560,29 @@ export function TripDetails() {
     });
   };
 
-  const handleDeleteFlight = async (flightId: number) => {
+  const handleDeleteTransportation = async (transportId: number) => {
     setConfirmConfig({
       isOpen: true,
-      title: '刪除航班',
-      message: '您確定要刪除此航班嗎？相關的行程項目也會一併刪除。',
-      confirmText: 'Deleting flight...',
+      title: '刪除交通',
+      message: '您確定要刪除此交通資訊嗎？相關的行程項目也會一併刪除。',
+      confirmText: 'Deleting transportation...',
       onConfirm: async () => {
         if (!id) return;
         try {
-          const res = await apiFetch(`/api/trips/${id}/flights/${flightId}`, { method: 'DELETE' });
-          if (!res.ok) throw new Error('Failed to delete flight');
-          await db.flights.delete(flightId);
+          const res = await apiFetch(`/api/trips/${id}/transportations/${transportId}`, { method: 'DELETE' });
+          if (!res.ok) throw new Error('Failed to delete transportation');
+          await db.transportations.delete(transportId);
           // Also need to delete the associated itinerary item
-          const relatedItinerary = itineraries.find(i => i.type === 'FLIGHT' && i.related_id === flightId);
+          const relatedItinerary = itineraries.find(i => i.type === 'TRANSPORTATION' && i.related_id === transportId);
           if (relatedItinerary) {
             await db.itineraries.delete(relatedItinerary.id);
           }
-          setIsFlightFormOpen(false);
-          setEditingFlight(null);
+          setIsTransportationFormOpen(false);
+          setEditingTransportation(null);
           setConfirmConfig(prev => ({ ...prev, isOpen: false }));
         } catch (err) {
           console.error(err);
-          alert('Failed to delete flight');
+          alert('Failed to delete transportation');
         }
       }
     });
@@ -737,18 +761,18 @@ export function TripDetails() {
             <div className="space-y-4">
               {filteredItineraries.length > 0 ? (
                 filteredItineraries.map((item, index) => {
-                  if (item.type === 'FLIGHT' && item.related_id) {
-                    const flight = flights.find(f => f.id === item.related_id);
+                  if (item.type === 'TRANSPORTATION' && item.related_id) {
+                    const transport = transportations.find(t => t.id === item.related_id);
                     return (
-                      <FlightCard
+                      <TransportationCard
                         key={item.id}
                         item={item}
-                        flight={flight}
+                        transportation={transport}
                         canEdit={canEdit}
                         onEdit={() => {
-                          if (flight) {
-                            setEditingFlight(flight);
-                            setIsFlightFormOpen(true);
+                          if (transport) {
+                            setEditingTransportation(transport);
+                            setIsTransportationFormOpen(true);
                           }
                         }}
                       />
@@ -803,28 +827,28 @@ export function TripDetails() {
 
             <div className="space-y-4">
               <div className="flex items-center justify-between px-2">
-                 <h4 className="text-zinc-500 text-xs font-bold uppercase tracking-widest">Flight Details</h4>
+                 <h4 className="text-zinc-500 text-xs font-bold uppercase tracking-widest">Transportation</h4>
                  {canEdit && (
-                   <button onClick={() => setIsFlightFormOpen(true)} className="text-orange-500 hover:text-orange-400">
+                   <button onClick={() => setIsTransportationFormOpen(true)} className="text-orange-500 hover:text-orange-400">
                      <Plus size={18} />
                    </button>
                  )}
               </div>
-              {flights.length > 0 ? (
-                flights.map(flight => (
-                  <FlightCard
-                    key={flight.id}
-                    flight={flight}
+              {transportations.length > 0 ? (
+                transportations.map(transport => (
+                  <TransportationCard
+                    key={transport.id}
+                    transportation={transport}
                     canEdit={canEdit}
                     onEdit={() => {
-                      setEditingFlight(flight);
-                      setIsFlightFormOpen(true);
+                      setEditingTransportation(transport);
+                      setIsTransportationFormOpen(true);
                     }}
                   />
                 ))
               ) : (
                 <div className="bg-zinc-900/50 border border-dashed border-zinc-800 rounded-3xl p-6 text-center text-zinc-500 text-sm">
-                  No flight details added.
+                  No transportation details added.
                 </div>
               )}
 
@@ -1052,17 +1076,17 @@ export function TripDetails() {
         )}
       </AnimatePresence>
 
-      {/* Flight Form Modal */}
+      {/* Transportation Form Modal */}
       <AnimatePresence>
-        {isFlightFormOpen && id && (
+        {isTransportationFormOpen && id && (
           <div className="fixed inset-0 z-[200] flex items-center justify-center p-4">
             <motion.div
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
               exit={{ opacity: 0 }}
               onClick={() => {
-                setIsFlightFormOpen(false);
-                setEditingFlight(null);
+                setIsTransportationFormOpen(false);
+                setEditingTransportation(null);
               }}
               className="absolute inset-0 bg-black/80 backdrop-blur-sm"
             />
@@ -1072,24 +1096,24 @@ export function TripDetails() {
               exit={{ scale: 0.95, opacity: 0, y: 20 }}
               className="relative w-full max-w-md z-10"
             >
-              <FlightForm 
+              <TransportationForm 
                 tripId={Number(id)} 
-                initialData={editingFlight}
-                onDelete={handleDeleteFlight}
+                initialData={editingTransportation}
+                onDelete={handleDeleteTransportation}
                 onSuccess={() => {
-                  setIsFlightFormOpen(false);
-                  setEditingFlight(null);
-                  apiFetch(`/api/trips/${id}/flights`)
+                  setIsTransportationFormOpen(false);
+                  setEditingTransportation(null);
+                  apiFetch(`/api/trips/${id}/transportations`)
                     .then(res => res.json() as Promise<any[]>)
-                    .then(data => db.flights.bulkPut(data));
-                  // Also refresh itineraries as flight adds an itinerary item
+                    .then(data => db.transportations.bulkPut(data));
+                  // Also refresh itineraries as transportation adds an itinerary item
                   apiFetch(`/api/trips/${id}/itineraries`)
                     .then(res => res.json() as Promise<Itinerary[]>)
                     .then(data => db.itineraries.bulkPut(data));
                 }} 
                 onCancel={() => {
-                  setIsFlightFormOpen(false);
-                  setEditingFlight(null);
+                  setIsTransportationFormOpen(false);
+                  setEditingTransportation(null);
                 }} 
               />
             </motion.div>

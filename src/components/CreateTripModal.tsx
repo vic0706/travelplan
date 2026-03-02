@@ -1,12 +1,20 @@
 import React, { useState, useEffect } from 'react';
 import { useAppStore, User } from '../store';
-import { X, Calendar, Upload, Loader2, User as UserIcon, Check } from 'lucide-react';
+import { X, Calendar, Upload, Loader2, User as UserIcon, Check, RefreshCw, Image as ImageIcon } from 'lucide-react';
 import { DateRangePicker } from './DateRangePicker';
 import { motion, AnimatePresence } from 'framer-motion';
 import { apiFetch } from '../utils/api';
 import { ImageCropper, uploadImageToSupabase } from './ImageCropper';
 import { useNavigate } from 'react-router-dom';
 import { LocationPicker } from './LocationPicker';
+
+interface UnsplashImage {
+  id: string;
+  url: string;
+  thumb: string;
+  attribution: string;
+  attribution_url: string;
+}
 
 export function CreateTripModal() {
   const navigate = useNavigate();
@@ -18,6 +26,11 @@ export function CreateTripModal() {
   const [selectedMembers, setSelectedMembers] = useState<number[]>([]);
   const [croppingImage, setCroppingImage] = useState<string | null>(null);
   const [isLocationPickerOpen, setIsLocationPickerOpen] = useState(false);
+  
+  // Unsplash Image State
+  const [candidateImages, setCandidateImages] = useState<UnsplashImage[]>([]);
+  const [isFetchingImages, setIsFetchingImages] = useState(false);
+  const [showImagePicker, setShowImagePicker] = useState(false);
 
   const [formData, setFormData] = useState({
     title: '',
@@ -51,6 +64,25 @@ export function CreateTripModal() {
       fetchUsers();
     }
   }, [isCreateTripModalOpen]);
+
+  const fetchImages = async (query: string) => {
+    setIsFetchingImages(true);
+    setCandidateImages([]);
+    try {
+      const res = await apiFetch(`/api/images/search?query=${encodeURIComponent(query)}`);
+      if (res.ok) {
+        const data = await res.json() as UnsplashImage[];
+        setCandidateImages(data);
+        if (data.length > 0 && !formData.cover_image_url) {
+          setFormData(prev => ({ ...prev, cover_image_url: data[0].url }));
+        }
+      }
+    } catch (err) {
+      console.error('Failed to fetch images:', err);
+    } finally {
+      setIsFetchingImages(false);
+    }
+  };
 
   const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (!e.target.files || e.target.files.length === 0) return;
@@ -123,6 +155,17 @@ export function CreateTripModal() {
 
   if (!isCreateTripModalOpen) return null;
 
+  const handleCitySelect = async (cityId: number) => {
+    setFormData(prev => ({ ...prev, default_city_id: String(cityId) }));
+    
+    // Auto-fetch cover image if not already set
+    const city = cities.find(c => c.id === cityId);
+    if (city) {
+      // Always fetch new candidate images when city changes
+      await fetchImages(city.name);
+    }
+  };
+
   return (
     <AnimatePresence>
       <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
@@ -137,19 +180,136 @@ export function CreateTripModal() {
           initial={{ scale: 0.95, opacity: 0, y: 20 }}
           animate={{ scale: 1, opacity: 1, y: 0 }}
           exit={{ scale: 0.95, opacity: 0, y: 20 }}
-          className="relative w-full max-w-md bg-zinc-900 border border-zinc-800 rounded-3xl shadow-2xl overflow-hidden max-h-[90vh] overflow-y-auto"
+          className="relative w-full max-w-md bg-zinc-900 border border-zinc-800 rounded-3xl shadow-2xl overflow-hidden max-h-[90vh] overflow-y-auto flex flex-col"
         >
-          <div className="p-6 border-b border-zinc-800 flex items-center justify-between bg-zinc-900/50 sticky top-0 z-10 backdrop-blur-md">
-            <h2 className="text-xl font-bold text-white">New Trip</h2>
+          {/* Top Preview Area */}
+          <div className="relative h-64 w-full shrink-0 bg-zinc-800 group">
+            {/* Background Image */}
+            {formData.cover_image_url ? (
+              <img 
+                src={formData.cover_image_url} 
+                alt="Cover" 
+                className="w-full h-full object-cover"
+              />
+            ) : (
+              <div className="w-full h-full flex items-center justify-center bg-zinc-800 text-zinc-600">
+                <ImageIcon size={48} className="opacity-20" />
+              </div>
+            )}
+
+            {/* Gradient Overlay */}
+            <div className="absolute inset-0 bg-gradient-to-t from-black/90 via-black/20 to-transparent" />
+
+            {/* Close Button */}
             <button
               onClick={() => setCreateTripModalOpen(false)}
-              className="p-2 hover:bg-zinc-800 rounded-full transition-colors text-zinc-400 hover:text-white"
+              className="absolute top-4 right-4 p-2 bg-black/20 hover:bg-black/40 backdrop-blur-md rounded-full text-white transition-all z-20"
             >
               <X size={20} />
             </button>
+
+            {/* Content Overlay (Title & Date) */}
+            <div className="absolute bottom-0 left-0 right-0 p-6 z-10">
+              <h2 className="text-2xl font-bold text-white mb-1 line-clamp-2">
+                {formData.title || 'New Trip'}
+              </h2>
+              <div className="flex items-center gap-2 text-zinc-300 text-sm">
+                <Calendar size={14} />
+                <span>
+                  {formData.start_date ? new Date(formData.start_date).toLocaleDateString() : 'Start Date'} 
+                  {' - '}
+                  {formData.end_date ? new Date(formData.end_date).toLocaleDateString() : 'End Date'}
+                </span>
+              </div>
+            </div>
+
+            {/* Loading State */}
+            {isFetchingImages && (
+              <div className="absolute inset-0 flex items-center justify-center bg-black/40 backdrop-blur-sm z-20">
+                <Loader2 className="w-8 h-8 text-orange-500 animate-spin" />
+              </div>
+            )}
+
+            {/* Change Image Button */}
+            <button
+              onClick={() => setShowImagePicker(!showImagePicker)}
+              className="absolute bottom-4 right-4 px-3 py-1.5 bg-white/10 hover:bg-white/20 backdrop-blur-md border border-white/20 rounded-full text-white text-xs font-medium flex items-center gap-1.5 transition-all z-20"
+            >
+              <RefreshCw size={12} />
+              <span>Change Cover</span>
+            </button>
+
+            {/* Image Picker Overlay */}
+            <AnimatePresence>
+              {showImagePicker && (
+                <motion.div
+                  initial={{ opacity: 0, y: 20 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  exit={{ opacity: 0, y: 20 }}
+                  className="absolute bottom-0 left-0 right-0 bg-zinc-900/95 backdrop-blur-xl border-t border-zinc-800 p-4 z-30"
+                >
+                  <div className="flex items-center justify-between mb-3">
+                    <span className="text-xs font-medium text-zinc-400">Select Cover Image</span>
+                    <button 
+                      onClick={() => setShowImagePicker(false)}
+                      className="text-zinc-500 hover:text-white"
+                    >
+                      <X size={14} />
+                    </button>
+                  </div>
+                  
+                  <div className="flex gap-3 overflow-x-auto pb-2 scrollbar-hide snap-x">
+                    {/* Custom Upload Option */}
+                    <div className="shrink-0 snap-start">
+                      <input
+                        type="file"
+                        accept="image/*"
+                        onChange={handleFileUpload}
+                        className="hidden"
+                        id="cover-upload-mini"
+                        disabled={uploading}
+                      />
+                      <label
+                        htmlFor="cover-upload-mini"
+                        className="w-24 h-16 rounded-lg border border-dashed border-zinc-700 flex flex-col items-center justify-center gap-1 text-zinc-500 hover:text-white hover:border-zinc-500 hover:bg-zinc-800 cursor-pointer transition-all"
+                      >
+                        {uploading ? <Loader2 size={16} className="animate-spin" /> : <Upload size={16} />}
+                        <span className="text-[10px]">Upload</span>
+                      </label>
+                    </div>
+
+                    {/* Unsplash Candidates */}
+                    {candidateImages.map((img) => (
+                      <button
+                        key={img.id}
+                        onClick={() => {
+                          setFormData(prev => ({ ...prev, cover_image_url: img.url }));
+                          // Optional: Close picker on select? User might want to browse. Let's keep it open.
+                        }}
+                        className={`relative w-24 h-16 shrink-0 rounded-lg overflow-hidden border-2 transition-all snap-start ${
+                          formData.cover_image_url === img.url ? 'border-orange-500 ring-2 ring-orange-500/20' : 'border-transparent hover:border-zinc-500'
+                        }`}
+                      >
+                        <img src={img.thumb} alt="Candidate" className="w-full h-full object-cover" />
+                        <div className="absolute bottom-0 left-0 right-0 bg-black/60 px-1 py-0.5">
+                          <p className="text-[8px] text-zinc-300 truncate">by {img.attribution}</p>
+                        </div>
+                      </button>
+                    ))}
+                    
+                    {candidateImages.length === 0 && !isFetchingImages && (
+                      <div className="flex items-center justify-center w-48 text-xs text-zinc-500">
+                        No images found. Try selecting a city.
+                      </div>
+                    )}
+                  </div>
+                </motion.div>
+              )}
+            </AnimatePresence>
           </div>
 
-          <form onSubmit={handleSubmit} className="p-6 space-y-6">
+          {/* Form Content */}
+          <form onSubmit={handleSubmit} className="p-6 space-y-6 overflow-y-auto flex-1">
             {error && (
               <div className="p-3 bg-red-500/10 border border-red-500/20 rounded-xl text-red-400 text-sm">
                 {error}
@@ -186,7 +346,7 @@ export function CreateTripModal() {
             <LocationPicker
               isOpen={isLocationPickerOpen}
               onClose={() => setIsLocationPickerOpen(false)}
-              onSelect={(cityId) => setFormData({ ...formData, default_city_id: String(cityId) })}
+              onSelect={handleCitySelect}
               groupedCities={groupedCities}
             />
 
@@ -256,62 +416,10 @@ export function CreateTripModal() {
               </div>
             </div>
 
-            <div>
-              <label className="block text-sm font-medium text-zinc-400 mb-1">Cover Image</label>
-              <div className="space-y-3">
-                {formData.cover_image_url && (
-                  <div className="relative h-32 w-full rounded-xl overflow-hidden border border-zinc-700">
-                    <img 
-                      src={formData.cover_image_url} 
-                      alt="Cover Preview" 
-                      className="w-full h-full object-cover"
-                    />
-                    <button
-                      type="button"
-                      onClick={() => setFormData({ ...formData, cover_image_url: '' })}
-                      className="absolute top-2 right-2 p-1 bg-black/50 rounded-full text-white hover:bg-black/70"
-                    >
-                      <X size={14} />
-                    </button>
-                  </div>
-                )}
-                
-                <div className="relative">
-                  <input
-                    type="file"
-                    accept="image/*"
-                    onChange={handleFileUpload}
-                    className="hidden"
-                    id="cover-upload"
-                    disabled={uploading}
-                  />
-                  <label
-                    htmlFor="cover-upload"
-                    className={`flex items-center justify-center gap-2 w-full py-3 border-2 border-dashed border-zinc-700 rounded-xl text-zinc-400 hover:text-white hover:border-zinc-500 hover:bg-zinc-800/50 transition-all cursor-pointer ${uploading ? 'opacity-50 cursor-not-allowed' : ''}`}
-                  >
-                    {uploading ? (
-                      <>
-                        <Loader2 size={18} className="animate-spin" />
-                        <span>Uploading...</span>
-                      </>
-                    ) : (
-                      <>
-                        <Upload size={18} />
-                        <span>Upload Image</span>
-                      </>
-                    )}
-                  </label>
-                </div>
-                <p className="text-[10px] text-zinc-500">
-                  Supported formats: JPG, PNG, WEBP. Max size: 5MB.
-                </p>
-              </div>
-            </div>
-
             <button
               type="submit"
               disabled={loading || uploading}
-              className="w-full bg-orange-500 hover:bg-orange-600 disabled:opacity-50 disabled:cursor-not-allowed text-white font-bold rounded-xl px-4 py-3 transition-all shadow-lg shadow-orange-500/20 active:scale-95 mt-2"
+              className="w-full bg-orange-500 hover:bg-orange-600 disabled:opacity-50 disabled:cursor-not-allowed text-white font-bold rounded-xl px-4 py-3 transition-all shadow-lg shadow-orange-500/20 active:scale-95 mt-4"
             >
               {loading ? 'Creating...' : 'Create Trip'}
             </button>

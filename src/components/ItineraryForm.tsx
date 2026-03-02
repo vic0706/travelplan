@@ -9,7 +9,7 @@ import { ImageCropper, uploadImageToSupabase } from './ImageCropper';
 import { format, parseISO, isSameDay, addMinutes, subMinutes } from 'date-fns';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { db } from '../db';
-import { Flight } from '../types';
+import { Transportation } from '../types';
 
 interface ItineraryFormProps {
   tripId: number;
@@ -63,19 +63,19 @@ export function ItineraryForm({ tripId, defaultCityId, date, onSuccess, onCancel
     tags: initialData?.tags || [] as string[]
   });
 
-  const flights = useLiveQuery(() => db.flights.where('trip_id').equals(tripId).toArray(), [tripId]) || [];
+  const transportations = useLiveQuery(() => db.transportations.where('trip_id').equals(tripId).toArray(), [tripId]) || [];
 
   const blockedRanges = useMemo(() => {
-    const ranges: { start: string, end: string, flightInfo: string }[] = [];
+    const ranges: { start: string, end: string, transportInfo: string }[] = [];
     const targetDate = new Date(`${date}T00:00`);
     
-    flights.forEach(f => {
+    transportations.forEach(t => {
       // Calculate absolute start/end
-      const depDateTime = new Date(`${f.departure_date}T${f.departure_time}`);
-      const blockedStart = subMinutes(depDateTime, f.checkin_duration || 0);
+      const depDateTime = new Date(`${t.departure_date}T${t.departure_time}`);
+      const blockedStart = subMinutes(depDateTime, t.checkin_duration || 0);
       
-      const arrDateTime = new Date(`${f.arrival_date}T${f.arrival_time}`);
-      const blockedEnd = addMinutes(arrDateTime, (f.exit_duration || 0) + (f.stay_duration || 0));
+      const arrDateTime = new Date(`${t.arrival_date}T${t.arrival_time}`);
+      const blockedEnd = addMinutes(arrDateTime, (t.exit_duration || 0) + (t.stay_duration || 0));
       
       // Check if this blocked period overlaps with targetDate (00:00 to 23:59)
       const dayStart = new Date(`${date}T00:00`);
@@ -96,20 +96,20 @@ export function ItineraryForm({ tripId, defaultCityId, date, onSuccess, onCancel
         ranges.push({ 
           start: rangeStart, 
           end: rangeEnd, 
-          flightInfo: `${f.airline} ${f.flight_code}` 
+          transportInfo: `${t.provider} ${t.transport_code}` 
         });
       }
     });
     return ranges;
-  }, [flights, date]);
+  }, [transportations, date]);
 
-  const checkFlightOverlap = (start: string, end: string) => {
-    // If editing a flight itinerary, don't check against itself
-    if (initialData?.type === 'FLIGHT') return null;
+  const checkTransportationOverlap = (start: string, end: string) => {
+    // If editing a transportation itinerary, don't check against itself
+    if (initialData?.type === 'TRANSPORTATION') return null;
 
     for (const range of blockedRanges) {
       if (start < range.end && end > range.start) {
-        return range.flightInfo;
+        return range.transportInfo;
       }
     }
     return null;
@@ -161,10 +161,10 @@ export function ItineraryForm({ tripId, defaultCityId, date, onSuccess, onCancel
       return;
     }
 
-    // Flight Overlap Check
-    const overlappingFlight = checkFlightOverlap(formData.start_time, formData.end_time);
-    if (overlappingFlight) {
-      setError(`This time range overlaps with flight ${overlappingFlight} (including check-in and stay time).`);
+    // Transportation Overlap Check
+    const overlappingTransport = checkTransportationOverlap(formData.start_time, formData.end_time);
+    if (overlappingTransport) {
+      setError(`This time range overlaps with transportation ${overlappingTransport} (including check-in and stay time).`);
       setLoading(false);
       return;
     }

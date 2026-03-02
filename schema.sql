@@ -106,18 +106,19 @@ CREATE TABLE Expenses (
     FOREIGN KEY (payer_id) REFERENCES Users(id)
 );
 
-CREATE TABLE Flights (
+CREATE TABLE Transportations (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     trip_id INTEGER NOT NULL,
-    airline TEXT NOT NULL,
-    flight_code TEXT NOT NULL,
+    type TEXT NOT NULL DEFAULT 'FLIGHT',
+    provider TEXT NOT NULL,
+    transport_code TEXT NOT NULL,
     departure_date TEXT NOT NULL,
     departure_time TEXT NOT NULL,
-    departure_airport TEXT,
+    departure_station TEXT,
     departure_terminal TEXT,
     arrival_date TEXT NOT NULL,
     arrival_time TEXT NOT NULL,
-    arrival_airport TEXT,
+    arrival_station TEXT,
     arrival_terminal TEXT,
     checkin_duration INTEGER DEFAULT 120,
     exit_duration INTEGER DEFAULT 60,

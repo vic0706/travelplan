@@ -10,6 +10,7 @@ export interface Env {
   VITE_SUPABASE_URL: string;
   VITE_SUPABASE_ANON_KEY: string;
   SUPABASE_SERVICE_ROLE_KEY?: string;
+  UNSPLASH_ACCESS_KEY: string;
   __STATIC_CONTENT: any;
   __STATIC_CONTENT_MANIFEST: string;
 }
@@ -25,6 +26,47 @@ app.use('*', cors({
   exposeHeaders: ['Content-Length'],
   maxAge: 600,
 }));
+
+// GET /api/images/search?query=...
+app.get('/api/images/search', async (c) => {
+  const query = c.req.query('query');
+  if (!query) return c.json({ error: 'Missing query' }, 400);
+
+  // Optimize search query for travel covers
+  const searchQuery = `${query} Landmark Travel Cityscape`;
+  
+  try {
+    const response = await fetch(
+      `https://api.unsplash.com/search/photos?query=${encodeURIComponent(searchQuery)}&per_page=12&orientation=landscape`,
+      {
+        headers: {
+          'Authorization': `Client-ID ${c.env.UNSPLASH_ACCESS_KEY}`
+        }
+      }
+    );
+
+    if (!response.ok) {
+      console.error('Unsplash API error:', response.status, response.statusText);
+      return c.json({ error: 'Failed to fetch images from Unsplash' }, response.status);
+    }
+
+    const data = await response.json() as any;
+    
+    // Return clean data
+    const photos = (data.results || []).map((p: any) => ({
+      id: p.id,
+      url: p.urls.regular,
+      thumb: p.urls.thumb,
+      attribution: p.user.name,
+      attribution_url: p.user.links.html
+    }));
+
+    return c.json(photos);
+  } catch (error) {
+    console.error('Unsplash fetch error:', error);
+    return c.json({ error: 'Internal server error fetching images' }, 500);
+  }
+});
 
 // Health Check
 app.get('/', (c) => c.text('Worker is running!'));
@@ -166,64 +208,74 @@ async function ensureSchema(db: D1Database) {
   } catch (e) {}
 
   try {
-    // 9. Update Flights table schema
-    const flightInfo = await db.prepare("PRAGMA table_info(Flights)").all();
-    const hasFlightCode = flightInfo.results.some((col: any) => col.name === 'flight_code');
+    // 9. Update Transportations table schema (formerly Flights)
+    const transportInfo = await db.prepare("PRAGMA table_info(Transportations)").all();
+    const hasTransportTable = transportInfo.results.length > 0;
     
-    if (!hasFlightCode) {
+    if (!hasTransportTable) {
+      // Check if old Flights table exists
+      const flightInfo = await db.prepare("PRAGMA table_info(Flights)").all();
       const hasFlightsTable = flightInfo.results.length > 0;
+
       if (hasFlightsTable) {
-        await db.prepare("ALTER TABLE Flights RENAME TO Flights_Old").run();
+        // Rename Flights to Transportations_Old to migrate data
+        await db.prepare("ALTER TABLE Flights RENAME TO Transportations_Old").run();
       }
 
+      // Create new Transportations table
       await db.prepare(`
-        CREATE TABLE IF NOT EXISTS Flights (
+        CREATE TABLE IF NOT EXISTS Transportations (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             trip_id INTEGER NOT NULL,
-            airline TEXT NOT NULL,
-            flight_code TEXT NOT NULL,
+            type TEXT NOT NULL DEFAULT 'FLIGHT',
+            provider TEXT NOT NULL,
+            transport_code TEXT NOT NULL,
             departure_date TEXT NOT NULL,
             departure_time TEXT NOT NULL,
-            departure_airport TEXT,
+            departure_station TEXT,
             departure_terminal TEXT,
+            checkin_duration INTEGER DEFAULT 120,
             arrival_date TEXT NOT NULL,
             arrival_time TEXT NOT NULL,
-            arrival_airport TEXT,
+            arrival_station TEXT,
             arrival_terminal TEXT,
+            exit_duration INTEGER DEFAULT 60,
+            stay_duration INTEGER DEFAULT 0,
             notes TEXT,
             FOREIGN KEY (trip_id) REFERENCES Trips(id) ON DELETE CASCADE
         )
       `).run();
 
       if (hasFlightsTable) {
-        // Check columns in old table to avoid errors during migration
-        const oldCols = (await db.prepare("PRAGMA table_info(Flights_Old)").all()).results.map((c: any) => c.name);
+        // Migrate data from Transportations_Old (which was Flights)
+        // Map: airline -> provider, flight_code -> transport_code, departure_airport -> departure_station, arrival_airport -> arrival_station
+        // We need to check if Transportations_Old has the duration columns. If not, we use defaults.
+        // However, the previous code added them. If this runs on a fresh DB, Transportations_Old won't exist.
+        // If it runs on an existing DB, Flights might or might not have them depending on when it was last run.
+        // To be safe, we select what we can.
+        
+        const oldCols = (await db.prepare("PRAGMA table_info(Transportations_Old)").all()).results.map((c: any) => c.name);
         
         const selectCols = [
-          'trip_id',
-          oldCols.includes('airline') ? 'airline' : "'Unknown'",
-          oldCols.includes('flight_code') ? 'flight_code' : (oldCols.includes('flight_number') ? 'flight_number' : "'?'"),
-          oldCols.includes('departure_date') ? 'departure_date' : (oldCols.includes('date') ? 'date' : "''"),
-          oldCols.includes('departure_time') ? 'departure_time' : "''",
-          oldCols.includes('departure_airport') ? 'departure_airport' : "''",
-          oldCols.includes('departure_terminal') ? 'departure_terminal' : "''",
-          oldCols.includes('arrival_date') ? 'arrival_date' : (oldCols.includes('date') ? 'date' : "''"),
-          oldCols.includes('arrival_time') ? 'arrival_time' : "''",
-          oldCols.includes('arrival_airport') ? 'arrival_airport' : "''",
-          oldCols.includes('arrival_terminal') ? 'arrival_terminal' : "''",
-          oldCols.includes('notes') ? 'notes' : "''"
+          'id', 'trip_id', "'FLIGHT'", 'airline', 'flight_code', 'departure_date', 'departure_time', 'departure_airport', 'departure_terminal',
+          oldCols.includes('checkin_duration') ? 'checkin_duration' : '120',
+          'arrival_date', 'arrival_time', 'arrival_airport', 'arrival_terminal',
+          oldCols.includes('exit_duration') ? 'exit_duration' : '60',
+          oldCols.includes('stay_duration') ? 'stay_duration' : '0',
+          'notes'
         ];
 
         await db.prepare(`
-          INSERT INTO Flights (trip_id, airline, flight_code, departure_date, departure_time, departure_airport, departure_terminal, arrival_date, arrival_time, arrival_airport, arrival_terminal, notes)
+          INSERT INTO Transportations (id, trip_id, type, provider, transport_code, departure_date, departure_time, departure_station, departure_terminal, checkin_duration, arrival_date, arrival_time, arrival_station, arrival_terminal, exit_duration, stay_duration, notes)
           SELECT ${selectCols.join(', ')}
-          FROM Flights_Old
+          FROM Transportations_Old
         `).run();
-        await db.prepare("DROP TABLE Flights_Old").run();
+        
+        await db.prepare("DROP TABLE Transportations_Old").run();
       }
     }
   } catch (e) {
-    console.error('Flights schema update failed', e);
+    console.error('Transportations schema update failed', e);
   }
 
   try {
@@ -287,14 +339,8 @@ async function ensureSchema(db: D1Database) {
   } catch (e) {}
 
   try {
-    // 12. Add durations to Flights
-    await db.prepare("ALTER TABLE Flights ADD COLUMN checkin_duration INTEGER DEFAULT 120").run();
-  } catch (e) {}
-  try {
-    await db.prepare("ALTER TABLE Flights ADD COLUMN exit_duration INTEGER DEFAULT 60").run();
-  } catch (e) {}
-  try {
-    await db.prepare("ALTER TABLE Flights ADD COLUMN stay_duration INTEGER DEFAULT 0").run();
+    // 12. Add durations to Transportations (already handled in creation, but for safety if table existed before)
+    // We can skip this as the new table creation includes them.
   } catch (e) {}
 
   try {
@@ -744,16 +790,16 @@ app.post('/api/trips/:id/weather/sync', async (c) => {
   } catch (error: any) { return c.json({ error: error.message }, 500); }
 });
 
-// --- Flights & Accommodations ---
-app.get('/api/trips/:id/flights', async (c) => {
+// --- Transportations & Accommodations ---
+app.get('/api/trips/:id/transportations', async (c) => {
   const tripId = c.req.param('id');
   try {
-    const { results } = await c.env.DB.prepare('SELECT * FROM Flights WHERE trip_id = ? ORDER BY departure_date, departure_time').bind(tripId).all();
+    const { results } = await c.env.DB.prepare('SELECT * FROM Transportations WHERE trip_id = ? ORDER BY departure_date, departure_time').bind(tripId).all();
     return c.json(results);
   } catch (error: any) { return c.json({ error: error.message }, 500); }
 });
 
-app.post('/api/trips/:id/flights', async (c) => {
+app.post('/api/trips/:id/transportations', async (c) => {
   const tripId = c.req.param('id');
   try {
     const canEdit = await checkTripAccess(c, Number(tripId), 'edit');
@@ -762,31 +808,28 @@ app.post('/api/trips/:id/flights', async (c) => {
     const b = await c.req.json();
     // id is AUTOINCREMENT, so we don't bind it.
     const info = await c.env.DB.prepare(`
-      INSERT INTO Flights (trip_id, airline, flight_code, departure_date, departure_time, departure_airport, departure_terminal, arrival_date, arrival_time, arrival_airport, arrival_terminal, checkin_duration, exit_duration, stay_duration, notes)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `).bind(tripId, b.airline, b.flight_code, b.departure_date, b.departure_time, b.departure_airport, b.departure_terminal, b.arrival_date, b.arrival_time, b.arrival_airport, b.arrival_terminal, b.checkin_duration || 120, b.exit_duration || 60, b.stay_duration || 0, b.notes).run();
+      INSERT INTO Transportations (trip_id, type, provider, transport_code, departure_date, departure_time, departure_station, departure_terminal, arrival_date, arrival_time, arrival_station, arrival_terminal, checkin_duration, exit_duration, stay_duration, notes)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).bind(tripId, b.type || 'FLIGHT', b.provider, b.transport_code, b.departure_date, b.departure_time, b.departure_station, b.departure_terminal, b.arrival_date, b.arrival_time, b.arrival_station, b.arrival_terminal, b.checkin_duration || 120, b.exit_duration || 60, b.stay_duration || 0, b.notes).run();
     
     // @ts-ignore
-    const flightId = info.meta.last_row_id;
+    const transportId = info.meta.last_row_id;
 
-    // Create Itinerary Item for Flight
+    // Create Itinerary Item for Transportation
     // Calculate Check-in Time (Departure - checkin_duration)
     const depDateTime = new Date(`${b.departure_date}T${b.departure_time}`);
-    const checkinDuration = b.checkin_duration || 120; // Default 120 mins
+    const checkinDuration = b.checkin_duration || 120; 
     depDateTime.setMinutes(depDateTime.getMinutes() - checkinDuration);
     const checkInDate = depDateTime.toISOString().split('T')[0];
     const checkInTime = depDateTime.toTimeString().substring(0, 5);
 
     // Calculate Stay End Time (Arrival + exit_duration + stay_duration)
     const arrDateTime = new Date(`${b.arrival_date}T${b.arrival_time}`);
-    const exitDuration = b.exit_duration || 60; // Default 60 mins
+    const exitDuration = b.exit_duration || 60; 
     const stayDuration = b.stay_duration || 0;
     arrDateTime.setMinutes(arrDateTime.getMinutes() + exitDuration + stayDuration);
-    // const stayEndDate = arrDateTime.toISOString().split('T')[0]; 
     const stayEndTime = arrDateTime.toTimeString().substring(0, 5);
 
-    // Calculate duration for display? Or just let UI handle it.
-    // We'll insert the itinerary record.
     await c.env.DB.prepare(`
       INSERT INTO Itineraries (trip_id, date, start_time, end_time, title, type, related_id, notes)
       VALUES (?, ?, ?, ?, ?, ?, ?, ?)
@@ -795,19 +838,19 @@ app.post('/api/trips/:id/flights', async (c) => {
       checkInDate,
       checkInTime,
       stayEndTime,
-      `Flight: ${b.airline} ${b.flight_code}`,
-      'FLIGHT',
-      flightId,
+      `${b.type || 'Transport'}: ${b.provider} ${b.transport_code}`,
+      'TRANSPORTATION',
+      transportId,
       b.notes || ''
     ).run();
 
-    return c.json({ success: true, id: flightId });
+    return c.json({ success: true, id: transportId });
   } catch (error: any) { return c.json({ error: error.message }, 500); }
 });
 
-app.put('/api/trips/:id/flights/:flightId', async (c) => {
+app.put('/api/trips/:id/transportations/:transportId', async (c) => {
   const tripId = c.req.param('id');
-  const flightId = c.req.param('flightId');
+  const transportId = c.req.param('transportId');
   try {
     const canEdit = await checkTripAccess(c, Number(tripId), 'edit');
     if (!canEdit) return c.json({ error: 'Unauthorized' }, 403);
@@ -815,20 +858,18 @@ app.put('/api/trips/:id/flights/:flightId', async (c) => {
     const b = await c.req.json();
     
     await c.env.DB.prepare(`
-      UPDATE Flights 
-      SET airline = ?, flight_code = ?, departure_date = ?, departure_time = ?, departure_airport = ?, departure_terminal = ?, arrival_date = ?, arrival_time = ?, arrival_airport = ?, arrival_terminal = ?, checkin_duration = ?, exit_duration = ?, stay_duration = ?, notes = ?
+      UPDATE Transportations 
+      SET type = ?, provider = ?, transport_code = ?, departure_date = ?, departure_time = ?, departure_station = ?, departure_terminal = ?, arrival_date = ?, arrival_time = ?, arrival_station = ?, arrival_terminal = ?, checkin_duration = ?, exit_duration = ?, stay_duration = ?, notes = ?
       WHERE id = ? AND trip_id = ?
-    `).bind(b.airline, b.flight_code, b.departure_date, b.departure_time, b.departure_airport, b.departure_terminal, b.arrival_date, b.arrival_time, b.arrival_airport, b.arrival_terminal, b.checkin_duration || 120, b.exit_duration || 60, b.stay_duration || 0, b.notes, flightId, tripId).run();
+    `).bind(b.type || 'FLIGHT', b.provider, b.transport_code, b.departure_date, b.departure_time, b.departure_station, b.departure_terminal, b.arrival_date, b.arrival_time, b.arrival_station, b.arrival_terminal, b.checkin_duration || 120, b.exit_duration || 60, b.stay_duration || 0, b.notes, transportId, tripId).run();
 
     // Update Itinerary Item
-    // Calculate Check-in Time
     const depDateTime = new Date(`${b.departure_date}T${b.departure_time}`);
     const checkinDuration = b.checkin_duration || 120; 
     depDateTime.setMinutes(depDateTime.getMinutes() - checkinDuration);
     const checkInDate = depDateTime.toISOString().split('T')[0];
     const checkInTime = depDateTime.toTimeString().substring(0, 5);
 
-    // Calculate Stay End Time
     const arrDateTime = new Date(`${b.arrival_date}T${b.arrival_time}`);
     const exitDuration = b.exit_duration || 60;
     const stayDuration = b.stay_duration || 0;
@@ -838,14 +879,14 @@ app.put('/api/trips/:id/flights/:flightId', async (c) => {
     await c.env.DB.prepare(`
       UPDATE Itineraries 
       SET date = ?, start_time = ?, end_time = ?, title = ?, notes = ?
-      WHERE type = 'FLIGHT' AND related_id = ? AND trip_id = ?
+      WHERE type = 'TRANSPORTATION' AND related_id = ? AND trip_id = ?
     `).bind(
       checkInDate,
       checkInTime,
       stayEndTime,
-      `Flight: ${b.airline} ${b.flight_code}`,
+      `${b.type || 'Transport'}: ${b.provider} ${b.transport_code}`,
       b.notes || '',
-      flightId,
+      transportId,
       tripId
     ).run();
 
@@ -853,16 +894,16 @@ app.put('/api/trips/:id/flights/:flightId', async (c) => {
   } catch (error: any) { return c.json({ error: error.message }, 500); }
 });
 
-app.delete('/api/trips/:id/flights/:flightId', async (c) => {
+app.delete('/api/trips/:id/transportations/:transportId', async (c) => {
   const tripId = c.req.param('id');
-  const flightId = c.req.param('flightId');
+  const transportId = c.req.param('transportId');
   try {
     const canEdit = await checkTripAccess(c, Number(tripId), 'edit');
     if (!canEdit) return c.json({ error: 'Unauthorized' }, 403);
 
-    await c.env.DB.prepare('DELETE FROM Flights WHERE id = ? AND trip_id = ?').bind(flightId, tripId).run();
+    await c.env.DB.prepare('DELETE FROM Transportations WHERE id = ? AND trip_id = ?').bind(transportId, tripId).run();
     // Also delete associated itinerary
-    await c.env.DB.prepare("DELETE FROM Itineraries WHERE type = 'FLIGHT' AND related_id = ? AND trip_id = ?").bind(flightId, tripId).run();
+    await c.env.DB.prepare("DELETE FROM Itineraries WHERE type = 'TRANSPORTATION' AND related_id = ? AND trip_id = ?").bind(transportId, tripId).run();
     
     return c.json({ success: true });
   } catch (error: any) { return c.json({ error: error.message }, 500); }

@@ -32,7 +32,7 @@ export function TripSettingsForm({ trip, onSuccess }: TripSettingsFormProps) {
   
   const [selectedCountry, setSelectedCountry] = useState('');
   const [currencyInput, setCurrencyInput] = useState('');
-  const [deleteStatus, setDeleteStatus] = useState<'idle' | 'deleting_flights' | 'deleting_itineraries' | 'deleting_expenses' | 'deleting_trip' | 'finishing'>('idle');
+  const [deleteStatus, setDeleteStatus] = useState<'idle' | 'deleting_transportations' | 'deleting_itineraries' | 'deleting_expenses' | 'deleting_trip' | 'finishing' | 'deleted'>('idle');
   const [isLocationPickerOpen, setIsLocationPickerOpen] = useState(false);
   const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false);
   const [showSuccessToast, setShowSuccessToast] = useState(false);
@@ -146,8 +146,8 @@ export function TripSettingsForm({ trip, onSuccess }: TripSettingsFormProps) {
     setError('');
     
     try {
-      // Step 1: Deleting Flights & Accommodations
-      setDeleteStatus('deleting_flights');
+      // Step 1: Deleting Transportations & Accommodations
+      setDeleteStatus('deleting_transportations');
       await new Promise(resolve => setTimeout(resolve, 300)); // Small delay for UX visibility
       
       // Step 2: Deleting Itineraries
@@ -175,7 +175,7 @@ export function TripSettingsForm({ trip, onSuccess }: TripSettingsFormProps) {
             // db.trips.delete(trip.id), // REMOVED: Let Home.tsx handle this to avoid unmount race condition
             db.itineraries.where('trip_id').equals(trip.id).delete(),
             db.expenses.where('trip_id').equals(trip.id).delete(),
-            db.flights.where('trip_id').equals(trip.id).delete(),
+            db.transportations.where('trip_id').equals(trip.id).delete(),
             db.accommodations.where('trip_id').equals(trip.id).delete(),
             db.tripMembers.where('trip_id').equals(trip.id).delete()
           ]),
@@ -185,6 +185,10 @@ export function TripSettingsForm({ trip, onSuccess }: TripSettingsFormProps) {
         console.warn('Failed to cleanup local DB, proceeding with redirect:', dbError);
       }
       
+      // Show "Deleted!" state briefly
+      setDeleteStatus('deleted');
+      await new Promise(resolve => setTimeout(resolve, 500));
+
       // Force redirect to home using React Router for smoother transition
       navigate('/', { replace: true });
       
@@ -235,11 +239,12 @@ export function TripSettingsForm({ trip, onSuccess }: TripSettingsFormProps) {
 
   const getDeleteButtonText = () => {
     switch (deleteStatus) {
-      case 'deleting_flights': return 'Deleting flights and accommodations...';
+      case 'deleting_transportations': return 'Deleting transportations and accommodations...';
       case 'deleting_itineraries': return 'Deleting itinerary activities...';
       case 'deleting_expenses': return 'Deleting expense records...';
       case 'deleting_trip': return 'Deleting trip details...';
       case 'finishing': return 'Finishing up...';
+      case 'deleted': return 'Deleted!';
       default: return 'Delete Everything';
     }
   };

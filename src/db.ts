@@ -1,7 +1,7 @@
 import Dexie, { Table } from 'dexie';
 import { 
   User, Trip, TripMember, Itinerary, SubItinerary, 
-  Expense, Flight, Accommodation, AppSetting 
+  Expense, Transportation, Accommodation, AppSetting 
 } from './types';
 
 export class TravelPlanDB extends Dexie {
@@ -11,20 +11,20 @@ export class TravelPlanDB extends Dexie {
   itineraries!: Table<Itinerary, number>;
   subItineraries!: Table<SubItinerary, string>;
   expenses!: Table<Expense, number>;
-  flights!: Table<Flight, number>;
+  transportations!: Table<Transportation, number>;
   accommodations!: Table<Accommodation, number>;
   appSettings!: Table<AppSetting, string>;
 
   constructor() {
     super('TravelPlanDB');
-    this.version(5).stores({
-      users: 'id, username, role, allow_login',
-      trips: 'id, title, start_date, end_date, visible_status, is_public, default_city_id, last_accessed',
+    this.version(4).stores({
+      users: 'id, role, allow_login',
+      trips: 'id, title, start_date, end_date, visible_status, is_public, last_accessed',
       tripMembers: '[trip_id+user_id], trip_id, user_id',
       itineraries: 'id, trip_id, date, start_time',
       subItineraries: 'id, itinerary_id, start_time',
       expenses: 'id, trip_id, date, payer_id',
-      flights: 'id, trip_id, departure_date',
+      transportations: 'id, trip_id, departure_date, type',
       accommodations: 'id, trip_id, check_in_date',
       appSettings: 'id, key_name'
     });
