@@ -43,11 +43,10 @@ function TransportationCard({ item, transportation, canEdit, onEdit }: { item?: 
 
   const getLabels = () => {
     switch (transportation.type) {
-      case 'FLIGHT': return { station: 'Airport', platform: 'Terminal' };
-      case 'TRAIN': return { station: 'Station', platform: 'Platform' };
-      case 'FERRY': return { station: 'Port', platform: 'Pier' };
-      case 'BUS': return { station: 'Station', platform: 'Platform' };
-      default: return { station: 'Location', platform: 'Point' };
+      case 'FLIGHT': return { station: 'Airport', terminal: 'Terminal' };
+      case 'TRAIN': return { station: 'Station', terminal: 'Platform' };
+      case 'FERRY': return { station: 'Port', terminal: 'Pier' };
+      default: return { station: 'Location', terminal: 'Point' };
     }
   };
 
@@ -89,10 +88,10 @@ function TransportationCard({ item, transportation, canEdit, onEdit }: { item?: 
           <div className="flex-1">
             <div className="text-2xl font-bold text-white">{transportation.dep_station}</div>
             <div className="text-sm font-medium text-zinc-300 mt-0.5">{format(depDate, 'HH:mm')}</div>
-            {transportation.platform && (
+            {transportation.dep_terminal && (
               <div className="mt-2 inline-flex items-center gap-1 px-2 py-0.5 bg-zinc-800 rounded-md border border-zinc-700">
-                <span className="text-[10px] text-zinc-500 font-bold uppercase">{labels.platform}</span>
-                <span className="text-xs font-bold text-orange-500">{transportation.platform}</span>
+                <span className="text-[10px] text-zinc-500 font-bold uppercase">{labels.terminal}</span>
+                <span className="text-xs font-bold text-orange-500">{transportation.dep_terminal}</span>
               </div>
             )}
           </div>
@@ -106,7 +105,12 @@ function TransportationCard({ item, transportation, canEdit, onEdit }: { item?: 
           <div className="flex-1 text-right">
             <div className="text-2xl font-bold text-white">{transportation.arr_station}</div>
             <div className="text-sm font-medium text-zinc-300 mt-0.5">{format(arrDate, 'HH:mm')}</div>
-            {/* Arrival Platform/Terminal is not stored separately in new schema, assuming platform is departure */}
+            {transportation.arr_terminal && (
+              <div className="mt-2 inline-flex items-center gap-1 px-2 py-0.5 bg-zinc-800 rounded-md border border-zinc-700">
+                <span className="text-[10px] text-zinc-500 font-bold uppercase">{labels.terminal}</span>
+                <span className="text-xs font-bold text-orange-500">{transportation.arr_terminal}</span>
+              </div>
+            )}
           </div>
         </div>
 

@@ -177,7 +177,7 @@ async function startServer() {
         FLIGHT_API_KEY: process.env.FLIGHT_API_KEY
       };
 
-      const workerUrl = process.env.VITE_WORKER_URL;
+      const workerUrl = process.env.VITE_WORKER_URL || 'https://travelplan.vic070680.workers.dev';
       let honoRes: Response;
 
       if (workerUrl && !workerUrl.includes('localhost')) {

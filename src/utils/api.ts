@@ -3,8 +3,9 @@ import { useAppStore } from '../store';
 export const getApiUrl = (path: string): string => {
   const cleanPath = path.startsWith('/') ? path : `/${path}`;
   
-  // Use VITE_WORKER_URL if provided, otherwise fallback to relative path
-  const workerUrl = import.meta.env.VITE_WORKER_URL;
+  // Use VITE_WORKER_URL if provided, otherwise fallback to the deployed worker URL
+  // This ensures the preview environment connects to the correct D1 backend
+  const workerUrl = import.meta.env.VITE_WORKER_URL || 'https://travelplan.vic070680.workers.dev';
   if (workerUrl) {
     // Ensure workerUrl doesn't end with a slash and cleanPath starts with one
     const baseUrl = workerUrl.endsWith('/') ? workerUrl.slice(0, -1) : workerUrl;
