@@ -186,7 +186,7 @@ export function ItineraryForm({ tripId, defaultCityId, date, onSuccess, onCancel
         try {
           const searchRes = await apiFetch(`/api/images/search?query=${encodeURIComponent(formData.title)}&type=activity`);
           if (searchRes.ok) {
-            const images = await searchRes.json();
+            const images = await searchRes.json() as any[];
             if (images && images.length > 0) {
               finalImageUrl = images[0].url;
             }

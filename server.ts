@@ -172,7 +172,9 @@ async function startServer() {
         PASSWORD_SALT: process.env.PASSWORD_SALT || 'default_salt',
         VITE_SUPABASE_URL: process.env.VITE_SUPABASE_URL,
         VITE_SUPABASE_ANON_KEY: process.env.VITE_SUPABASE_ANON_KEY,
-        SUPABASE_SERVICE_ROLE_KEY: process.env.SUPABASE_SERVICE_ROLE_KEY
+        SUPABASE_SERVICE_ROLE_KEY: process.env.SUPABASE_SERVICE_ROLE_KEY,
+        UNSPLASH_ACCESS_KEY: process.env.UNSPLASH_ACCESS_KEY,
+        FLIGHT_API_KEY: process.env.FLIGHT_API_KEY
       };
 
       const honoRes = await honoApp.fetch(honoReq, env as any);

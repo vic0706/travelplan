@@ -3,8 +3,9 @@ import { useAppStore } from '../store';
 export const getApiUrl = (path: string): string => {
   const cleanPath = path.startsWith('/') ? path : `/${path}`;
   
-  // Use user's worker URL as requested
-  return `https://travelplan.vic070680.workers.dev${cleanPath}`;
+  // Use relative path for local development with Express/Vite
+  // In production, this will also work if served from the same domain
+  return cleanPath;
 };
 
 export const apiFetch = async (path: string, options: RequestInit = {}) => {

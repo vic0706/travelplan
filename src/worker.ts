@@ -11,6 +11,7 @@ export interface Env {
   VITE_SUPABASE_ANON_KEY: string;
   SUPABASE_SERVICE_ROLE_KEY?: string;
   UNSPLASH_ACCESS_KEY: string;
+  FLIGHT_API_KEY: string;
   __STATIC_CONTENT: any;
   __STATIC_CONTENT_MANIFEST: string;
 }
@@ -50,7 +51,7 @@ app.get('/api/images/search', async (c) => {
 
     if (!response.ok) {
       console.error('Unsplash API error:', response.status, response.statusText);
-      return c.json({ error: 'Failed to fetch images from Unsplash' }, response.status);
+      return c.json({ error: 'Failed to fetch images from Unsplash' }, response.status as any);
     }
 
     const data = await response.json() as any;
@@ -74,6 +75,48 @@ app.get('/api/images/search', async (c) => {
 // Health Check
 app.get('/', (c) => c.text('Worker is running!'));
 app.get('/api/health', (c) => c.json({ status: 'ok', timestamp: new Date().toISOString() }));
+
+// GET /api/flights/lookup?code=BR192
+app.get('/api/flights/lookup', async (c) => {
+  const inputCode = c.req.query('code') || '';
+  
+  // 💡 智慧過濾：移除中文或英文名稱，只留下 IATA 代碼 (例如 BR192)
+  const code = inputCode.replace(/[\u4e00-\u9fa5a-zA-Z\s]+(?=[A-Z]{2}\d+)/g, '').trim().replace(/\s+/g, '');
+  
+  if (!code) return c.json({ error: '請輸入正確的航班編號' }, 400);
+
+  try {
+    // 呼叫 AviationStack (需在環境變數設定 FLIGHT_API_KEY)
+    const response = await fetch(
+      `http://api.aviationstack.com/v1/flights?access_key=${c.env.FLIGHT_API_KEY}&flight_iata=${code}`
+    );
+
+    const data = await response.json() as any;
+    
+    if (!data.data || data.data.length === 0) {
+      return c.json({ error: '找不到該航班資訊' }, 404);
+    }
+
+    // 取得最新的一筆航班紀錄
+    const f = data.data[0];
+
+    return c.json({
+      airline: f.airline.name,
+      flight_number: f.flight.iata,
+      departure_airport: f.departure.iata,
+      departure_terminal: f.departure.terminal,
+      departure_date: f.departure.scheduled.split('T')[0],
+      departure_time: f.departure.scheduled.split('T')[1].substring(0, 5),
+      arrival_airport: f.arrival.iata,
+      arrival_terminal: f.arrival.terminal,
+      arrival_date: f.arrival.scheduled.split('T')[0],
+      arrival_time: f.arrival.scheduled.split('T')[1].substring(0, 5),
+    });
+  } catch (error) {
+    console.error('Flight lookup error:', error);
+    return c.json({ error: 'Internal server error fetching flight data' }, 500);
+  }
+});
 
 // Custom 404 for API
 app.notFound((c) => c.json({ error: 'API route not found' }, 404));

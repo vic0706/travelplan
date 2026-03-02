@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { X, Plane, Calendar, Clock, MapPin, FileText, Loader2, Trash2, Train, Ship, Bus, Car } from 'lucide-react';
+import { X, Plane, Calendar, Clock, MapPin, FileText, Loader2, Trash2, Train, Ship, Bus, Car, Search } from 'lucide-react';
 import { format } from 'date-fns';
 import { DatePicker } from './DatePicker';
 import { TimePicker } from './TimePicker';
@@ -24,6 +24,7 @@ const TRANSPORT_TYPES = [
 
 export function TransportationForm({ tripId, onSuccess, onCancel, onDelete, initialData }: TransportationFormProps) {
   const [loading, setLoading] = useState(false);
+  const [lookupLoading, setLookupLoading] = useState(false);
   const [formData, setFormData] = useState({
     type: initialData?.type || 'FLIGHT',
     provider: initialData?.provider || '',
@@ -62,6 +63,35 @@ export function TransportationForm({ tripId, onSuccess, onCancel, onDelete, init
       alert(`Failed to ${initialData ? 'update' : 'add'} transportation`);
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleFlightLookup = async () => {
+    if (!formData.transport_code) return;
+    setLookupLoading(true);
+    try {
+      const res = await apiFetch(`/api/flights/lookup?code=${encodeURIComponent(formData.transport_code)}`);
+      if (!res.ok) {
+        throw new Error('找不到航班資訊，請手動填入');
+      }
+      const data: any = await res.json();
+      setFormData(prev => ({
+        ...prev,
+        provider: data.airline || prev.provider,
+        transport_code: data.flight_number || prev.transport_code,
+        departure_station: data.departure_airport || prev.departure_station,
+        departure_terminal: data.departure_terminal || prev.departure_terminal,
+        departure_date: data.departure_date || prev.departure_date,
+        departure_time: data.departure_time || prev.departure_time,
+        arrival_station: data.arrival_airport || prev.arrival_station,
+        arrival_terminal: data.arrival_terminal || prev.arrival_terminal,
+        arrival_date: data.arrival_date || prev.arrival_date,
+        arrival_time: data.arrival_time || prev.arrival_time,
+      }));
+    } catch (error: any) {
+      alert(error.message || '找不到航班資訊，請手動填入');
+    } finally {
+      setLookupLoading(false);
     }
   };
 
@@ -125,14 +155,27 @@ export function TransportationForm({ tripId, onSuccess, onCancel, onDelete, init
           </div>
           <div className="space-y-2">
             <label className="text-xs font-bold text-zinc-500 uppercase tracking-wider">{labels.code}</label>
-            <input
-              type="text"
-              required
-              value={formData.transport_code}
-              onChange={e => setFormData({ ...formData, transport_code: e.target.value })}
-              className="w-full bg-zinc-950 border border-zinc-800 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-orange-500 transition-colors"
-              placeholder={`e.g. ${formData.type === 'FLIGHT' ? 'BR123' : '101'}`}
-            />
+            <div className="relative">
+              <input
+                type="text"
+                required
+                value={formData.transport_code}
+                onChange={e => setFormData({ ...formData, transport_code: e.target.value })}
+                className="w-full bg-zinc-950 border border-zinc-800 rounded-xl px-4 py-3 pr-12 text-white focus:outline-none focus:border-orange-500 transition-colors"
+                placeholder={`e.g. ${formData.type === 'FLIGHT' ? 'BR123' : '101'}`}
+              />
+              {formData.type === 'FLIGHT' && (
+                <button
+                  type="button"
+                  onClick={handleFlightLookup}
+                  disabled={lookupLoading || !formData.transport_code}
+                  className="absolute right-2 top-1/2 -translate-y-1/2 p-2 text-zinc-400 hover:text-orange-500 disabled:opacity-50 transition-colors"
+                  title="查詢航班資訊"
+                >
+                  {lookupLoading ? <Loader2 size={18} className="animate-spin" /> : <Search size={18} />}
+                </button>
+              )}
+            </div>
           </div>
         </div>
 
