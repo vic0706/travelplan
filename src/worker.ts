@@ -27,13 +27,16 @@ app.use('*', cors({
   maxAge: 600,
 }));
 
-// GET /api/images/search?query=...
+// GET /api/images/search?query=...&type=trip|activity
 app.get('/api/images/search', async (c) => {
   const query = c.req.query('query');
+  const type = c.req.query('type') || 'trip';
   if (!query) return c.json({ error: 'Missing query' }, 400);
 
   // Optimize search query for travel covers
-  const searchQuery = `${query} Landmark Travel Cityscape`;
+  const searchQuery = type === 'trip' 
+    ? `${query} Landmark Travel Cityscape` 
+    : query;
   
   try {
     const response = await fetch(

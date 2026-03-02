@@ -179,6 +179,23 @@ export function ItineraryForm({ tripId, defaultCityId, date, onSuccess, onCancel
     }
 
     try {
+      let finalImageUrl = formData.image_url;
+      
+      // Auto-fetch image if empty and creating a new activity
+      if (!initialData && !finalImageUrl && formData.title) {
+        try {
+          const searchRes = await apiFetch(`/api/images/search?query=${encodeURIComponent(formData.title)}&type=activity`);
+          if (searchRes.ok) {
+            const images = await searchRes.json();
+            if (images && images.length > 0) {
+              finalImageUrl = images[0].url;
+            }
+          }
+        } catch (e) {
+          console.error('Failed to auto-fetch activity image:', e);
+        }
+      }
+
       const endpoint = initialData 
         ? `/api/trips/${tripId}/itineraries/${initialData.id}` 
         : `/api/trips/${tripId}/itineraries`;
@@ -195,7 +212,7 @@ export function ItineraryForm({ tripId, defaultCityId, date, onSuccess, onCancel
           end_time: formData.end_time,
           title: formData.title,
           address: formData.address || '',
-          image_url: formData.image_url || '',
+          image_url: finalImageUrl || '',
           notes: formData.notes || '',
           tags: formData.tags || [],
           sub_items: JSON.stringify(subItems)
