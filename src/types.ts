@@ -90,23 +90,17 @@ export interface Transportation {
   type: 'FLIGHT' | 'TRAIN' | 'BUS' | 'FERRY' | 'DRIVING';
   provider?: string;
   code?: string;
-  
-  // Departure
   dep_station: string;
-  dep_date: string; // YYYY-MM-DD
-  dep_time: string; // HH:mm
-  dep_terminal?: string;
-  dep_checkin_buffer?: number; // Minutes
-
-  // Arrival
+  dep_time: string; // ISO 8601 or YYYY-MM-DD HH:mm
   arr_station: string;
-  arr_date: string; // YYYY-MM-DD
-  arr_time: string; // HH:mm
-  arr_terminal?: string;
-  arr_exit_buffer?: number; // Minutes
-
+  arr_time: string; // ISO 8601 or YYYY-MM-DD HH:mm
+  platform?: string;
+  seat_info?: string;
   order_id?: string;
   notes?: string;
+  checkin_duration?: number; // Minutes
+  exit_duration?: number; // Minutes
+  stay_duration?: number; // Minutes
 }
 
 export interface Accommodation {

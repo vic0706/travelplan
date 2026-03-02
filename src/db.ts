@@ -24,7 +24,7 @@ export class TravelPlanDB extends Dexie {
       itineraries: 'id, trip_id, date, start_time',
       subItineraries: 'id, itinerary_id, start_time',
       expenses: 'id, trip_id, date, payer_id',
-      transportations: 'id, trip_id, dep_date, type',
+      transportations: 'id, trip_id, dep_time, type',
       accommodations: 'id, trip_id, check_in_date',
       appSettings: 'id, key_name'
     });
