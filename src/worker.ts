@@ -1053,34 +1053,34 @@ app.post('/api/trips/:id/accommodations', async (c) => {
         await c.env.DB.prepare(`
           INSERT INTO Itineraries (trip_id, date, start_time, end_time, title, type, related_id, notes, image_url)
           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-        `).bind(tripId, dateStr, checkInTime, '', `🏨 Check-in ${b.hotel_name}`, 'ACCOMMODATION', accId, notesWithOrder, hotelImage || '').run();
+        `).bind(tripId, dateStr, checkInTime, '', `Check-in ${b.hotel_name}`, 'ACCOMMODATION', accId, notesWithOrder, hotelImage || '').run();
         
         // Return to Hotel Item (if not also checkout day, which is unlikely for 1 day stay but possible)
         if (!isCheckOutDay) {
              await c.env.DB.prepare(`
               INSERT INTO Itineraries (trip_id, date, start_time, end_time, title, type, related_id, notes, image_url)
               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-            `).bind(tripId, dateStr, dailyEndTime, '', `🏨 Back to Hotel ${b.hotel_name}`, 'ACCOMMODATION', accId, '', hotelImage || '').run();
+            `).bind(tripId, dateStr, dailyEndTime, '', `Back to Hotel ${b.hotel_name}`, 'ACCOMMODATION', accId, '', hotelImage || '').run();
         }
       } else if (isCheckOutDay) {
         // Check-out Item
         await c.env.DB.prepare(`
           INSERT INTO Itineraries (trip_id, date, start_time, end_time, title, type, related_id, notes, image_url)
           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-        `).bind(tripId, dateStr, checkOutTime, '', `🏨 Check-out ${b.hotel_name}`, 'ACCOMMODATION', accId, notesWithOrder, hotelImage || '').run();
+        `).bind(tripId, dateStr, checkOutTime, '', `Check-out ${b.hotel_name}`, 'ACCOMMODATION', accId, notesWithOrder, hotelImage || '').run();
       } else {
         // Intermediate Day
         // Leave Hotel
         await c.env.DB.prepare(`
           INSERT INTO Itineraries (trip_id, date, start_time, end_time, title, type, related_id, notes, image_url)
           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-        `).bind(tripId, dateStr, dailyStartTime, '', `🏨 Leave Hotel ${b.hotel_name}`, 'ACCOMMODATION', accId, '', hotelImage || '').run();
+        `).bind(tripId, dateStr, dailyStartTime, '', `Leave Hotel ${b.hotel_name}`, 'ACCOMMODATION', accId, '', hotelImage || '').run();
 
         // Return to Hotel
         await c.env.DB.prepare(`
           INSERT INTO Itineraries (trip_id, date, start_time, end_time, title, type, related_id, notes, image_url)
           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-        `).bind(tripId, dateStr, dailyEndTime, '', `🏨 Back to Hotel ${b.hotel_name}`, 'ACCOMMODATION', accId, '', hotelImage || '').run();
+        `).bind(tripId, dateStr, dailyEndTime, '', `Back to Hotel ${b.hotel_name}`, 'ACCOMMODATION', accId, '', hotelImage || '').run();
       }
 
       currentDate.setDate(currentDate.getDate() + 1);
@@ -1140,7 +1140,7 @@ app.put('/api/trips/:id/accommodations/:accId', async (c) => {
           date: dateStr,
           start_time: checkInTime,
           end_time: '',
-          title: `🏨 Check-in ${b.hotel_name}`,
+          title: `Check-in ${b.hotel_name}`,
           notes: notesWithOrder,
           image_url: hotelImage || '',
           matchType: 'Check-in'
@@ -1151,7 +1151,7 @@ app.put('/api/trips/:id/accommodations/:accId', async (c) => {
             date: dateStr,
             start_time: dailyEndTime,
             end_time: '',
-            title: `🏨 Back to Hotel ${b.hotel_name}`,
+            title: `Back to Hotel ${b.hotel_name}`,
             notes: '',
             image_url: hotelImage || '',
             matchType: 'Back to Hotel'
@@ -1162,7 +1162,7 @@ app.put('/api/trips/:id/accommodations/:accId', async (c) => {
           date: dateStr,
           start_time: checkOutTime,
           end_time: '',
-          title: `🏨 Check-out ${b.hotel_name}`,
+          title: `Check-out ${b.hotel_name}`,
           notes: notesWithOrder,
           image_url: hotelImage || '',
           matchType: 'Check-out'
@@ -1172,7 +1172,7 @@ app.put('/api/trips/:id/accommodations/:accId', async (c) => {
           date: dateStr,
           start_time: dailyStartTime,
           end_time: '',
-          title: `🏨 Leave Hotel ${b.hotel_name}`,
+          title: `Leave Hotel ${b.hotel_name}`,
           notes: '',
           image_url: hotelImage || '',
           matchType: 'Leave Hotel'
@@ -1181,7 +1181,7 @@ app.put('/api/trips/:id/accommodations/:accId', async (c) => {
           date: dateStr,
           start_time: dailyEndTime,
           end_time: '',
-          title: `🏨 Back to Hotel ${b.hotel_name}`,
+          title: `Back to Hotel ${b.hotel_name}`,
           notes: '',
           image_url: hotelImage || '',
           matchType: 'Back to Hotel'
