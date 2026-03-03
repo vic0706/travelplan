@@ -503,6 +503,25 @@ async function getWeatherForDate(tripId: number, dateStr: string, env: Env) {
   return finalJSON;
 }
 
+// Helper: Search Unsplash (Internal)
+async function searchUnsplash(query: string, env: Env): Promise<string | null> {
+  try {
+    const response = await fetch(
+      `https://api.unsplash.com/search/photos?query=${encodeURIComponent(query)}&per_page=1&orientation=landscape`,
+      { headers: { 'Authorization': `Client-ID ${env.UNSPLASH_ACCESS_KEY}` } }
+    );
+    if (!response.ok) return null;
+    const data = await response.json() as any;
+    if (data.results && data.results.length > 0) {
+      return data.results[0].urls.regular;
+    }
+    return null;
+  } catch (e) {
+    console.error('Unsplash internal search error:', e);
+    return null;
+  }
+}
+
 // Helper: Sync Weather for a Trip (Legacy Cron use)
 async function syncWeatherForTrip(tripId: number, env: Env) {
   const todayStr = new Date().toISOString().split('T')[0];
@@ -849,7 +868,7 @@ app.post('/api/trips/:id/transportations', async (c) => {
     const b = await c.req.json();
     // id is AUTOINCREMENT
     const info = await c.env.DB.prepare(`
-      INSERT INTO Transportations (trip_id, type, provider, code, dep_station, dep_date, dep_time, dep_terminal, dep_checkin_buffer, arr_station, arr_date, arr_time, arr_terminal, arr_exit_buffer, order_id, notes)
+      INSERT INTO Transportations (trip_id, type, provider, code, dep_station, dep_date, dep_time, dep_terminal, checkin_duration, arr_station, arr_date, arr_time, arr_terminal, exit_duration, order_id, notes)
       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).bind(
       tripId, 
@@ -860,12 +879,12 @@ app.post('/api/trips/:id/transportations', async (c) => {
       b.dep_date,
       b.dep_time,
       b.dep_terminal,
-      b.dep_checkin_buffer || 120,
+      b.checkin_duration || b.dep_checkin_buffer || 120,
       b.arr_station, 
       b.arr_date,
       b.arr_time,
       b.arr_terminal,
-      b.arr_exit_buffer || 60,
+      b.exit_duration || b.arr_exit_buffer || 60,
       b.order_id, 
       b.notes
     ).run();
@@ -916,7 +935,7 @@ app.put('/api/trips/:id/transportations/:transportId', async (c) => {
     
     await c.env.DB.prepare(`
       UPDATE Transportations 
-      SET type = ?, provider = ?, code = ?, dep_station = ?, dep_date = ?, dep_time = ?, dep_terminal = ?, dep_checkin_buffer = ?, arr_station = ?, arr_date = ?, arr_time = ?, arr_terminal = ?, arr_exit_buffer = ?, order_id = ?, notes = ?
+      SET type = ?, provider = ?, code = ?, dep_station = ?, dep_date = ?, dep_time = ?, dep_terminal = ?, checkin_duration = ?, arr_station = ?, arr_date = ?, arr_time = ?, arr_terminal = ?, exit_duration = ?, order_id = ?, notes = ?
       WHERE id = ? AND trip_id = ?
     `).bind(
       b.type || 'FLIGHT', 
@@ -926,12 +945,12 @@ app.put('/api/trips/:id/transportations/:transportId', async (c) => {
       b.dep_date,
       b.dep_time,
       b.dep_terminal,
-      b.dep_checkin_buffer || 120,
+      b.checkin_duration || b.dep_checkin_buffer || 120,
       b.arr_station, 
       b.arr_date,
       b.arr_time,
       b.arr_terminal,
-      b.arr_exit_buffer || 60,
+      b.exit_duration || b.arr_exit_buffer || 60,
       b.order_id, 
       b.notes, 
       transportId, 
@@ -1007,6 +1026,9 @@ app.post('/api/trips/:id/accommodations', async (c) => {
     // @ts-ignore
     const accId = info.meta.last_row_id;
 
+    // Fetch Hotel Image
+    const hotelImage = await searchUnsplash(b.hotel_name, c.env);
+
     // Create Itinerary Items for Accommodation
     const startDate = new Date(b.check_in_date);
     const endDate = new Date(b.check_out_date);
@@ -1017,6 +1039,9 @@ app.post('/api/trips/:id/accommodations', async (c) => {
 
     const currentDate = new Date(startDate);
     
+    // Prepare Notes with Order ID
+    const notesWithOrder = b.order_id ? `Order ID: ${b.order_id}\n${b.notes || ''}` : (b.notes || '');
+
     // Loop through dates
     while (currentDate <= endDate) {
       const dateStr = currentDate.toISOString().split('T')[0];
@@ -1026,36 +1051,36 @@ app.post('/api/trips/:id/accommodations', async (c) => {
       if (isCheckInDay) {
         // Check-in Item
         await c.env.DB.prepare(`
-          INSERT INTO Itineraries (trip_id, date, start_time, end_time, title, type, related_id, notes)
-          VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-        `).bind(tripId, dateStr, checkInTime, '', `Check-in: ${b.hotel_name}`, 'ACCOMMODATION', accId, b.notes || '').run();
+          INSERT INTO Itineraries (trip_id, date, start_time, end_time, title, type, related_id, notes, image_url)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        `).bind(tripId, dateStr, checkInTime, '', `🏨 Check-in ${b.hotel_name}`, 'ACCOMMODATION', accId, notesWithOrder, hotelImage || '').run();
         
         // Return to Hotel Item (if not also checkout day, which is unlikely for 1 day stay but possible)
         if (!isCheckOutDay) {
              await c.env.DB.prepare(`
-              INSERT INTO Itineraries (trip_id, date, start_time, end_time, title, type, related_id, notes)
-              VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-            `).bind(tripId, dateStr, dailyEndTime, '', `Back to Hotel`, 'ACCOMMODATION', accId, '').run();
+              INSERT INTO Itineraries (trip_id, date, start_time, end_time, title, type, related_id, notes, image_url)
+              VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            `).bind(tripId, dateStr, dailyEndTime, '', `🏨 Back to Hotel ${b.hotel_name}`, 'ACCOMMODATION', accId, '', hotelImage || '').run();
         }
       } else if (isCheckOutDay) {
         // Check-out Item
         await c.env.DB.prepare(`
-          INSERT INTO Itineraries (trip_id, date, start_time, end_time, title, type, related_id, notes)
-          VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-        `).bind(tripId, dateStr, checkOutTime, '', `Check-out: ${b.hotel_name}`, 'ACCOMMODATION', accId, '').run();
+          INSERT INTO Itineraries (trip_id, date, start_time, end_time, title, type, related_id, notes, image_url)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        `).bind(tripId, dateStr, checkOutTime, '', `🏨 Check-out ${b.hotel_name}`, 'ACCOMMODATION', accId, notesWithOrder, hotelImage || '').run();
       } else {
         // Intermediate Day
         // Leave Hotel
         await c.env.DB.prepare(`
-          INSERT INTO Itineraries (trip_id, date, start_time, end_time, title, type, related_id, notes)
-          VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-        `).bind(tripId, dateStr, dailyStartTime, '', `Leave Hotel`, 'ACCOMMODATION', accId, '').run();
+          INSERT INTO Itineraries (trip_id, date, start_time, end_time, title, type, related_id, notes, image_url)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        `).bind(tripId, dateStr, dailyStartTime, '', `🏨 Leave Hotel ${b.hotel_name}`, 'ACCOMMODATION', accId, '', hotelImage || '').run();
 
         // Return to Hotel
         await c.env.DB.prepare(`
-          INSERT INTO Itineraries (trip_id, date, start_time, end_time, title, type, related_id, notes)
-          VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-        `).bind(tripId, dateStr, dailyEndTime, '', `Back to Hotel`, 'ACCOMMODATION', accId, '').run();
+          INSERT INTO Itineraries (trip_id, date, start_time, end_time, title, type, related_id, notes, image_url)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        `).bind(tripId, dateStr, dailyEndTime, '', `🏨 Back to Hotel ${b.hotel_name}`, 'ACCOMMODATION', accId, '', hotelImage || '').run();
       }
 
       currentDate.setDate(currentDate.getDate() + 1);
@@ -1085,6 +1110,12 @@ app.put('/api/trips/:id/accommodations/:accId', async (c) => {
     const { results: existingItems } = await c.env.DB.prepare("SELECT * FROM Itineraries WHERE type = 'ACCOMMODATION' AND related_id = ? AND trip_id = ?").bind(accId, tripId).all();
     const existingPool = [...existingItems] as any[];
 
+    // Fetch Hotel Image (if needed, or reuse existing if available in one of the items?)
+    // To be safe and simple, we fetch again or use the one from the first existing item if hotel name hasn't changed much?
+    // Let's just fetch to be sure we have a good one, or check if we can preserve.
+    // Actually, if the hotel name changed, we definitely want a new image.
+    const hotelImage = await searchUnsplash(b.hotel_name, c.env);
+
     // 2. Generate Desired Items
     const desiredItems = [];
     const startDate = new Date(b.check_in_date);
@@ -1096,6 +1127,9 @@ app.put('/api/trips/:id/accommodations/:accId', async (c) => {
 
     const currentDate = new Date(startDate);
     
+    // Prepare Notes with Order ID
+    const notesWithOrder = b.order_id ? `Order ID: ${b.order_id}\n${b.notes || ''}` : (b.notes || '');
+
     while (currentDate <= endDate) {
       const dateStr = currentDate.toISOString().split('T')[0];
       const isCheckInDay = dateStr === b.check_in_date;
@@ -1106,8 +1140,9 @@ app.put('/api/trips/:id/accommodations/:accId', async (c) => {
           date: dateStr,
           start_time: checkInTime,
           end_time: '',
-          title: `Check-in: ${b.hotel_name}`,
-          notes: b.notes || '',
+          title: `🏨 Check-in ${b.hotel_name}`,
+          notes: notesWithOrder,
+          image_url: hotelImage || '',
           matchType: 'Check-in'
         });
         
@@ -1116,8 +1151,9 @@ app.put('/api/trips/:id/accommodations/:accId', async (c) => {
             date: dateStr,
             start_time: dailyEndTime,
             end_time: '',
-            title: `Back to Hotel`,
+            title: `🏨 Back to Hotel ${b.hotel_name}`,
             notes: '',
+            image_url: hotelImage || '',
             matchType: 'Back to Hotel'
           });
         }
@@ -1126,8 +1162,9 @@ app.put('/api/trips/:id/accommodations/:accId', async (c) => {
           date: dateStr,
           start_time: checkOutTime,
           end_time: '',
-          title: `Check-out: ${b.hotel_name}`,
-          notes: '',
+          title: `🏨 Check-out ${b.hotel_name}`,
+          notes: notesWithOrder,
+          image_url: hotelImage || '',
           matchType: 'Check-out'
         });
       } else {
@@ -1135,16 +1172,18 @@ app.put('/api/trips/:id/accommodations/:accId', async (c) => {
           date: dateStr,
           start_time: dailyStartTime,
           end_time: '',
-          title: `Leave Hotel`,
+          title: `🏨 Leave Hotel ${b.hotel_name}`,
           notes: '',
+          image_url: hotelImage || '',
           matchType: 'Leave Hotel'
         });
         desiredItems.push({
           date: dateStr,
           start_time: dailyEndTime,
           end_time: '',
-          title: `Back to Hotel`,
+          title: `🏨 Back to Hotel ${b.hotel_name}`,
           notes: '',
+          image_url: hotelImage || '',
           matchType: 'Back to Hotel'
         });
       }
@@ -1155,9 +1194,17 @@ app.put('/api/trips/:id/accommodations/:accId', async (c) => {
     for (const item of desiredItems) {
       // Find a match in existingPool
       // We match by date and "matchType" (derived from title prefix)
+      // Note: The title format changed, so we need to be careful with matching if the user is updating from old format.
+      // Old format: "Check-in: Hotel Name", New: "🏨 Check-in Hotel Name"
+      // We can match by checking if title contains "Check-in" etc.
       const matchIndex = existingPool.findIndex(e => 
         e.date === item.date && 
-        (e.title.startsWith(item.matchType) || (item.matchType === 'Back to Hotel' && e.title === 'Back to Hotel') || (item.matchType === 'Leave Hotel' && e.title === 'Leave Hotel'))
+        (
+          (item.matchType === 'Check-in' && e.title.includes('Check-in')) ||
+          (item.matchType === 'Check-out' && e.title.includes('Check-out')) ||
+          (item.matchType === 'Back to Hotel' && e.title.includes('Back to Hotel')) ||
+          (item.matchType === 'Leave Hotel' && e.title.includes('Leave Hotel'))
+        )
       );
 
       if (matchIndex !== -1) {
@@ -1165,17 +1212,20 @@ app.put('/api/trips/:id/accommodations/:accId', async (c) => {
         const match = existingPool[matchIndex];
         existingPool.splice(matchIndex, 1); // Remove from pool
 
+        // Use new image if found, otherwise keep existing if available, otherwise empty
+        const finalImage = item.image_url || match.image_url || '';
+
         await c.env.DB.prepare(`
           UPDATE Itineraries 
-          SET date = ?, start_time = ?, end_time = ?, title = ?, notes = ?
+          SET date = ?, start_time = ?, end_time = ?, title = ?, notes = ?, image_url = ?
           WHERE id = ?
-        `).bind(item.date, item.start_time, item.end_time, item.title, item.notes, match.id).run();
+        `).bind(item.date, item.start_time, item.end_time, item.title, item.notes, finalImage, match.id).run();
       } else {
         // Create new
         await c.env.DB.prepare(`
-          INSERT INTO Itineraries (trip_id, date, start_time, end_time, title, type, related_id, notes)
-          VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-        `).bind(tripId, item.date, item.start_time, item.end_time, item.title, 'ACCOMMODATION', accId, item.notes).run();
+          INSERT INTO Itineraries (trip_id, date, start_time, end_time, title, type, related_id, notes, image_url)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        `).bind(tripId, item.date, item.start_time, item.end_time, item.title, 'ACCOMMODATION', accId, item.notes, item.image_url).run();
       }
     }
 

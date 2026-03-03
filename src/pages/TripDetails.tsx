@@ -34,6 +34,14 @@ function TransportationCard({ item, transportation, canEdit, onEdit }: { item?: 
   const isToday = isValidDep && isSameDay(depDate, new Date());
   const isPastItem = isValidDep && isPast(depDate) && !isToday;
   
+  // Default state: Past = Collapsed, Future = Expanded
+  const [isExpanded, setIsExpanded] = useState(!isPastItem);
+  const [showDetails, setShowDetails] = useState(false);
+
+  useEffect(() => {
+    setIsExpanded(!isPastItem);
+  }, [isPastItem]);
+
   const getIcon = () => {
     switch (transportation.type) {
       case 'TRAIN': return Train;
@@ -57,16 +65,35 @@ function TransportationCard({ item, transportation, canEdit, onEdit }: { item?: 
 
   const labels = getLabels();
 
+  const handleHeaderClick = () => {
+    if (canEdit) {
+      onEdit();
+    } else {
+      setIsExpanded(!isExpanded);
+    }
+  };
+
   // If it's an activity (item is present), it should look like ItineraryCard
   if (item) {
+    // Calculate timeline times
+    const depDateTime = parseISO(`${transportation.dep_date}T${transportation.dep_time}`);
+    const checkinBuffer = transportation.checkin_duration || 120;
+    const checkinDate = new Date(depDateTime.getTime() - checkinBuffer * 60000);
+    const checkinTimeStr = format(checkinDate, 'HH:mm');
+
+    const arrDateTime = parseISO(`${transportation.arr_date}T${transportation.arr_time}`);
+    const exitBuffer = transportation.exit_duration || 60;
+    const exitDate = new Date(arrDateTime.getTime() + exitBuffer * 60000);
+    const exitTimeStr = format(exitDate, 'HH:mm');
+
     return (
       <div 
         className={clsx(
           "bg-zinc-900 border border-zinc-800 rounded-3xl overflow-hidden shadow-lg group relative transition-all",
-          canEdit ? "cursor-pointer hover:border-orange-500/50" : "",
-          isPastItem && "opacity-50 grayscale-[0.5] hover:opacity-100 hover:grayscale-0"
+          canEdit ? "cursor-pointer hover:border-orange-500/50" : "cursor-pointer hover:border-zinc-700",
+          isPastItem && !isExpanded && "opacity-50 grayscale-[0.5] hover:opacity-100 hover:grayscale-0"
         )}
-        onClick={() => canEdit && onEdit()}
+        onClick={handleHeaderClick}
       >
         {/* Top Bar: Time, Title, Navigation */}
         <div className="p-5 flex items-start justify-between gap-4 bg-zinc-900 relative z-20">
@@ -77,109 +104,115 @@ function TransportationCard({ item, transportation, canEdit, onEdit }: { item?: 
                 {item.start_time} - {item.end_time}
               </span>
             </div>
-            <h3 className="text-xl font-bold text-white leading-tight">
-              {item.title}
+            <h3 className="text-xl font-bold text-white leading-tight flex items-center gap-2">
+              <Icon size={20} className="text-orange-500" />
+              <span>{transportation.provider} {transportation.code}</span>
             </h3>
           </div>
+          
+          <button 
+            className="flex items-center justify-center text-zinc-400 hover:text-orange-500 hover:bg-orange-500/20 transition-colors bg-zinc-800/50 w-10 h-10 rounded-full border border-zinc-700/50 shrink-0 shadow-sm"
+            onClick={(e) => {
+               e.stopPropagation();
+               // Maybe open link?
+            }}
+          >
+             <Navigation size={18} />
+          </button>
         </div>
 
-        {/* Transportation Specific Fields */}
-        <div className="px-5 pb-5">
-          <div className="bg-zinc-950/50 rounded-2xl border border-zinc-800/50 p-4">
-            <div className="flex items-center justify-between mb-4">
-              <div className="flex items-center gap-3">
-                <div className="w-8 h-8 rounded-full bg-orange-500/10 flex items-center justify-center shrink-0">
-                  <Icon className="text-orange-500" size={16} />
-                </div>
-                <div>
-                  <div className="text-white font-bold">{transportation.provider}</div>
-                  <div className="text-zinc-500 text-xs font-mono tracking-wider">{transportation.code}</div>
-                </div>
-              </div>
-              <div className="text-right">
-                <div className="text-[10px] text-zinc-500 uppercase tracking-wider">Date</div>
-                <div className="text-xs font-bold text-zinc-300">
-                  {isValidDep ? format(depDate, 'MMM d') : '---'}
-                  {isCrossDay && isValidArr && <span className="text-orange-500 ml-1">+{differenceInDays(arrDate, depDate)}d</span>}
-                </div>
-              </div>
-            </div>
-
-            <div className="flex items-center justify-between">
-              <div className="flex-1">
-                <div className="text-lg font-bold text-white">{transportation.dep_station}</div>
-                <div className="text-xs font-medium text-zinc-300 mt-0.5">{isValidDep ? format(depDate, 'HH:mm') : '--:--'}</div>
-                {transportation.dep_terminal && (
-                  <div className="mt-1 inline-flex items-center gap-1 px-1.5 py-0.5 bg-zinc-800 rounded border border-zinc-700">
-                    <span className="text-[9px] text-zinc-500 font-bold uppercase">{labels.terminal}</span>
-                    <span className="text-[10px] font-bold text-orange-500">{transportation.dep_terminal}</span>
-                  </div>
-                )}
-              </div>
+        {/* Expanded Content */}
+        <div className={clsx(
+          "relative transition-all duration-300 ease-in-out overflow-hidden bg-zinc-900/50",
+          isExpanded ? "h-[200px]" : "h-0"
+        )}>
+           {/* Content Container */}
+           <div className="absolute inset-0 p-5 flex flex-col">
               
-              <div className="px-3 flex flex-col items-center">
-                <div className="w-12 h-px bg-zinc-700 relative">
-                  <Icon className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 text-zinc-600 bg-zinc-950 px-1" size={12} />
-                </div>
-              </div>
-
-              <div className="flex-1 text-right">
-                <div className="text-lg font-bold text-white">{transportation.arr_station}</div>
-                <div className="text-xs font-medium text-zinc-300 mt-0.5">{isValidArr ? format(arrDate, 'HH:mm') : '--:--'}</div>
-                {transportation.arr_terminal && (
-                  <div className="mt-1 inline-flex items-center gap-1 px-1.5 py-0.5 bg-zinc-800 rounded border border-zinc-700">
-                    <span className="text-[9px] text-zinc-500 font-bold uppercase">{labels.terminal}</span>
-                    <span className="text-[10px] font-bold text-orange-500">{transportation.arr_terminal}</span>
+              {/* Main Info (Always visible in Expanded state) */}
+              <div className="flex-1 overflow-y-auto custom-scrollbar pr-2">
+                  {/* Dep/Arr Details with Toggle Arrow */}
+                  <div className="flex justify-between items-start mb-6">
+                      <div className="flex-1">
+                          <div className="text-[10px] text-zinc-500 uppercase tracking-wider mb-1">Departure</div>
+                          <div className="text-lg font-bold text-white leading-tight">{transportation.dep_station}</div>
+                          <div className="text-xs font-mono text-zinc-400 mt-1">{transportation.dep_time}</div>
+                          {transportation.dep_terminal && <div className="text-xs text-orange-500 mt-0.5">{labels.terminal} {transportation.dep_terminal}</div>}
+                      </div>
+                      
+                      <div className="flex-1 text-right pl-4 relative">
+                          <div className="text-[10px] text-zinc-500 uppercase tracking-wider mb-1">Arrival</div>
+                          <div className="text-lg font-bold text-white leading-tight">{transportation.arr_station}</div>
+                          <div className="text-xs font-mono text-zinc-400 mt-1">{transportation.arr_time}</div>
+                          {transportation.arr_terminal && <div className="text-xs text-orange-500 mt-0.5">{labels.terminal} {transportation.arr_terminal}</div>}
+                          
+                          {/* Toggle Arrow positioned to the right of Arrival */}
+                          <div 
+                            className={clsx(
+                              "absolute -right-1 top-0 flex items-center justify-center w-6 h-6 rounded-full border backdrop-blur-md transition-transform duration-300 cursor-pointer bg-zinc-800/50 border-zinc-700/50 text-zinc-400 hover:text-white",
+                              showDetails ? "rotate-180" : "rotate-0"
+                            )}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setShowDetails(!showDetails);
+                            }}
+                          >
+                             <ChevronDown size={14} />
+                          </div>
+                      </div>
                   </div>
-                )}
-              </div>
-            </div>
-          </div>
 
-          {/* 4-Point Timeline */}
-          <div className="relative pt-6 pb-2 mt-2">
-            {/* Line */}
-            <div className="absolute top-8 left-4 right-4 h-0.5 bg-zinc-800"></div>
-            
-            <div className="flex justify-between relative">
-              {/* Check-in */}
-              <div className="flex flex-col items-center gap-2 relative z-10 group/point">
-                <div className="text-[10px] text-zinc-500 uppercase tracking-wider opacity-0 group-hover/point:opacity-100 transition-opacity absolute -top-6 whitespace-nowrap">Check-in</div>
-                <div className="w-3 h-3 rounded-full bg-zinc-700 border-2 border-zinc-900 group-hover/point:bg-orange-500 transition-colors"></div>
-                <div className="text-xs font-mono text-zinc-500">{item.start_time}</div>
-              </div>
+                  {/* Buffer Timeline */}
+                  <div className="relative pt-6 pb-2 mb-4">
+                    {/* Line */}
+                    <div className="absolute top-8 left-2 right-2 h-0.5 bg-zinc-800"></div>
+                    
+                    <div className="flex justify-between relative">
+                      {/* Check-in */}
+                      <div className="flex flex-col items-center gap-1 relative z-10 group/point">
+                        <div className="text-[10px] font-mono text-zinc-400 mb-1">{checkinTimeStr}</div>
+                        <div className="w-2 h-2 rounded-full bg-zinc-700 border border-zinc-900 group-hover/point:bg-orange-500 transition-colors"></div>
+                        <div className="text-[10px] font-mono text-zinc-500">Check-in</div>
+                      </div>
 
-              {/* Departure */}
-              <div className="flex flex-col items-center gap-2 relative z-10 group/point">
-                <div className="text-[10px] text-zinc-500 uppercase tracking-wider opacity-0 group-hover/point:opacity-100 transition-opacity absolute -top-6 whitespace-nowrap">Departure</div>
-                <div className="w-3 h-3 rounded-full bg-zinc-500 border-2 border-zinc-900 group-hover/point:bg-orange-500 transition-colors"></div>
-                <div className="text-xs font-mono text-zinc-300">{isValidDep ? format(depDate, 'HH:mm') : '--:--'}</div>
-              </div>
+                      {/* Departure */}
+                      <div className="flex flex-col items-center gap-1 relative z-10 group/point">
+                        <div className="text-[10px] font-mono text-zinc-300 mb-1">{transportation.dep_time}</div>
+                        <div className="w-2 h-2 rounded-full bg-zinc-500 border border-zinc-900 group-hover/point:bg-orange-500 transition-colors"></div>
+                        <div className="text-[10px] font-mono text-zinc-300">Dep</div>
+                      </div>
 
-              {/* Arrival */}
-              <div className="flex flex-col items-center gap-2 relative z-10 group/point">
-                <div className="text-[10px] text-zinc-500 uppercase tracking-wider opacity-0 group-hover/point:opacity-100 transition-opacity absolute -top-6 whitespace-nowrap">Arrival</div>
-                <div className="w-3 h-3 rounded-full bg-zinc-500 border-2 border-zinc-900 group-hover/point:bg-orange-500 transition-colors"></div>
-                <div className="text-xs font-mono text-zinc-300">{isValidArr ? format(arrDate, 'HH:mm') : '--:--'}</div>
-              </div>
+                      {/* Arrival */}
+                      <div className="flex flex-col items-center gap-1 relative z-10 group/point">
+                        <div className="text-[10px] font-mono text-zinc-300 mb-1">{transportation.arr_time}</div>
+                        <div className="w-2 h-2 rounded-full bg-zinc-500 border border-zinc-900 group-hover/point:bg-orange-500 transition-colors"></div>
+                        <div className="text-[10px] font-mono text-zinc-300">Arr</div>
+                      </div>
 
-              {/* Stay End */}
-              <div className="flex flex-col items-center gap-2 relative z-10 group/point">
-                <div className="text-[10px] text-zinc-500 uppercase tracking-wider opacity-0 group-hover/point:opacity-100 transition-opacity absolute -top-6 whitespace-nowrap">Exit</div>
-                <div className="w-3 h-3 rounded-full bg-zinc-700 border-2 border-zinc-900 group-hover/point:bg-orange-500 transition-colors"></div>
-                <div className="text-xs font-mono text-zinc-500">{item.end_time}</div>
-              </div>
-            </div>
-          </div>
+                      {/* Exit */}
+                      <div className="flex flex-col items-center gap-1 relative z-10 group/point">
+                        <div className="text-[10px] font-mono text-zinc-400 mb-1">{exitTimeStr}</div>
+                        <div className="w-2 h-2 rounded-full bg-zinc-700 border border-zinc-900 group-hover/point:bg-orange-500 transition-colors"></div>
+                        <div className="text-[10px] font-mono text-zinc-500">Exit</div>
+                      </div>
+                    </div>
+                  </div>
 
-          {/* Footer Actions */}
-          {(item?.notes || transportation.notes) && (
-            <div className="mt-4 pt-4 border-t border-zinc-800/50">
-               <div className="text-xs text-zinc-500 italic truncate">
-                 {item?.notes || transportation.notes}
-               </div>
-            </div>
-          )}
+                  {/* Notes (Toggleable) */}
+                  <AnimatePresence>
+                    {showDetails && transportation.notes && (
+                       <motion.div 
+                         initial={{ opacity: 0, height: 0 }}
+                         animate={{ opacity: 1, height: 'auto' }}
+                         exit={{ opacity: 0, height: 0 }}
+                         className="p-4 rounded-2xl bg-zinc-800/30 border border-zinc-700/30 text-sm text-zinc-300 italic overflow-hidden"
+                       >
+                         {transportation.notes}
+                       </motion.div>
+                    )}
+                  </AnimatePresence>
+              </div>
+           </div>
         </div>
       </div>
     );
@@ -356,32 +389,30 @@ function AccommodationCard({ acc, canEdit, onEdit }: { acc: any; canEdit: boolea
 
 // Itinerary Card Component
 function ItineraryCard({ item, canEdit, onEdit, selectedDate }: { item: Itinerary; canEdit: boolean; onEdit: () => void; selectedDate: Date }) {
-  const [isExpanded, setIsExpanded] = useState(false);
-  
-  const subItems = item.sub_items ? JSON.parse(item.sub_items) : [];
-  const hasExpandableContent = subItems.length > 0 || item.notes || (Array.isArray(item.tags) && item.tags.length > 0);
-  const itineraryImageUrl = item.image_url && typeof item.image_url === 'string' && item.image_url.startsWith('http')
-    ? item.image_url
-    : null;
-
   const timeString = item.end_time || item.start_time || '23:59';
   const dateStr = format(selectedDate, 'yyyy-MM-dd');
   const itemDateTime = parseISO(`${dateStr}T${timeString}`);
   const isPastItem = !isNaN(itemDateTime.getTime()) && isPast(itemDateTime);
 
-  const showImage = itineraryImageUrl && (!isPastItem || isExpanded);
+  // Default state: Past = Collapsed, Future = Expanded (Image Visible)
+  const [isExpanded, setIsExpanded] = useState(!isPastItem);
+  const [showDetails, setShowDetails] = useState(false);
+  
+  const subItems = item.sub_items ? JSON.parse(item.sub_items) : [];
+  const hasExpandableContent = subItems.length > 0 || item.notes;
+  const itineraryImageUrl = item.image_url && typeof item.image_url === 'string' && item.image_url.startsWith('http')
+    ? item.image_url
+    : null;
 
-  // Initialize past items as collapsed
+  // Sync state if isPastItem changes (e.g. date change)
   useEffect(() => {
-    if (isPastItem) {
-      setIsExpanded(false);
-    }
+    setIsExpanded(!isPastItem);
   }, [isPastItem]);
 
-  const handleClick = () => {
+  const handleHeaderClick = () => {
     if (canEdit) {
       onEdit();
-    } else if (hasExpandableContent) {
+    } else {
       setIsExpanded(!isExpanded);
     }
   };
@@ -390,10 +421,10 @@ function ItineraryCard({ item, canEdit, onEdit, selectedDate }: { item: Itinerar
     <div 
       className={clsx(
         "bg-zinc-900 border border-zinc-800 rounded-3xl overflow-hidden shadow-lg group relative transition-all",
-        canEdit ? "cursor-pointer hover:border-orange-500/50" : (hasExpandableContent ? "cursor-pointer hover:border-zinc-700" : ""),
-        isPastItem && "opacity-50 grayscale-[0.5] hover:opacity-100 hover:grayscale-0"
+        canEdit ? "cursor-pointer hover:border-orange-500/50" : "cursor-pointer hover:border-zinc-700",
+        isPastItem && !isExpanded && "opacity-50 grayscale-[0.5] hover:opacity-100 hover:grayscale-0"
       )}
-      onClick={handleClick}
+      onClick={handleHeaderClick}
     >
       {/* Top Bar: Time, Title, Navigation */}
       <div className="p-5 flex items-start justify-between gap-4 bg-zinc-900 relative z-20">
@@ -422,148 +453,148 @@ function ItineraryCard({ item, canEdit, onEdit, selectedDate }: { item: Itinerar
         </a>
       </div>
 
-      {/* Media & Tags Section */}
-      {(showImage || (Array.isArray(item.tags) && item.tags.length > 0) || hasExpandableContent) && (
+      {/* Expanded Content Area (Image, Tags, Details) */}
+      <div className={clsx(
+        "relative transition-all duration-300 ease-in-out overflow-hidden",
+        isExpanded ? "h-[200px]" : "h-0"
+      )}>
+        {/* Background Image */}
+        {itineraryImageUrl && (
+          <img 
+            src={itineraryImageUrl} 
+            alt={item.title} 
+            className="absolute inset-0 w-full h-full object-cover" 
+            referrerPolicy="no-referrer" 
+          />
+        )}
+        
+        {/* Overlay Gradient */}
         <div className={clsx(
-          "relative transition-all duration-300", 
-          showImage ? (isExpanded ? "h-[350px]" : "h-48") : "px-5 pb-5"
-        )}>
-          {showImage && (
-            <>
-              <img src={itineraryImageUrl} alt={item.title} className="absolute inset-0 w-full h-full object-cover" referrerPolicy="no-referrer" />
-              {/* Shadow overlay when expanded */}
-              <div className={clsx(
-                "absolute inset-0 transition-colors duration-500", 
-                isExpanded ? "bg-black/80 backdrop-blur-sm" : "bg-gradient-to-b from-zinc-900/60 via-zinc-900/20 to-transparent"
-              )}></div>
-            </>
-          )}
+          "absolute inset-0 transition-colors duration-300",
+          itineraryImageUrl 
+            ? (showDetails ? "bg-black/80 backdrop-blur-sm" : "bg-gradient-to-b from-zinc-900/40 via-transparent to-black/60")
+            : "bg-zinc-900"
+        )} />
 
-          {/* Tags, Expand Button, and Expanded Content Container */}
-          <div className={clsx(
-            "flex flex-col",
-            showImage ? "absolute inset-0 z-10 p-5" : "mt-2"
-          )}>
-            {/* Tags and Expand Button */}
-            <div className="flex items-start justify-between gap-4">
-              {/* Tags */}
-              <div className="flex flex-wrap gap-2 flex-1">
-                {Array.isArray(item.tags) && item.tags.map((tag: string) => (
-                  <span key={tag} className={clsx(
-                    "text-[10px] font-bold uppercase tracking-wider px-2.5 py-1 rounded-full border shadow-sm backdrop-blur-md",
-                    showImage 
-                      ? "text-white bg-black/40 border-white/20" 
-                      : "text-zinc-400 bg-zinc-800/50 border-zinc-700/50"
-                  )}>
-                    {tag}
-                  </span>
-                ))}
-              </div>
-
-              {/* Expand Button */}
-              {hasExpandableContent && !canEdit && (
-                <div 
-                  className={clsx(
-                    "flex items-center justify-center w-8 h-8 rounded-full border backdrop-blur-md transition-transform duration-300 shrink-0 cursor-pointer",
-                    isExpanded ? "rotate-180" : "rotate-0",
-                    showImage 
-                      ? "bg-black/40 border-white/20 text-white" 
-                      : "bg-zinc-800/50 border-zinc-700/50 text-zinc-400"
-                  )}
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    setIsExpanded(!isExpanded);
-                  }}
-                >
-                  <ChevronDown size={16} />
-                </div>
-              )}
+        {/* Content Container */}
+        <div className="absolute inset-0 p-5 flex flex-col z-10">
+          {/* Tags & Toggle Button Row */}
+          <div className="flex items-start justify-between gap-4 shrink-0">
+            {/* Tags */}
+            <div className="flex flex-wrap gap-2 flex-1">
+              {Array.isArray(item.tags) && item.tags.map((tag: string) => (
+                <span key={tag} className={clsx(
+                  "text-[10px] font-bold uppercase tracking-wider px-2.5 py-1 rounded-full border shadow-sm backdrop-blur-md",
+                  itineraryImageUrl 
+                    ? "text-white bg-black/40 border-white/20" 
+                    : "text-zinc-400 bg-zinc-800/50 border-zinc-700/50"
+                )}>
+                  {tag}
+                </span>
+              ))}
             </div>
 
-            {/* Expanded Content */}
-            <AnimatePresence>
-              {isExpanded && hasExpandableContent && !canEdit && (
-                <motion.div
-                  initial={{ opacity: 0, y: 10 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  exit={{ opacity: 0, y: 10 }}
-                  className={clsx(
-                    "flex-1 overflow-y-auto custom-scrollbar mt-4",
-                    !showImage && "max-h-[400px]"
-                  )}
-                >
-                  <div className="space-y-4 pb-2">
-                    {/* Notes */}
-                    {item.notes && (
-                      <p className={clsx(
-                        "text-sm leading-relaxed p-4 rounded-2xl border",
-                        showImage 
-                          ? "text-white/90 bg-black/40 border-white/10" 
-                          : "text-zinc-300 bg-zinc-800/30 border-zinc-700/30"
-                      )}>
-                        {item.notes}
-                      </p>
-                    )}
+            {/* Details Toggle Button */}
+            {hasExpandableContent && !canEdit && (
+              <div 
+                className={clsx(
+                  "flex items-center justify-center w-8 h-8 rounded-full border backdrop-blur-md transition-transform duration-300 shrink-0 cursor-pointer hover:bg-white/10",
+                  showDetails ? "rotate-180" : "rotate-0",
+                  itineraryImageUrl 
+                    ? "bg-black/40 border-white/20 text-white" 
+                    : "bg-zinc-800/50 border-zinc-700/50 text-zinc-400"
+                )}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setShowDetails(!showDetails);
+                }}
+              >
+                <ChevronDown size={16} />
+              </div>
+            )}
+          </div>
 
-                    {/* Sub Items */}
-                    {subItems.length > 0 && (
-                      <div className="space-y-3">
-                        {subItems.map((sub: any, idx: number) => (
-                          <div key={sub.id || idx} className={clsx(
-                            "flex flex-col gap-1 text-sm p-4 rounded-2xl border relative overflow-hidden group/sub",
-                            showImage
-                              ? "text-white/90 bg-black/40 border-white/10"
-                              : "text-zinc-400 bg-zinc-900/50 border-zinc-800/50"
-                          )}>
-                            <div className="absolute left-0 top-0 bottom-0 w-1 bg-zinc-700 group-hover/sub:bg-orange-500 transition-colors"></div>
-                            <div className="flex items-start gap-3 pl-1">
-                              <div className="flex-1">
-                                <div className={clsx(
-                                  "font-semibold flex justify-between items-start gap-2",
-                                  showImage ? "text-white" : "text-zinc-100"
-                                )}>
-                                  <span className="leading-snug">{sub.title || sub.text}</span>
-                                  {(sub.start_time || sub.end_time) && (
-                                    <span className="text-[11px] text-orange-400/90 font-mono bg-orange-500/10 px-2 py-0.5 rounded-md border border-orange-500/20 whitespace-nowrap">
-                                      {sub.start_time} - {sub.end_time}
-                                    </span>
-                                  )}
-                                </div>
-                                {Array.isArray(sub.tags) && sub.tags.length > 0 && (
-                                  <div className="flex gap-1.5 mt-2.5 flex-wrap">
-                                    {sub.tags.map((tag: string) => (
-                                      <span key={tag} className={clsx(
-                                        "text-[9px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-md border",
-                                        showImage
-                                          ? "text-white/70 border-white/20 bg-black/40"
-                                          : "text-zinc-400 border-zinc-700 bg-zinc-800/50"
-                                      )}>
-                                        {tag}
-                                      </span>
-                                    ))}
-                                  </div>
-                                )}
-                                {sub.notes && (
-                                  <div className={clsx(
-                                    "text-xs mt-2.5 italic leading-relaxed",
-                                    showImage ? "text-white/70" : "text-zinc-400"
-                                  )}>
-                                    {sub.notes}
-                                  </div>
+          {/* Scrollable Details Area */}
+          <AnimatePresence>
+            {showDetails && (
+              <motion.div
+                initial={{ opacity: 0, y: 10 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: 10 }}
+                className="flex-1 overflow-y-auto custom-scrollbar mt-4 pr-2"
+                onClick={(e) => e.stopPropagation()}
+              >
+                <div className="space-y-4 pb-2">
+                  {/* Notes */}
+                  {item.notes && (
+                    <p className={clsx(
+                      "text-sm leading-relaxed p-4 rounded-2xl border",
+                      itineraryImageUrl 
+                        ? "text-white/90 bg-black/40 border-white/10" 
+                        : "text-zinc-300 bg-zinc-800/30 border-zinc-700/30"
+                    )}>
+                      {item.notes}
+                    </p>
+                  )}
+
+                  {/* Sub Items */}
+                  {subItems.length > 0 && (
+                    <div className="space-y-3">
+                      {subItems.map((sub: any, idx: number) => (
+                        <div key={sub.id || idx} className={clsx(
+                          "flex flex-col gap-1 text-sm p-4 rounded-2xl border relative overflow-hidden group/sub",
+                          itineraryImageUrl
+                            ? "text-white/90 bg-black/40 border-white/10"
+                            : "text-zinc-400 bg-zinc-900/50 border-zinc-800/50"
+                        )}>
+                          <div className="absolute left-0 top-0 bottom-0 w-1 bg-zinc-700 group-hover/sub:bg-orange-500 transition-colors"></div>
+                          <div className="flex items-start gap-3 pl-1">
+                            <div className="flex-1">
+                              <div className={clsx(
+                                "font-semibold flex justify-between items-start gap-2",
+                                itineraryImageUrl ? "text-white" : "text-zinc-100"
+                              )}>
+                                <span className="leading-snug">{sub.title || sub.text}</span>
+                                {(sub.start_time || sub.end_time) && (
+                                  <span className="text-[11px] text-orange-400/90 font-mono bg-orange-500/10 px-2 py-0.5 rounded-md border border-orange-500/20 whitespace-nowrap">
+                                    {sub.start_time} - {sub.end_time}
+                                  </span>
                                 )}
                               </div>
+                              {Array.isArray(sub.tags) && sub.tags.length > 0 && (
+                                <div className="flex gap-1.5 mt-2.5 flex-wrap">
+                                  {sub.tags.map((tag: string) => (
+                                    <span key={tag} className={clsx(
+                                      "text-[9px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-md border",
+                                      itineraryImageUrl
+                                        ? "text-white/70 border-white/20 bg-black/40"
+                                        : "text-zinc-400 border-zinc-700 bg-zinc-800/50"
+                                    )}>
+                                      {tag}
+                                    </span>
+                                  ))}
+                                </div>
+                              )}
+                              {sub.notes && (
+                                <div className={clsx(
+                                  "text-xs mt-2.5 italic leading-relaxed",
+                                  itineraryImageUrl ? "text-white/70" : "text-zinc-400"
+                                )}>
+                                  {sub.notes}
+                                </div>
+                              )}
                             </div>
                           </div>
-                        ))}
-                      </div>
-                    )}
-                  </div>
-                </motion.div>
-              )}
-            </AnimatePresence>
-          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              </motion.div>
+            )}
+          </AnimatePresence>
         </div>
-      )}
+      </div>
     </div>
   );
 }
