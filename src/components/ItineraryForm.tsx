@@ -60,7 +60,7 @@ export function ItineraryForm({ tripId, defaultCityId, date, onSuccess, onCancel
     notes: initialData?.notes || '',
     image_url: initialData?.image_url || '',
     city_id: initialData?.city_id ? String(initialData.city_id) : (defaultCityId ? String(defaultCityId) : ''),
-    tags: initialData?.tags || [] as string[]
+    tags: initialData?.tags ? (Array.isArray(initialData.tags) ? initialData.tags.join(', ') : initialData.tags) : ''
   });
 
   const transportations = useLiveQuery(() => db.transportations.where('trip_id').equals(tripId).toArray(), [tripId]) || [];
@@ -71,10 +71,12 @@ export function ItineraryForm({ tripId, defaultCityId, date, onSuccess, onCancel
     
     transportations.forEach(t => {
       // Calculate absolute start/end
-      const depDateTime = new Date(`${t.dep_date}T${t.dep_time}`);
-      const blockedStart = subMinutes(depDateTime, t.dep_checkin_buffer || 0);
+      const depDateTime = parseISO(`${t.dep_date}T${t.dep_time}`);
+      const arrDateTime = parseISO(`${t.arr_date}T${t.arr_time}`);
       
-      const arrDateTime = new Date(`${t.arr_date}T${t.arr_time}`);
+      if (isNaN(depDateTime.getTime()) || isNaN(arrDateTime.getTime())) return;
+
+      const blockedStart = subMinutes(depDateTime, t.dep_checkin_buffer || 0);
       const blockedEnd = addMinutes(arrDateTime, t.arr_exit_buffer || 0);
       
       // Check if this blocked period overlaps with targetDate (00:00 to 23:59)
@@ -215,8 +217,8 @@ export function ItineraryForm({ tripId, defaultCityId, date, onSuccess, onCancel
           address: formData.address || '',
           image_url: finalImageUrl || '',
           notes: formData.notes || '',
-          tags: formData.tags || [],
-          sub_items: JSON.stringify(subItems)
+          tags: typeof formData.tags === 'string' ? formData.tags.split(',').map((t: string) => t.trim()).filter(Boolean) : [],
+          sub_items: JSON.stringify([...subItems].sort((a, b) => a.start_time.localeCompare(b.start_time)))
         })
       });
 
@@ -343,6 +345,17 @@ export function ItineraryForm({ tripId, defaultCityId, date, onSuccess, onCancel
               placeholder="e.g., 4 Chome-2-8 Shibakoen, Minato City"
             />
           </div>
+        </div>
+
+        <div>
+          <label className="block text-sm font-medium text-zinc-400 mb-1">Tags (comma separated)</label>
+          <input
+            type="text"
+            value={formData.tags}
+            onChange={e => setFormData({ ...formData, tags: e.target.value })}
+            className="w-full bg-zinc-800 border border-zinc-700 rounded-xl px-4 py-3 text-white focus:outline-none focus:ring-2 focus:ring-orange-500"
+            placeholder="e.g., Food, Shopping, Sightseeing"
+          />
         </div>
 
         {/* Sub-itinerary Section */}

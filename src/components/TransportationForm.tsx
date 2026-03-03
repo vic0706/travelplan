@@ -1,10 +1,13 @@
 import React, { useState } from 'react';
 import { X, Plane, Train, Ship, Search, Hash, Loader2, Trash2 } from 'lucide-react';
-import { format } from 'date-fns';
+import { format, parseISO, addMinutes, subMinutes } from 'date-fns';
 import { DatePicker } from './DatePicker';
 import { TimePicker } from './TimePicker';
+import { ConfirmDialog } from './ConfirmDialog';
 import { apiFetch } from '../utils/api';
 import { Transportation } from '../types';
+import { useLiveQuery } from 'dexie-react-hooks';
+import { db } from '../db';
 
 interface TransportationFormProps {
   tripId: number;
@@ -24,7 +27,10 @@ export function TransportationForm({ tripId, onSuccess, onCancel, onDelete, init
   const [loading, setLoading] = useState(false);
   const [searching, setSearching] = useState(false);
   const [step, setStep] = useState(initialData ? 'form' : 'select');
+  const [overlapConflict, setOverlapConflict] = useState<string | null>(null);
   
+  const transportations = useLiveQuery(() => db.transportations.where('trip_id').equals(tripId).toArray(), [tripId]) || [];
+
   const [formData, setFormData] = useState({
     type: initialData?.type || 'FLIGHT',
     provider: initialData?.provider || '',
@@ -42,6 +48,33 @@ export function TransportationForm({ tripId, onSuccess, onCancel, onDelete, init
     order_id: initialData?.order_id || '',
     notes: initialData?.notes || '',
   });
+
+  const checkOverlap = () => {
+    const depDateTime = parseISO(`${formData.dep_date}T${formData.dep_time}`);
+    const arrDateTime = parseISO(`${formData.arr_date}T${formData.arr_time}`);
+
+    if (isNaN(depDateTime.getTime()) || isNaN(arrDateTime.getTime())) return null;
+
+    const newStart = subMinutes(depDateTime, formData.dep_checkin_buffer);
+    const newEnd = addMinutes(arrDateTime, formData.arr_exit_buffer);
+
+    for (const t of transportations) {
+      if (initialData && t.id === initialData.id) continue;
+
+      const tDepDateTime = parseISO(`${t.dep_date}T${t.dep_time}`);
+      const tArrDateTime = parseISO(`${t.arr_date}T${t.arr_time}`);
+
+      if (isNaN(tDepDateTime.getTime()) || isNaN(tArrDateTime.getTime())) continue;
+
+      const tStart = subMinutes(tDepDateTime, t.dep_checkin_buffer || 0);
+      const tEnd = addMinutes(tArrDateTime, t.arr_exit_buffer || 0);
+
+      if (newStart < tEnd && newEnd > tStart) {
+        return `${t.provider} ${t.code}`;
+      }
+    }
+    return null;
+  };
 
   const handleSearchFlight = async () => {
     if (!formData.code) return;
@@ -77,8 +110,17 @@ export function TransportationForm({ tripId, onSuccess, onCancel, onDelete, init
     }
   };
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
+  const handleSubmit = async (e?: React.FormEvent, bypassCheck = false) => {
+    if (e) e.preventDefault();
+
+    if (!bypassCheck) {
+      const overlap = checkOverlap();
+      if (overlap && !overlapConflict) {
+        setOverlapConflict(overlap);
+        return;
+      }
+    }
+
     setLoading(true);
     try {
       const endpoint = initialData 
@@ -368,6 +410,21 @@ export function TransportationForm({ tripId, onSuccess, onCancel, onDelete, init
           )}
         </div>
       </form>
+
+      <ConfirmDialog
+        isOpen={!!overlapConflict}
+        title="時間重疊警告"
+        message={`此交通工具的時間段（包含緩衝時間）與現有的「${overlapConflict}」重疊。您確定要繼續儲存嗎？`}
+        confirmText="確定繼續"
+        cancelText="返回修改"
+        type="warning"
+        onConfirm={() => {
+          setOverlapConflict(null);
+          // Re-trigger submit without event to skip check
+          handleSubmit(undefined, true);
+        }}
+        onCancel={() => setOverlapConflict(null)}
+      />
     </div>
   );
 }

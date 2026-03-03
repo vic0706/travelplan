@@ -1080,10 +1080,13 @@ app.put('/api/trips/:id/accommodations/:accId', async (c) => {
       WHERE id = ? AND trip_id = ?
     `).bind(b.hotel_name, b.address, b.check_in_date, b.check_out_date, b.check_in_time || '15:00', b.check_out_time || '11:00', b.daily_start_time || '08:00', b.daily_end_time || '22:00', b.order_id, b.notes, accId, tripId).run();
 
-    // Delete existing Itinerary Items
-    await c.env.DB.prepare("DELETE FROM Itineraries WHERE type = 'ACCOMMODATION' AND related_id = ? AND trip_id = ?").bind(accId, tripId).run();
+    // Smart Update Logic for Itinerary Items
+    // 1. Fetch existing items
+    const { results: existingItems } = await c.env.DB.prepare("SELECT * FROM Itineraries WHERE type = 'ACCOMMODATION' AND related_id = ? AND trip_id = ?").bind(accId, tripId).all();
+    const existingPool = [...existingItems] as any[];
 
-    // Recreate Itinerary Items
+    // 2. Generate Desired Items
+    const desiredItems = [];
     const startDate = new Date(b.check_in_date);
     const endDate = new Date(b.check_out_date);
     const checkInTime = b.check_in_time || '16:00';
@@ -1093,47 +1096,92 @@ app.put('/api/trips/:id/accommodations/:accId', async (c) => {
 
     const currentDate = new Date(startDate);
     
-    // Loop through dates
     while (currentDate <= endDate) {
       const dateStr = currentDate.toISOString().split('T')[0];
       const isCheckInDay = dateStr === b.check_in_date;
       const isCheckOutDay = dateStr === b.check_out_date;
 
       if (isCheckInDay) {
-        // Check-in Item
-        await c.env.DB.prepare(`
-          INSERT INTO Itineraries (trip_id, date, start_time, end_time, title, type, related_id, notes)
-          VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-        `).bind(tripId, dateStr, checkInTime, '', `Check-in: ${b.hotel_name}`, 'ACCOMMODATION', accId, b.notes || '').run();
+        desiredItems.push({
+          date: dateStr,
+          start_time: checkInTime,
+          end_time: '',
+          title: `Check-in: ${b.hotel_name}`,
+          notes: b.notes || '',
+          matchType: 'Check-in'
+        });
         
-        // Return to Hotel Item (if not also checkout day)
         if (!isCheckOutDay) {
-             await c.env.DB.prepare(`
-              INSERT INTO Itineraries (trip_id, date, start_time, end_time, title, type, related_id, notes)
-              VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-            `).bind(tripId, dateStr, dailyEndTime, '', `Back to Hotel`, 'ACCOMMODATION', accId, '').run();
+          desiredItems.push({
+            date: dateStr,
+            start_time: dailyEndTime,
+            end_time: '',
+            title: `Back to Hotel`,
+            notes: '',
+            matchType: 'Back to Hotel'
+          });
         }
       } else if (isCheckOutDay) {
-        // Check-out Item
-        await c.env.DB.prepare(`
-          INSERT INTO Itineraries (trip_id, date, start_time, end_time, title, type, related_id, notes)
-          VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-        `).bind(tripId, dateStr, checkOutTime, '', `Check-out: ${b.hotel_name}`, 'ACCOMMODATION', accId, '').run();
+        desiredItems.push({
+          date: dateStr,
+          start_time: checkOutTime,
+          end_time: '',
+          title: `Check-out: ${b.hotel_name}`,
+          notes: '',
+          matchType: 'Check-out'
+        });
       } else {
-        // Intermediate Day
-        // Leave Hotel
-        await c.env.DB.prepare(`
-          INSERT INTO Itineraries (trip_id, date, start_time, end_time, title, type, related_id, notes)
-          VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-        `).bind(tripId, dateStr, dailyStartTime, '', `Leave Hotel`, 'ACCOMMODATION', accId, '').run();
-
-        // Return to Hotel
-        await c.env.DB.prepare(`
-          INSERT INTO Itineraries (trip_id, date, start_time, end_time, title, type, related_id, notes)
-          VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-        `).bind(tripId, dateStr, dailyEndTime, '', `Back to Hotel`, 'ACCOMMODATION', accId, '').run();
+        desiredItems.push({
+          date: dateStr,
+          start_time: dailyStartTime,
+          end_time: '',
+          title: `Leave Hotel`,
+          notes: '',
+          matchType: 'Leave Hotel'
+        });
+        desiredItems.push({
+          date: dateStr,
+          start_time: dailyEndTime,
+          end_time: '',
+          title: `Back to Hotel`,
+          notes: '',
+          matchType: 'Back to Hotel'
+        });
       }
       currentDate.setDate(currentDate.getDate() + 1);
+    }
+
+    // 3. Sync (Update, Create, Delete)
+    for (const item of desiredItems) {
+      // Find a match in existingPool
+      // We match by date and "matchType" (derived from title prefix)
+      const matchIndex = existingPool.findIndex(e => 
+        e.date === item.date && 
+        (e.title.startsWith(item.matchType) || (item.matchType === 'Back to Hotel' && e.title === 'Back to Hotel') || (item.matchType === 'Leave Hotel' && e.title === 'Leave Hotel'))
+      );
+
+      if (matchIndex !== -1) {
+        // Update existing
+        const match = existingPool[matchIndex];
+        existingPool.splice(matchIndex, 1); // Remove from pool
+
+        await c.env.DB.prepare(`
+          UPDATE Itineraries 
+          SET date = ?, start_time = ?, end_time = ?, title = ?, notes = ?
+          WHERE id = ?
+        `).bind(item.date, item.start_time, item.end_time, item.title, item.notes, match.id).run();
+      } else {
+        // Create new
+        await c.env.DB.prepare(`
+          INSERT INTO Itineraries (trip_id, date, start_time, end_time, title, type, related_id, notes)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        `).bind(tripId, item.date, item.start_time, item.end_time, item.title, 'ACCOMMODATION', accId, item.notes).run();
+      }
+    }
+
+    // 4. Delete remaining in pool
+    for (const leftover of existingPool) {
+      await c.env.DB.prepare("DELETE FROM Itineraries WHERE id = ?").bind(leftover.id).run();
     }
 
     return c.json({ success: true });

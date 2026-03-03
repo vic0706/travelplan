@@ -221,6 +221,33 @@ export function TripSettingsForm({ trip, onSuccess }: TripSettingsFormProps) {
         throw new Error(data.error || 'Failed to update trip');
       }
 
+      // 1.5 Handle Accommodation Extension (User Request)
+      // If end_date was extended, create a new accommodation card for the gap
+      const oldEnd = trip.end_date;
+      const newEnd = formData.end_date;
+      if (oldEnd && newEnd && newEnd > oldEnd) {
+        try {
+          // Find the last accommodation to copy details if possible
+          const lastAccs = await db.accommodations.where('trip_id').equals(trip.id).toArray();
+          const lastAcc = lastAccs.sort((a, b) => b.check_out_date.localeCompare(a.check_out_date))[0];
+          
+          await apiFetch(`/api/trips/${trip.id}/accommodations`, {
+            method: 'POST',
+            body: JSON.stringify({
+              hotel_name: lastAcc?.hotel_name || 'New Accommodation',
+              check_in_date: oldEnd, // Start from the old end date
+              check_out_date: newEnd,
+              check_in_time: lastAcc?.check_in_time || '16:00',
+              check_out_time: lastAcc?.check_out_time || '11:00',
+              address: lastAcc?.address || '',
+              notes: 'Automatically created due to trip extension'
+            })
+          });
+        } catch (accErr) {
+          console.warn('Failed to auto-create accommodation:', accErr);
+        }
+      }
+
       // 2. Update Members
       await apiFetch(`/api/trips/${trip.id}/members`, {
         method: 'POST',

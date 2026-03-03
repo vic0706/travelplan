@@ -14,6 +14,9 @@ export function TimePicker({ label, value, onChange, placeholder = 'Select time'
   const [hour, setHour] = useState(value ? parseInt(value.split(':')[0]) : 12);
   const [minute, setMinute] = useState(value ? parseInt(value.split(':')[1]) : 0);
 
+  const hours = Array.from({ length: 24 }, (_, i) => i);
+  const minutes = Array.from({ length: 60 }, (_, i) => i);
+
   const handleSelect = () => {
     const formattedHour = hour.toString().padStart(2, '0');
     const formattedMinute = minute.toString().padStart(2, '0');
@@ -27,12 +30,12 @@ export function TimePicker({ label, value, onChange, placeholder = 'Select time'
       <button
         type="button"
         onClick={() => setIsOpen(true)}
-        className="w-full bg-zinc-900 border border-zinc-800 rounded-xl px-4 py-3 text-left text-white focus:outline-none focus:border-orange-500 transition-colors flex items-center justify-between"
+        className="w-full bg-zinc-900 border border-zinc-800 rounded-xl px-4 py-3 text-left text-white focus:outline-none focus:border-orange-500 transition-colors flex items-center justify-between group"
       >
-        <span className={value ? 'text-white' : 'text-zinc-500'}>
+        <span className={value ? 'text-white font-medium' : 'text-zinc-500'}>
           {value || placeholder}
         </span>
-        <Clock size={16} className="text-zinc-500" />
+        <Clock size={16} className="text-zinc-500 group-hover:text-orange-500 transition-colors" />
       </button>
 
       <AnimatePresence>
@@ -49,46 +52,63 @@ export function TimePicker({ label, value, onChange, placeholder = 'Select time'
               initial={{ opacity: 0, scale: 0.95, y: 20 }}
               animate={{ opacity: 1, scale: 1, y: 0 }}
               exit={{ opacity: 0, scale: 0.95, y: 20 }}
-              className="fixed inset-x-4 top-[30%] md:absolute md:inset-auto md:top-full md:left-0 md:w-64 md:mt-2 bg-zinc-900 border border-zinc-800 rounded-2xl shadow-2xl z-[150] overflow-hidden p-4"
+              className="fixed inset-x-4 top-[20%] md:absolute md:inset-auto md:top-full md:left-0 md:w-72 md:mt-2 bg-zinc-900 border border-zinc-800 rounded-3xl shadow-2xl z-[150] overflow-hidden flex flex-col max-h-[400px]"
             >
-              <div className="flex items-center justify-center gap-4 mb-6">
-                <div className="flex flex-col items-center">
-                  <label className="text-xs text-zinc-500 mb-1">Hour</label>
-                  <input
-                    type="number"
-                    min="0"
-                    max="23"
-                    value={hour}
-                    onChange={(e) => setHour(Math.min(23, Math.max(0, parseInt(e.target.value) || 0)))}
-                    className="w-16 h-12 bg-zinc-800 rounded-xl text-center text-xl font-bold text-white focus:outline-none focus:ring-2 focus:ring-orange-500"
-                  />
+              <div className="p-4 border-b border-zinc-800 flex justify-between items-center bg-zinc-900/50 backdrop-blur-md">
+                <span className="text-sm font-bold text-white">Select Time</span>
+                <button onClick={() => setIsOpen(false)} className="text-zinc-500 hover:text-white">
+                  <X size={18} />
+                </button>
+              </div>
+
+              <div className="flex flex-1 overflow-hidden h-64">
+                {/* Hours Column */}
+                <div className="flex-1 overflow-y-auto py-24 custom-scrollbar snap-y snap-mandatory">
+                  {hours.map((h) => (
+                    <button
+                      key={h}
+                      type="button"
+                      onClick={() => setHour(h)}
+                      className={`w-full py-3 text-center transition-all snap-center ${
+                        hour === h ? 'text-2xl font-bold text-orange-500 bg-orange-500/10' : 'text-lg text-zinc-500 hover:text-zinc-300'
+                      }`}
+                    >
+                      {h.toString().padStart(2, '0')}
+                    </button>
+                  ))}
                 </div>
-                <span className="text-2xl font-bold text-zinc-600 mt-4">:</span>
-                <div className="flex flex-col items-center">
-                  <label className="text-xs text-zinc-500 mb-1">Minute</label>
-                  <input
-                    type="number"
-                    min="0"
-                    max="59"
-                    value={minute}
-                    onChange={(e) => setMinute(Math.min(59, Math.max(0, parseInt(e.target.value) || 0)))}
-                    className="w-16 h-12 bg-zinc-800 rounded-xl text-center text-xl font-bold text-white focus:outline-none focus:ring-2 focus:ring-orange-500"
-                  />
+
+                <div className="flex items-center text-zinc-700 font-bold text-2xl">:</div>
+
+                {/* Minutes Column */}
+                <div className="flex-1 overflow-y-auto py-24 custom-scrollbar snap-y snap-mandatory">
+                  {minutes.map((m) => (
+                    <button
+                      key={m}
+                      type="button"
+                      onClick={() => setMinute(m)}
+                      className={`w-full py-3 text-center transition-all snap-center ${
+                        minute === m ? 'text-2xl font-bold text-orange-500 bg-orange-500/10' : 'text-lg text-zinc-500 hover:text-zinc-300'
+                      }`}
+                    >
+                      {m.toString().padStart(2, '0')}
+                    </button>
+                  ))}
                 </div>
               </div>
 
-              <div className="flex justify-end gap-2">
+              <div className="p-4 bg-zinc-900 border-t border-zinc-800 flex gap-3">
                 <button
                   type="button"
                   onClick={() => setIsOpen(false)}
-                  className="px-4 py-2 text-sm font-medium text-zinc-400 hover:text-white transition-colors"
+                  className="flex-1 py-3 text-sm font-bold text-zinc-400 hover:text-white hover:bg-zinc-800 rounded-xl transition-all"
                 >
                   Cancel
                 </button>
                 <button
                   type="button"
                   onClick={handleSelect}
-                  className="px-4 py-2 bg-orange-500 hover:bg-orange-600 text-white text-sm font-medium rounded-lg transition-colors"
+                  className="flex-1 py-3 bg-orange-500 hover:bg-orange-600 text-white text-sm font-bold rounded-xl transition-all shadow-lg shadow-orange-500/20"
                 >
                   Confirm
                 </button>
