@@ -1,7 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { useAppStore } from '../store';
 import { useNavigate } from 'react-router-dom';
-import { LogOut, Settings, Users, RefreshCw, User as UserIcon, Plus, Loader2, Camera, Trophy } from 'lucide-react';
+import { LogOut, Settings, Users, RefreshCw, User as UserIcon, Plus, Loader2, Camera } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { clsx } from 'clsx';
 import { ImageCropper, uploadImageToSupabase } from './ImageCropper';
@@ -184,16 +184,7 @@ export function TopAppBar() {
                       </div>
                     </div>
                     <div className="p-1 space-y-0.5">
-                      <button 
-                        onClick={() => {
-                          navigate('/competitions');
-                          setUserMenuOpen(false);
-                        }}
-                        className="w-full flex items-center gap-3 px-3 py-2.5 text-sm text-zinc-300 hover:bg-zinc-800 hover:text-white rounded-xl transition-colors text-left font-medium"
-                      >
-                        <Trophy size={16} />
-                        競賽紀錄
-                      </button>
+
                       {user.role === 'Admin' && (
                         <>
                           <button 
