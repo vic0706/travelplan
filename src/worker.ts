@@ -1605,14 +1605,22 @@ export default {
     }
     // SPA Fallback
     try {
+      if (!env.__STATIC_CONTENT_MANIFEST) {
+        console.error('__STATIC_CONTENT_MANIFEST is missing');
+        return new Response('Manifest missing', { status: 500 });
+      }
       const assetManifest = JSON.parse(env.__STATIC_CONTENT_MANIFEST);
       return await getAssetFromKV({ request, waitUntil: ctx.waitUntil.bind(ctx) }, { ASSET_NAMESPACE: env.__STATIC_CONTENT, ASSET_MANIFEST: assetManifest });
     } catch (e: any) {
+      console.error('getAssetFromKV error:', e.message);
       try {
         const indexRequest = new Request(new URL('/index.html', request.url), request);
         const assetManifest = JSON.parse(env.__STATIC_CONTENT_MANIFEST);
         return await getAssetFromKV({ request: indexRequest, waitUntil: ctx.waitUntil.bind(ctx) }, { ASSET_NAMESPACE: env.__STATIC_CONTENT, ASSET_MANIFEST: assetManifest });
-      } catch (fallbackError) { return new Response('Not Found', { status: 404 }); }
+      } catch (fallbackError: any) { 
+        console.error('SPA fallback error:', fallbackError.message);
+        return new Response('Not Found (SPA Fallback failed)', { status: 404 }); 
+      }
     }
   },
   
