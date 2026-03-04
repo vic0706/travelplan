@@ -1,7 +1,9 @@
+/// <reference path="./types.d.ts" />
 import { Hono } from 'hono';
 import { cors } from 'hono/cors';
 import { getAssetFromKV } from '@cloudflare/kv-asset-handler';
 import { createClient } from '@supabase/supabase-js';
+import manifestJSON from '__STATIC_CONTENT_MANIFEST';
 
 export interface Env {
   DB: D1Database;
@@ -1607,14 +1609,10 @@ export default {
     // SPA Fallback
     try {
       let assetManifest = {};
-      if (env.__STATIC_CONTENT_MANIFEST) {
-        try {
-          assetManifest = JSON.parse(env.__STATIC_CONTENT_MANIFEST);
-        } catch (e) {
-          console.error('Failed to parse manifest:', e);
-        }
-      } else {
-        console.warn('__STATIC_CONTENT_MANIFEST is missing');
+      try {
+        assetManifest = JSON.parse(manifestJSON);
+      } catch (e) {
+        console.error('Failed to parse manifest:', e);
       }
       
       return await getAssetFromKV({ request, waitUntil: ctx.waitUntil.bind(ctx) }, { ASSET_NAMESPACE: env.__STATIC_CONTENT, ASSET_MANIFEST: assetManifest });
@@ -1623,13 +1621,11 @@ export default {
       try {
         const indexRequest = new Request(new URL('/index.html', request.url), request);
         let assetManifest = {};
-        if (env.__STATIC_CONTENT_MANIFEST) {
-           try { assetManifest = JSON.parse(env.__STATIC_CONTENT_MANIFEST); } catch (e) {}
-        }
+        try { assetManifest = JSON.parse(manifestJSON); } catch (e) {}
         return await getAssetFromKV({ request: indexRequest, waitUntil: ctx.waitUntil.bind(ctx) }, { ASSET_NAMESPACE: env.__STATIC_CONTENT, ASSET_MANIFEST: assetManifest });
       } catch (fallbackError: any) { 
         console.error('SPA fallback error:', fallbackError.message);
-        return new Response('Not Found (SPA Fallback failed) - Manifest: ' + (env.__STATIC_CONTENT_MANIFEST ? 'Present' : 'Missing'), { status: 404 }); 
+        return new Response('Not Found (SPA Fallback failed) - Manifest: ' + (manifestJSON ? 'Present' : 'Missing'), { status: 404 }); 
       }
     }
   },

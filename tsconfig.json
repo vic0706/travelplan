@@ -23,5 +23,6 @@
     "types": ["@cloudflare/workers-types"],
     "allowImportingTsExtensions": true,
     "noEmit": true
-  }
+  },
+  "include": ["src/**/*"]
 }
