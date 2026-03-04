@@ -127,10 +127,11 @@ function TransportationCard({ item, transportation, canEdit, onEdit }: { item?: 
           isExpanded ? "h-auto" : "h-0"
         )}>
            {/* Content Container */}
-           <div className="p-5 flex flex-col">
+           <div className="p-5 flex flex-col relative">
+              {/* Shadow Overlay for Details */}
+              <div className="absolute inset-0 bg-gradient-to-b from-black/10 to-black/30 pointer-events-none" />
               
-              {/* Main Info (Always visible in Expanded state) */}
-              <div className="flex-1 pr-2">
+              <div className="relative z-10">
                   {/* Dep/Arr Details with Toggle Arrow */}
                   <div className="flex justify-between items-start mb-6">
                       <div className="flex-1">
@@ -173,8 +174,9 @@ function TransportationCard({ item, transportation, canEdit, onEdit }: { item?: 
                          exit={{ opacity: 0, height: 0 }}
                          className="overflow-hidden"
                        >
-                         {/* Buffer Timeline */}
-                         <div className="relative pt-6 pb-2 mb-4">
+                         <div className="bg-black/20 rounded-2xl p-4 mt-4 border border-white/5 shadow-inner">
+                           {/* Buffer Timeline */}
+                           <div className="relative pt-6 pb-2 mb-4">
                            {/* Line */}
                            <div className="absolute top-8 left-2 right-2 h-0.5 bg-zinc-800"></div>
                            
@@ -211,10 +213,11 @@ function TransportationCard({ item, transportation, canEdit, onEdit }: { item?: 
 
                          {/* Notes */}
                          {transportation.notes && (
-                           <div className="p-4 rounded-2xl bg-zinc-800/30 border border-zinc-700/30 text-sm text-zinc-300 italic mb-2">
+                           <div className="mt-4 pt-4 border-t border-white/10 text-sm text-zinc-300 italic">
                              {transportation.notes}
                            </div>
                          )}
+                       </div>
                        </motion.div>
                     )}
                   </AnimatePresence>
@@ -369,7 +372,6 @@ function AccommodationCard({ acc, canEdit, onEdit }: { acc: any; canEdit: boolea
                 <div className="text-[10px] text-zinc-500 uppercase tracking-wider mb-1">Check-in</div>
                 <div className="text-sm font-bold text-white">
                   {acc.check_in_time || '16:00'}
-                  {acc.order_id && <span className="text-orange-500 ml-2 text-xs">#{acc.order_id}</span>}
                 </div>
               </div>
               <div>

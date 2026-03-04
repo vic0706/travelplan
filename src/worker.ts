@@ -253,6 +253,48 @@ async function ensureSchema(db: D1Database) {
     const transportInfo = await db.prepare("PRAGMA table_info(Transportations)").all();
     const hasTransportTable = transportInfo.results.length > 0;
     
+    if (hasTransportTable) {
+      // Check if we need to migrate column names (checkin_duration -> dep_checkin_buffer)
+      const transportCols = transportInfo.results.map((c: any) => c.name);
+      if (transportCols.includes('checkin_duration')) {
+        // We need to migrate. Simplest way is to rename the table, create new one, copy data.
+        await db.prepare("ALTER TABLE Transportations RENAME TO Transportations_Legacy").run();
+        
+        // Create new table
+        await db.prepare(`
+          CREATE TABLE IF NOT EXISTS Transportations (
+              id INTEGER PRIMARY KEY AUTOINCREMENT,
+              trip_id INTEGER NOT NULL,
+              type TEXT NOT NULL DEFAULT 'FLIGHT',
+              provider TEXT NOT NULL,
+              transport_code TEXT NOT NULL,
+              departure_date TEXT NOT NULL,
+              departure_time TEXT NOT NULL,
+              departure_station TEXT,
+              departure_terminal TEXT,
+              dep_checkin_buffer INTEGER DEFAULT 120,
+              arrival_date TEXT NOT NULL,
+              arrival_time TEXT NOT NULL,
+              arrival_station TEXT,
+              arrival_terminal TEXT,
+              arr_exit_buffer INTEGER DEFAULT 60,
+              stay_duration INTEGER DEFAULT 0,
+              notes TEXT,
+              FOREIGN KEY (trip_id) REFERENCES Trips(id) ON DELETE CASCADE
+          )
+        `).run();
+
+        // Copy data
+        await db.prepare(`
+          INSERT INTO Transportations (id, trip_id, type, provider, transport_code, departure_date, departure_time, departure_station, departure_terminal, dep_checkin_buffer, arrival_date, arrival_time, arrival_station, arrival_terminal, arr_exit_buffer, stay_duration, notes)
+          SELECT id, trip_id, type, provider, transport_code, departure_date, departure_time, departure_station, departure_terminal, checkin_duration, arrival_date, arrival_time, arrival_station, arrival_terminal, exit_duration, stay_duration, notes
+          FROM Transportations_Legacy
+        `).run();
+
+        await db.prepare("DROP TABLE Transportations_Legacy").run();
+      }
+    }
+
     if (!hasTransportTable) {
       // Check if old Flights table exists
       const flightInfo = await db.prepare("PRAGMA table_info(Flights)").all();
@@ -370,6 +412,10 @@ async function ensureSchema(db: D1Database) {
   } catch (e) {
     console.error('Accommodations schema update failed', e);
   }
+  try {
+    await db.prepare("ALTER TABLE Accommodations ADD COLUMN image_url TEXT").run();
+  } catch (e) {}
+
   try {
     // 11. Add type and related_id to Itineraries
     await db.prepare("ALTER TABLE Itineraries ADD COLUMN type TEXT DEFAULT 'GENERAL'").run();
@@ -1023,7 +1069,7 @@ app.post('/api/trips/:id/accommodations', async (c) => {
       SELECT * FROM Accommodations 
       WHERE trip_id = ? 
       AND (
-        (check_in_date < ? AND check_out_date > ?)
+        (check_in_date <= ? AND check_out_date >= ?)
       )
     `).bind(tripId, b.check_out_date, b.check_in_date).all();
 
@@ -1031,17 +1077,20 @@ app.post('/api/trips/:id/accommodations', async (c) => {
       return c.json({ error: '這段時間已經有安排住宿了。' }, 400);
     }
 
+    // Fetch Hotel Image
+    let hotelImage = b.image_url;
+    if (!hotelImage) {
+      hotelImage = await searchUnsplash(b.hotel_name, c.env);
+    }
+
     // id is AUTOINCREMENT
     const info = await c.env.DB.prepare(`
-      INSERT INTO Accommodations (trip_id, hotel_name, address, check_in_date, check_out_date, check_in_time, check_out_time, daily_start_time, daily_end_time, order_id, notes, created_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `).bind(tripId, b.hotel_name, b.address, b.check_in_date, b.check_out_date, b.check_in_time || '15:00', b.check_out_time || '11:00', b.daily_start_time || '08:00', b.daily_end_time || '22:00', b.order_id, b.notes, Date.now()).run();
+      INSERT INTO Accommodations (trip_id, hotel_name, address, check_in_date, check_out_date, check_in_time, check_out_time, daily_start_time, daily_end_time, order_id, notes, image_url, created_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).bind(tripId, b.hotel_name, b.address, b.check_in_date, b.check_out_date, b.check_in_time || '15:00', b.check_out_time || '11:00', b.daily_start_time || '08:00', b.daily_end_time || '22:00', b.order_id, b.notes, hotelImage || '', Date.now()).run();
     
     // @ts-ignore
     const accId = info.meta.last_row_id;
-
-    // Fetch Hotel Image
-    const hotelImage = await searchUnsplash(b.hotel_name, c.env);
 
     // Create Itinerary Items for Accommodation
     const startDate = new Date(b.check_in_date);
@@ -1081,7 +1130,7 @@ app.post('/api/trips/:id/accommodations', async (c) => {
         await c.env.DB.prepare(`
           INSERT INTO Itineraries (trip_id, date, start_time, end_time, title, type, related_id, notes, image_url)
           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-        `).bind(tripId, dateStr, checkOutTime, '', `Check-out ${b.hotel_name}`, 'ACCOMMODATION', accId, b.notes || '', hotelImage || '').run();
+        `).bind(tripId, dateStr, checkOutTime, '', `Check-out ${b.hotel_name}`, 'ACCOMMODATION', accId, notesWithOrder, hotelImage || '').run();
       } else {
         // Intermediate Day
         // Leave Hotel
@@ -1118,7 +1167,7 @@ app.put('/api/trips/:id/accommodations/:accId', async (c) => {
       SELECT * FROM Accommodations 
       WHERE trip_id = ? AND id != ?
       AND (
-        (check_in_date < ? AND check_out_date > ?)
+        (check_in_date <= ? AND check_out_date >= ?)
       )
     `).bind(tripId, accId, b.check_out_date, b.check_in_date).all();
 
@@ -1126,22 +1175,22 @@ app.put('/api/trips/:id/accommodations/:accId', async (c) => {
       return c.json({ error: '這段時間已經有安排住宿了。' }, 400);
     }
     
+    // Fetch Hotel Image
+    let hotelImage = b.image_url;
+    if (!hotelImage) {
+      hotelImage = await searchUnsplash(b.hotel_name, c.env);
+    }
+    
     await c.env.DB.prepare(`
       UPDATE Accommodations 
-      SET hotel_name = ?, address = ?, check_in_date = ?, check_out_date = ?, check_in_time = ?, check_out_time = ?, daily_start_time = ?, daily_end_time = ?, order_id = ?, notes = ?
+      SET hotel_name = ?, address = ?, check_in_date = ?, check_out_date = ?, check_in_time = ?, check_out_time = ?, daily_start_time = ?, daily_end_time = ?, order_id = ?, notes = ?, image_url = ?
       WHERE id = ? AND trip_id = ?
-    `).bind(b.hotel_name, b.address, b.check_in_date, b.check_out_date, b.check_in_time || '15:00', b.check_out_time || '11:00', b.daily_start_time || '08:00', b.daily_end_time || '22:00', b.order_id, b.notes, accId, tripId).run();
+    `).bind(b.hotel_name, b.address, b.check_in_date, b.check_out_date, b.check_in_time || '15:00', b.check_out_time || '11:00', b.daily_start_time || '08:00', b.daily_end_time || '22:00', b.order_id, b.notes, hotelImage || '', accId, tripId).run();
 
     // Smart Update Logic for Itinerary Items
     // 1. Fetch existing items
     const { results: existingItems } = await c.env.DB.prepare("SELECT * FROM Itineraries WHERE type = 'ACCOMMODATION' AND related_id = ? AND trip_id = ?").bind(accId, tripId).all();
     const existingPool = [...existingItems] as any[];
-
-    // Fetch Hotel Image (if needed, or reuse existing if available in one of the items?)
-    // To be safe and simple, we fetch again or use the one from the first existing item if hotel name hasn't changed much?
-    // Let's just fetch to be sure we have a good one, or check if we can preserve.
-    // Actually, if the hotel name changed, we definitely want a new image.
-    const hotelImage = await searchUnsplash(b.hotel_name, c.env);
 
     // 2. Generate Desired Items
     const desiredItems = [];
@@ -1190,7 +1239,7 @@ app.put('/api/trips/:id/accommodations/:accId', async (c) => {
           start_time: checkOutTime,
           end_time: '',
           title: `Check-out ${b.hotel_name}`,
-          notes: b.notes || '',
+          notes: notesWithOrder,
           image_url: hotelImage || '',
           matchType: 'Check-out'
         });

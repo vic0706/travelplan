@@ -21,6 +21,48 @@ interface ItineraryFormProps {
   initialData?: any;
 }
 
+// Helper Component for Tags Input
+function TagsInput({ value, onChange, placeholder }: { value: string, onChange: (val: string) => void, placeholder?: string }) {
+  const [inputValue, setInputValue] = useState('');
+  const tags = value ? value.split(',').map(t => t.trim()).filter(Boolean) : [];
+
+  const handleKeyDown = (e: React.KeyboardEvent) => {
+    if (e.key === 'Enter' || e.key === ',') {
+      e.preventDefault();
+      const newTag = inputValue.trim();
+      if (newTag && !tags.includes(newTag)) {
+        onChange([...tags, newTag].join(', '));
+        setInputValue('');
+      }
+    } else if (e.key === 'Backspace' && !inputValue && tags.length > 0) {
+      onChange(tags.slice(0, -1).join(', '));
+    }
+  };
+
+  const removeTag = (tagToRemove: string) => {
+    onChange(tags.filter(t => t !== tagToRemove).join(', '));
+  };
+
+  return (
+    <div className="w-full bg-zinc-800 border border-zinc-700 rounded-xl px-4 py-3 focus-within:ring-2 focus-within:ring-orange-500 flex flex-wrap gap-2 min-h-[50px]">
+      {tags.map(tag => (
+        <span key={tag} className="bg-zinc-700 text-zinc-200 px-2 py-1 rounded-lg text-sm flex items-center gap-1">
+          {tag}
+          <button type="button" onClick={() => removeTag(tag)} className="hover:text-white"><X size={14} /></button>
+        </span>
+      ))}
+      <input
+        type="text"
+        value={inputValue}
+        onChange={e => setInputValue(e.target.value)}
+        onKeyDown={handleKeyDown}
+        className="bg-transparent border-none outline-none text-white flex-1 min-w-[100px]"
+        placeholder={tags.length === 0 ? placeholder : ''}
+      />
+    </div>
+  );
+}
+
 export function ItineraryForm({ tripId, defaultCityId, date, onSuccess, onCancel, onDelete, initialData }: ItineraryFormProps) {
   const { cities } = useAppStore();
   const [loading, setLoading] = useState(false);
@@ -36,19 +78,10 @@ export function ItineraryForm({ tripId, defaultCityId, date, onSuccess, onCancel
     return acc;
   }, {} as Record<string, typeof cities>);
 
-  // Sub-items state (using the new table structure conceptually, but for now we might still sync with main form or separate)
-  // User asked for a popup to add sub-itinerary.
+  // Sub-items state
   const [isSubItemModalOpen, setIsSubItemModalOpen] = useState(false);
-  const [subItems, setSubItems] = useState<{id: string, title: string, start_time: string, end_time: string, tags: string, notes: string}[]>(
-    // If initialData has sub_items (JSON), parse it. If it's from new table, we might need to fetch it separately or pass it in.
-    // For now, assume initialData might have it or we fetch it.
-    // Given the previous step added endpoints, we should probably fetch sub-items if editing.
-    // But to keep it simple for this turn, I'll stick to local state and save on submit if possible, 
-    // OR better: handle sub-items separately? 
-    // The user asked for "Sub-itinerary: popup window to add".
-    // I will implement a local state for sub-items and save them when the main form is submitted, 
-    // OR save them immediately if the parent exists.
-    // Let's stick to saving with the parent for now to avoid complexity of "draft" parent.
+  const [editingSubItem, setEditingSubItem] = useState<any>(null);
+  const [subItems, setSubItems] = useState<{id: string, title: string, start_time: string, end_time: string, tags: string, notes: string, address?: string}[]>(
     initialData?.sub_items ? JSON.parse(initialData.sub_items) : []
   );
 
@@ -348,13 +381,11 @@ export function ItineraryForm({ tripId, defaultCityId, date, onSuccess, onCancel
         </div>
 
         <div>
-          <label className="block text-sm font-medium text-zinc-400 mb-1">Tags (comma separated)</label>
-          <input
-            type="text"
+          <label className="block text-sm font-medium text-zinc-400 mb-1">Tags</label>
+          <TagsInput
             value={formData.tags}
-            onChange={e => setFormData({ ...formData, tags: e.target.value })}
-            className="w-full bg-zinc-800 border border-zinc-700 rounded-xl px-4 py-3 text-white focus:outline-none focus:ring-2 focus:ring-orange-500"
-            placeholder="e.g., Food, Shopping, Sightseeing"
+            onChange={val => setFormData({ ...formData, tags: val })}
+            placeholder="Type and press Enter to add tags..."
           />
         </div>
 
@@ -364,7 +395,10 @@ export function ItineraryForm({ tripId, defaultCityId, date, onSuccess, onCancel
             <label className="block text-sm font-medium text-zinc-400">Sub-itinerary</label>
             <button
               type="button"
-              onClick={() => setIsSubItemModalOpen(true)}
+              onClick={() => {
+                setEditingSubItem(null);
+                setIsSubItemModalOpen(true);
+              }}
               className="text-xs text-orange-500 hover:text-orange-400 font-medium flex items-center gap-1"
             >
               <Plus size={14} /> Add Sub-item
@@ -374,7 +408,14 @@ export function ItineraryForm({ tripId, defaultCityId, date, onSuccess, onCancel
           <div className="space-y-2">
             {subItems.length > 0 ? (
               subItems.map((item, idx) => (
-                <div key={item.id || idx} className="bg-zinc-800 p-3 rounded-xl flex items-start justify-between group">
+                <div 
+                  key={item.id || idx} 
+                  className="bg-zinc-800 p-3 rounded-xl flex items-start justify-between group cursor-pointer hover:bg-zinc-700/50 transition-colors"
+                  onClick={() => {
+                    setEditingSubItem(item);
+                    setIsSubItemModalOpen(true);
+                  }}
+                >
                   <div>
                     <div className="text-sm text-white font-medium">{item.title}</div>
                     <div className="text-xs text-zinc-500 mt-0.5">
@@ -383,7 +424,10 @@ export function ItineraryForm({ tripId, defaultCityId, date, onSuccess, onCancel
                   </div>
                   <button
                     type="button"
-                    onClick={() => setSubItems(subItems.filter(i => i.id !== item.id))}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setSubItems(subItems.filter(i => i.id !== item.id));
+                    }}
                     className="text-zinc-500 hover:text-red-400 p-1 opacity-0 group-hover:opacity-100 transition-opacity"
                   >
                     <Trash2 size={14} />
@@ -442,8 +486,13 @@ export function ItineraryForm({ tripId, defaultCityId, date, onSuccess, onCancel
             onClose={() => setIsSubItemModalOpen(false)}
             parentStartTime={formData.start_time}
             parentEndTime={formData.end_time}
-            onAdd={(item) => {
-              setSubItems([...subItems, item]);
+            initialData={editingSubItem}
+            onSave={(item) => {
+              if (editingSubItem) {
+                setSubItems(subItems.map(i => i.id === editingSubItem.id ? item : i));
+              } else {
+                setSubItems([...subItems, item]);
+              }
               setIsSubItemModalOpen(false);
             }}
           />
@@ -462,14 +511,14 @@ export function ItineraryForm({ tripId, defaultCityId, date, onSuccess, onCancel
   );
 }
 
-function SubItemModal({ onClose, onAdd, parentStartTime, parentEndTime }: { onClose: () => void, onAdd: (item: any) => void, parentStartTime: string, parentEndTime: string }) {
+function SubItemModal({ onClose, onSave, parentStartTime, parentEndTime, initialData }: { onClose: () => void, onSave: (item: any) => void, parentStartTime: string, parentEndTime: string, initialData?: any }) {
   const [data, setData] = useState({
-    title: '',
-    start_time: parentStartTime,
-    end_time: parentEndTime,
-    address: '',
-    tags: '',
-    notes: ''
+    title: initialData?.title || '',
+    start_time: initialData?.start_time || parentStartTime,
+    end_time: initialData?.end_time || parentEndTime,
+    address: initialData?.address || '',
+    tags: initialData?.tags ? (Array.isArray(initialData.tags) ? initialData.tags.join(', ') : initialData.tags) : '',
+    notes: initialData?.notes || ''
   });
   const [error, setError] = useState('');
 
@@ -482,7 +531,7 @@ function SubItemModal({ onClose, onAdd, parentStartTime, parentEndTime }: { onCl
     }
 
     const tagsArray = data.tags.split(',').map(t => t.trim()).filter(Boolean);
-    onAdd({ ...data, tags: tagsArray, id: crypto.randomUUID() });
+    onSave({ ...data, tags: tagsArray, id: initialData?.id || crypto.randomUUID() });
   };
 
   return (
@@ -494,7 +543,7 @@ function SubItemModal({ onClose, onAdd, parentStartTime, parentEndTime }: { onCl
         className="bg-zinc-900 border border-zinc-800 rounded-2xl p-5 w-full max-w-sm shadow-2xl max-h-[90vh] overflow-y-auto custom-scrollbar"
       >
         <div className="flex justify-between items-center mb-4">
-          <h3 className="text-lg font-bold text-white">Add Sub-item</h3>
+          <h3 className="text-lg font-bold text-white">{initialData ? 'Edit Sub-item' : 'Add Sub-item'}</h3>
           <button type="button" onClick={onClose} className="text-zinc-400 hover:text-white"><X size={20} /></button>
         </div>
 
@@ -538,13 +587,11 @@ function SubItemModal({ onClose, onAdd, parentStartTime, parentEndTime }: { onCl
           </div>
 
           <div>
-            <label className="block text-xs font-medium text-zinc-400 mb-1">Tags (comma separated)</label>
-            <input
-              type="text"
+            <label className="block text-xs font-medium text-zinc-400 mb-1">Tags</label>
+            <TagsInput
               value={data.tags}
-              onChange={e => setData({ ...data, tags: e.target.value })}
-              className="w-full bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:ring-2 focus:ring-orange-500"
-              placeholder="e.g. Food, Shopping"
+              onChange={val => setData({ ...data, tags: val })}
+              placeholder="Type and press Enter..."
             />
           </div>
           <div>
@@ -560,7 +607,7 @@ function SubItemModal({ onClose, onAdd, parentStartTime, parentEndTime }: { onCl
             type="submit"
             className="w-full bg-orange-500 hover:bg-orange-600 text-white font-bold rounded-lg px-4 py-2 text-sm transition-colors"
           >
-            Add Sub-item
+            {initialData ? 'Save Changes' : 'Add Sub-item'}
           </button>
         </form>
       </motion.div>

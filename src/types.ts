@@ -122,6 +122,7 @@ export interface Accommodation {
   daily_end_time?: string;
   order_id?: string;
   notes?: string;
+  image_url?: string;
   created_at?: number;
 }
 
