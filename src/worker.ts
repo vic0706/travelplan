@@ -111,6 +111,7 @@ app.get('/api/flights/lookup', async (c) => {
 
 // Health Check
 app.get('/', (c) => c.text('Worker is running!'));
+app.get('/health-check', (c) => c.text('Worker is running!'));
 app.get('/api/health', (c) => c.json({ status: 'ok', timestamp: new Date().toISOString() }));
 
 // Custom 404 for API
@@ -1594,7 +1595,7 @@ export default {
   async fetch(request: Request, env: Env, ctx: ExecutionContext) {
     const url = new URL(request.url);
     const normalizedPath = url.pathname.replace(/\/+/g, '/').toLowerCase();
-    if (normalizedPath.startsWith('/api')) {
+    if (normalizedPath.startsWith('/api') || normalizedPath === '/health-check') {
       try {
         const response = await app.fetch(request, env, ctx);
         if (response.status === 404 && !response.headers.get('Content-Type')?.includes('json')) {
@@ -1605,21 +1606,30 @@ export default {
     }
     // SPA Fallback
     try {
-      if (!env.__STATIC_CONTENT_MANIFEST) {
-        console.error('__STATIC_CONTENT_MANIFEST is missing');
-        return new Response('Manifest missing', { status: 500 });
+      let assetManifest = {};
+      if (env.__STATIC_CONTENT_MANIFEST) {
+        try {
+          assetManifest = JSON.parse(env.__STATIC_CONTENT_MANIFEST);
+        } catch (e) {
+          console.error('Failed to parse manifest:', e);
+        }
+      } else {
+        console.warn('__STATIC_CONTENT_MANIFEST is missing');
       }
-      const assetManifest = JSON.parse(env.__STATIC_CONTENT_MANIFEST);
+      
       return await getAssetFromKV({ request, waitUntil: ctx.waitUntil.bind(ctx) }, { ASSET_NAMESPACE: env.__STATIC_CONTENT, ASSET_MANIFEST: assetManifest });
     } catch (e: any) {
       console.error('getAssetFromKV error:', e.message);
       try {
         const indexRequest = new Request(new URL('/index.html', request.url), request);
-        const assetManifest = JSON.parse(env.__STATIC_CONTENT_MANIFEST);
+        let assetManifest = {};
+        if (env.__STATIC_CONTENT_MANIFEST) {
+           try { assetManifest = JSON.parse(env.__STATIC_CONTENT_MANIFEST); } catch (e) {}
+        }
         return await getAssetFromKV({ request: indexRequest, waitUntil: ctx.waitUntil.bind(ctx) }, { ASSET_NAMESPACE: env.__STATIC_CONTENT, ASSET_MANIFEST: assetManifest });
       } catch (fallbackError: any) { 
         console.error('SPA fallback error:', fallbackError.message);
-        return new Response('Not Found (SPA Fallback failed)', { status: 404 }); 
+        return new Response('Not Found (SPA Fallback failed) - Manifest: ' + (env.__STATIC_CONTENT_MANIFEST ? 'Present' : 'Missing'), { status: 404 }); 
       }
     }
   },

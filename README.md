@@ -1,20 +1,35 @@
-<div align="center">
-<img width="1200" height="475" alt="GHBanner" src="https://github.com/user-attachments/assets/0aa67016-6eaf-458a-adb2-6e31a0763ed6" />
-</div>
+# Travel Plan App
 
-# Run and deploy your AI Studio app
+## Deployment
 
-This contains everything you need to run your app locally.
+This project uses Cloudflare Workers for deployment.
 
-View your app in AI Studio: https://ai.studio/apps/fd544143-8fd4-4a3e-b298-de3d9dbf5cc1
+### Prerequisites
 
-## Run Locally
+- Node.js installed
+- Wrangler installed (`npm install -g wrangler`)
+- Logged in to Cloudflare (`wrangler login`)
 
-**Prerequisites:**  Node.js
+### How to Deploy
 
+To deploy the application, run:
 
-1. Install dependencies:
-   `npm install`
-2. Set the `GEMINI_API_KEY` in [.env.local](.env.local) to your Gemini API key
-3. Run the app:
-   `npm run dev`
+```bash
+npm run deploy
+```
+
+This command will automatically:
+1. Build the frontend (`npm run build`)
+2. Deploy the worker (`wrangler deploy`)
+
+**Important:** Do not run `wrangler deploy` directly without building first, as this may result in missing static assets and a "Manifest missing" error.
+
+### Troubleshooting
+
+If you encounter a "Manifest missing" error:
+1. Ensure you have run `npm run build`.
+2. Check that the `dist` directory exists and contains `index.html`.
+3. Redeploy using `npm run deploy`.
+
+You can also check the worker health at:
+`https://<your-worker-subdomain>.workers.dev/health-check`
