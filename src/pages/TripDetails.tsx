@@ -91,7 +91,8 @@ function TransportationCard({ item, transportation, canEdit, onEdit }: { item?: 
         className={clsx(
           "bg-zinc-900 border border-zinc-800 rounded-3xl overflow-hidden shadow-lg group relative transition-all",
           canEdit ? "cursor-pointer hover:border-orange-500/50" : "cursor-pointer hover:border-zinc-700",
-          isPastItem && !isExpanded && "opacity-50 grayscale-[0.5] hover:opacity-100 hover:grayscale-0"
+          isPastItem && !isExpanded && "opacity-50 grayscale-[0.5] hover:opacity-100 hover:grayscale-0",
+          isExpanded ? "h-[220px]" : "h-auto"
         )}
         onClick={handleHeaderClick}
       >
@@ -123,104 +124,113 @@ function TransportationCard({ item, transportation, canEdit, onEdit }: { item?: 
 
         {/* Expanded Content */}
         <div className={clsx(
-          "relative transition-all duration-300 ease-in-out overflow-hidden bg-zinc-900/50",
-          isExpanded ? "h-auto" : "h-0"
+          "relative transition-all duration-300 ease-in-out overflow-hidden",
+          isExpanded ? "h-[140px]" : "h-0"
         )}>
            {/* Content Container */}
-           <div className="p-5 flex flex-col relative">
-              {/* Shadow Overlay for Details */}
-              <div className="absolute inset-0 bg-gradient-to-b from-black/10 to-black/30 pointer-events-none" />
-              
-              <div className="relative z-10">
-                  {/* Dep/Arr Details with Toggle Arrow */}
-                  <div className="flex justify-between items-start mb-6">
-                      <div className="flex-1">
-                          <div className="text-[10px] text-zinc-500 uppercase tracking-wider mb-1">Departure</div>
-                          <div className="text-lg font-bold text-white leading-tight">{transportation.dep_station}</div>
-                          <div className="text-xs font-mono text-zinc-400 mt-1">{transportation.dep_time}</div>
-                          {transportation.dep_terminal && <div className="text-xs text-orange-500 mt-0.5">{labels.terminal} {transportation.dep_terminal}</div>}
-                      </div>
-                      
-                      <div className="flex-1 pl-4 flex justify-end gap-2">
-                          <div className="text-right">
-                              <div className="text-[10px] text-zinc-500 uppercase tracking-wider mb-1">Arrival</div>
-                              <div className="text-lg font-bold text-white leading-tight">{transportation.arr_station}</div>
-                              <div className="text-xs font-mono text-zinc-400 mt-1">{transportation.arr_time}</div>
-                              {transportation.arr_terminal && <div className="text-xs text-orange-500 mt-0.5">{labels.terminal} {transportation.arr_terminal}</div>}
-                          </div>
-                          
-                  {/* Toggle Arrow positioned to the right of Arrival */}
-                          <div 
-                            className={clsx(
-                              "flex items-center justify-center w-6 h-6 rounded-full border backdrop-blur-md transition-transform duration-300 cursor-pointer bg-zinc-800/50 border-zinc-700/50 text-zinc-400 hover:text-white shrink-0 mt-1",
-                              showDetails ? "rotate-180" : "rotate-0"
-                            )}
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              setShowDetails(!showDetails);
-                            }}
-                          >
-                             <ChevronDown size={14} />
-                          </div>
-                      </div>
-                  </div>
-
-                  {/* Collapsible Details: Buffer Timeline & Notes */}
-                  <AnimatePresence>
-                    {showDetails && (
-                       <motion.div 
-                         initial={{ opacity: 0, height: 0 }}
-                         animate={{ opacity: 1, height: 'auto' }}
-                         exit={{ opacity: 0, height: 0 }}
-                         className="overflow-hidden"
-                       >
-                         <div className="bg-black/20 rounded-2xl p-4 mt-4 border border-white/5 shadow-inner">
-                           {/* Buffer Timeline */}
-                           <div className="relative pt-6 pb-2 mb-4">
-                           {/* Line */}
-                           <div className="absolute top-8 left-2 right-2 h-0.5 bg-zinc-800"></div>
-                           
-                           <div className="flex justify-between relative">
-                             {/* Check-in */}
-                             <div className="flex flex-col items-center gap-1 relative z-10 group/point">
-                               <div className="text-[10px] font-mono text-zinc-400 mb-1">{checkinTimeStr}</div>
-                               <div className="w-2 h-2 rounded-full bg-zinc-700 border border-zinc-900 group-hover/point:bg-orange-500 transition-colors"></div>
-                               <div className="text-[10px] font-mono text-zinc-500">Check-in</div>
-                             </div>
-
-                             {/* Departure */}
-                             <div className="flex flex-col items-center gap-1 relative z-10 group/point">
-                               <div className="text-[10px] font-mono text-zinc-300 mb-1">{transportation.dep_time}</div>
-                               <div className="w-2 h-2 rounded-full bg-zinc-500 border border-zinc-900 group-hover/point:bg-orange-500 transition-colors"></div>
-                               <div className="text-[10px] font-mono text-zinc-300">Dep</div>
-                             </div>
-
-                             {/* Arrival */}
-                             <div className="flex flex-col items-center gap-1 relative z-10 group/point">
-                               <div className="text-[10px] font-mono text-zinc-300 mb-1">{transportation.arr_time}</div>
-                               <div className="w-2 h-2 rounded-full bg-zinc-500 border border-zinc-900 group-hover/point:bg-orange-500 transition-colors"></div>
-                               <div className="text-[10px] font-mono text-zinc-300">Arr</div>
-                             </div>
-
-                             {/* Exit */}
-                             <div className="flex flex-col items-center gap-1 relative z-10 group/point">
-                               <div className="text-[10px] font-mono text-zinc-400 mb-1">{exitTimeStr}</div>
-                               <div className="w-2 h-2 rounded-full bg-zinc-700 border border-zinc-900 group-hover/point:bg-orange-500 transition-colors"></div>
-                               <div className="text-[10px] font-mono text-zinc-500">Exit</div>
-                             </div>
-                           </div>
+           <div className="p-5 relative">
+              <div className="h-[100px] relative"> {/* Fixed height container */}
+                {/* AnimatePresence removed */}
+                  {!showDetails ? (
+                    <div
+                      key="summary"
+                      className="absolute inset-0"
+                    >
+                        {/* Dep/Arr Details with Toggle Arrow */}
+                        <div className="flex justify-between items-start h-full">
+                            <div className="flex-1">
+                                <div className="text-[10px] text-zinc-500 uppercase tracking-wider mb-1">Departure</div>
+                                <div className="text-lg font-bold text-white leading-tight">{transportation.dep_station}</div>
+                                <div className="text-xs font-mono text-zinc-400 mt-1">{transportation.dep_time}</div>
+                                {transportation.dep_terminal && <div className="text-xs text-orange-500 mt-0.5">{labels.terminal} {transportation.dep_terminal}</div>}
+                            </div>
+                            
+                            <div className="flex-1 pl-4 flex justify-end gap-2">
+                                <div className="text-right">
+                                    <div className="text-[10px] text-zinc-500 uppercase tracking-wider mb-1">Arrival</div>
+                                    <div className="text-lg font-bold text-white leading-tight">{transportation.arr_station}</div>
+                                    <div className="text-xs font-mono text-zinc-400 mt-1">{transportation.arr_time}</div>
+                                    {transportation.arr_terminal && <div className="text-xs text-orange-500 mt-0.5">{labels.terminal} {transportation.arr_terminal}</div>}
+                                </div>
+                                
+                                {/* Toggle Arrow */}
+                                <div 
+                                  className="flex items-center justify-center w-6 h-6 rounded-full border backdrop-blur-md transition-colors cursor-pointer bg-zinc-800/50 border-zinc-700/50 text-zinc-400 hover:text-white shrink-0 mt-1 hover:bg-zinc-700"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    setShowDetails(true);
+                                  }}
+                                >
+                                   <ChevronDown size={14} />
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                  ) : (
+                     <div 
+                       key="details"
+                       className="absolute inset-0"
+                     >
+                       <div className="bg-zinc-950 rounded-2xl p-3 border border-zinc-800 shadow-xl relative h-full flex flex-col">
+                         {/* Close Arrow */}
+                         <div 
+                           className="absolute top-2 right-2 flex items-center justify-center w-5 h-5 rounded-full border border-zinc-700/50 bg-zinc-800 text-zinc-400 hover:text-white cursor-pointer z-20 hover:bg-zinc-700 transition-colors"
+                           onClick={(e) => {
+                             e.stopPropagation();
+                             setShowDetails(false);
+                           }}
+                         >
+                            <ChevronUp size={12} />
                          </div>
 
-                         {/* Notes */}
-                         {transportation.notes && (
-                           <div className="mt-4 pt-4 border-t border-white/10 text-sm text-zinc-300 italic">
-                             {transportation.notes}
+                         {/* Scrollable Content */}
+                         <div className="overflow-y-auto custom-scrollbar flex-1 pr-1">
+                           {/* Buffer Timeline */}
+                           <div className="relative pt-1 pb-2 mt-1">
+                             {/* Line */}
+                             <div className="absolute top-1/2 left-2 right-2 h-0.5 bg-zinc-800 -translate-y-1/2"></div>
+                             
+                             <div className="flex justify-between relative">
+                               {/* Check-in */}
+                               <div className="flex flex-col items-center gap-1 relative z-10 group/point">
+                                 <div className="text-[9px] font-mono text-zinc-400">{checkinTimeStr}</div>
+                                 <div className="w-2 h-2 rounded-full bg-zinc-800 border border-zinc-600 group-hover/point:border-orange-500 transition-colors"></div>
+                                 <div className="text-[9px] font-mono text-zinc-500 font-medium">Check-in</div>
+                               </div>
+
+                               {/* Departure */}
+                               <div className="flex flex-col items-center gap-1 relative z-10 group/point">
+                                 <div className="text-[9px] font-mono text-zinc-300">{transportation.dep_time}</div>
+                                 <div className="w-2 h-2 rounded-full bg-zinc-600 border border-zinc-500 group-hover/point:border-orange-500 transition-colors"></div>
+                                 <div className="text-[9px] font-mono text-zinc-300 font-medium">Dep</div>
+                               </div>
+
+                               {/* Arrival */}
+                               <div className="flex flex-col items-center gap-1 relative z-10 group/point">
+                                 <div className="text-[9px] font-mono text-zinc-300">{transportation.arr_time}</div>
+                                 <div className="w-2 h-2 rounded-full bg-zinc-600 border border-zinc-500 group-hover/point:border-orange-500 transition-colors"></div>
+                                 <div className="text-[9px] font-mono text-zinc-300 font-medium">Arr</div>
+                               </div>
+
+                               {/* Exit */}
+                               <div className="flex flex-col items-center gap-1 relative z-10 group/point">
+                                 <div className="text-[9px] font-mono text-zinc-400">{exitTimeStr}</div>
+                                 <div className="w-2 h-2 rounded-full bg-zinc-800 border border-zinc-600 group-hover/point:border-orange-500 transition-colors"></div>
+                                 <div className="text-[9px] font-mono text-zinc-500 font-medium">Exit</div>
+                               </div>
+                             </div>
                            </div>
-                         )}
+
+                           {/* Notes */}
+                           {transportation.notes && (
+                             <div className="mt-2 pt-2 border-t border-zinc-800 text-xs text-zinc-400 italic text-center">
+                               {transportation.notes}
+                             </div>
+                           )}
+                         </div>
                        </div>
-                       </motion.div>
-                    )}
-                  </AnimatePresence>
+                     </div>
+                  )}
               </div>
            </div>
         </div>
@@ -447,7 +457,7 @@ function SubItemRow({ sub, itineraryImageUrl }: { sub: any; itineraryImageUrl: s
           )}
 
           {/* Notes Toggle */}
-          {sub.notes && (
+          {(sub.notes || (sub.tags && sub.tags.length > 0)) && (
             <button
               onClick={(e) => {
                 e.stopPropagation();
@@ -468,19 +478,37 @@ function SubItemRow({ sub, itineraryImageUrl }: { sub: any; itineraryImageUrl: s
 
       {/* Notes Expansion */}
       <AnimatePresence>
-        {showNotes && sub.notes && (
+        {showNotes && (
           <motion.div
             initial={{ opacity: 0, height: 0 }}
             animate={{ opacity: 1, height: 'auto' }}
             exit={{ opacity: 0, height: 0 }}
             className="overflow-hidden pl-2"
           >
-            <div className={clsx(
-              "text-xs mt-2 italic leading-relaxed p-2 rounded-lg",
-              itineraryImageUrl ? "bg-white/10 text-white/80" : "bg-zinc-800/50 text-zinc-400"
-            )}>
-              {sub.notes}
-            </div>
+            {/* Tags */}
+            {sub.tags && Array.isArray(sub.tags) && sub.tags.length > 0 && (
+              <div className="flex flex-wrap gap-1 mt-2 mb-1">
+                {sub.tags.map((tag: string, idx: number) => (
+                  <span key={idx} className={clsx(
+                    "text-[10px] px-1.5 py-0.5 rounded border",
+                    itineraryImageUrl 
+                      ? "text-white/80 border-white/20 bg-white/5" 
+                      : "text-zinc-400 border-zinc-700 bg-zinc-800"
+                  )}>
+                    {tag}
+                  </span>
+                ))}
+              </div>
+            )}
+
+            {sub.notes && (
+              <div className={clsx(
+                "text-xs mt-1 italic leading-relaxed p-2 rounded-lg",
+                itineraryImageUrl ? "bg-white/10 text-white/80" : "bg-zinc-800/50 text-zinc-400"
+              )}>
+                {sub.notes}
+              </div>
+            )}
           </motion.div>
         )}
       </AnimatePresence>
