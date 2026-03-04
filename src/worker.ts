@@ -275,12 +275,12 @@ async function ensureSchema(db: D1Database) {
             departure_time TEXT NOT NULL,
             departure_station TEXT,
             departure_terminal TEXT,
-            checkin_duration INTEGER DEFAULT 120,
+            dep_checkin_buffer INTEGER DEFAULT 120,
             arrival_date TEXT NOT NULL,
             arrival_time TEXT NOT NULL,
             arrival_station TEXT,
             arrival_terminal TEXT,
-            exit_duration INTEGER DEFAULT 60,
+            arr_exit_buffer INTEGER DEFAULT 60,
             stay_duration INTEGER DEFAULT 0,
             notes TEXT,
             FOREIGN KEY (trip_id) REFERENCES Trips(id) ON DELETE CASCADE
@@ -299,15 +299,15 @@ async function ensureSchema(db: D1Database) {
         
         const selectCols = [
           'id', 'trip_id', "'FLIGHT'", 'airline', 'flight_code', 'departure_date', 'departure_time', 'departure_airport', 'departure_terminal',
-          oldCols.includes('checkin_duration') ? 'checkin_duration' : '120',
+          oldCols.includes('dep_checkin_buffer') ? 'dep_checkin_buffer' : '120',
           'arrival_date', 'arrival_time', 'arrival_airport', 'arrival_terminal',
-          oldCols.includes('exit_duration') ? 'exit_duration' : '60',
+          oldCols.includes('arr_exit_buffer') ? 'arr_exit_buffer' : '60',
           oldCols.includes('stay_duration') ? 'stay_duration' : '0',
           'notes'
         ];
 
         await db.prepare(`
-          INSERT INTO Transportations (id, trip_id, type, provider, transport_code, departure_date, departure_time, departure_station, departure_terminal, checkin_duration, arrival_date, arrival_time, arrival_station, arrival_terminal, exit_duration, stay_duration, notes)
+          INSERT INTO Transportations (id, trip_id, type, provider, transport_code, departure_date, departure_time, departure_station, departure_terminal, dep_checkin_buffer, arrival_date, arrival_time, arrival_station, arrival_terminal, arr_exit_buffer, stay_duration, notes)
           SELECT ${selectCols.join(', ')}
           FROM Transportations_Old
         `).run();
@@ -868,7 +868,7 @@ app.post('/api/trips/:id/transportations', async (c) => {
     const b = await c.req.json();
     // id is AUTOINCREMENT
     const info = await c.env.DB.prepare(`
-      INSERT INTO Transportations (trip_id, type, provider, code, dep_station, dep_date, dep_time, dep_terminal, checkin_duration, arr_station, arr_date, arr_time, arr_terminal, exit_duration, order_id, notes)
+      INSERT INTO Transportations (trip_id, type, provider, code, dep_station, dep_date, dep_time, dep_terminal, dep_checkin_buffer, arr_station, arr_date, arr_time, arr_terminal, arr_exit_buffer, order_id, notes)
       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).bind(
       tripId, 
@@ -879,12 +879,12 @@ app.post('/api/trips/:id/transportations', async (c) => {
       b.dep_date,
       b.dep_time,
       b.dep_terminal,
-      b.checkin_duration || b.dep_checkin_buffer || 120,
+      b.dep_checkin_buffer || 120,
       b.arr_station, 
       b.arr_date,
       b.arr_time,
       b.arr_terminal,
-      b.exit_duration || b.arr_exit_buffer || 60,
+      b.arr_exit_buffer || 60,
       b.order_id, 
       b.notes
     ).run();
@@ -935,7 +935,7 @@ app.put('/api/trips/:id/transportations/:transportId', async (c) => {
     
     await c.env.DB.prepare(`
       UPDATE Transportations 
-      SET type = ?, provider = ?, code = ?, dep_station = ?, dep_date = ?, dep_time = ?, dep_terminal = ?, checkin_duration = ?, arr_station = ?, arr_date = ?, arr_time = ?, arr_terminal = ?, exit_duration = ?, order_id = ?, notes = ?
+      SET type = ?, provider = ?, code = ?, dep_station = ?, dep_date = ?, dep_time = ?, dep_terminal = ?, dep_checkin_buffer = ?, arr_station = ?, arr_date = ?, arr_time = ?, arr_terminal = ?, arr_exit_buffer = ?, order_id = ?, notes = ?
       WHERE id = ? AND trip_id = ?
     `).bind(
       b.type || 'FLIGHT', 
@@ -945,12 +945,12 @@ app.put('/api/trips/:id/transportations/:transportId', async (c) => {
       b.dep_date,
       b.dep_time,
       b.dep_terminal,
-      b.checkin_duration || b.dep_checkin_buffer || 120,
+      b.dep_checkin_buffer || 120,
       b.arr_station, 
       b.arr_date,
       b.arr_time,
       b.arr_terminal,
-      b.exit_duration || b.arr_exit_buffer || 60,
+      b.arr_exit_buffer || 60,
       b.order_id, 
       b.notes, 
       transportId, 
@@ -1017,6 +1017,20 @@ app.post('/api/trips/:id/accommodations', async (c) => {
     if (!canEdit) return c.json({ error: 'Unauthorized' }, 403);
 
     const b = await c.req.json();
+
+    // Check for overlapping accommodations
+    const { results: existingAccs } = await c.env.DB.prepare(`
+      SELECT * FROM Accommodations 
+      WHERE trip_id = ? 
+      AND (
+        (check_in_date < ? AND check_out_date > ?)
+      )
+    `).bind(tripId, b.check_out_date, b.check_in_date).all();
+
+    if (existingAccs.length > 0) {
+      return c.json({ error: '這段時間已經有安排住宿了。' }, 400);
+    }
+
     // id is AUTOINCREMENT
     const info = await c.env.DB.prepare(`
       INSERT INTO Accommodations (trip_id, hotel_name, address, check_in_date, check_out_date, check_in_time, check_out_time, daily_start_time, daily_end_time, order_id, notes, created_at)
@@ -1067,7 +1081,7 @@ app.post('/api/trips/:id/accommodations', async (c) => {
         await c.env.DB.prepare(`
           INSERT INTO Itineraries (trip_id, date, start_time, end_time, title, type, related_id, notes, image_url)
           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-        `).bind(tripId, dateStr, checkOutTime, '', `Check-out ${b.hotel_name}`, 'ACCOMMODATION', accId, notesWithOrder, hotelImage || '').run();
+        `).bind(tripId, dateStr, checkOutTime, '', `Check-out ${b.hotel_name}`, 'ACCOMMODATION', accId, b.notes || '', hotelImage || '').run();
       } else {
         // Intermediate Day
         // Leave Hotel
@@ -1098,6 +1112,19 @@ app.put('/api/trips/:id/accommodations/:accId', async (c) => {
     if (!canEdit) return c.json({ error: 'Unauthorized' }, 403);
 
     const b = await c.req.json();
+
+    // Check for overlapping accommodations, excluding the current one
+    const { results: existingAccs } = await c.env.DB.prepare(`
+      SELECT * FROM Accommodations 
+      WHERE trip_id = ? AND id != ?
+      AND (
+        (check_in_date < ? AND check_out_date > ?)
+      )
+    `).bind(tripId, accId, b.check_out_date, b.check_in_date).all();
+
+    if (existingAccs.length > 0) {
+      return c.json({ error: '這段時間已經有安排住宿了。' }, 400);
+    }
     
     await c.env.DB.prepare(`
       UPDATE Accommodations 
@@ -1163,7 +1190,7 @@ app.put('/api/trips/:id/accommodations/:accId', async (c) => {
           start_time: checkOutTime,
           end_time: '',
           title: `Check-out ${b.hotel_name}`,
-          notes: notesWithOrder,
+          notes: b.notes || '',
           image_url: hotelImage || '',
           matchType: 'Check-out'
         });

@@ -8,6 +8,7 @@ import { Home } from './pages/Home';
 import { TripDetails } from './pages/TripDetails';
 import { AdminMembers } from './pages/AdminMembers';
 import { AdminSettings } from './pages/AdminSettings';
+import { Competitions } from './pages/Competitions';
 import { useAppStore } from './store';
 import { apiFetch } from './utils/api';
 import { City } from './types';
@@ -66,6 +67,7 @@ function AppContent() {
           <Route path="/trip/:id" element={<TripDetails />} />
           <Route path="/admin/members" element={<AdminMembers />} />
           <Route path="/admin/settings" element={<AdminSettings />} />
+          <Route path="/competitions" element={<Competitions />} />
         </Routes>
       </main>
       

@@ -96,14 +96,14 @@ export interface Transportation {
   dep_date: string; // YYYY-MM-DD
   dep_time: string; // HH:mm
   dep_terminal?: string;
-  checkin_duration?: number; // Minutes
+  dep_checkin_buffer?: number; // Minutes
 
   // Arrival
   arr_station: string;
   arr_date: string; // YYYY-MM-DD
   arr_time: string; // HH:mm
   arr_terminal?: string;
-  exit_duration?: number; // Minutes
+  arr_exit_buffer?: number; // Minutes
 
   order_id?: string;
   notes?: string;

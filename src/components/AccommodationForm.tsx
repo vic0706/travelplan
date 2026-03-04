@@ -4,6 +4,8 @@ import { format } from 'date-fns';
 import { DateRangePicker } from './DateRangePicker';
 import { TimePicker } from './TimePicker';
 import { apiFetch } from '../utils/api';
+import { useLiveQuery } from 'dexie-react-hooks';
+import { db } from '../db';
 
 import { Accommodation } from '../types';
 
@@ -17,6 +19,8 @@ interface AccommodationFormProps {
 
 export function AccommodationForm({ tripId, onSuccess, onCancel, onDelete, initialData }: AccommodationFormProps) {
   const [loading, setLoading] = useState(false);
+  const accommodations = useLiveQuery(() => db.accommodations.where('trip_id').equals(tripId).toArray(), [tripId]) || [];
+
   const [formData, setFormData] = useState({
     hotel_name: initialData?.hotel_name || '',
     check_in_date: initialData?.check_in_date || '',
@@ -30,8 +34,35 @@ export function AccommodationForm({ tripId, onSuccess, onCancel, onDelete, initi
     notes: initialData?.notes || ''
   });
 
+  const checkOverlap = () => {
+    if (!formData.check_in_date || !formData.check_out_date) return null;
+
+    const newStart = new Date(formData.check_in_date);
+    const newEnd = new Date(formData.check_out_date);
+
+    for (const acc of accommodations) {
+      if (initialData && acc.id === initialData.id) continue;
+
+      const accStart = new Date(acc.check_in_date);
+      const accEnd = new Date(acc.check_out_date);
+
+      // Check if ranges overlap (using < and > to allow same-day switch)
+      if (newStart < accEnd && newEnd > accStart) {
+        return acc.hotel_name;
+      }
+    }
+    return null;
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    
+    const conflict = checkOverlap();
+    if (conflict) {
+      alert(`Accommodation overlaps with existing booking at ${conflict}`);
+      return;
+    }
+
     setLoading(true);
     try {
       const endpoint = initialData 

@@ -467,6 +467,7 @@ function SubItemModal({ onClose, onAdd, parentStartTime, parentEndTime }: { onCl
     title: '',
     start_time: parentStartTime,
     end_time: parentEndTime,
+    address: '',
     tags: '',
     notes: ''
   });
@@ -521,6 +522,20 @@ function SubItemModal({ onClose, onAdd, parentStartTime, parentEndTime }: { onCl
             value={{ start: data.start_time, end: data.end_time }}
             onChange={(range) => setData({ ...data, start_time: range.start, end_time: range.end })}
           />
+
+          <div>
+            <label className="block text-xs font-medium text-zinc-400 mb-1">Address</label>
+            <div className="relative">
+              <MapPin size={14} className="absolute left-3 top-2.5 text-zinc-500" />
+              <input
+                type="text"
+                value={data.address}
+                onChange={e => setData({ ...data, address: e.target.value })}
+                className="w-full bg-zinc-800 border border-zinc-700 rounded-lg pl-9 pr-3 py-2 text-white text-sm focus:outline-none focus:ring-2 focus:ring-orange-500"
+                placeholder="Location..."
+              />
+            </div>
+          </div>
 
           <div>
             <label className="block text-xs font-medium text-zinc-400 mb-1">Tags (comma separated)</label>

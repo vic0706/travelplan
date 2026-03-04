@@ -77,12 +77,12 @@ function TransportationCard({ item, transportation, canEdit, onEdit }: { item?: 
   if (item) {
     // Calculate timeline times
     const depDateTime = parseISO(`${transportation.dep_date}T${transportation.dep_time}`);
-    const checkinBuffer = transportation.checkin_duration || 120;
+    const checkinBuffer = transportation.dep_checkin_buffer || 120;
     const checkinDate = new Date(depDateTime.getTime() - checkinBuffer * 60000);
     const checkinTimeStr = format(checkinDate, 'HH:mm');
 
     const arrDateTime = parseISO(`${transportation.arr_date}T${transportation.arr_time}`);
-    const exitBuffer = transportation.exit_duration || 60;
+    const exitBuffer = transportation.arr_exit_buffer || 60;
     const exitDate = new Date(arrDateTime.getTime() + exitBuffer * 60000);
     const exitTimeStr = format(exitDate, 'HH:mm');
 
@@ -148,7 +148,7 @@ function TransportationCard({ item, transportation, canEdit, onEdit }: { item?: 
                               {transportation.arr_terminal && <div className="text-xs text-orange-500 mt-0.5">{labels.terminal} {transportation.arr_terminal}</div>}
                           </div>
                           
-                          {/* Toggle Arrow positioned to the right of Arrival */}
+                  {/* Toggle Arrow positioned to the right of Arrival */}
                           <div 
                             className={clsx(
                               "flex items-center justify-center w-6 h-6 rounded-full border backdrop-blur-md transition-transform duration-300 cursor-pointer bg-zinc-800/50 border-zinc-700/50 text-zinc-400 hover:text-white shrink-0 mt-1",
@@ -164,52 +164,57 @@ function TransportationCard({ item, transportation, canEdit, onEdit }: { item?: 
                       </div>
                   </div>
 
-                  {/* Buffer Timeline */}
-                  <div className="relative pt-6 pb-2 mb-4">
-                    {/* Line */}
-                    <div className="absolute top-8 left-2 right-2 h-0.5 bg-zinc-800"></div>
-                    
-                    <div className="flex justify-between relative">
-                      {/* Check-in */}
-                      <div className="flex flex-col items-center gap-1 relative z-10 group/point">
-                        <div className="text-[10px] font-mono text-zinc-400 mb-1">{checkinTimeStr}</div>
-                        <div className="w-2 h-2 rounded-full bg-zinc-700 border border-zinc-900 group-hover/point:bg-orange-500 transition-colors"></div>
-                        <div className="text-[10px] font-mono text-zinc-500">Check-in</div>
-                      </div>
-
-                      {/* Departure */}
-                      <div className="flex flex-col items-center gap-1 relative z-10 group/point">
-                        <div className="text-[10px] font-mono text-zinc-300 mb-1">{transportation.dep_time}</div>
-                        <div className="w-2 h-2 rounded-full bg-zinc-500 border border-zinc-900 group-hover/point:bg-orange-500 transition-colors"></div>
-                        <div className="text-[10px] font-mono text-zinc-300">Dep</div>
-                      </div>
-
-                      {/* Arrival */}
-                      <div className="flex flex-col items-center gap-1 relative z-10 group/point">
-                        <div className="text-[10px] font-mono text-zinc-300 mb-1">{transportation.arr_time}</div>
-                        <div className="w-2 h-2 rounded-full bg-zinc-500 border border-zinc-900 group-hover/point:bg-orange-500 transition-colors"></div>
-                        <div className="text-[10px] font-mono text-zinc-300">Arr</div>
-                      </div>
-
-                      {/* Exit */}
-                      <div className="flex flex-col items-center gap-1 relative z-10 group/point">
-                        <div className="text-[10px] font-mono text-zinc-400 mb-1">{exitTimeStr}</div>
-                        <div className="w-2 h-2 rounded-full bg-zinc-700 border border-zinc-900 group-hover/point:bg-orange-500 transition-colors"></div>
-                        <div className="text-[10px] font-mono text-zinc-500">Exit</div>
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* Notes (Toggleable) */}
+                  {/* Collapsible Details: Buffer Timeline & Notes */}
                   <AnimatePresence>
-                    {showDetails && transportation.notes && (
+                    {showDetails && (
                        <motion.div 
                          initial={{ opacity: 0, height: 0 }}
                          animate={{ opacity: 1, height: 'auto' }}
                          exit={{ opacity: 0, height: 0 }}
-                         className="p-4 rounded-2xl bg-zinc-800/30 border border-zinc-700/30 text-sm text-zinc-300 italic overflow-hidden"
+                         className="overflow-hidden"
                        >
-                         {transportation.notes}
+                         {/* Buffer Timeline */}
+                         <div className="relative pt-6 pb-2 mb-4">
+                           {/* Line */}
+                           <div className="absolute top-8 left-2 right-2 h-0.5 bg-zinc-800"></div>
+                           
+                           <div className="flex justify-between relative">
+                             {/* Check-in */}
+                             <div className="flex flex-col items-center gap-1 relative z-10 group/point">
+                               <div className="text-[10px] font-mono text-zinc-400 mb-1">{checkinTimeStr}</div>
+                               <div className="w-2 h-2 rounded-full bg-zinc-700 border border-zinc-900 group-hover/point:bg-orange-500 transition-colors"></div>
+                               <div className="text-[10px] font-mono text-zinc-500">Check-in</div>
+                             </div>
+
+                             {/* Departure */}
+                             <div className="flex flex-col items-center gap-1 relative z-10 group/point">
+                               <div className="text-[10px] font-mono text-zinc-300 mb-1">{transportation.dep_time}</div>
+                               <div className="w-2 h-2 rounded-full bg-zinc-500 border border-zinc-900 group-hover/point:bg-orange-500 transition-colors"></div>
+                               <div className="text-[10px] font-mono text-zinc-300">Dep</div>
+                             </div>
+
+                             {/* Arrival */}
+                             <div className="flex flex-col items-center gap-1 relative z-10 group/point">
+                               <div className="text-[10px] font-mono text-zinc-300 mb-1">{transportation.arr_time}</div>
+                               <div className="w-2 h-2 rounded-full bg-zinc-500 border border-zinc-900 group-hover/point:bg-orange-500 transition-colors"></div>
+                               <div className="text-[10px] font-mono text-zinc-300">Arr</div>
+                             </div>
+
+                             {/* Exit */}
+                             <div className="flex flex-col items-center gap-1 relative z-10 group/point">
+                               <div className="text-[10px] font-mono text-zinc-400 mb-1">{exitTimeStr}</div>
+                               <div className="w-2 h-2 rounded-full bg-zinc-700 border border-zinc-900 group-hover/point:bg-orange-500 transition-colors"></div>
+                               <div className="text-[10px] font-mono text-zinc-500">Exit</div>
+                             </div>
+                           </div>
+                         </div>
+
+                         {/* Notes */}
+                         {transportation.notes && (
+                           <div className="p-4 rounded-2xl bg-zinc-800/30 border border-zinc-700/30 text-sm text-zinc-300 italic mb-2">
+                             {transportation.notes}
+                           </div>
+                         )}
                        </motion.div>
                     )}
                   </AnimatePresence>
@@ -362,7 +367,10 @@ function AccommodationCard({ acc, canEdit, onEdit }: { acc: any; canEdit: boolea
             <div className="flex gap-6">
               <div>
                 <div className="text-[10px] text-zinc-500 uppercase tracking-wider mb-1">Check-in</div>
-                <div className="text-sm font-bold text-white">{acc.check_in_time || '16:00'}</div>
+                <div className="text-sm font-bold text-white">
+                  {acc.check_in_time || '16:00'}
+                  {acc.order_id && <span className="text-orange-500 ml-2 text-xs">#{acc.order_id}</span>}
+                </div>
               </div>
               <div>
                 <div className="text-[10px] text-zinc-500 uppercase tracking-wider mb-1">Check-out</div>
@@ -385,6 +393,95 @@ function AccommodationCard({ acc, canEdit, onEdit }: { acc: any; canEdit: boolea
           </button>
         </div>
       </div>
+    </div>
+  );
+}
+
+// SubItem Row Component
+function SubItemRow({ sub, itineraryImageUrl }: { sub: any; itineraryImageUrl: string | null }) {
+  const [showNotes, setShowNotes] = useState(false);
+
+  return (
+    <div className={clsx(
+      "flex flex-col gap-1 text-sm p-3 rounded-2xl border relative overflow-hidden group/sub",
+      itineraryImageUrl
+        ? "text-white/90 bg-black/40 border-white/10"
+        : "text-zinc-400 bg-zinc-900/50 border-zinc-800/50"
+    )}>
+      <div className="absolute left-0 top-0 bottom-0 w-1 bg-zinc-700 group-hover/sub:bg-orange-500 transition-colors"></div>
+      
+      <div className="flex items-center justify-between gap-3 pl-2">
+        {/* Left: Time */}
+        <div className="text-xs font-mono text-orange-500/90 whitespace-nowrap min-w-[80px]">
+          {sub.start_time} - {sub.end_time}
+        </div>
+
+        {/* Middle: Title */}
+        <div className={clsx(
+          "font-semibold flex-1 truncate",
+          itineraryImageUrl ? "text-white" : "text-zinc-100"
+        )}>
+          {sub.title || sub.text}
+        </div>
+
+        {/* Right: Actions */}
+        <div className="flex items-center gap-2 shrink-0">
+          {/* Navigation Button */}
+          {sub.address && (
+            <a 
+              href={sub.address.startsWith('http') ? sub.address : `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(sub.address)}`}
+              target="_blank"
+              rel="noopener noreferrer"
+              onClick={(e) => e.stopPropagation()}
+              className={clsx(
+                "p-1.5 rounded-full transition-colors",
+                itineraryImageUrl 
+                  ? "text-white/70 hover:text-white hover:bg-white/10" 
+                  : "text-zinc-500 hover:text-orange-500 hover:bg-zinc-800"
+              )}
+            >
+              <Navigation size={14} />
+            </a>
+          )}
+
+          {/* Notes Toggle */}
+          {sub.notes && (
+            <button
+              onClick={(e) => {
+                e.stopPropagation();
+                setShowNotes(!showNotes);
+              }}
+              className={clsx(
+                "p-1.5 rounded-full transition-colors",
+                itineraryImageUrl 
+                  ? "text-white/70 hover:text-white hover:bg-white/10" 
+                  : "text-zinc-500 hover:text-white hover:bg-zinc-800"
+              )}
+            >
+              <ChevronDown size={14} className={clsx("transition-transform", showNotes ? "rotate-180" : "")} />
+            </button>
+          )}
+        </div>
+      </div>
+
+      {/* Notes Expansion */}
+      <AnimatePresence>
+        {showNotes && sub.notes && (
+          <motion.div
+            initial={{ opacity: 0, height: 0 }}
+            animate={{ opacity: 1, height: 'auto' }}
+            exit={{ opacity: 0, height: 0 }}
+            className="overflow-hidden pl-2"
+          >
+            <div className={clsx(
+              "text-xs mt-2 italic leading-relaxed p-2 rounded-lg",
+              itineraryImageUrl ? "bg-white/10 text-white/80" : "bg-zinc-800/50 text-zinc-400"
+            )}>
+              {sub.notes}
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </div>
   );
 }
@@ -544,51 +641,7 @@ function ItineraryCard({ item, canEdit, onEdit, selectedDate }: { item: Itinerar
                   {subItems.length > 0 && (
                     <div className="space-y-3">
                       {subItems.map((sub: any, idx: number) => (
-                        <div key={sub.id || idx} className={clsx(
-                          "flex flex-col gap-1 text-sm p-4 rounded-2xl border relative overflow-hidden group/sub",
-                          itineraryImageUrl
-                            ? "text-white/90 bg-black/40 border-white/10"
-                            : "text-zinc-400 bg-zinc-900/50 border-zinc-800/50"
-                        )}>
-                          <div className="absolute left-0 top-0 bottom-0 w-1 bg-zinc-700 group-hover/sub:bg-orange-500 transition-colors"></div>
-                          <div className="flex items-start gap-3 pl-1">
-                            <div className="flex-1">
-                              <div className={clsx(
-                                "font-semibold flex justify-between items-start gap-2",
-                                itineraryImageUrl ? "text-white" : "text-zinc-100"
-                              )}>
-                                <span className="leading-snug">{sub.title || sub.text}</span>
-                                {(sub.start_time || sub.end_time) && (
-                                  <span className="text-[11px] text-orange-400/90 font-mono bg-orange-500/10 px-2 py-0.5 rounded-md border border-orange-500/20 whitespace-nowrap">
-                                    {sub.start_time} - {sub.end_time}
-                                  </span>
-                                )}
-                              </div>
-                              {Array.isArray(sub.tags) && sub.tags.length > 0 && (
-                                <div className="flex gap-1.5 mt-2.5 flex-wrap">
-                                  {sub.tags.map((tag: string) => (
-                                    <span key={tag} className={clsx(
-                                      "text-[9px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-md border",
-                                      itineraryImageUrl
-                                        ? "text-white/70 border-white/20 bg-black/40"
-                                        : "text-zinc-400 border-zinc-700 bg-zinc-800/50"
-                                    )}>
-                                      {tag}
-                                    </span>
-                                  ))}
-                                </div>
-                              )}
-                              {sub.notes && (
-                                <div className={clsx(
-                                  "text-xs mt-2.5 italic leading-relaxed",
-                                  itineraryImageUrl ? "text-white/70" : "text-zinc-400"
-                                )}>
-                                  {sub.notes}
-                                </div>
-                              )}
-                            </div>
-                          </div>
-                        </div>
+                        <SubItemRow key={sub.id || idx} sub={sub} itineraryImageUrl={itineraryImageUrl} />
                       ))}
                     </div>
                   )}
