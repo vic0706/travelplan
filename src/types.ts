@@ -53,6 +53,7 @@ export interface Itinerary {
   image_url: string;
   notes: string;
   tags: string[]; // Parsed from JSON
+  icon?: string; // New field for activity icon
   sub_items?: string; // JSON string of sub-items (Legacy, but kept for compatibility if needed, or we can remove if we fully switch)
   stay_duration?: string;
   type?: 'GENERAL' | 'TRANSPORTATION' | 'ACCOMMODATION';

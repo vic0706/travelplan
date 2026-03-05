@@ -1,16 +1,10 @@
 import React, { useEffect, useState } from 'react';
 import { useAppStore } from '../store';
 import { Save, Database, Loader2, Plus, Trash2, Tag, ArrowLeft, Image as ImageIcon, ChevronRight } from 'lucide-react';
-import * as LucideIcons from 'lucide-react';
 import { apiFetch } from '../utils/api';
 import { ImageCropper, uploadImageToSupabase } from '../components/ImageCropper';
 import { motion, AnimatePresence } from 'framer-motion';
-
-const DynamicIcon = ({ name, className, size = 16 }: { name: string, className?: string, size?: number }) => {
-  const iconName = name.charAt(0).toUpperCase() + name.slice(1);
-  const Icon = (LucideIcons as any)[iconName] || (LucideIcons as any)[name] || LucideIcons.Circle;
-  return <Icon className={className} size={size} />;
-};
+import { DynamicIcon } from '../components/DynamicIcon';
 
 export function AdminSettings() {
   const { user } = useAppStore();
@@ -196,7 +190,7 @@ export function AdminSettings() {
             </button>
           )}
           <h2 className="text-2xl font-semibold text-white tracking-tight">
-            {view === 'main' ? 'Settings' : view === 'categories' ? 'Expense Categories' : 'System Settings'}
+            {view === 'main' ? 'Settings' : view === 'categories' ? 'Categories' : 'System Settings'}
           </h2>
         </div>
         {view !== 'main' && (
@@ -237,8 +231,8 @@ export function AdminSettings() {
                 </div>
                 <div className="flex items-center justify-between">
                   <div>
-                    <h3 className="text-lg font-bold text-white">Expense Categories</h3>
-                    <p className="text-sm text-zinc-500 mt-1">Manage custom categories, icons, and colors</p>
+                    <h3 className="text-lg font-bold text-white">Categories</h3>
+                    <p className="text-sm text-zinc-500 mt-1">Manage custom categories for expenses and activities</p>
                   </div>
                   <ChevronRight className="text-zinc-600 group-hover:text-white transition-colors" />
                 </div>

@@ -252,6 +252,11 @@ async function ensureSchema(db: D1Database) {
   } catch (e) {}
 
   try {
+    // 8. Add icon to Itineraries
+    await db.prepare("ALTER TABLE Itineraries ADD COLUMN icon TEXT DEFAULT ''").run();
+  } catch (e) {}
+
+  try {
     // 9. Update Transportations table schema (formerly Flights)
     const transportInfo = await db.prepare("PRAGMA table_info(Transportations)").all();
     const hasTransportTable = transportInfo.results.length > 0;
@@ -1381,8 +1386,8 @@ app.post('/api/trips/:id/itineraries', async (c) => {
 
     const b = await c.req.json();
     const info = await c.env.DB.prepare(`
-      INSERT INTO Itineraries (trip_id, city_id, date, start_time, end_time, title, address, image_url, notes, tags, sub_items, stay_duration, type, related_id)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      INSERT INTO Itineraries (trip_id, city_id, date, start_time, end_time, title, address, image_url, notes, tags, sub_items, stay_duration, type, related_id, icon)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).bind(
       tripId, 
       b.city_id, 
@@ -1397,7 +1402,8 @@ app.post('/api/trips/:id/itineraries', async (c) => {
       b.sub_items || '[]',
       b.stay_duration || '',
       b.type || 'GENERAL',
-      b.related_id || null
+      b.related_id || null,
+      b.icon || ''
     ).run();
     return c.json({ success: true, id: info.meta.last_row_id });
   } catch (error: any) { return c.json({ error: error.message }, 500); }
@@ -1413,7 +1419,7 @@ app.put('/api/trips/:id/itineraries/:itemId', async (c) => {
     const b = await c.req.json();
     await c.env.DB.prepare(`
       UPDATE Itineraries 
-      SET city_id = ?, date = ?, start_time = ?, end_time = ?, title = ?, address = ?, image_url = ?, notes = ?, tags = ?, sub_items = ?, stay_duration = ?
+      SET city_id = ?, date = ?, start_time = ?, end_time = ?, title = ?, address = ?, image_url = ?, notes = ?, tags = ?, sub_items = ?, stay_duration = ?, icon = ?
       WHERE id = ? AND trip_id = ?
     `).bind(
       b.city_id, 
@@ -1427,6 +1433,7 @@ app.put('/api/trips/:id/itineraries/:itemId', async (c) => {
       JSON.stringify(b.tags || []),
       b.sub_items || '[]',
       b.stay_duration || '',
+      b.icon || '',
       itemId,
       tripId
     ).run();

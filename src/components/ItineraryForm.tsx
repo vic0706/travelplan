@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { useAppStore } from '../store';
 import { X, MapPin, Loader2, Image as ImageIcon, Plus, Trash2, Clock, Check, AlertCircle } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
@@ -10,6 +10,7 @@ import { format, parseISO, isSameDay, addMinutes, subMinutes } from 'date-fns';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { db } from '../db';
 import { Transportation } from '../types';
+import { DynamicIcon } from './DynamicIcon';
 
 interface ItineraryFormProps {
   tripId: number;
@@ -70,6 +71,21 @@ export function ItineraryForm({ tripId, defaultCityId, date, onSuccess, onCancel
   const [uploading, setUploading] = useState(false);
   const [croppingImage, setCroppingImage] = useState<string | null>(null);
   const [isLocationPickerOpen, setIsLocationPickerOpen] = useState(false);
+  const [categories, setCategories] = useState<any[]>([]);
+
+  useEffect(() => {
+    const fetchCategories = async () => {
+      try {
+        const res = await apiFetch('/api/settings/categories');
+        if (res.ok) {
+          setCategories(await res.json());
+        }
+      } catch (err) {
+        console.error('Failed to fetch categories:', err);
+      }
+    };
+    fetchCategories();
+  }, []);
 
   // Group cities by country for LocationPicker
   const groupedCities = cities.reduce((acc, city) => {
@@ -93,7 +109,8 @@ export function ItineraryForm({ tripId, defaultCityId, date, onSuccess, onCancel
     notes: initialData?.notes || '',
     image_url: initialData?.image_url || '',
     city_id: initialData?.city_id ? String(initialData.city_id) : (defaultCityId ? String(defaultCityId) : ''),
-    tags: initialData?.tags ? (Array.isArray(initialData.tags) ? initialData.tags.join(', ') : initialData.tags) : ''
+    tags: initialData?.tags ? (Array.isArray(initialData.tags) ? initialData.tags.join(', ') : initialData.tags) : '',
+    icon: initialData?.icon || ''
   });
 
   const transportations = useLiveQuery(() => db.transportations.where('trip_id').equals(tripId).toArray(), [tripId]) || [];
@@ -251,7 +268,8 @@ export function ItineraryForm({ tripId, defaultCityId, date, onSuccess, onCancel
           image_url: finalImageUrl || '',
           notes: formData.notes || '',
           tags: typeof formData.tags === 'string' ? formData.tags.split(',').map((t: string) => t.trim()).filter(Boolean) : [],
-          sub_items: JSON.stringify([...subItems].sort((a, b) => a.start_time.localeCompare(b.start_time)))
+          sub_items: JSON.stringify([...subItems].sort((a, b) => a.start_time.localeCompare(b.start_time))),
+          icon: formData.icon
         })
       });
 
@@ -297,8 +315,12 @@ export function ItineraryForm({ tripId, defaultCityId, date, onSuccess, onCancel
               <>
                 <img src={formData.image_url} alt="Cover" className="w-full h-full object-cover" />
                 <button 
-                  onClick={() => setFormData({ ...formData, image_url: '' })}
-                  className="absolute top-2 right-2 p-1.5 bg-black/50 hover:bg-red-500/80 rounded-full text-white transition-colors opacity-0 group-hover:opacity-100"
+                  onClick={(e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    setFormData({ ...formData, image_url: '' });
+                  }}
+                  className="absolute top-2 right-2 p-1.5 bg-black/50 hover:bg-red-500/80 rounded-full text-white transition-colors opacity-100 z-10"
                 >
                   <X size={16} />
                 </button>
@@ -309,13 +331,15 @@ export function ItineraryForm({ tripId, defaultCityId, date, onSuccess, onCancel
                 <span className="text-xs">Click to upload image</span>
               </div>
             )}
-            <input 
-              type="file" 
-              accept="image/*"
-              onChange={handleFileSelect}
-              className="absolute inset-0 opacity-0 cursor-pointer"
-              disabled={uploading}
-            />
+            {!formData.image_url && (
+              <input 
+                type="file" 
+                accept="image/*"
+                onChange={handleFileSelect}
+                className="absolute inset-0 opacity-0 cursor-pointer"
+                disabled={uploading}
+              />
+            )}
             {uploading && (
               <div className="absolute inset-0 bg-black/50 flex items-center justify-center">
                 <Loader2 className="animate-spin text-orange-500" />
@@ -334,6 +358,31 @@ export function ItineraryForm({ tripId, defaultCityId, date, onSuccess, onCancel
             className="w-full bg-zinc-800 border border-zinc-700 rounded-xl px-4 py-3 text-white focus:outline-none focus:ring-2 focus:ring-orange-500"
             placeholder="e.g., Visit Tokyo Tower"
           />
+        </div>
+
+        {/* Category Icon Selection */}
+        <div>
+          <label className="block text-sm font-medium text-zinc-400 mb-2">Category Icon</label>
+          <div className="flex flex-wrap gap-3">
+            {categories.map((cat) => (
+              <button
+                key={cat.id}
+                type="button"
+                onClick={() => setFormData({ ...formData, icon: formData.icon === cat.icon ? '' : cat.icon })}
+                className={`flex flex-col items-center gap-1 p-2 rounded-xl border transition-all ${
+                  formData.icon === cat.icon
+                    ? 'bg-orange-500/20 border-orange-500 text-orange-500'
+                    : 'bg-zinc-800 border-zinc-700 text-zinc-400 hover:bg-zinc-700 hover:text-white'
+                }`}
+                title={cat.name}
+              >
+                <div className="w-8 h-8 flex items-center justify-center rounded-full bg-black/20">
+                  <DynamicIcon name={cat.icon} size={18} />
+                </div>
+                <span className="text-[10px] font-medium max-w-[60px] truncate">{cat.name}</span>
+              </button>
+            ))}
+          </div>
         </div>
 
         <div>

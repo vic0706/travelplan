@@ -18,6 +18,7 @@ import { AccommodationForm } from '../components/AccommodationForm';
 import { FinanceOverview } from '../components/FinanceOverview';
 import { ConfirmDialog } from '../components/ConfirmDialog';
 import { motion, AnimatePresence } from 'framer-motion';
+import { DynamicIcon } from '../components/DynamicIcon';
 
 // ... (rest of imports)
 
@@ -91,8 +92,8 @@ function TransportationCard({ item, transportation, canEdit, onEdit }: { item?: 
         className={clsx(
           "bg-zinc-900 border border-zinc-800 rounded-3xl overflow-hidden shadow-lg group relative transition-all",
           canEdit ? "cursor-pointer hover:border-orange-500/50" : "cursor-pointer hover:border-zinc-700",
-          isPastItem && !isExpanded && "opacity-50 grayscale-[0.5] hover:opacity-100 hover:grayscale-0",
-          isExpanded ? "h-[220px]" : "h-auto"
+          isPastItem && !isExpanded && "opacity-50 grayscale hover:opacity-100 hover:grayscale-0",
+          isExpanded ? "h-auto min-h-[180px]" : "h-auto"
         )}
         onClick={handleHeaderClick}
       >
@@ -100,13 +101,13 @@ function TransportationCard({ item, transportation, canEdit, onEdit }: { item?: 
         <div className="p-5 flex items-start justify-between gap-4 bg-zinc-900 relative z-20">
           <div className="flex flex-col gap-1.5 flex-1">
             <div className="flex items-center gap-2 text-zinc-400">
-              <div className="w-1.5 h-1.5 rounded-full bg-orange-500" />
+              <div className={clsx("w-1.5 h-1.5 rounded-full", isPastItem ? "bg-zinc-600" : "bg-orange-500")} />
               <span className="font-mono text-sm font-medium tracking-wide">
                 {item.start_time} - {item.end_time}
               </span>
             </div>
             <h3 className="text-xl font-bold text-white leading-tight flex items-center gap-2">
-              <Icon size={20} className="text-orange-500" />
+              <Icon size={20} className={isPastItem ? "text-zinc-500" : "text-orange-500"} />
               <span>{transportation.provider} {transportation.code}</span>
             </h3>
           </div>
@@ -118,119 +119,107 @@ function TransportationCard({ item, transportation, canEdit, onEdit }: { item?: 
                // Maybe open link?
             }}
           >
-             <Navigation size={18} />
+             <Map size={18} />
           </button>
         </div>
 
         {/* Expanded Content */}
         <div className={clsx(
           "relative transition-all duration-300 ease-in-out overflow-hidden",
-          isExpanded ? "h-[140px]" : "h-0"
+          isExpanded ? "h-auto opacity-100" : "h-0 opacity-0"
         )}>
            {/* Content Container */}
-           <div className="p-5 relative">
-              <div className="h-[100px] relative"> {/* Fixed height container */}
-                {/* AnimatePresence removed */}
+           <div className="px-5 pb-5 relative">
+              <div className="relative"> 
                   {!showDetails ? (
-                    <div
-                      key="summary"
-                      className="absolute inset-0"
-                    >
-                        {/* Dep/Arr Details with Toggle Arrow */}
-                        <div className="flex justify-between items-start h-full">
-                            <div className="flex-1">
-                                <div className="text-[10px] text-zinc-500 uppercase tracking-wider mb-1">Departure</div>
-                                <div className="text-lg font-bold text-white leading-tight">{transportation.dep_station}</div>
-                                <div className="text-xs font-mono text-zinc-400 mt-1">{transportation.dep_time}</div>
-                                {transportation.dep_terminal && <div className="text-xs text-orange-500 mt-0.5">{labels.terminal} {transportation.dep_terminal}</div>}
+                    <div className="relative">
+                        {/* Dep/Arr Details Compact Grid */}
+                        <div className="grid grid-cols-[1fr_auto_1fr] gap-4 items-center">
+                            {/* Departure */}
+                            <div className="flex flex-col">
+                                <div className="text-[10px] text-zinc-500 uppercase tracking-wider mb-0.5">Dep</div>
+                                <div className="text-2xl font-bold text-white leading-none tracking-tight">{transportation.dep_time}</div>
+                                <div className="text-sm font-medium text-zinc-300 mt-1 truncate">{transportation.dep_station}</div>
+                                {transportation.dep_terminal && <div className="text-[10px] text-orange-500 mt-0.5">{labels.terminal} {transportation.dep_terminal}</div>}
                             </div>
                             
-                            <div className="flex-1 pl-4 flex justify-end gap-2">
-                                <div className="text-right">
-                                    <div className="text-[10px] text-zinc-500 uppercase tracking-wider mb-1">Arrival</div>
-                                    <div className="text-lg font-bold text-white leading-tight">{transportation.arr_station}</div>
-                                    <div className="text-xs font-mono text-zinc-400 mt-1">{transportation.arr_time}</div>
-                                    {transportation.arr_terminal && <div className="text-xs text-orange-500 mt-0.5">{labels.terminal} {transportation.arr_terminal}</div>}
+                            {/* Arrow */}
+                            <div className="flex flex-col items-center justify-center pt-2">
+                                <div className="w-8 h-px bg-zinc-700 relative">
+                                  <div className="absolute right-0 top-1/2 -translate-y-1/2 w-1 h-1 bg-zinc-500 rounded-full"></div>
                                 </div>
-                                
-                                {/* Toggle Arrow */}
-                                <div 
-                                  className="flex items-center justify-center w-6 h-6 rounded-full border backdrop-blur-md transition-colors cursor-pointer bg-zinc-800/50 border-zinc-700/50 text-zinc-400 hover:text-white shrink-0 mt-1 hover:bg-zinc-700"
-                                  onClick={(e) => {
-                                    e.stopPropagation();
-                                    setShowDetails(true);
-                                  }}
-                                >
-                                   <ChevronDown size={14} />
-                                </div>
+                                {isCrossDay && <span className="text-[9px] text-orange-500 mt-1">+1d</span>}
+                            </div>
+
+                            {/* Arrival */}
+                            <div className="flex flex-col text-right">
+                                <div className="text-[10px] text-zinc-500 uppercase tracking-wider mb-0.5">Arr</div>
+                                <div className="text-2xl font-bold text-white leading-none tracking-tight">{transportation.arr_time}</div>
+                                <div className="text-sm font-medium text-zinc-300 mt-1 truncate">{transportation.arr_station}</div>
+                                {transportation.arr_terminal && <div className="text-[10px] text-orange-500 mt-0.5">{labels.terminal} {transportation.arr_terminal}</div>}
                             </div>
                         </div>
+                        
                     </div>
                   ) : (
-                     <div 
-                       key="details"
-                       className="absolute inset-0"
-                     >
-                       <div className="bg-zinc-950 rounded-2xl p-3 border border-zinc-800 shadow-xl relative h-full flex flex-col">
-                         {/* Close Arrow */}
-                         <div 
-                           className="absolute top-2 right-2 flex items-center justify-center w-5 h-5 rounded-full border border-zinc-700/50 bg-zinc-800 text-zinc-400 hover:text-white cursor-pointer z-20 hover:bg-zinc-700 transition-colors"
-                           onClick={(e) => {
-                             e.stopPropagation();
-                             setShowDetails(false);
-                           }}
-                         >
-                            <ChevronUp size={12} />
-                         </div>
+                     <div className="relative bg-zinc-950 rounded-2xl p-4 border border-zinc-800 shadow-xl mt-2">
+                         {/* Buffer Timeline */}
+                         <div className="relative pt-2 pb-4 mt-2 px-2">
+                           {/* Line */}
+                           <div className="absolute top-[22px] left-2 right-2 h-0.5 bg-zinc-800"></div>
+                           
+                           <div className="flex justify-between relative">
+                             {/* Check-in */}
+                             <div className="flex flex-col items-center gap-1 relative z-10 group/point">
+                               <div className="text-[10px] font-mono text-zinc-400 mb-1">{checkinTimeStr}</div>
+                               <div className="w-2.5 h-2.5 rounded-full bg-zinc-800 border-2 border-zinc-600 group-hover/point:border-orange-500 transition-colors"></div>
+                               <div className="text-[9px] font-mono text-zinc-500 font-medium mt-1">Check-in</div>
+                             </div>
 
-                         {/* Scrollable Content */}
-                         <div className="overflow-y-auto custom-scrollbar flex-1 pr-1">
-                           {/* Buffer Timeline */}
-                           <div className="relative pt-1 pb-2 mt-1">
-                             {/* Line */}
-                             <div className="absolute top-1/2 left-2 right-2 h-0.5 bg-zinc-800 -translate-y-1/2"></div>
-                             
-                             <div className="flex justify-between relative">
-                               {/* Check-in */}
-                               <div className="flex flex-col items-center gap-1 relative z-10 group/point">
-                                 <div className="text-[9px] font-mono text-zinc-400">{checkinTimeStr}</div>
-                                 <div className="w-2 h-2 rounded-full bg-zinc-800 border border-zinc-600 group-hover/point:border-orange-500 transition-colors"></div>
-                                 <div className="text-[9px] font-mono text-zinc-500 font-medium">Check-in</div>
-                               </div>
+                             {/* Departure */}
+                             <div className="flex flex-col items-center gap-1 relative z-10 group/point">
+                               <div className="text-[10px] font-mono text-white font-bold mb-1">{transportation.dep_time}</div>
+                               <div className="w-2.5 h-2.5 rounded-full bg-zinc-600 border-2 border-zinc-500 group-hover/point:border-orange-500 transition-colors"></div>
+                               <div className="text-[9px] font-mono text-zinc-300 font-medium mt-1">Dep</div>
+                             </div>
 
-                               {/* Departure */}
-                               <div className="flex flex-col items-center gap-1 relative z-10 group/point">
-                                 <div className="text-[9px] font-mono text-zinc-300">{transportation.dep_time}</div>
-                                 <div className="w-2 h-2 rounded-full bg-zinc-600 border border-zinc-500 group-hover/point:border-orange-500 transition-colors"></div>
-                                 <div className="text-[9px] font-mono text-zinc-300 font-medium">Dep</div>
-                               </div>
+                             {/* Arrival */}
+                             <div className="flex flex-col items-center gap-1 relative z-10 group/point">
+                               <div className="text-[10px] font-mono text-white font-bold mb-1">{transportation.arr_time}</div>
+                               <div className="w-2.5 h-2.5 rounded-full bg-zinc-600 border-2 border-zinc-500 group-hover/point:border-orange-500 transition-colors"></div>
+                               <div className="text-[9px] font-mono text-zinc-300 font-medium mt-1">Arr</div>
+                             </div>
 
-                               {/* Arrival */}
-                               <div className="flex flex-col items-center gap-1 relative z-10 group/point">
-                                 <div className="text-[9px] font-mono text-zinc-300">{transportation.arr_time}</div>
-                                 <div className="w-2 h-2 rounded-full bg-zinc-600 border border-zinc-500 group-hover/point:border-orange-500 transition-colors"></div>
-                                 <div className="text-[9px] font-mono text-zinc-300 font-medium">Arr</div>
-                               </div>
-
-                               {/* Exit */}
-                               <div className="flex flex-col items-center gap-1 relative z-10 group/point">
-                                 <div className="text-[9px] font-mono text-zinc-400">{exitTimeStr}</div>
-                                 <div className="w-2 h-2 rounded-full bg-zinc-800 border border-zinc-600 group-hover/point:border-orange-500 transition-colors"></div>
-                                 <div className="text-[9px] font-mono text-zinc-500 font-medium">Exit</div>
-                               </div>
+                             {/* Exit */}
+                             <div className="flex flex-col items-center gap-1 relative z-10 group/point">
+                               <div className="text-[10px] font-mono text-zinc-400 mb-1">{exitTimeStr}</div>
+                               <div className="w-2.5 h-2.5 rounded-full bg-zinc-800 border-2 border-zinc-600 group-hover/point:border-orange-500 transition-colors"></div>
+                               <div className="text-[9px] font-mono text-zinc-500 font-medium mt-1">Exit</div>
                              </div>
                            </div>
-
-                           {/* Notes */}
-                           {transportation.notes && (
-                             <div className="mt-2 pt-2 border-t border-zinc-800 text-xs text-zinc-400 italic text-center">
-                               {transportation.notes}
-                             </div>
-                           )}
                          </div>
-                       </div>
+
+                         {/* Notes */}
+                         {transportation.notes && (
+                           <div className="mt-3 pt-3 border-t border-zinc-800 text-xs text-zinc-400 italic text-center leading-relaxed">
+                             {transportation.notes}
+                           </div>
+                         )}
                      </div>
                   )}
+
+                  {/* Toggle Arrow */}
+                  <div className="flex justify-center mt-4">
+                      <div 
+                        className="flex items-center justify-center w-10 h-6 rounded-full bg-zinc-800/80 hover:bg-zinc-700 text-zinc-400 hover:text-white cursor-pointer transition-colors border border-zinc-700/50"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setShowDetails(!showDetails);
+                        }}
+                      >
+                         {showDetails ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
+                      </div>
+                  </div>
               </div>
            </div>
         </div>
@@ -244,7 +233,7 @@ function TransportationCard({ item, transportation, canEdit, onEdit }: { item?: 
       className={clsx(
         "bg-zinc-900 border border-zinc-800 rounded-3xl overflow-hidden shadow-lg relative group transition-all",
         canEdit && "cursor-pointer hover:border-orange-500/50",
-        isPastItem && "opacity-50 grayscale-[0.5]"
+        isPastItem && "opacity-50 grayscale"
       )}
       onClick={() => canEdit && onEdit()}
     >
@@ -347,13 +336,24 @@ function AccommodationCard({ acc, canEdit, onEdit }: { acc: any; canEdit: boolea
   const isValidCheckIn = !isNaN(checkInDate.getTime());
   const isValidCheckOut = !isNaN(checkOutDate.getTime());
 
+  // Conditional Expansion Logic: Only expand if there are notes or order_id or tags (if any)
+  // If only time, title, address -> do not expand
+  const hasExpandableContent = !!acc.notes || !!acc.order_id;
+  const [isExpanded, setIsExpanded] = useState(hasExpandableContent);
+
   return (
     <div 
       className={clsx(
         "bg-zinc-900 border border-zinc-800 rounded-3xl overflow-hidden shadow-lg relative group transition-all",
         canEdit && "cursor-pointer hover:border-orange-500/50"
       )}
-      onClick={() => canEdit && onEdit()}
+      onClick={() => {
+        if (canEdit) {
+          onEdit();
+        } else if (hasExpandableContent) {
+          setIsExpanded(!isExpanded);
+        }
+      }}
     >
       {/* Header */}
       <div className="bg-zinc-950/50 p-4 border-b border-zinc-800/50 flex items-center justify-between">
@@ -367,9 +367,9 @@ function AccommodationCard({ acc, canEdit, onEdit }: { acc: any; canEdit: boolea
           </div>
         </div>
         <div className="text-right">
-          <div className="text-[10px] text-zinc-500 uppercase tracking-wider">Stay</div>
+          <div className="text-[10px] text-zinc-500 uppercase tracking-wider">Check-in</div>
           <div className="text-xs font-bold text-zinc-300">
-            {isValidCheckIn ? format(checkInDate, 'MMM d') : '---'} - {isValidCheckOut ? format(checkOutDate, 'MMM d') : '---'}
+            {isValidCheckIn ? format(checkInDate, 'MMM d, yyyy') : '---'}
           </div>
         </div>
       </div>
@@ -377,7 +377,13 @@ function AccommodationCard({ acc, canEdit, onEdit }: { acc: any; canEdit: boolea
       <div className="p-5">
         <div className="flex items-start justify-between gap-4 mb-2">
           <div className="flex-1">
-            <div className="flex gap-6">
+            <div className="flex flex-wrap gap-6">
+              <div>
+                <div className="text-[10px] text-zinc-500 uppercase tracking-wider mb-1">Stay</div>
+                <div className="text-sm font-bold text-white">
+                  {isValidCheckIn ? format(checkInDate, 'MMM d') : '---'} - {isValidCheckOut ? format(checkOutDate, 'MMM d') : '---'}
+                </div>
+              </div>
               <div>
                 <div className="text-[10px] text-zinc-500 uppercase tracking-wider mb-1">Check-in</div>
                 <div className="text-sm font-bold text-white">
@@ -392,30 +398,63 @@ function AccommodationCard({ acc, canEdit, onEdit }: { acc: any; canEdit: boolea
           </div>
         </div>
 
-        {/* Footer */}
-        <div className="mt-4 pt-4 border-t border-zinc-800/50 flex items-center justify-between gap-4">
-          <div className="text-xs text-zinc-500 italic line-clamp-2 flex-1">
-            {acc.notes ? `"${acc.notes}"` : "No notes"}
+        {/* Footer - Only show if expanded */}
+        <div className={clsx(
+            "transition-all duration-300 overflow-hidden",
+            isExpanded ? "max-h-[200px] opacity-100 mt-4 pt-4 border-t border-zinc-800/50" : "max-h-0 opacity-0 mt-0 pt-0 border-none"
+        )}>
+          <div className="flex items-center justify-between gap-4">
+            <div className="text-xs text-zinc-500 italic line-clamp-2 flex-1">
+              {acc.notes ? `"${acc.notes}"` : "No notes"}
+            </div>
+            <button 
+              onClick={handleLocationClick}
+              className="p-2 text-zinc-400 hover:text-orange-500 bg-zinc-950/50 rounded-xl border border-zinc-800/50 transition-colors shadow-inner shrink-0"
+            >
+              <Map size={16} />
+            </button>
           </div>
-          <button 
-            onClick={handleLocationClick}
-            className="p-2 text-zinc-400 hover:text-orange-500 bg-zinc-950/50 rounded-xl border border-zinc-800/50 transition-colors shadow-inner shrink-0"
-          >
-            <Navigation size={16} />
-          </button>
         </div>
+
+        {/* Toggle Arrow */}
+        {hasExpandableContent && !canEdit && (
+          <div className="flex justify-center mt-4">
+            <div 
+              className="flex items-center justify-center w-10 h-6 rounded-full bg-zinc-800/80 hover:bg-zinc-700 text-zinc-400 hover:text-white cursor-pointer transition-colors border border-zinc-700/50"
+              onClick={(e) => {
+                e.stopPropagation();
+                setIsExpanded(!isExpanded);
+              }}
+            >
+              {isExpanded ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );
 }
 
-// SubItem Row Component
-function SubItemRow({ sub, itineraryImageUrl }: { sub: any; itineraryImageUrl: string | null }) {
+// SubItemRow Component
+function SubItemRow({ sub, itineraryImageUrl, isLast, hasMore }: { sub: any; itineraryImageUrl: string | null; isLast: boolean; hasMore: boolean }) {
   const [showNotes, setShowNotes] = useState(false);
+  const rowRef = React.useRef<HTMLDivElement>(null);
+
+  const handleToggle = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    const newShowNotes = !showNotes;
+    setShowNotes(newShowNotes);
+    
+    if (newShowNotes && rowRef.current) {
+      setTimeout(() => {
+        rowRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      }, 100);
+    }
+  };
 
   return (
-    <div className={clsx(
-      "flex flex-col gap-1 text-sm p-3 rounded-2xl border relative overflow-hidden group/sub",
+    <div ref={rowRef} className={clsx(
+      "flex flex-col gap-1 text-sm p-3 rounded-2xl border relative overflow-hidden group/sub transition-all",
       itineraryImageUrl
         ? "text-white/90 bg-black/40 border-white/10"
         : "text-zinc-400 bg-zinc-900/50 border-zinc-800/50"
@@ -423,8 +462,8 @@ function SubItemRow({ sub, itineraryImageUrl }: { sub: any; itineraryImageUrl: s
       <div className="absolute left-0 top-0 bottom-0 w-1 bg-zinc-700 group-hover/sub:bg-orange-500 transition-colors"></div>
       
       <div className="flex items-center justify-between gap-3 pl-2">
-        {/* Left: Time */}
-        <div className="text-xs font-mono text-orange-500/90 whitespace-nowrap min-w-[80px]">
+        {/* Left: Time - Color matched to Activity Card time */}
+        <div className="text-xs font-mono text-zinc-400 whitespace-nowrap min-w-[80px]">
           {sub.start_time} - {sub.end_time}
         </div>
 
@@ -452,17 +491,14 @@ function SubItemRow({ sub, itineraryImageUrl }: { sub: any; itineraryImageUrl: s
                   : "text-zinc-500 hover:text-orange-500 hover:bg-zinc-800"
               )}
             >
-              <Navigation size={14} />
+              <Map size={14} />
             </a>
           )}
 
           {/* Notes Toggle */}
           {(sub.notes || (sub.tags && sub.tags.length > 0)) && (
             <button
-              onClick={(e) => {
-                e.stopPropagation();
-                setShowNotes(!showNotes);
-              }}
+              onClick={handleToggle}
               className={clsx(
                 "p-1.5 rounded-full transition-colors",
                 itineraryImageUrl 
@@ -509,6 +545,13 @@ function SubItemRow({ sub, itineraryImageUrl }: { sub: any; itineraryImageUrl: s
                 {sub.notes}
               </div>
             )}
+            
+            {/* Reminder if more items below */}
+            {hasMore && (
+               <div className="text-[9px] text-zinc-500 text-center mt-2 pb-1 animate-pulse">
+                  ▼ More sub-activities below
+               </div>
+            )}
           </motion.div>
         )}
       </AnimatePresence>
@@ -523,25 +566,36 @@ function ItineraryCard({ item, canEdit, onEdit, selectedDate }: { item: Itinerar
   const itemDateTime = parseISO(`${dateStr}T${timeString}`);
   const isPastItem = !isNaN(itemDateTime.getTime()) && isPast(itemDateTime);
 
-  // Default state: Past = Collapsed, Future = Expanded (Image Visible)
-  const [isExpanded, setIsExpanded] = useState(!isPastItem);
-  const [showDetails, setShowDetails] = useState(false);
-  
   const subItems = item.sub_items ? JSON.parse(item.sub_items) : [];
-  const hasExpandableContent = subItems.length > 0 || item.notes;
+  const hasNotes = !!item.notes;
+  const hasTags = Array.isArray(item.tags) && item.tags.length > 0;
+  const hasSubItems = subItems.length > 0;
   const itineraryImageUrl = item.image_url && typeof item.image_url === 'string' && item.image_url.startsWith('http')
     ? item.image_url
     : null;
 
+  // Conditional Expansion Logic:
+  // If only time, title, address (optional) -> do not expand.
+  // Expand if: hasNotes OR hasTags OR hasSubItems OR hasImage
+  const hasExpandableContent = hasNotes || hasTags || hasSubItems || !!itineraryImageUrl;
+
+  // Default state: Past = Collapsed, Future = Expanded (only if expandable content exists)
+  const [isExpanded, setIsExpanded] = useState(!isPastItem && hasExpandableContent);
+  const [showDetails, setShowDetails] = useState(false);
+  
   // Sync state if isPastItem changes (e.g. date change)
   useEffect(() => {
-    setIsExpanded(!isPastItem);
-  }, [isPastItem]);
+    if (hasExpandableContent) {
+        setIsExpanded(!isPastItem);
+    } else {
+        setIsExpanded(false);
+    }
+  }, [isPastItem, hasExpandableContent]);
 
   const handleHeaderClick = () => {
     if (canEdit) {
       onEdit();
-    } else {
+    } else if (hasExpandableContent) {
       setIsExpanded(!isExpanded);
     }
   };
@@ -566,6 +620,7 @@ function ItineraryCard({ item, canEdit, onEdit, selectedDate }: { item: Itinerar
           </div>
           <h3 className="text-xl font-bold text-white leading-tight flex items-center">
             {item.type === 'ACCOMMODATION' && <Bed className="text-orange-500 mr-2 shrink-0" size={20} />}
+            {item.icon && <DynamicIcon name={item.icon} className="text-orange-500 mr-2 shrink-0" size={20} />}
             {item.title}
           </h3>
         </div>
@@ -579,7 +634,7 @@ function ItineraryCard({ item, canEdit, onEdit, selectedDate }: { item: Itinerar
           onClick={(e) => e.stopPropagation()}
           className="flex items-center justify-center text-zinc-400 hover:text-orange-500 hover:bg-orange-500/20 transition-colors bg-zinc-800/50 w-10 h-10 rounded-full border border-zinc-700/50 shrink-0 shadow-sm"
         >
-          <Navigation size={18} />
+          <Map size={18} />
         </a>
       </div>
 
@@ -588,14 +643,17 @@ function ItineraryCard({ item, canEdit, onEdit, selectedDate }: { item: Itinerar
         "relative transition-all duration-300 ease-in-out overflow-hidden",
         isExpanded ? "h-[200px]" : "h-0"
       )}>
-        {/* Background Image */}
-        {itineraryImageUrl && (
+        {/* Background Image or Fallback Color */}
+        {itineraryImageUrl ? (
           <img 
             src={itineraryImageUrl} 
             alt={item.title} 
             className="absolute inset-0 w-full h-full object-cover" 
             referrerPolicy="no-referrer" 
           />
+        ) : (
+          // Theme-appropriate fallback background when no image - Light Orange Tint
+          <div className="absolute inset-0 bg-gradient-to-br from-orange-900/30 via-zinc-900 to-zinc-900 border-t border-orange-500/10" />
         )}
         
         {/* Overlay Gradient */}
@@ -603,7 +661,7 @@ function ItineraryCard({ item, canEdit, onEdit, selectedDate }: { item: Itinerar
           "absolute inset-0 transition-colors duration-300",
           itineraryImageUrl 
             ? (showDetails ? "bg-black/80 backdrop-blur-sm" : "bg-gradient-to-b from-zinc-900/40 via-transparent to-black/60")
-            : "bg-zinc-900"
+            : "bg-transparent" // No extra overlay needed if using solid color, or maybe slight gradient
         )} />
 
         {/* Content Container */}
@@ -617,31 +675,12 @@ function ItineraryCard({ item, canEdit, onEdit, selectedDate }: { item: Itinerar
                   "text-[10px] font-bold uppercase tracking-wider px-2.5 py-1 rounded-full border shadow-sm backdrop-blur-md",
                   itineraryImageUrl 
                     ? "text-white bg-black/40 border-white/20" 
-                    : "text-zinc-400 bg-zinc-800/50 border-zinc-700/50"
+                    : "text-zinc-300 bg-zinc-900/50 border-zinc-700/50"
                 )}>
                   {tag}
                 </span>
               ))}
             </div>
-
-            {/* Details Toggle Button */}
-            {hasExpandableContent && !canEdit && (
-              <div 
-                className={clsx(
-                  "flex items-center justify-center w-8 h-8 rounded-full border backdrop-blur-md transition-transform duration-300 shrink-0 cursor-pointer hover:bg-white/10",
-                  showDetails ? "rotate-180" : "rotate-0",
-                  itineraryImageUrl 
-                    ? "bg-black/40 border-white/20 text-white" 
-                    : "bg-zinc-800/50 border-zinc-700/50 text-zinc-400"
-                )}
-                onClick={(e) => {
-                  e.stopPropagation();
-                  setShowDetails(!showDetails);
-                }}
-              >
-                <ChevronDown size={16} />
-              </div>
-            )}
           </div>
 
           {/* Scrollable Details Area */}
@@ -661,7 +700,7 @@ function ItineraryCard({ item, canEdit, onEdit, selectedDate }: { item: Itinerar
                       "text-sm leading-relaxed p-4 rounded-2xl border",
                       itineraryImageUrl 
                         ? "text-white/90 bg-black/40 border-white/10" 
-                        : "text-zinc-300 bg-zinc-800/30 border-zinc-700/30"
+                        : "text-zinc-300 bg-zinc-900/50 border-zinc-700/30"
                     )}>
                       {item.notes}
                     </p>
@@ -671,7 +710,13 @@ function ItineraryCard({ item, canEdit, onEdit, selectedDate }: { item: Itinerar
                   {subItems.length > 0 && (
                     <div className="space-y-3">
                       {subItems.map((sub: any, idx: number) => (
-                        <SubItemRow key={sub.id || idx} sub={sub} itineraryImageUrl={itineraryImageUrl} />
+                        <SubItemRow 
+                            key={sub.id || idx} 
+                            sub={sub} 
+                            itineraryImageUrl={itineraryImageUrl} 
+                            isLast={idx === subItems.length - 1}
+                            hasMore={idx < subItems.length - 1}
+                        />
                       ))}
                     </div>
                   )}
@@ -679,6 +724,26 @@ function ItineraryCard({ item, canEdit, onEdit, selectedDate }: { item: Itinerar
               </motion.div>
             )}
           </AnimatePresence>
+
+          {/* Toggle Arrow at Bottom */}
+          {(hasNotes || hasSubItems) && !canEdit && (
+            <div className="flex justify-center mt-auto pt-2 shrink-0">
+              <div 
+                className={clsx(
+                  "flex items-center justify-center w-10 h-6 rounded-full border backdrop-blur-md transition-colors duration-300 cursor-pointer hover:bg-white/10",
+                  itineraryImageUrl 
+                    ? "bg-black/40 border-white/20 text-white" 
+                    : "bg-zinc-800/80 border-zinc-700/50 text-zinc-400 hover:text-white"
+                )}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setShowDetails(!showDetails);
+                }}
+              >
+                {showDetails ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
+              </div>
+            </div>
+          )}
         </div>
       </div>
     </div>
@@ -699,8 +764,12 @@ export function TripDetails() {
   const accommodations = useLiveQuery(() => db.accommodations.where('trip_id').equals(Number(id) || 0).toArray(), [id]) || [];
 
   const [activeTab, setActiveTab] = useState<'itinerary' | 'info' | 'finance' | 'settings'>('itinerary');
-  const [selectedDate, setSelectedDate] = useState<Date>(new Date());
+  const [selectedDate, setSelectedDate] = useState<Date | null>(null);
   const [isLoading, setIsLoading] = useState(false);
+  
+  useEffect(() => {
+    setSelectedDate(new Date());
+  }, []);
   
   const [isFinanceFormOpen, setIsFinanceFormOpen] = useState(false);
   const [isItineraryFormOpen, setIsItineraryFormOpen] = useState(false);
@@ -1009,90 +1078,93 @@ export function TripDetails() {
   };
 
   return (
-    <div className="flex flex-col min-h-full bg-black pb-32">
-      {/* Trip Header */}
-      <div className="relative h-64 w-full overflow-hidden shrink-0">
-        <img 
-          src={tripCoverImageUrl} 
-          alt={trip.title} 
-          className="w-full h-full object-cover"
-          referrerPolicy="no-referrer"
-        />
-        {/* Top Gradient for Status Bar Visibility */}
-        <div className="absolute top-0 left-0 right-0 h-32 bg-gradient-to-b from-black/80 via-black/40 to-transparent pointer-events-none"></div>
-        {/* Bottom Gradient for Text Visibility */}
-        <div className="absolute bottom-0 left-0 right-0 h-32 bg-gradient-to-t from-black via-black/50 to-transparent pointer-events-none"></div>
-        
-        <button 
-          onClick={() => navigate('/')}
-          className="absolute left-4 p-2 bg-black/30 backdrop-blur-md rounded-full text-white hover:bg-black/50 transition-colors z-20 border border-white/10"
-          style={{ top: 'max(1rem, env(safe-area-inset-top))' }}
-        >
-          <ArrowLeft size={20} />
-        </button>
-
-        {user && (
+    <div className="flex flex-col h-screen bg-black overflow-hidden overscroll-none">
+      {/* Fixed Header Area */}
+      <div className="shrink-0 z-30 bg-black relative shadow-xl">
+        {/* Trip Header */}
+        <div className="relative h-64 w-full overflow-hidden">
+          <img 
+            src={tripCoverImageUrl} 
+            alt={trip.title} 
+            className="w-full h-full object-cover"
+            referrerPolicy="no-referrer"
+          />
+          {/* Top Gradient for Status Bar Visibility */}
+          <div className="absolute top-0 left-0 right-0 h-32 bg-gradient-to-b from-black/80 via-black/40 to-transparent pointer-events-none"></div>
+          {/* Bottom Gradient for Text Visibility */}
+          <div className="absolute bottom-0 left-0 right-0 h-32 bg-gradient-to-t from-black via-black/50 to-transparent pointer-events-none"></div>
+          
           <button 
-            onClick={() => {
-              if (hasEditPermission) {
-                setIsEditMode(!isEditMode);
-              } else {
-                alert('您沒有編輯此行程的權限。');
-              }
-            }}
-            className={clsx(
-              "absolute right-4 p-2 backdrop-blur-md rounded-full transition-all z-20 border border-white/10 shadow-lg",
-              isEditMode ? "bg-orange-500 text-white" : "bg-black/50 text-white hover:bg-orange-500 transition-all"
-            )}
+            onClick={() => navigate('/')}
+            className="absolute left-4 p-2 bg-black/30 backdrop-blur-md rounded-full text-white hover:bg-black/50 transition-colors z-20 border border-white/10"
             style={{ top: 'max(1rem, env(safe-area-inset-top))' }}
           >
-            {isEditMode ? <Unlock size={20} /> : <Edit3 size={20} />}
+            <ArrowLeft size={20} />
           </button>
-        )}
-        
-        <div className="absolute bottom-0 left-0 right-0 p-4 z-10">
-          <h1 className="text-3xl font-bold text-white mb-1 drop-shadow-lg tracking-tight">{trip.title}</h1>
-          <div className="flex items-center gap-3 text-zinc-200 text-sm font-medium">
-            <div className="flex items-center gap-1.5 bg-black/30 backdrop-blur-sm px-2 py-1 rounded-lg border border-white/10">
-              <Calendar size={14} className="text-orange-500" />
-              <span>{validTripStartDate ? format(validTripStartDate, 'MMM d') : ''} - {validTripEndDate ? format(validTripEndDate, 'MMM d, yyyy') : ''}</span>
+
+          {user && (
+            <button 
+              onClick={() => {
+                if (hasEditPermission) {
+                  setIsEditMode(!isEditMode);
+                } else {
+                  alert('您沒有編輯此行程的權限。');
+                }
+              }}
+              className={clsx(
+                "absolute right-4 p-2 backdrop-blur-md rounded-full transition-all z-20 border border-white/10 shadow-lg",
+                isEditMode ? "bg-orange-500 text-white" : "bg-black/50 text-white hover:bg-orange-500 transition-all"
+              )}
+              style={{ top: 'max(1rem, env(safe-area-inset-top))' }}
+            >
+              {isEditMode ? <Unlock size={20} /> : <Edit3 size={20} />}
+            </button>
+          )}
+          
+          <div className="absolute bottom-0 left-0 right-0 p-4 z-10">
+            <h1 className="text-3xl font-bold text-white mb-1 drop-shadow-lg tracking-tight">{trip.title}</h1>
+            <div className="flex items-center gap-3 text-zinc-200 text-sm font-medium">
+              <div className="flex items-center gap-1.5 bg-black/30 backdrop-blur-sm px-2 py-1 rounded-lg border border-white/10">
+                <Calendar size={14} className="text-orange-500" />
+                <span>{validTripStartDate ? format(validTripStartDate, 'MMM d') : ''} - {validTripEndDate ? format(validTripEndDate, 'MMM d, yyyy') : ''}</span>
+              </div>
             </div>
           </div>
         </div>
+
+        {/* Date Slider */}
+        {(activeTab === 'itinerary' || activeTab === 'finance') && (
+          <div className="bg-black/95 backdrop-blur-xl border-b border-zinc-800 py-3 px-4">
+            <div className="flex overflow-x-auto gap-3 no-scrollbar pb-1">
+              {dates.map((date, index) => {
+                const isActive = isSameDay(date, selectedDate);
+                return (
+                  <button
+                    key={index}
+                    onClick={() => setSelectedDate(date)}
+                    className={clsx(
+                      "flex flex-col items-center justify-center min-w-[56px] h-16 rounded-xl transition-all shrink-0",
+                      isActive 
+                        ? "bg-orange-500 text-white shadow-lg shadow-orange-500/20 scale-105" 
+                        : "bg-zinc-900 text-zinc-400 hover:bg-zinc-800 border border-zinc-800"
+                    )}
+                  >
+                    <span className="text-[10px] font-medium uppercase tracking-wider opacity-80">
+                      {date instanceof Date && !isNaN(date.getTime()) ? format(date, 'EEE') : '---'}
+                    </span>
+                    <span className="text-lg font-bold mt-0.5">
+                      {date instanceof Date && !isNaN(date.getTime()) ? format(date, 'd') : '--'}
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        )}
       </div>
 
-      {/* Date Slider */}
-      {(activeTab === 'itinerary' || activeTab === 'finance') && (
-        <div className="sticky top-0 z-30 bg-black/95 backdrop-blur-xl border-b border-zinc-800 py-3 px-4 shadow-xl">
-          <div className="flex overflow-x-auto gap-3 no-scrollbar pb-1">
-            {dates.map((date, index) => {
-              const isActive = isSameDay(date, selectedDate);
-              return (
-                <button
-                  key={index}
-                  onClick={() => setSelectedDate(date)}
-                  className={clsx(
-                    "flex flex-col items-center justify-center min-w-[56px] h-16 rounded-xl transition-all shrink-0",
-                    isActive 
-                      ? "bg-orange-500 text-white shadow-lg shadow-orange-500/20 scale-105" 
-                      : "bg-zinc-900 text-zinc-400 hover:bg-zinc-800 border border-zinc-800"
-                  )}
-                >
-                  <span className="text-[10px] font-medium uppercase tracking-wider opacity-80">
-                    {date instanceof Date && !isNaN(date.getTime()) ? format(date, 'EEE') : '---'}
-                  </span>
-                  <span className="text-lg font-bold mt-0.5">
-                    {date instanceof Date && !isNaN(date.getTime()) ? format(date, 'd') : '--'}
-                  </span>
-                </button>
-              );
-            })}
-          </div>
-        </div>
-      )}
-
-      {/* Content */}
-      <div className="flex-1 p-4">
+      {/* Scrollable Content */}
+      <div className="flex-1 overflow-y-auto p-4 pb-32 custom-scrollbar overscroll-none">
         {activeTab === 'itinerary' && (
           <div className="space-y-6">
             {/* Weather Widget */}
