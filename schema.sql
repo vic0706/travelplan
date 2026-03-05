@@ -54,6 +54,7 @@ CREATE TABLE TripMembers (
 CREATE TABLE Itineraries (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     trip_id INTEGER, 
+    city_id INTEGER,
     date TEXT NOT NULL,
     start_time TEXT, 
     end_time TEXT,
@@ -66,6 +67,10 @@ CREATE TABLE Itineraries (
     stay_duration TEXT DEFAULT '',
     type TEXT DEFAULT 'GENERAL',
     related_id INTEGER,
+    icon TEXT DEFAULT '',
+    next_transport_mode TEXT DEFAULT '',
+    next_transport_time TEXT DEFAULT '',
+    next_transport_auto_time TEXT DEFAULT '',
     FOREIGN KEY (trip_id) REFERENCES Trips(id) ON DELETE CASCADE
 );
 

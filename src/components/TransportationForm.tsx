@@ -129,15 +129,59 @@ export function TransportationForm({ tripId, onSuccess, onCancel, onDelete, init
         : `/api/trips/${tripId}/transportations`;
       const method = initialData ? 'PUT' : 'POST';
 
+      const submissionData = {
+        trip_id: tripId,
+        type: formData.type || 'FLIGHT',
+        provider: formData.provider || null,
+        
+        code: formData.code || null,
+        transport_code: formData.code || null,
+        
+        dep_station: formData.dep_station || '',
+        departure_station: formData.dep_station || '',
+        
+        dep_date: formData.dep_date || format(new Date(), 'yyyy-MM-dd'),
+        departure_date: formData.dep_date || format(new Date(), 'yyyy-MM-dd'),
+        
+        dep_time: formData.dep_time || '10:00',
+        departure_time: formData.dep_time || '10:00',
+        
+        dep_terminal: formData.dep_terminal || null,
+        departure_terminal: formData.dep_terminal || null,
+        
+        dep_checkin_buffer: formData.dep_checkin_buffer ?? 120,
+        
+        arr_station: formData.arr_station || '',
+        arrival_station: formData.arr_station || '',
+        
+        arr_date: formData.arr_date || format(new Date(), 'yyyy-MM-dd'),
+        arrival_date: formData.arr_date || format(new Date(), 'yyyy-MM-dd'),
+        
+        arr_time: formData.arr_time || '14:00',
+        arrival_time: formData.arr_time || '14:00',
+        
+        arr_terminal: formData.arr_terminal || null,
+        arrival_terminal: formData.arr_terminal || null,
+        
+        arr_exit_buffer: formData.arr_exit_buffer ?? 60,
+        
+        order_id: formData.order_id || null,
+        notes: formData.notes || null,
+      };
+
       const res = await apiFetch(endpoint, {
         method,
-        body: JSON.stringify(formData)
+        body: JSON.stringify(submissionData)
       });
-      if (!res.ok) throw new Error(`Failed to ${initialData ? 'update' : 'add'} transportation`);
+      if (!res.ok) {
+        const errorData = await res.json().catch(() => ({}));
+        console.error('Failed to add/update transportation:', errorData);
+        throw new Error(`Failed to ${initialData ? 'update' : 'add'} transportation: ${JSON.stringify(errorData)}`);
+      }
       onSuccess();
     } catch (error) {
       console.error(error);
-      alert(`Failed to ${initialData ? 'update' : 'add'} transportation`);
+      alert(`Failed to ${initialData ? 'update' : 'add'} transportation: ${error instanceof Error ? error.message : String(error)}`);
     } finally {
       setLoading(false);
     }
