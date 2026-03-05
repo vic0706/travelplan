@@ -14,6 +14,7 @@ export interface Env {
   SUPABASE_SERVICE_ROLE_KEY?: string;
   UNSPLASH_ACCESS_KEY: string;
   FLIGHT_API_KEY: string;
+  GOOGLE_MAPS_API_KEY: string;
   __STATIC_CONTENT: any;
   __STATIC_CONTENT_MANIFEST: string;
 }
@@ -36,7 +37,6 @@ app.get('/api/images/search', async (c) => {
   const type = c.req.query('type') || 'trip';
   if (!query) return c.json({ error: 'Missing query' }, 400);
 
-  // Optimize search query for travel covers
   const searchQuery = type === 'trip' 
     ? `${query} Landmark Travel Cityscape` 
     : query;
@@ -44,21 +44,12 @@ app.get('/api/images/search', async (c) => {
   try {
     const response = await fetch(
       `https://api.unsplash.com/search/photos?query=${encodeURIComponent(searchQuery)}&per_page=12&orientation=landscape`,
-      {
-        headers: {
-          'Authorization': `Client-ID ${c.env.UNSPLASH_ACCESS_KEY}`
-        }
-      }
+      { headers: { 'Authorization': `Client-ID ${c.env.UNSPLASH_ACCESS_KEY}` } }
     );
 
-    if (!response.ok) {
-      console.error('Unsplash API error:', response.status, response.statusText);
-      return c.json({ error: 'Failed to fetch images from Unsplash' }, response.status as any);
-    }
+    if (!response.ok) return c.json({ error: 'Failed to fetch images' }, response.status as any);
 
     const data = await response.json() as any;
-    
-    // Return clean data
     const photos = (data.results || []).map((p: any) => ({
       id: p.id,
       url: p.urls.regular,
@@ -68,35 +59,22 @@ app.get('/api/images/search', async (c) => {
     }));
 
     return c.json(photos);
-  } catch (error) {
-    console.error('Unsplash fetch error:', error);
-    return c.json({ error: 'Internal server error fetching images' }, 500);
-  }
+  } catch (error) { return c.json({ error: 'Internal server error' }, 500); }
 });
 
 // GET /api/flights/lookup?code=BR192
 app.get('/api/flights/lookup', async (c) => {
   const inputCode = c.req.query('code') || '';
-  
-  // 💡 智慧過濾：移除中文或英文名稱，只留下 IATA 代碼 (例如 BR192)
   const code = inputCode.replace(/[\u4e00-\u9fa5a-zA-Z\s]+(?=[A-Z]{2}\d+)/g, '').trim().replace(/\s+/g, '');
   
   if (!code) return c.json({ error: '請輸入正確的航班編號' }, 400);
 
-  // 呼叫 AviationStack (需在環境變數設定 FLIGHT_API_KEY)
-  const response = await fetch(
-    `http://api.aviationstack.com/v1/flights?access_key=${c.env.FLIGHT_API_KEY}&flight_iata=${code}`
-  );
-
+  const response = await fetch(`http://api.aviationstack.com/v1/flights?access_key=${c.env.FLIGHT_API_KEY}&flight_iata=${code}`);
   const data = await response.json() as any;
   
-  if (!data.data || data.data.length === 0) {
-    return c.json({ error: '找不到該航班資訊' }, 404);
-  }
+  if (!data.data || data.data.length === 0) return c.json({ error: '找不到該航班資訊' }, 404);
 
-  // 取得最新的一筆航班紀錄
   const f = data.data[0];
-
   return c.json({
     airline: f.airline.name,
     flight_number: f.flight.iata,
@@ -135,104 +113,73 @@ const decodeUserMiddleware = async (c: any, next: any) => {
     const token = authHeader.split(' ')[1];
     try {
       const userData = await c.env.KV.get(`session:${token}`, 'json');
-      if (userData) {
-        c.set('user', userData);
-      }
-    } catch (e) {
-      // Ignore KV errors (e.g., malformed JSON)
-    }
+      if (userData) c.set('user', userData);
+    } catch (e) { /* Ignore KV errors */ }
   }
   await next();
 };
 
 const requireAuthMiddleware = async (c: any, next: any) => {
-  if (!c.get('user')) {
-    return c.json({ error: 'Unauthorized' }, 401);
-  }
+  if (!c.get('user')) return c.json({ error: 'Unauthorized' }, 401);
   await next();
 };
 
 // Helper: Check Trip Access
 async function checkTripAccess(c: any, tripId: number, level: 'view' | 'edit' | 'admin') {
   const user = c.get('user');
-  
-  // 1. Admin always has access (except maybe for specific business logic, but generally yes)
   if (user && user.role === 'Admin') return true;
 
-  // 2. Fetch Trip
   const trip = await c.env.DB.prepare('SELECT is_public FROM Trips WHERE id = ?').bind(tripId).first();
-  if (!trip) return false; // Trip not found
+  if (!trip) return false;
 
-  // 3. Check Membership
   let isMember = false;
   if (user) {
     const memberRecord = await c.env.DB.prepare('SELECT 1 FROM TripMembers WHERE trip_id = ? AND user_id = ?').bind(tripId, user.id).first();
     isMember = !!memberRecord;
   }
 
-  // 4. Evaluate based on level
-  if (level === 'admin') {
-    return user?.role === 'Admin';
-  }
-
-  if (level === 'edit') {
-    return isMember; // Admin handled above
-  }
-
-  if (level === 'view') {
-    return trip.is_public === 1 || isMember;
-  }
-
+  if (level === 'admin') return user?.role === 'Admin';
+  if (level === 'edit') return isMember;
+  if (level === 'view') return trip.is_public === 1 || isMember;
   return false;
 }
 
-// Helper: Ensure Database Schema and Data Consistency
+// Helper: Ensure Database Schema (Only called in /api/init now!)
 async function ensureSchema(db: D1Database) {
-  try {
-    // 1. Ensure is_public column exists in Trips table
-    await db.prepare('ALTER TABLE Trips ADD COLUMN is_public INTEGER DEFAULT 0').run();
-  } catch (e) {}
+  const queries = [
+    "ALTER TABLE Trips ADD COLUMN is_public INTEGER DEFAULT 0",
+    "UPDATE Users SET role = 'Admin' WHERE role = 'admin'",
+    "UPDATE Users SET role = 'Member' WHERE role = 'member'",
+    "UPDATE Users SET role = 'Guest' WHERE role = 'guest'",
+    "ALTER TABLE Users ADD COLUMN payment_info TEXT DEFAULT '{}'",
+    "ALTER TABLE Expenses ADD COLUMN category TEXT DEFAULT 'other'",
+    "ALTER TABLE Itineraries ADD COLUMN sub_items TEXT DEFAULT '[]'",
+    "ALTER TABLE Itineraries ADD COLUMN stay_duration TEXT DEFAULT ''",
+    "ALTER TABLE Itineraries ADD COLUMN icon TEXT DEFAULT ''",
+    "ALTER TABLE Itineraries ADD COLUMN type TEXT DEFAULT 'GENERAL'",
+    "ALTER TABLE Itineraries ADD COLUMN related_id INTEGER",
+    "ALTER TABLE Itineraries ADD COLUMN next_transport_mode TEXT DEFAULT ''",
+    "ALTER TABLE Itineraries ADD COLUMN next_transport_time TEXT DEFAULT ''",
+    "ALTER TABLE Itineraries ADD COLUMN next_transport_auto_time TEXT DEFAULT ''",
+    "ALTER TABLE Accommodations ADD COLUMN image_url TEXT",
+    "ALTER TABLE Accommodations ADD COLUMN check_in_time TEXT DEFAULT '15:00'",
+    "ALTER TABLE Accommodations ADD COLUMN check_out_time TEXT DEFAULT '11:00'",
+    "ALTER TABLE Accommodations ADD COLUMN daily_start_time TEXT DEFAULT '08:00'",
+    "ALTER TABLE Accommodations ADD COLUMN daily_end_time TEXT DEFAULT '22:00'"
+  ];
+
+  for (const q of queries) {
+    try { await db.prepare(q).run(); } catch (e) { /* Ignore if already exists */ }
+  }
 
   try {
-    // 2. Normalize roles to Title Case (Admin, Member, Guest)
-    await db.prepare("UPDATE Users SET role = 'Admin' WHERE role = 'admin'").run();
-    await db.prepare("UPDATE Users SET role = 'Member' WHERE role = 'member'").run();
-    await db.prepare("UPDATE Users SET role = 'Guest' WHERE role = 'guest'").run();
-  } catch (e) {}
-
-  try {
-    // 3. Add payment_info to Users
-    await db.prepare("ALTER TABLE Users ADD COLUMN payment_info TEXT DEFAULT '{}'").run();
-  } catch (e) {}
-
-  try {
-    // 4. Add category to Expenses
-    await db.prepare("ALTER TABLE Expenses ADD COLUMN category TEXT DEFAULT 'other'").run();
-  } catch (e) {}
-
-  try {
-    // 5. Create Categories table
     await db.prepare(`
       CREATE TABLE IF NOT EXISTS Categories (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        name TEXT NOT NULL,
-        icon TEXT DEFAULT 'circle',
-        color TEXT DEFAULT '#808080',
-        is_default INTEGER DEFAULT 0,
-        created_at INTEGER
+        id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL, icon TEXT DEFAULT 'circle',
+        color TEXT DEFAULT '#808080', is_default INTEGER DEFAULT 0, created_at INTEGER
       )
     `).run();
 
-    // Migrate from old ExpenseCategories if it exists
-    try {
-      const oldTableInfo = await db.prepare("PRAGMA table_info(ExpenseCategories)").all();
-      if (oldTableInfo.results.length > 0) {
-        await db.prepare("INSERT INTO Categories (name, icon, color, is_default, created_at) SELECT name, icon, color, is_default, created_at FROM ExpenseCategories").run();
-        await db.prepare("DROP TABLE ExpenseCategories").run();
-      }
-    } catch (e) {}
-
-    // Seed default categories
     const { count } = await db.prepare('SELECT COUNT(*) as count FROM Categories').first() as any;
     if (count === 0) {
       const defaults = [
@@ -247,219 +194,35 @@ async function ensureSchema(db: D1Database) {
         await db.prepare('INSERT INTO Categories (name, icon, color, is_default, created_at) VALUES (?, ?, ?, 1, ?)').bind(cat.name, cat.icon, cat.color, Date.now()).run();
       }
     }
-  } catch (e) {
-    console.error('Schema update failed:', e);
-  }
-  try {
-    // 6. Add sub_items to Itineraries
-    await db.prepare("ALTER TABLE Itineraries ADD COLUMN sub_items TEXT DEFAULT '[]'").run();
-  } catch (e) {}
+  } catch (e) { console.error('Categories schema failed:', e); }
 
   try {
-    // 7. Add stay_duration to Itineraries
-    await db.prepare("ALTER TABLE Itineraries ADD COLUMN stay_duration TEXT DEFAULT ''").run();
-  } catch (e) {}
+    await db.prepare(`
+      CREATE TABLE IF NOT EXISTS Transportations (
+          id INTEGER PRIMARY KEY AUTOINCREMENT, trip_id INTEGER NOT NULL,
+          type TEXT NOT NULL DEFAULT 'FLIGHT', provider TEXT NOT NULL, transport_code TEXT NOT NULL,
+          departure_date TEXT NOT NULL, departure_time TEXT NOT NULL, departure_station TEXT,
+          departure_terminal TEXT, dep_checkin_buffer INTEGER DEFAULT 120,
+          arrival_date TEXT NOT NULL, arrival_time TEXT NOT NULL, arrival_station TEXT,
+          arrival_terminal TEXT, arr_exit_buffer INTEGER DEFAULT 60,
+          stay_duration INTEGER DEFAULT 0, notes TEXT,
+          FOREIGN KEY (trip_id) REFERENCES Trips(id) ON DELETE CASCADE
+      )
+    `).run();
+  } catch (e) { console.error('Transportations schema failed', e); }
 
   try {
-    // 8. Add icon to Itineraries
-    await db.prepare("ALTER TABLE Itineraries ADD COLUMN icon TEXT DEFAULT ''").run();
-  } catch (e) {}
-
-  try {
-    // 9. Update Transportations table schema (formerly Flights)
-    const transportInfo = await db.prepare("PRAGMA table_info(Transportations)").all();
-    const hasTransportTable = transportInfo.results.length > 0;
-    
-    if (hasTransportTable) {
-      // Check if we need to migrate column names (checkin_duration -> dep_checkin_buffer)
-      const transportCols = transportInfo.results.map((c: any) => c.name);
-      if (transportCols.includes('checkin_duration')) {
-        // We need to migrate. Simplest way is to rename the table, create new one, copy data.
-        await db.prepare("ALTER TABLE Transportations RENAME TO Transportations_Legacy").run();
-        
-        // Create new table
-        await db.prepare(`
-          CREATE TABLE IF NOT EXISTS Transportations (
-              id INTEGER PRIMARY KEY AUTOINCREMENT,
-              trip_id INTEGER NOT NULL,
-              type TEXT NOT NULL DEFAULT 'FLIGHT',
-              provider TEXT NOT NULL,
-              transport_code TEXT NOT NULL,
-              departure_date TEXT NOT NULL,
-              departure_time TEXT NOT NULL,
-              departure_station TEXT,
-              departure_terminal TEXT,
-              dep_checkin_buffer INTEGER DEFAULT 120,
-              arrival_date TEXT NOT NULL,
-              arrival_time TEXT NOT NULL,
-              arrival_station TEXT,
-              arrival_terminal TEXT,
-              arr_exit_buffer INTEGER DEFAULT 60,
-              stay_duration INTEGER DEFAULT 0,
-              notes TEXT,
-              FOREIGN KEY (trip_id) REFERENCES Trips(id) ON DELETE CASCADE
-          )
-        `).run();
-
-        // Copy data
-        await db.prepare(`
-          INSERT INTO Transportations (id, trip_id, type, provider, transport_code, departure_date, departure_time, departure_station, departure_terminal, dep_checkin_buffer, arrival_date, arrival_time, arrival_station, arrival_terminal, arr_exit_buffer, stay_duration, notes)
-          SELECT id, trip_id, type, provider, transport_code, departure_date, departure_time, departure_station, departure_terminal, checkin_duration, arrival_date, arrival_time, arrival_station, arrival_terminal, exit_duration, stay_duration, notes
-          FROM Transportations_Legacy
-        `).run();
-
-        await db.prepare("DROP TABLE Transportations_Legacy").run();
-      }
-    }
-
-    if (!hasTransportTable) {
-      // Check if old Flights table exists
-      const flightInfo = await db.prepare("PRAGMA table_info(Flights)").all();
-      const hasFlightsTable = flightInfo.results.length > 0;
-
-      if (hasFlightsTable) {
-        // Rename Flights to Transportations_Old to migrate data
-        await db.prepare("ALTER TABLE Flights RENAME TO Transportations_Old").run();
-      }
-
-      // Create new Transportations table
-      await db.prepare(`
-        CREATE TABLE IF NOT EXISTS Transportations (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            trip_id INTEGER NOT NULL,
-            type TEXT NOT NULL DEFAULT 'FLIGHT',
-            provider TEXT NOT NULL,
-            transport_code TEXT NOT NULL,
-            departure_date TEXT NOT NULL,
-            departure_time TEXT NOT NULL,
-            departure_station TEXT,
-            departure_terminal TEXT,
-            dep_checkin_buffer INTEGER DEFAULT 120,
-            arrival_date TEXT NOT NULL,
-            arrival_time TEXT NOT NULL,
-            arrival_station TEXT,
-            arrival_terminal TEXT,
-            arr_exit_buffer INTEGER DEFAULT 60,
-            stay_duration INTEGER DEFAULT 0,
-            notes TEXT,
-            FOREIGN KEY (trip_id) REFERENCES Trips(id) ON DELETE CASCADE
-        )
-      `).run();
-
-      if (hasFlightsTable) {
-        // Migrate data from Transportations_Old (which was Flights)
-        // Map: airline -> provider, flight_code -> transport_code, departure_airport -> departure_station, arrival_airport -> arrival_station
-        // We need to check if Transportations_Old has the duration columns. If not, we use defaults.
-        // However, the previous code added them. If this runs on a fresh DB, Transportations_Old won't exist.
-        // If it runs on an existing DB, Flights might or might not have them depending on when it was last run.
-        // To be safe, we select what we can.
-        
-        const oldCols = (await db.prepare("PRAGMA table_info(Transportations_Old)").all()).results.map((c: any) => c.name);
-        
-        const selectCols = [
-          'id', 'trip_id', "'FLIGHT'", 'airline', 'flight_code', 'departure_date', 'departure_time', 'departure_airport', 'departure_terminal',
-          oldCols.includes('dep_checkin_buffer') ? 'dep_checkin_buffer' : '120',
-          'arrival_date', 'arrival_time', 'arrival_airport', 'arrival_terminal',
-          oldCols.includes('arr_exit_buffer') ? 'arr_exit_buffer' : '60',
-          oldCols.includes('stay_duration') ? 'stay_duration' : '0',
-          'notes'
-        ];
-
-        await db.prepare(`
-          INSERT INTO Transportations (id, trip_id, type, provider, transport_code, departure_date, departure_time, departure_station, departure_terminal, dep_checkin_buffer, arrival_date, arrival_time, arrival_station, arrival_terminal, arr_exit_buffer, stay_duration, notes)
-          SELECT ${selectCols.join(', ')}
-          FROM Transportations_Old
-        `).run();
-        
-        await db.prepare("DROP TABLE Transportations_Old").run();
-      }
-    }
-  } catch (e) {
-    console.error('Transportations schema update failed', e);
-  }
-
-  try {
-    // 10. Update Accommodations table schema
-    const accInfo = await db.prepare("PRAGMA table_info(Accommodations)").all();
-    const hasHotelName = accInfo.results.some((col: any) => col.name === 'hotel_name');
-    
-    if (!hasHotelName) {
-      const hasAccTable = accInfo.results.length > 0;
-      if (hasAccTable) {
-        await db.prepare("ALTER TABLE Accommodations RENAME TO Accommodations_Old").run();
-      }
-
-      await db.prepare(`
-        CREATE TABLE IF NOT EXISTS Accommodations (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            trip_id INTEGER NOT NULL,
-            hotel_name TEXT NOT NULL,
-            address TEXT,
-            check_in_date TEXT NOT NULL,
-            check_out_date TEXT NOT NULL,
-            order_id TEXT,
-            notes TEXT,
-            created_at INTEGER DEFAULT (strftime('%s', 'now') * 1000),
-            FOREIGN KEY (trip_id) REFERENCES Trips(id) ON DELETE CASCADE
-        )
-      `).run();
-
-      if (hasAccTable) {
-        // Check columns in old table to avoid errors during migration
-        const oldCols = (await db.prepare("PRAGMA table_info(Accommodations_Old)").all()).results.map((c: any) => c.name);
-        
-        const selectCols = [
-          'trip_id',
-          oldCols.includes('hotel_name') ? 'hotel_name' : (oldCols.includes('name') ? 'name' : "'Unknown'"),
-          'address',
-          'check_in_date',
-          'check_out_date',
-          oldCols.includes('order_id') ? 'order_id' : "''",
-          'notes'
-        ];
-
-        await db.prepare(`
-          INSERT INTO Accommodations (trip_id, hotel_name, address, check_in_date, check_out_date, order_id, notes)
-          SELECT ${selectCols.join(', ')}
-          FROM Accommodations_Old
-        `).run();
-        await db.prepare("DROP TABLE Accommodations_Old").run();
-      }
-    }
-  } catch (e) {
-    console.error('Accommodations schema update failed', e);
-  }
-  try {
-    await db.prepare("ALTER TABLE Accommodations ADD COLUMN image_url TEXT").run();
-  } catch (e) {}
-
-  try {
-    // 11. Add type and related_id to Itineraries
-    await db.prepare("ALTER TABLE Itineraries ADD COLUMN type TEXT DEFAULT 'GENERAL'").run();
-  } catch (e) {}
-
-  try {
-    await db.prepare("ALTER TABLE Itineraries ADD COLUMN related_id INTEGER").run();
-  } catch (e) {}
-
-  try {
-    // 12. Add durations to Transportations (already handled in creation, but for safety if table existed before)
-    // We can skip this as the new table creation includes them.
-  } catch (e) {}
-
-  try {
-    // 13. Add times to Accommodations
-    await db.prepare("ALTER TABLE Accommodations ADD COLUMN check_in_time TEXT DEFAULT '15:00'").run();
-  } catch (e) {}
-  try {
-    await db.prepare("ALTER TABLE Accommodations ADD COLUMN check_out_time TEXT DEFAULT '11:00'").run();
-  } catch (e) {}
-  try {
-    await db.prepare("ALTER TABLE Accommodations ADD COLUMN daily_start_time TEXT DEFAULT '08:00'").run();
-  } catch (e) {}
-  try {
-    await db.prepare("ALTER TABLE Accommodations ADD COLUMN daily_end_time TEXT DEFAULT '22:00'").run();
-  } catch (e) {}
+    await db.prepare(`
+      CREATE TABLE IF NOT EXISTS Accommodations (
+          id INTEGER PRIMARY KEY AUTOINCREMENT, trip_id INTEGER NOT NULL,
+          hotel_name TEXT NOT NULL, address TEXT, check_in_date TEXT NOT NULL, check_out_date TEXT NOT NULL,
+          order_id TEXT, notes TEXT, created_at INTEGER DEFAULT (strftime('%s', 'now') * 1000),
+          image_url TEXT, check_in_time TEXT DEFAULT '15:00', check_out_time TEXT DEFAULT '11:00',
+          daily_start_time TEXT DEFAULT '08:00', daily_end_time TEXT DEFAULT '22:00',
+          FOREIGN KEY (trip_id) REFERENCES Trips(id) ON DELETE CASCADE
+      )
+    `).run();
+  } catch (e) { console.error('Accommodations schema failed', e); }
 }
 
 // Helper: Get Weather for a specific date
@@ -470,27 +233,20 @@ async function getWeatherForDate(tripId: number, dateStr: string, env: Env) {
 
   const { results: tripResults } = await env.DB.prepare(`
     SELECT t.id, c.name as default_city, c.lat as default_lat, c.lng as default_lng 
-    FROM Trips t 
-    JOIN Cities c ON t.default_city_id = c.id 
-    WHERE t.id = ?
+    FROM Trips t JOIN Cities c ON t.default_city_id = c.id WHERE t.id = ?
   `).bind(tripId).all();
 
   if (tripResults.length === 0) return null;
   const trip = tripResults[0] as any;
 
   const targetHours = ['00:00', '03:00', '06:00', '09:00', '12:00', '15:00', '18:00', '21:00', '24:00'];
-
   const { results: itineraries } = await env.DB.prepare(`
     SELECT i.start_time, i.end_time, c.name as city, c.lat, c.lng 
-    FROM Itineraries i 
-    JOIN Cities c ON i.city_id = c.id 
-    WHERE i.trip_id = ? AND i.date = ?
+    FROM Itineraries i JOIN Cities c ON i.city_id = c.id WHERE i.trip_id = ? AND i.date = ?
   `).bind(trip.id, dateStr).all();
 
   const intervals = [];
   const uniqueCoords = new Map();
-
-  // Calculate next day string for 24:00 (which is next day 00:00)
   const nextDate = new Date(dateStr);
   nextDate.setDate(nextDate.getDate() + 1);
   const nextDateStr = nextDate.toISOString().split('T')[0];
@@ -499,42 +255,24 @@ async function getWeatherForDate(tripId: number, dateStr: string, env: Env) {
     let currentLat = trip.default_lat;
     let currentLng = trip.default_lng;
     let currentCity = trip.default_city;
-
-    // Use current day itineraries for 24:00 as well (or maybe check next day's? For now, stick to current day's last location or default)
-    // Actually, 24:00 usually implies the end of the current day, so the location should be where the user is at the end of the day.
-    // We'll use the latest itinerary of the current day for 24:00 if available.
-    
-    let checkHour = hour;
-    if (hour === '24:00') checkHour = '23:59';
+    let checkHour = hour === '24:00' ? '23:59' : hour;
 
     for (const item of itineraries as any[]) {
       if (item.start_time && item.end_time && checkHour >= item.start_time && checkHour <= item.end_time) {
-        currentLat = item.lat;
-        currentLng = item.lng;
-        currentCity = item.city;
-        break;
+        currentLat = item.lat; currentLng = item.lng; currentCity = item.city; break;
       }
     }
 
     const coordKey = `${currentLat},${currentLng}`;
-    
     if (!uniqueCoords.has(coordKey)) {
-      // Fetch 2 days to cover 24:00 (which is next day 00:00)
       const url = `https://api.open-meteo.com/v1/forecast?latitude=${currentLat}&longitude=${currentLng}&hourly=temperature_2m,precipitation_probability,weathercode&daily=temperature_2m_max,temperature_2m_min,weathercode&timezone=auto&start_date=${dateStr}&end_date=${nextDateStr}`;
       const res = await fetch(url);
       if (res.ok) uniqueCoords.set(coordKey, await res.json());
     }
 
     const weatherData = uniqueCoords.get(coordKey);
-    
     if (weatherData) {
-      let timeString;
-      if (hour === '24:00') {
-        timeString = `${nextDateStr}T00:00`;
-      } else {
-        timeString = `${dateStr}T${hour}`;
-      }
-      
+      const timeString = hour === '24:00' ? `${nextDateStr}T00:00` : `${dateStr}T${hour}`;
       const index = weatherData.hourly.time.indexOf(timeString);
       intervals.push({
         time: hour === '24:00' ? '00:00 (+1)' : hour,
@@ -561,7 +299,6 @@ async function getWeatherForDate(tripId: number, dateStr: string, env: Env) {
   }
 
   const finalJSON = { date: dateStr, summary, intervals };
-  // Cache for 1 hour to allow updates but prevent spam
   await env.KV.put(cacheKey, JSON.stringify(finalJSON), { expirationTtl: 3600 });
   return finalJSON;
 }
@@ -575,20 +312,63 @@ async function searchUnsplash(query: string, env: Env): Promise<string | null> {
     );
     if (!response.ok) return null;
     const data = await response.json() as any;
-    if (data.results && data.results.length > 0) {
-      return data.results[0].urls.regular;
-    }
-    return null;
-  } catch (e) {
-    console.error('Unsplash internal search error:', e);
-    return null;
-  }
+    return data.results && data.results.length > 0 ? data.results[0].urls.regular : null;
+  } catch (e) { return null; }
 }
 
-// Helper: Sync Weather for a Trip (Legacy Cron use)
+// Helper: Sync Weather for a Trip
 async function syncWeatherForTrip(tripId: number, env: Env) {
   const todayStr = new Date().toISOString().split('T')[0];
   return getWeatherForDate(tripId, todayStr, env);
+}
+
+// Helper: Generate Accommodation Itineraries Array
+function generateDesiredAccommodationItems(b: any, accId: string | number, hotelImage: string) {
+  const desiredItems = [];
+  const startDate = new Date(b.check_in_date);
+  const endDate = new Date(b.check_out_date);
+  const checkInTime = b.check_in_time || '16:00';
+  const checkOutTime = b.check_out_time || '11:00';
+  const dailyStartTime = b.daily_start_time || '08:00';
+  const dailyEndTime = b.daily_end_time || '22:00';
+
+  const currentDate = new Date(startDate);
+  const notesWithOrder = b.order_id ? `Order ID: ${b.order_id}\n${b.notes || ''}` : (b.notes || '');
+
+  while (currentDate <= endDate) {
+    const dateStr = currentDate.toISOString().split('T')[0];
+    const isCheckInDay = dateStr === b.check_in_date;
+    const isCheckOutDay = dateStr === b.check_out_date;
+
+    if (isCheckInDay) {
+      desiredItems.push({
+        date: dateStr, start_time: checkInTime, end_time: '',
+        title: `Check-in ${b.hotel_name}`, notes: notesWithOrder, image_url: hotelImage, matchType: 'Check-in'
+      });
+      if (!isCheckOutDay) {
+        desiredItems.push({
+          date: dateStr, start_time: dailyEndTime, end_time: '',
+          title: `Back to Hotel ${b.hotel_name}`, notes: '', image_url: hotelImage, matchType: 'Back to Hotel'
+        });
+      }
+    } else if (isCheckOutDay) {
+      desiredItems.push({
+        date: dateStr, start_time: checkOutTime, end_time: '',
+        title: `Check-out ${b.hotel_name}`, notes: notesWithOrder, image_url: hotelImage, matchType: 'Check-out'
+      });
+    } else {
+      desiredItems.push({
+        date: dateStr, start_time: dailyStartTime, end_time: '',
+        title: `Leave Hotel ${b.hotel_name}`, notes: '', image_url: hotelImage, matchType: 'Leave Hotel'
+      });
+      desiredItems.push({
+        date: dateStr, start_time: dailyEndTime, end_time: '',
+        title: `Back to Hotel ${b.hotel_name}`, notes: '', image_url: hotelImage, matchType: 'Back to Hotel'
+      });
+    }
+    currentDate.setDate(currentDate.getDate() + 1);
+  }
+  return desiredItems;
 }
 
 // ==========================================
@@ -596,13 +376,10 @@ async function syncWeatherForTrip(tripId: number, env: Env) {
 // ==========================================
 app.post('/api/init', async (c) => {
   try {
-    // Ensure is_public column exists in Trips table
     await ensureSchema(c.env.DB);
-
     const { results } = await c.env.DB.prepare('SELECT COUNT(*) as count FROM Users').all();
     if ((results[0] as any).count === 0) {
-      const salt = c.env.PASSWORD_SALT || 'default_salt';
-      const passwordHash = await generateHash('123456', salt);
+      const passwordHash = await generateHash('123456', c.env.PASSWORD_SALT || 'default_salt');
       await c.env.DB.prepare(`
         INSERT INTO Users (role, name, avatar_url, password_hash, allow_login, created_at, updated_at) 
         VALUES ('Admin', '超級管理員', 'https://api.dicebear.com/7.x/avataaars/svg?seed=Admin', ?, 1, ?, ?)
@@ -641,68 +418,41 @@ app.post('/api/auth/login', async (c) => {
 // ==========================================
 // 🔒 Protected API
 // ==========================================
-// Decode user for all API routes
 app.use('/api/*', decodeUserMiddleware);
-
-// Apply strict auth only where needed
 app.use('/api/users', requireAuthMiddleware);
 app.use('/api/users/*', requireAuthMiddleware);
 app.use('/api/settings', requireAuthMiddleware);
 app.use('/api/sync', requireAuthMiddleware);
 app.use('/api/upload', requireAuthMiddleware);
-
-// Trip mutations require auth
 app.post('/api/trips', requireAuthMiddleware);
 app.post('/api/trips/*', requireAuthMiddleware);
 app.put('/api/trips/*', requireAuthMiddleware);
 app.delete('/api/trips/*', requireAuthMiddleware);
 
-// Upload Proxy
 app.post('/api/upload', async (c) => {
   try {
     const body = await c.req.parseBody();
     const file = body['file']; 
-    const folder = body['folder'] || 'trips'; // Default to 'trips' if not specified
+    const folder = body['folder'] || 'trips';
 
     if (!file || !(file instanceof File)) return c.json({ error: 'No file uploaded' }, 400);
 
     const supabaseUrl = c.env.VITE_SUPABASE_URL;
-    const supabaseAnonKey = c.env.VITE_SUPABASE_ANON_KEY;
-    const supabaseServiceKey = c.env.SUPABASE_SERVICE_ROLE_KEY;
+    const supabaseKey = c.env.SUPABASE_SERVICE_ROLE_KEY || c.env.VITE_SUPABASE_ANON_KEY;
+    if (!supabaseUrl || !supabaseKey) return c.json({ error: 'Supabase not configured' }, 500);
 
-    if (!supabaseUrl || (!supabaseAnonKey && !supabaseServiceKey)) {
-      return c.json({ error: 'Supabase not configured in worker' }, 500);
-    }
-
-    const supabase = createClient(supabaseUrl, supabaseServiceKey || supabaseAnonKey);
+    const supabase = createClient(supabaseUrl, supabaseKey);
     const fileName = `${folder}/${Date.now()}-${Math.random().toString(36).substring(7)}.jpg`;
     
-    // Convert File to ArrayBuffer for upload
     const arrayBuffer = await file.arrayBuffer();
-    
-    const { data, error } = await supabase.storage
-      .from('travelplan') // Bucket name
-      .upload(fileName, arrayBuffer, {
-        contentType: file.type,
-        upsert: false
-      });
-
+    const { error } = await supabase.storage.from('travelplan').upload(fileName, arrayBuffer, { contentType: file.type });
     if (error) throw error;
 
-    const { data: { publicUrl } } = supabase.storage
-      .from('travelplan')
-      .getPublicUrl(fileName);
-
+    const { data: { publicUrl } } = supabase.storage.from('travelplan').getPublicUrl(fileName);
     return c.json({ publicUrl });
-  } catch (e: any) {
-    console.error('Upload error:', e);
-    return c.json({ error: e.message }, 500);
-  }
+  } catch (e: any) { return c.json({ error: e.message }, 500); }
 });
 
-// GET routes for trips and cities are public but can be enhanced by knowing the user
-
-// --- Cities API ---
 app.get('/api/cities', async (c) => {
   try {
     const { results } = await c.env.DB.prepare('SELECT * FROM Cities ORDER BY country, name').all();
@@ -710,7 +460,6 @@ app.get('/api/cities', async (c) => {
   } catch (error: any) { return c.json({ error: error.message }, 500); }
 });
 
-// --- Users ---
 app.get('/api/users', async (c) => {
   try {
     const { results } = await c.env.DB.prepare('SELECT id, name, avatar_url, role, allow_login FROM Users').all();
@@ -734,7 +483,6 @@ app.put('/api/users/:id', async (c) => {
   const id = c.req.param('id');
   try {
     const { name, role, allow_login, password, avatar_url, payment_info } = await c.req.json();
-    
     let query = 'UPDATE Users SET updated_at = ?';
     const params: any[] = [Date.now()];
 
@@ -742,15 +490,8 @@ app.put('/api/users/:id', async (c) => {
     if (role !== undefined) { query += ', role = ?'; params.push(role); }
     if (allow_login !== undefined) { query += ', allow_login = ?'; params.push(allow_login); }
     if (avatar_url !== undefined) { query += ', avatar_url = ?'; params.push(avatar_url); }
-    if (payment_info !== undefined) { 
-      query += ', payment_info = ?'; 
-      params.push(typeof payment_info === 'string' ? payment_info : JSON.stringify(payment_info)); 
-    }
-    
-    if (password) {
-      query += ', password_hash = ?';
-      params.push(await generateHash(password, c.env.PASSWORD_SALT || 'salt'));
-    }
+    if (payment_info !== undefined) { query += ', payment_info = ?'; params.push(typeof payment_info === 'string' ? payment_info : JSON.stringify(payment_info)); }
+    if (password) { query += ', password_hash = ?'; params.push(await generateHash(password, c.env.PASSWORD_SALT || 'salt')); }
     
     query += ' WHERE id = ?';
     params.push(id);
@@ -763,31 +504,31 @@ app.put('/api/users/:id', async (c) => {
 // --- Trips ---
 app.get('/api/trips', async (c) => {
   try {
-    // Ensure is_public column exists (migration)
-    await ensureSchema(c.env.DB);
-
     const user = c.get('user');
     let query = 'SELECT id, title, cover_image_url, start_date, end_date, default_city_id, is_public FROM Trips WHERE is_public = 1';
     const params: any[] = [];
 
     if (user) {
-      // If user is logged in, also show trips they are a member of
-      query += ' OR id IN (SELECT trip_id FROM TripMembers WHERE user_id = ?)';
-      params.push(user.id);
-
-      // Admins can see all trips
       if (user.role === 'Admin') {
         query = 'SELECT id, title, cover_image_url, start_date, end_date, default_city_id, is_public FROM Trips';
-        params.length = 0; // Clear params as admin query doesn't need them
+      } else {
+        query += ' OR id IN (SELECT trip_id FROM TripMembers WHERE user_id = ?)';
+        params.push(user.id);
       }
     }
     query += ' ORDER BY start_date DESC';
 
-    const { results } = await c.env.DB.prepare(query).bind(...params).all();
+    const { results: trips } = await c.env.DB.prepare(query).bind(...params).all();
+    if (trips.length === 0) return c.json([]);
 
-    const tripsWithMembers = await Promise.all(results.map(async (trip: any) => {
-      const { results: members } = await c.env.DB.prepare('SELECT user_id, role FROM TripMembers WHERE trip_id = ?').bind(trip.id).all();
-      return { ...trip, members: members || [] };
+    const tripIds = trips.map((t: any) => t.id).join(',');
+    const { results: allMembers } = await c.env.DB.prepare(
+      `SELECT trip_id, user_id, role FROM TripMembers WHERE trip_id IN (${tripIds})`
+    ).all();
+
+    const tripsWithMembers = trips.map((trip: any) => ({
+      ...trip,
+      members: allMembers.filter((m: any) => m.trip_id === trip.id)
     }));
 
     return c.json(tripsWithMembers);
@@ -799,22 +540,17 @@ app.post('/api/trips', async (c) => {
     const user = c.get('user');
     if (!user || user.role !== 'Admin') return c.json({ error: 'Only Admins can create trips' }, 403);
 
-    await ensureSchema(c.env.DB);
     const { title, start_date, end_date, cover_image_url, default_city_id, is_public } = await c.req.json();
-    const info = await c.env.DB.prepare(`
+    await c.env.DB.prepare(`
       INSERT INTO Trips (title, start_date, end_date, cover_image_url, default_city_id, created_at, updated_at, currencies, is_public)
       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).bind(title, start_date, end_date, cover_image_url || '', default_city_id, Date.now(), Date.now(), JSON.stringify(['TWD']), is_public || 0).run();
     
     const idResult = await c.env.DB.prepare('SELECT last_insert_rowid() as id').first();
     const id = idResult ? (idResult as any).id : null;
-
-    if (!id) {
-      return c.json({ error: 'Failed to create trip and retrieve ID.' }, 500);
-    }
+    if (!id) return c.json({ error: 'Failed to create trip.' }, 500);
 
     const newTrip = await c.env.DB.prepare('SELECT * FROM Trips WHERE id = ?').bind(id).first();
-
     return c.json(newTrip);
   } catch (error: any) { return c.json({ error: error.message }, 500); }
 });
@@ -823,12 +559,10 @@ app.get('/api/trips/:id', async (c) => {
   const id = c.req.param('id');
   const user = c.get('user');
   try {
-    await ensureSchema(c.env.DB);
     const { results } = await c.env.DB.prepare('SELECT * FROM Trips WHERE id = ?').bind(id).all();
     if (results.length === 0) return c.json({ error: 'Trip not found' }, 404);
     const trip = results[0] as any;
 
-    // Access Control for single trip
     const { results: members } = await c.env.DB.prepare('SELECT user_id, role FROM TripMembers WHERE trip_id = ?').bind(id).all();
     const isMember = user && members.some((m: any) => m.user_id === user.id);
     const canView = trip.is_public === 1 || isMember || (user && user.role === 'Admin');
@@ -837,7 +571,6 @@ app.get('/api/trips/:id', async (c) => {
 
     if (trip.currencies) trip.currencies = JSON.parse(trip.currencies);
     trip.members = members || [];
-
     return c.json(trip);
   } catch (error: any) { return c.json({ error: error.message }, 500); }
 });
@@ -849,24 +582,16 @@ app.put('/api/trips/:id', async (c) => {
     const canEdit = await checkTripAccess(c, Number(id), 'edit');
     if (!canEdit) return c.json({ error: 'Unauthorized' }, 403);
 
-    await ensureSchema(c.env.DB);
     const { title, start_date, end_date, cover_image_url, default_city_id, currencies, is_public } = await c.req.json();
-    
-    // Only Admin can change is_public
     let finalIsPublic = is_public;
     if (is_public !== undefined && user.role !== 'Admin') {
-       // Fetch existing to preserve
        const existing = await c.env.DB.prepare('SELECT is_public FROM Trips WHERE id = ?').bind(id).first();
        finalIsPublic = existing.is_public;
     }
 
     await c.env.DB.prepare(`
-      UPDATE Trips 
-      SET title = ?, start_date = ?, end_date = ?, cover_image_url = ?, default_city_id = ?, currencies = ?, is_public = ?, updated_at = ?
-      WHERE id = ?
-    `).bind(
-      title, start_date, end_date, cover_image_url, default_city_id, JSON.stringify(currencies || ['TWD']), finalIsPublic, Date.now(), id
-    ).run();
+      UPDATE Trips SET title = ?, start_date = ?, end_date = ?, cover_image_url = ?, default_city_id = ?, currencies = ?, is_public = ?, updated_at = ? WHERE id = ?
+    `).bind(title, start_date, end_date, cover_image_url, default_city_id, JSON.stringify(currencies || ['TWD']), finalIsPublic, Date.now(), id).run();
     return c.json({ success: true });
   } catch (error: any) { return c.json({ error: error.message }, 500); }
 });
@@ -876,13 +601,12 @@ app.delete('/api/trips/:id', async (c) => {
   try {
     const canEdit = await checkTripAccess(c, Number(id), 'admin');
     if (!canEdit) return c.json({ error: 'Unauthorized' }, 403);
-
     await c.env.DB.prepare('DELETE FROM Trips WHERE id = ?').bind(id).run();
     return c.json({ success: true });
   } catch (error: any) { return c.json({ error: error.message }, 500); }
 });
 
-// Weather API
+// --- Weather ---
 app.get('/api/trips/:id/weather', async (c) => {
   const tripId = c.req.param('id');
   const date = c.req.query('date');
@@ -892,7 +616,6 @@ app.get('/api/trips/:id/weather', async (c) => {
       if (!weatherData) return c.json({ message: 'No weather data available' }, 404);
       return c.json(weatherData);
     } else {
-      // Fallback to today's cached weather (legacy)
       const todayStr = new Date().toISOString().split('T')[0];
       const weatherData = await c.env.KV.get(`weather:trip:${tripId}:${todayStr}`, 'json');
       if (!weatherData) return c.json({ message: 'Weather data will be updated soon' }, 202);
@@ -906,14 +629,13 @@ app.post('/api/trips/:id/weather/sync', async (c) => {
   try {
     const canEdit = await checkTripAccess(c, Number(tripId), 'edit');
     if (!canEdit) return c.json({ error: 'Unauthorized' }, 403);
-
     const weatherData = await syncWeatherForTrip(Number(tripId), c.env);
     if (!weatherData) return c.json({ error: 'Failed to sync weather' }, 500);
     return c.json(weatherData);
   } catch (error: any) { return c.json({ error: error.message }, 500); }
 });
 
-// --- Transportations & Accommodations ---
+// --- Transportations ---
 app.get('/api/trips/:id/transportations', async (c) => {
   const tripId = c.req.param('id');
   try {
@@ -929,58 +651,30 @@ app.post('/api/trips/:id/transportations', async (c) => {
     if (!canEdit) return c.json({ error: 'Unauthorized' }, 403);
 
     const b = await c.req.json();
-    // id is AUTOINCREMENT
     const info = await c.env.DB.prepare(`
-      INSERT INTO Transportations (trip_id, type, provider, code, dep_station, dep_date, dep_time, dep_terminal, dep_checkin_buffer, arr_station, arr_date, arr_time, arr_terminal, arr_exit_buffer, order_id, notes)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      INSERT INTO Transportations (trip_id, type, provider, transport_code, departure_station, departure_date, departure_time, departure_terminal, dep_checkin_buffer, arrival_station, arrival_date, arrival_time, arrival_terminal, arr_exit_buffer, notes)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).bind(
-      tripId, 
-      b.type || 'FLIGHT', 
-      b.provider, 
-      b.code, 
-      b.dep_station, 
-      b.dep_date,
-      b.dep_time,
-      b.dep_terminal,
-      b.dep_checkin_buffer || 120,
-      b.arr_station, 
-      b.arr_date,
-      b.arr_time,
-      b.arr_terminal,
-      b.arr_exit_buffer || 60,
-      b.order_id, 
-      b.notes
+      tripId, b.type || 'FLIGHT', b.provider, b.code || b.transport_code, b.dep_station || b.departure_station, b.dep_date || b.departure_date, b.dep_time || b.departure_time, b.dep_terminal || b.departure_terminal, b.dep_checkin_buffer || 120, b.arr_station || b.arrival_station, b.arr_date || b.arrival_date, b.arr_time || b.arrival_time, b.arr_terminal || b.arrival_terminal, b.arr_exit_buffer || 60, b.notes
     ).run();
     
     // @ts-ignore
     const transportId = info.meta.last_row_id;
 
-    // Create Itinerary Item for Transportation
-    // Calculate Check-in Time (Departure - checkin_buffer)
-    const depDateTime = new Date(`${b.dep_date}T${b.dep_time}`); 
-    const checkinBuffer = b.dep_checkin_buffer || 120; 
-    depDateTime.setMinutes(depDateTime.getMinutes() - checkinBuffer);
+    const depDateTime = new Date(`${b.dep_date || b.departure_date}T${b.dep_time || b.departure_time}`); 
+    depDateTime.setMinutes(depDateTime.getMinutes() - (b.dep_checkin_buffer || 120));
     const checkInDate = depDateTime.toISOString().split('T')[0];
     const checkInTime = depDateTime.toTimeString().substring(0, 5);
 
-    // Calculate Exit End Time (Arrival + exit_buffer)
-    const arrDateTime = new Date(`${b.arr_date}T${b.arr_time}`);
-    const exitBuffer = b.arr_exit_buffer || 60; 
-    arrDateTime.setMinutes(arrDateTime.getMinutes() + exitBuffer);
+    const arrDateTime = new Date(`${b.arr_date || b.arrival_date}T${b.arr_time || b.arrival_time}`);
+    arrDateTime.setMinutes(arrDateTime.getMinutes() + (b.arr_exit_buffer || 60));
     const exitEndTime = arrDateTime.toTimeString().substring(0, 5);
 
     await c.env.DB.prepare(`
       INSERT INTO Itineraries (trip_id, date, start_time, end_time, title, type, related_id, notes)
       VALUES (?, ?, ?, ?, ?, ?, ?, ?)
     `).bind(
-      tripId,
-      checkInDate,
-      checkInTime,
-      exitEndTime,
-      `${b.type || 'Transport'}: ${b.provider} ${b.code}`,
-      'TRANSPORTATION',
-      transportId,
-      b.notes || ''
+      tripId, checkInDate, checkInTime, exitEndTime, `${b.type || 'Transport'}: ${b.provider} ${b.code || b.transport_code}`, 'TRANSPORTATION', transportId, b.notes || ''
     ).run();
 
     return c.json({ success: true, id: transportId });
@@ -995,56 +689,27 @@ app.put('/api/trips/:id/transportations/:transportId', async (c) => {
     if (!canEdit) return c.json({ error: 'Unauthorized' }, 403);
 
     const b = await c.req.json();
-    
     await c.env.DB.prepare(`
       UPDATE Transportations 
-      SET type = ?, provider = ?, code = ?, dep_station = ?, dep_date = ?, dep_time = ?, dep_terminal = ?, dep_checkin_buffer = ?, arr_station = ?, arr_date = ?, arr_time = ?, arr_terminal = ?, arr_exit_buffer = ?, order_id = ?, notes = ?
+      SET type = ?, provider = ?, transport_code = ?, departure_station = ?, departure_date = ?, departure_time = ?, departure_terminal = ?, dep_checkin_buffer = ?, arrival_station = ?, arrival_date = ?, arrival_time = ?, arrival_terminal = ?, arr_exit_buffer = ?, notes = ?
       WHERE id = ? AND trip_id = ?
     `).bind(
-      b.type || 'FLIGHT', 
-      b.provider, 
-      b.code, 
-      b.dep_station, 
-      b.dep_date,
-      b.dep_time,
-      b.dep_terminal,
-      b.dep_checkin_buffer || 120,
-      b.arr_station, 
-      b.arr_date,
-      b.arr_time,
-      b.arr_terminal,
-      b.arr_exit_buffer || 60,
-      b.order_id, 
-      b.notes, 
-      transportId, 
-      tripId
+      b.type || 'FLIGHT', b.provider, b.code || b.transport_code, b.dep_station || b.departure_station, b.dep_date || b.departure_date, b.dep_time || b.departure_time, b.dep_terminal || b.departure_terminal, b.dep_checkin_buffer || 120, b.arr_station || b.arrival_station, b.arr_date || b.arrival_date, b.arr_time || b.arrival_time, b.arr_terminal || b.arrival_terminal, b.arr_exit_buffer || 60, b.notes, transportId, tripId
     ).run();
 
-    // Update Itinerary Item
-    const depDateTime = new Date(`${b.dep_date}T${b.dep_time}`);
-    const checkinBuffer = b.dep_checkin_buffer || 120; 
-    depDateTime.setMinutes(depDateTime.getMinutes() - checkinBuffer);
+    const depDateTime = new Date(`${b.dep_date || b.departure_date}T${b.dep_time || b.departure_time}`);
+    depDateTime.setMinutes(depDateTime.getMinutes() - (b.dep_checkin_buffer || 120));
     const checkInDate = depDateTime.toISOString().split('T')[0];
     const checkInTime = depDateTime.toTimeString().substring(0, 5);
 
-    const arrDateTime = new Date(`${b.arr_date}T${b.arr_time}`);
-    const exitBuffer = b.arr_exit_buffer || 60;
-    arrDateTime.setMinutes(arrDateTime.getMinutes() + exitBuffer);
+    const arrDateTime = new Date(`${b.arr_date || b.arrival_date}T${b.arr_time || b.arrival_time}`);
+    arrDateTime.setMinutes(arrDateTime.getMinutes() + (b.arr_exit_buffer || 60));
     const exitEndTime = arrDateTime.toTimeString().substring(0, 5);
 
     await c.env.DB.prepare(`
-      UPDATE Itineraries 
-      SET date = ?, start_time = ?, end_time = ?, title = ?, notes = ?
+      UPDATE Itineraries SET date = ?, start_time = ?, end_time = ?, title = ?, notes = ?
       WHERE type = 'TRANSPORTATION' AND related_id = ? AND trip_id = ?
-    `).bind(
-      checkInDate,
-      checkInTime,
-      exitEndTime,
-      `${b.type || 'Transport'}: ${b.provider} ${b.code}`,
-      b.notes || '',
-      transportId,
-      tripId
-    ).run();
+    `).bind(checkInDate, checkInTime, exitEndTime, `${b.type || 'Transport'}: ${b.provider} ${b.code || b.transport_code}`, b.notes || '', transportId, tripId).run();
 
     return c.json({ success: true });
   } catch (error: any) { return c.json({ error: error.message }, 500); }
@@ -1056,15 +721,13 @@ app.delete('/api/trips/:id/transportations/:transportId', async (c) => {
   try {
     const canEdit = await checkTripAccess(c, Number(tripId), 'edit');
     if (!canEdit) return c.json({ error: 'Unauthorized' }, 403);
-
     await c.env.DB.prepare('DELETE FROM Transportations WHERE id = ? AND trip_id = ?').bind(transportId, tripId).run();
-    // Also delete associated itinerary
     await c.env.DB.prepare("DELETE FROM Itineraries WHERE type = 'TRANSPORTATION' AND related_id = ? AND trip_id = ?").bind(transportId, tripId).run();
-    
     return c.json({ success: true });
   } catch (error: any) { return c.json({ error: error.message }, 500); }
 });
 
+// --- Accommodations ---
 app.get('/api/trips/:id/accommodations', async (c) => {
   const tripId = c.req.param('id');
   try {
@@ -1080,27 +743,14 @@ app.post('/api/trips/:id/accommodations', async (c) => {
     if (!canEdit) return c.json({ error: 'Unauthorized' }, 403);
 
     const b = await c.req.json();
-
-    // Check for overlapping accommodations
     const { results: existingAccs } = await c.env.DB.prepare(`
-      SELECT * FROM Accommodations 
-      WHERE trip_id = ? 
-      AND (
-        (check_in_date <= ? AND check_out_date >= ?)
-      )
+      SELECT * FROM Accommodations WHERE trip_id = ? AND (check_in_date <= ? AND check_out_date >= ?)
     `).bind(tripId, b.check_out_date, b.check_in_date).all();
 
-    if (existingAccs.length > 0) {
-      return c.json({ error: '這段時間已經有安排住宿了。' }, 400);
-    }
+    if (existingAccs.length > 0) return c.json({ error: '這段時間已經有安排住宿了。' }, 400);
 
-    // Fetch Hotel Image
-    let hotelImage = b.image_url;
-    if (!hotelImage) {
-      hotelImage = await searchUnsplash(b.hotel_name, c.env);
-    }
+    let hotelImage = b.image_url || await searchUnsplash(b.hotel_name, c.env);
 
-    // id is AUTOINCREMENT
     const info = await c.env.DB.prepare(`
       INSERT INTO Accommodations (trip_id, hotel_name, address, check_in_date, check_out_date, check_in_time, check_out_time, daily_start_time, daily_end_time, order_id, notes, image_url, created_at)
       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
@@ -1109,61 +759,12 @@ app.post('/api/trips/:id/accommodations', async (c) => {
     // @ts-ignore
     const accId = info.meta.last_row_id;
 
-    // Create Itinerary Items for Accommodation
-    const startDate = new Date(b.check_in_date);
-    const endDate = new Date(b.check_out_date);
-    const checkInTime = b.check_in_time || '16:00';
-    const checkOutTime = b.check_out_time || '11:00';
-    const dailyStartTime = b.daily_start_time || '08:00';
-    const dailyEndTime = b.daily_end_time || '22:00';
-
-    const currentDate = new Date(startDate);
-    
-    // Prepare Notes with Order ID
-    const notesWithOrder = b.order_id ? `Order ID: ${b.order_id}\n${b.notes || ''}` : (b.notes || '');
-
-    // Loop through dates
-    while (currentDate <= endDate) {
-      const dateStr = currentDate.toISOString().split('T')[0];
-      const isCheckInDay = dateStr === b.check_in_date;
-      const isCheckOutDay = dateStr === b.check_out_date;
-
-      if (isCheckInDay) {
-        // Check-in Item
-        await c.env.DB.prepare(`
-          INSERT INTO Itineraries (trip_id, date, start_time, end_time, title, type, related_id, notes, image_url)
-          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-        `).bind(tripId, dateStr, checkInTime, '', `Check-in ${b.hotel_name}`, 'ACCOMMODATION', accId, notesWithOrder, hotelImage || '').run();
-        
-        // Return to Hotel Item (if not also checkout day, which is unlikely for 1 day stay but possible)
-        if (!isCheckOutDay) {
-             await c.env.DB.prepare(`
-              INSERT INTO Itineraries (trip_id, date, start_time, end_time, title, type, related_id, notes, image_url)
-              VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-            `).bind(tripId, dateStr, dailyEndTime, '', `Back to Hotel ${b.hotel_name}`, 'ACCOMMODATION', accId, '', hotelImage || '').run();
-        }
-      } else if (isCheckOutDay) {
-        // Check-out Item
-        await c.env.DB.prepare(`
-          INSERT INTO Itineraries (trip_id, date, start_time, end_time, title, type, related_id, notes, image_url)
-          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-        `).bind(tripId, dateStr, checkOutTime, '', `Check-out ${b.hotel_name}`, 'ACCOMMODATION', accId, notesWithOrder, hotelImage || '').run();
-      } else {
-        // Intermediate Day
-        // Leave Hotel
-        await c.env.DB.prepare(`
-          INSERT INTO Itineraries (trip_id, date, start_time, end_time, title, type, related_id, notes, image_url)
-          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-        `).bind(tripId, dateStr, dailyStartTime, '', `Leave Hotel ${b.hotel_name}`, 'ACCOMMODATION', accId, '', hotelImage || '').run();
-
-        // Return to Hotel
-        await c.env.DB.prepare(`
-          INSERT INTO Itineraries (trip_id, date, start_time, end_time, title, type, related_id, notes, image_url)
-          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-        `).bind(tripId, dateStr, dailyEndTime, '', `Back to Hotel ${b.hotel_name}`, 'ACCOMMODATION', accId, '', hotelImage || '').run();
-      }
-
-      currentDate.setDate(currentDate.getDate() + 1);
+    const desiredItems = generateDesiredAccommodationItems(b, accId, hotelImage || '');
+    for (const item of desiredItems) {
+      await c.env.DB.prepare(`
+        INSERT INTO Itineraries (trip_id, date, start_time, end_time, title, type, related_id, notes, image_url)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `).bind(tripId, item.date, item.start_time, item.end_time, item.title, 'ACCOMMODATION', accId, item.notes, item.image_url).run();
     }
 
     return c.json({ success: true, id: accId });
@@ -1178,118 +779,24 @@ app.put('/api/trips/:id/accommodations/:accId', async (c) => {
     if (!canEdit) return c.json({ error: 'Unauthorized' }, 403);
 
     const b = await c.req.json();
-
-    // Check for overlapping accommodations, excluding the current one
     const { results: existingAccs } = await c.env.DB.prepare(`
-      SELECT * FROM Accommodations 
-      WHERE trip_id = ? AND id != ?
-      AND (
-        (check_in_date <= ? AND check_out_date >= ?)
-      )
+      SELECT * FROM Accommodations WHERE trip_id = ? AND id != ? AND (check_in_date <= ? AND check_out_date >= ?)
     `).bind(tripId, accId, b.check_out_date, b.check_in_date).all();
 
-    if (existingAccs.length > 0) {
-      return c.json({ error: '這段時間已經有安排住宿了。' }, 400);
-    }
+    if (existingAccs.length > 0) return c.json({ error: '這段時間已經有安排住宿了。' }, 400);
     
-    // Fetch Hotel Image
-    let hotelImage = b.image_url;
-    if (!hotelImage) {
-      hotelImage = await searchUnsplash(b.hotel_name, c.env);
-    }
+    let hotelImage = b.image_url || await searchUnsplash(b.hotel_name, c.env);
     
     await c.env.DB.prepare(`
-      UPDATE Accommodations 
-      SET hotel_name = ?, address = ?, check_in_date = ?, check_out_date = ?, check_in_time = ?, check_out_time = ?, daily_start_time = ?, daily_end_time = ?, order_id = ?, notes = ?, image_url = ?
+      UPDATE Accommodations SET hotel_name = ?, address = ?, check_in_date = ?, check_out_date = ?, check_in_time = ?, check_out_time = ?, daily_start_time = ?, daily_end_time = ?, order_id = ?, notes = ?, image_url = ?
       WHERE id = ? AND trip_id = ?
     `).bind(b.hotel_name, b.address, b.check_in_date, b.check_out_date, b.check_in_time || '15:00', b.check_out_time || '11:00', b.daily_start_time || '08:00', b.daily_end_time || '22:00', b.order_id, b.notes, hotelImage || '', accId, tripId).run();
 
-    // Smart Update Logic for Itinerary Items
-    // 1. Fetch existing items
     const { results: existingItems } = await c.env.DB.prepare("SELECT * FROM Itineraries WHERE type = 'ACCOMMODATION' AND related_id = ? AND trip_id = ?").bind(accId, tripId).all();
     const existingPool = [...existingItems] as any[];
+    const desiredItems = generateDesiredAccommodationItems(b, accId, hotelImage || '');
 
-    // 2. Generate Desired Items
-    const desiredItems = [];
-    const startDate = new Date(b.check_in_date);
-    const endDate = new Date(b.check_out_date);
-    const checkInTime = b.check_in_time || '16:00';
-    const checkOutTime = b.check_out_time || '11:00';
-    const dailyStartTime = b.daily_start_time || '08:00';
-    const dailyEndTime = b.daily_end_time || '22:00';
-
-    const currentDate = new Date(startDate);
-    
-    // Prepare Notes with Order ID
-    const notesWithOrder = b.order_id ? `Order ID: ${b.order_id}\n${b.notes || ''}` : (b.notes || '');
-
-    while (currentDate <= endDate) {
-      const dateStr = currentDate.toISOString().split('T')[0];
-      const isCheckInDay = dateStr === b.check_in_date;
-      const isCheckOutDay = dateStr === b.check_out_date;
-
-      if (isCheckInDay) {
-        desiredItems.push({
-          date: dateStr,
-          start_time: checkInTime,
-          end_time: '',
-          title: `Check-in ${b.hotel_name}`,
-          notes: notesWithOrder,
-          image_url: hotelImage || '',
-          matchType: 'Check-in'
-        });
-        
-        if (!isCheckOutDay) {
-          desiredItems.push({
-            date: dateStr,
-            start_time: dailyEndTime,
-            end_time: '',
-            title: `Back to Hotel ${b.hotel_name}`,
-            notes: '',
-            image_url: hotelImage || '',
-            matchType: 'Back to Hotel'
-          });
-        }
-      } else if (isCheckOutDay) {
-        desiredItems.push({
-          date: dateStr,
-          start_time: checkOutTime,
-          end_time: '',
-          title: `Check-out ${b.hotel_name}`,
-          notes: notesWithOrder,
-          image_url: hotelImage || '',
-          matchType: 'Check-out'
-        });
-      } else {
-        desiredItems.push({
-          date: dateStr,
-          start_time: dailyStartTime,
-          end_time: '',
-          title: `Leave Hotel ${b.hotel_name}`,
-          notes: '',
-          image_url: hotelImage || '',
-          matchType: 'Leave Hotel'
-        });
-        desiredItems.push({
-          date: dateStr,
-          start_time: dailyEndTime,
-          end_time: '',
-          title: `Back to Hotel ${b.hotel_name}`,
-          notes: '',
-          image_url: hotelImage || '',
-          matchType: 'Back to Hotel'
-        });
-      }
-      currentDate.setDate(currentDate.getDate() + 1);
-    }
-
-    // 3. Sync (Update, Create, Delete)
     for (const item of desiredItems) {
-      // Find a match in existingPool
-      // We match by date and "matchType" (derived from title prefix)
-      // Note: The title format changed, so we need to be careful with matching if the user is updating from old format.
-      // Old format: "Check-in: Hotel Name", New: "🏨 Check-in Hotel Name"
-      // We can match by checking if title contains "Check-in" etc.
       const matchIndex = existingPool.findIndex(e => 
         e.date === item.date && 
         (
@@ -1301,20 +808,13 @@ app.put('/api/trips/:id/accommodations/:accId', async (c) => {
       );
 
       if (matchIndex !== -1) {
-        // Update existing
         const match = existingPool[matchIndex];
-        existingPool.splice(matchIndex, 1); // Remove from pool
-
-        // Use new image if found, otherwise keep existing if available, otherwise empty
+        existingPool.splice(matchIndex, 1);
         const finalImage = item.image_url || match.image_url || '';
-
         await c.env.DB.prepare(`
-          UPDATE Itineraries 
-          SET date = ?, start_time = ?, end_time = ?, title = ?, notes = ?, image_url = ?
-          WHERE id = ?
+          UPDATE Itineraries SET date = ?, start_time = ?, end_time = ?, title = ?, notes = ?, image_url = ? WHERE id = ?
         `).bind(item.date, item.start_time, item.end_time, item.title, item.notes, finalImage, match.id).run();
       } else {
-        // Create new
         await c.env.DB.prepare(`
           INSERT INTO Itineraries (trip_id, date, start_time, end_time, title, type, related_id, notes, image_url)
           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
@@ -1322,7 +822,6 @@ app.put('/api/trips/:id/accommodations/:accId', async (c) => {
       }
     }
 
-    // 4. Delete remaining in pool
     for (const leftover of existingPool) {
       await c.env.DB.prepare("DELETE FROM Itineraries WHERE id = ?").bind(leftover.id).run();
     }
@@ -1339,9 +838,7 @@ app.delete('/api/trips/:id/accommodations/:accId', async (c) => {
     if (!canEdit) return c.json({ error: 'Unauthorized' }, 403);
 
     await c.env.DB.prepare('DELETE FROM Accommodations WHERE id = ? AND trip_id = ?').bind(accId, tripId).run();
-    // Also delete associated itineraries
     await c.env.DB.prepare("DELETE FROM Itineraries WHERE type = 'ACCOMMODATION' AND related_id = ? AND trip_id = ?").bind(accId, tripId).run();
-    
     return c.json({ success: true });
   } catch (error: any) { return c.json({ error: error.message }, 500); }
 });
@@ -1350,9 +847,7 @@ app.delete('/api/trips/:id/accommodations/:accId', async (c) => {
 app.get('/api/trips/:id/members', async (c) => {
   const tripId = c.req.param('id');
   try {
-    const { results } = await c.env.DB.prepare(`
-      SELECT u.id, u.name, u.avatar_url, tm.role FROM TripMembers tm JOIN Users u ON tm.user_id = u.id WHERE tm.trip_id = ?
-    `).bind(tripId).all();
+    const { results } = await c.env.DB.prepare(`SELECT u.id, u.name, u.avatar_url, tm.role FROM TripMembers tm JOIN Users u ON tm.user_id = u.id WHERE tm.trip_id = ?`).bind(tripId).all();
     return c.json(results);
   } catch (error: any) { return c.json({ error: error.message }, 500); }
 });
@@ -1362,7 +857,6 @@ app.post('/api/trips/:id/members', async (c) => {
   try {
     const isAdmin = await checkTripAccess(c, Number(tripId), 'admin');
     if (!isAdmin) return c.json({ error: 'Only Admins can manage members' }, 403);
-
     const { userIds } = await c.req.json();
     await c.env.DB.prepare('DELETE FROM TripMembers WHERE trip_id = ?').bind(tripId).run();
     for (const userId of userIds) {
@@ -1377,9 +871,7 @@ app.get('/api/trips/:id/itineraries', async (c) => {
   const tripId = c.req.param('id');
   try {
     const { results } = await c.env.DB.prepare(`
-      SELECT i.*, c.name as city_name 
-      FROM Itineraries i 
-      LEFT JOIN Cities c ON i.city_id = c.id 
+      SELECT i.*, c.name as city_name FROM Itineraries i LEFT JOIN Cities c ON i.city_id = c.id 
       WHERE i.trip_id = ? ORDER BY date, start_time
     `).bind(tripId).all();
     const parsedResults = results.map((item: any) => ({ ...item, tags: item.tags ? JSON.parse(item.tags) : [] }));
@@ -1395,24 +887,10 @@ app.post('/api/trips/:id/itineraries', async (c) => {
 
     const b = await c.req.json();
     const info = await c.env.DB.prepare(`
-      INSERT INTO Itineraries (trip_id, city_id, date, start_time, end_time, title, address, image_url, notes, tags, sub_items, stay_duration, type, related_id, icon)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      INSERT INTO Itineraries (trip_id, city_id, date, start_time, end_time, title, address, image_url, notes, tags, sub_items, stay_duration, type, related_id, icon, next_transport_mode, next_transport_time, next_transport_auto_time)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).bind(
-      tripId, 
-      b.city_id, 
-      b.date, 
-      b.start_time, 
-      b.end_time, 
-      b.title, 
-      b.address || '', 
-      b.image_url || '', 
-      b.notes || '', 
-      JSON.stringify(b.tags || []),
-      b.sub_items || '[]',
-      b.stay_duration || '',
-      b.type || 'GENERAL',
-      b.related_id || null,
-      b.icon || ''
+      tripId, b.city_id, b.date, b.start_time, b.end_time, b.title, b.address || '', b.image_url || '', b.notes || '', JSON.stringify(b.tags || []), b.sub_items || '[]', b.stay_duration || '', b.type || 'GENERAL', b.related_id || null, b.icon || '', b.next_transport_mode || '', b.next_transport_time || '', b.next_transport_auto_time || ''
     ).run();
     return c.json({ success: true, id: info.meta.last_row_id });
   } catch (error: any) { return c.json({ error: error.message }, 500); }
@@ -1427,24 +905,10 @@ app.put('/api/trips/:id/itineraries/:itemId', async (c) => {
 
     const b = await c.req.json();
     await c.env.DB.prepare(`
-      UPDATE Itineraries 
-      SET city_id = ?, date = ?, start_time = ?, end_time = ?, title = ?, address = ?, image_url = ?, notes = ?, tags = ?, sub_items = ?, stay_duration = ?, icon = ?
+      UPDATE Itineraries SET city_id = ?, date = ?, start_time = ?, end_time = ?, title = ?, address = ?, image_url = ?, notes = ?, tags = ?, sub_items = ?, stay_duration = ?, icon = ?, next_transport_mode = ?, next_transport_time = ?, next_transport_auto_time = ?
       WHERE id = ? AND trip_id = ?
     `).bind(
-      b.city_id, 
-      b.date, 
-      b.start_time, 
-      b.end_time, 
-      b.title, 
-      b.address || '', 
-      b.image_url || '', 
-      b.notes || '', 
-      JSON.stringify(b.tags || []),
-      b.sub_items || '[]',
-      b.stay_duration || '',
-      b.icon || '',
-      itemId,
-      tripId
+      b.city_id, b.date, b.start_time, b.end_time, b.title, b.address || '', b.image_url || '', b.notes || '', JSON.stringify(b.tags || []), b.sub_items || '[]', b.stay_duration || '', b.icon || '', b.next_transport_mode || '', b.next_transport_time || '', b.next_transport_auto_time || '', itemId, tripId
     ).run();
     return c.json({ success: true });
   } catch (error: any) { return c.json({ error: error.message }, 500); }
@@ -1456,13 +920,11 @@ app.delete('/api/trips/:id/itineraries/:itemId', async (c) => {
   try {
     const canEdit = await checkTripAccess(c, Number(tripId), 'edit');
     if (!canEdit) return c.json({ error: 'Unauthorized' }, 403);
-
     await c.env.DB.prepare('DELETE FROM Itineraries WHERE id = ? AND trip_id = ?').bind(itemId, tripId).run();
     return c.json({ success: true });
   } catch (error: any) { return c.json({ error: error.message }, 500); }
 });
 
-// Sub-Itineraries Endpoints
 app.get('/api/itineraries/:itineraryId/sub-items', async (c) => {
   const itineraryId = c.req.param('itineraryId');
   try {
@@ -1489,9 +951,7 @@ app.put('/api/sub-items/:id', async (c) => {
   try {
     const b = await c.req.json();
     await c.env.DB.prepare(`
-      UPDATE Sub_Itineraries 
-      SET start_time = ?, end_time = ?, title = ?, tags = ?, notes = ?
-      WHERE id = ?
+      UPDATE Sub_Itineraries SET start_time = ?, end_time = ?, title = ?, tags = ?, notes = ? WHERE id = ?
     `).bind(b.start_time, b.end_time, b.title, b.tags || '', b.notes || '', id).run();
     return c.json({ success: true });
   } catch (error: any) { return c.json({ error: error.message }, 500); }
@@ -1538,8 +998,7 @@ app.put('/api/trips/:id/expenses/:expenseId', async (c) => {
 
     const b = await c.req.json();
     await c.env.DB.prepare(`
-      UPDATE Expenses 
-      SET item_name = ?, amount = ?, currency = ?, date = ?, payer_id = ?, split_members = ?, notes = ?, category = ?, updated_at = ?
+      UPDATE Expenses SET item_name = ?, amount = ?, currency = ?, date = ?, payer_id = ?, split_members = ?, notes = ?, category = ?, updated_at = ?
       WHERE id = ? AND trip_id = ?
     `).bind(b.item_name, b.amount, b.currency, b.date, b.payer_id, JSON.stringify(b.split_members), b.notes, b.category || 'other', Date.now(), expenseId, tripId).run();
     return c.json({ success: true });
@@ -1552,7 +1011,6 @@ app.delete('/api/trips/:id/expenses/:expenseId', async (c) => {
   try {
     const canEdit = await checkTripAccess(c, Number(tripId), 'edit');
     if (!canEdit) return c.json({ error: 'Unauthorized' }, 403);
-
     await c.env.DB.prepare('DELETE FROM Expenses WHERE id = ? AND trip_id = ?').bind(expenseId, tripId).run();
     return c.json({ success: true });
   } catch (error: any) { return c.json({ error: error.message }, 500); }
@@ -1566,7 +1024,6 @@ app.get('/api/settings', async (c) => {
   } catch (error: any) { return c.json({ error: error.message }, 500); }
 });
 
-// Categories Endpoints
 app.get('/api/settings/categories', async (c) => {
   try {
     const { results } = await c.env.DB.prepare('SELECT * FROM Categories ORDER BY is_default DESC, created_at').all();
@@ -1601,7 +1058,6 @@ app.delete('/api/settings/categories/:id', async (c) => {
 
 app.post('/api/sync', async (c) => {
   try {
-    const data = await c.req.json();
     return c.json({ success: true, message: 'Sync completed' });
   } catch (error: any) { return c.json({ error: error.message }, 500); }
 });
@@ -1625,12 +1081,7 @@ export default {
     // SPA Fallback
     try {
       let assetManifest = {};
-      try {
-        assetManifest = JSON.parse(manifestJSON);
-      } catch (e) {
-        console.error('Failed to parse manifest:', e);
-      }
-      
+      try { assetManifest = JSON.parse(manifestJSON); } catch (e) { console.error('Failed to parse manifest:', e); }
       return await getAssetFromKV({ request, waitUntil: ctx.waitUntil.bind(ctx) }, { ASSET_NAMESPACE: env.__STATIC_CONTENT, ASSET_MANIFEST: assetManifest });
     } catch (e: any) {
       console.error('getAssetFromKV error:', e.message);
@@ -1646,94 +1097,23 @@ export default {
     }
   },
   
-  // --- 神級動態天氣演算法 Cron Job ---
+  // --- 神級動態天氣演算法 Cron Job (極簡優化版) ---
   async scheduled(event: ScheduledEvent, env: Env, ctx: ExecutionContext) {
     console.log(`Cron Job triggered at ${new Date().toISOString()}`);
-    
     ctx.waitUntil((async () => {
       try {
         const todayStr = new Date().toISOString().split('T')[0];
         
-        // 1. 撈出所有進行中/未來的 Trips 及預設城市座標
+        // 1. 撈出所有進行中/未來的 Trips
         const { results: activeTrips } = await env.DB.prepare(`
-          SELECT t.id, c.name as default_city, c.lat as default_lat, c.lng as default_lng 
-          FROM Trips t 
-          JOIN Cities c ON t.default_city_id = c.id 
-          WHERE t.end_date >= date('now')
+          SELECT id FROM Trips WHERE end_date >= date('now')
         `).all();
 
         if (activeTrips.length === 0) return;
 
-        const targetHours = ['09:00', '12:00', '15:00', '18:00'];
-
+        // 2. 直接利用既有的 Helper 函數來更新並快取
         for (const trip of activeTrips as any[]) {
-          // 2. 撈出該行程「今天」的所有站點及對應的城市
-          const { results: todayItineraries } = await env.DB.prepare(`
-            SELECT i.start_time, i.end_time, c.name as city, c.lat, c.lng 
-            FROM Itineraries i 
-            JOIN Cities c ON i.city_id = c.id 
-            WHERE i.trip_id = ? AND i.date = ?
-          `).bind(trip.id, todayStr).all();
-
-          const intervals = [];
-          const uniqueCoords = new Map(); // 用來快取 API 請求，避免同個經緯度打兩次
-
-          // 3. 判斷 4 個時段分別落在哪個城市
-          for (const hour of targetHours) {
-            let currentLat = trip.default_lat;
-            let currentLng = trip.default_lng;
-            let currentCity = trip.default_city;
-
-            // 檢查該時段是否落在某個 itinerary 內
-            for (const item of todayItineraries as any[]) {
-              if (item.start_time && item.end_time && hour >= item.start_time && hour <= item.end_time) {
-                currentLat = item.lat;
-                currentLng = item.lng;
-                currentCity = item.city;
-                break;
-              }
-            }
-
-            const coordKey = `${currentLat},${currentLng}`;
-            
-            // 4. 若此座標尚未查過，向 Open-Meteo 請求天氣
-            if (!uniqueCoords.has(coordKey)) {
-              const url = `https://api.open-meteo.com/v1/forecast?latitude=${currentLat}&longitude=${currentLng}&hourly=temperature_2m,precipitation_probability,weathercode&daily=temperature_2m_max,temperature_2m_min,weathercode&timezone=auto`;
-              const res = await fetch(url);
-              if (res.ok) uniqueCoords.set(coordKey, await res.json());
-            }
-
-            const weatherData = uniqueCoords.get(coordKey);
-            
-            if (weatherData) {
-              const timeString = `${todayStr}T${hour}`;
-              const index = weatherData.hourly.time.indexOf(timeString);
-              intervals.push({
-                time: hour,
-                city: currentCity,
-                temp: index !== -1 ? Math.round(weatherData.hourly.temperature_2m[index]) : null,
-                pop: index !== -1 ? weatherData.hourly.precipitation_probability[index] : null,
-                code: index !== -1 ? weatherData.hourly.weathercode[index] : null
-              });
-            }
-          }
-
-          // 5. 抓取每日總結 (以 12:00 中午所在的城市為基準)
-          let summary = null;
-          const noonData = intervals.find(i => i.time === '12:00');
-          if (noonData) {
-             const coordKey = [...uniqueCoords.keys()].find(k => uniqueCoords.get(k).hourly.time.includes(`${todayStr}T12:00`)) || [...uniqueCoords.keys()][0];
-             const mainWeather = uniqueCoords.get(coordKey);
-             summary = {
-               max_temp: Math.round(mainWeather.daily.temperature_2m_max[0]),
-               min_temp: Math.round(mainWeather.daily.temperature_2m_min[0]),
-               weather_code: mainWeather.daily.weathercode[0]
-             };
-          }
-
-          // 6. 寫入 KV 快取 (24小時過期)
-          const finalJSON = { date: todayStr, summary, intervals };
-          await env.KV.put(`weather:trip:${trip.id}`, JSON.stringify(finalJSON), { expirationTtl: 86400 });
+          await getWeatherForDate(trip.id, todayStr, env);
           console.log(`Weather updated for Trip ${trip.id}`);
         }
       } catch (error) { console.error("Cron job failed:", error); }

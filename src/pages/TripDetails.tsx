@@ -10,6 +10,7 @@ import { db } from '../db';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { getApiUrl, apiFetch } from '../utils/api';
 import { FinanceForm } from '../components/FinanceForm';
+import { NextTransportForm } from '../components/NextTransportForm';
 import { ItineraryForm } from '../components/ItineraryForm';
 import { TripSettingsForm } from '../components/TripSettingsForm';
 import { WeatherWidget } from '../components/WeatherWidget';
@@ -774,6 +775,7 @@ export function TripDetails() {
   const [isFinanceFormOpen, setIsFinanceFormOpen] = useState(false);
   const [isItineraryFormOpen, setIsItineraryFormOpen] = useState(false);
   const [isTransportationFormOpen, setIsTransportationFormOpen] = useState(false);
+  const [isNextTransportFormOpen, setIsNextTransportFormOpen] = useState(false);
   const [isAccommodationFormOpen, setIsAccommodationFormOpen] = useState(false);
   
   const [editingItinerary, setEditingItinerary] = useState<Itinerary | null>(null);
@@ -1163,6 +1165,25 @@ export function TripDetails() {
         )}
       </div>
 
+      {isNextTransportFormOpen && editingItinerary && (
+        <NextTransportForm
+          isOpen={isNextTransportFormOpen}
+          onClose={() => setIsNextTransportFormOpen(false)}
+          itinerary={editingItinerary}
+          onSave={async (data) => {
+            await apiFetch(`/api/trips/${id}/itineraries/${editingItinerary.id}`, {
+              method: 'PUT',
+              body: JSON.stringify({ ...editingItinerary, ...data }),
+            });
+            setIsNextTransportFormOpen(false);
+            // Refresh itineraries
+            const res = await apiFetch(`/api/trips/${id}/itineraries`);
+            const itinerariesData = await res.json() as Itinerary[];
+            await db.itineraries.bulkPut(itinerariesData);
+          }}
+        />
+      )}
+      
       {/* Scrollable Content */}
       <div className="flex-1 overflow-y-auto p-4 pb-32 custom-scrollbar overscroll-none">
         {activeTab === 'itinerary' && (
@@ -1197,16 +1218,28 @@ export function TripDetails() {
                     : null;
                   
                   return (
-                    <ItineraryCard 
-                      key={item.id} 
-                      item={item} 
-                      canEdit={canEdit}
-                      onEdit={() => {
-                        setEditingItinerary(item);
-                        setIsItineraryFormOpen(true);
-                      }}
-                      selectedDate={selectedDate}
-                    />
+                    <div key={item.id} className="space-y-2">
+                      <ItineraryCard 
+                        item={item} 
+                        canEdit={canEdit}
+                        onEdit={() => {
+                          setEditingItinerary(item);
+                          setIsItineraryFormOpen(true);
+                        }}
+                        selectedDate={selectedDate}
+                      />
+                      {canEdit && index < filteredItineraries.length - 1 && (
+                        <button 
+                          onClick={() => {
+                            setEditingItinerary(item);
+                            setIsNextTransportFormOpen(true);
+                          }}
+                          className="w-full py-2 bg-zinc-800 rounded-xl text-xs text-zinc-400 hover:bg-zinc-700 transition-colors"
+                        >
+                          {item.next_transport_mode ? `${item.next_transport_mode} ${item.next_transport_time || 'Auto'}` : 'Add Next Transport'}
+                        </button>
+                      )}
+                    </div>
                   );
                 })
               ) : (

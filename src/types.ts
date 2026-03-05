@@ -58,6 +58,9 @@ export interface Itinerary {
   stay_duration?: string;
   type?: 'GENERAL' | 'TRANSPORTATION' | 'ACCOMMODATION';
   related_id?: number;
+  next_transport_mode?: string;
+  next_transport_time?: string;
+  next_transport_auto_time?: string;
 }
 
 export interface SubItinerary {
