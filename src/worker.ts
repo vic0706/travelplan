@@ -211,9 +211,9 @@ async function ensureSchema(db: D1Database) {
   } catch (e) {}
 
   try {
-    // 5. Create ExpenseCategories table
+    // 5. Create Categories table
     await db.prepare(`
-      CREATE TABLE IF NOT EXISTS ExpenseCategories (
+      CREATE TABLE IF NOT EXISTS Categories (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         name TEXT NOT NULL,
         icon TEXT DEFAULT 'circle',
@@ -223,8 +223,17 @@ async function ensureSchema(db: D1Database) {
       )
     `).run();
 
+    // Migrate from old ExpenseCategories if it exists
+    try {
+      const oldTableInfo = await db.prepare("PRAGMA table_info(ExpenseCategories)").all();
+      if (oldTableInfo.results.length > 0) {
+        await db.prepare("INSERT INTO Categories (name, icon, color, is_default, created_at) SELECT name, icon, color, is_default, created_at FROM ExpenseCategories").run();
+        await db.prepare("DROP TABLE ExpenseCategories").run();
+      }
+    } catch (e) {}
+
     // Seed default categories
-    const { count } = await db.prepare('SELECT COUNT(*) as count FROM ExpenseCategories').first() as any;
+    const { count } = await db.prepare('SELECT COUNT(*) as count FROM Categories').first() as any;
     if (count === 0) {
       const defaults = [
         { name: 'Food', icon: 'Utensils', color: '#F97316' },
@@ -235,7 +244,7 @@ async function ensureSchema(db: D1Database) {
         { name: 'Other', icon: 'Package', color: '#6B7280' },
       ];
       for (const cat of defaults) {
-        await db.prepare('INSERT INTO ExpenseCategories (name, icon, color, is_default, created_at) VALUES (?, ?, ?, 1, ?)').bind(cat.name, cat.icon, cat.color, Date.now()).run();
+        await db.prepare('INSERT INTO Categories (name, icon, color, is_default, created_at) VALUES (?, ?, ?, 1, ?)').bind(cat.name, cat.icon, cat.color, Date.now()).run();
       }
     }
   } catch (e) {
@@ -1560,7 +1569,7 @@ app.get('/api/settings', async (c) => {
 // Categories Endpoints
 app.get('/api/settings/categories', async (c) => {
   try {
-    const { results } = await c.env.DB.prepare('SELECT * FROM ExpenseCategories ORDER BY is_default DESC, created_at').all();
+    const { results } = await c.env.DB.prepare('SELECT * FROM Categories ORDER BY is_default DESC, created_at').all();
     return c.json(results);
   } catch (error: any) { return c.json({ error: error.message }, 500); }
 });
@@ -1568,7 +1577,7 @@ app.get('/api/settings/categories', async (c) => {
 app.post('/api/settings/categories', async (c) => {
   try {
     const { name, icon, color } = await c.req.json();
-    await c.env.DB.prepare('INSERT INTO ExpenseCategories (name, icon, color, is_default, created_at) VALUES (?, ?, ?, 0, ?)').bind(name, icon, color, Date.now()).run();
+    await c.env.DB.prepare('INSERT INTO Categories (name, icon, color, is_default, created_at) VALUES (?, ?, ?, 0, ?)').bind(name, icon, color, Date.now()).run();
     return c.json({ success: true });
   } catch (error: any) { return c.json({ error: error.message }, 500); }
 });
@@ -1577,7 +1586,7 @@ app.put('/api/settings/categories/:id', async (c) => {
   const id = c.req.param('id');
   try {
     const { name, icon, color } = await c.req.json();
-    await c.env.DB.prepare('UPDATE ExpenseCategories SET name = ?, icon = ?, color = ? WHERE id = ? AND is_default = 0').bind(name, icon, color, id).run();
+    await c.env.DB.prepare('UPDATE Categories SET name = ?, icon = ?, color = ? WHERE id = ? AND is_default = 0').bind(name, icon, color, id).run();
     return c.json({ success: true });
   } catch (error: any) { return c.json({ error: error.message }, 500); }
 });
@@ -1585,7 +1594,7 @@ app.put('/api/settings/categories/:id', async (c) => {
 app.delete('/api/settings/categories/:id', async (c) => {
   const id = c.req.param('id');
   try {
-    await c.env.DB.prepare('DELETE FROM ExpenseCategories WHERE id = ? AND is_default = 0').bind(id).run();
+    await c.env.DB.prepare('DELETE FROM Categories WHERE id = ? AND is_default = 0').bind(id).run();
     return c.json({ success: true });
   } catch (error: any) { return c.json({ error: error.message }, 500); }
 });

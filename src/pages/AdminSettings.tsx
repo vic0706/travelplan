@@ -182,7 +182,7 @@ export function AdminSettings() {
   return (
     <div className="min-h-full bg-black relative">
       {/* Sticky Header - Stick below the TopAppBar */}
-      <div className="sticky top-[calc(4rem+env(safe-area-inset-top,0px))] z-30 bg-black border-b border-zinc-800/50 backdrop-blur-md bg-black/95 px-4 py-4 flex items-center justify-between">
+      <div className="sticky top-0 z-30 bg-black border-b border-zinc-800/50 backdrop-blur-md bg-black/95 px-4 py-4 flex items-center justify-between">
         <div className="flex items-center gap-2">
           {view !== 'main' && (
             <button onClick={() => setView('main')} className="p-2 -ml-2 text-zinc-400 hover:text-white rounded-full hover:bg-zinc-800 transition-colors">
