@@ -1218,7 +1218,7 @@ export function TripDetails() {
                     : null;
                   
                   return (
-                    <div key={item.id} className="space-y-2">
+                    <div key={`itinerary-${item.id}`} className="space-y-2">
                       <ItineraryCard 
                         item={item} 
                         canEdit={canEdit}
