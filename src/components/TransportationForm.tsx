@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { X, Plane, Train, Ship, Search, Hash, Loader2, Trash2 } from 'lucide-react';
+import { X, Plane, Train, Ship, Search, Hash, Loader2, Trash2, Car } from 'lucide-react';
 import { format, parseISO, addMinutes, subMinutes } from 'date-fns';
 import { DatePicker } from './DatePicker';
 import { TimePicker } from './TimePicker';
@@ -21,6 +21,7 @@ const TRANSPORT_TYPES = [
   { id: 'FLIGHT', label: 'Flight', icon: Plane },
   { id: 'TRAIN', label: 'Train', icon: Train },
   { id: 'FERRY', label: 'Ferry', icon: Ship },
+  { id: 'PRIVATE_TRANSFER', label: 'Car', icon: Car },
 ] as const;
 
 export function TransportationForm({ tripId, onSuccess, onCancel, onDelete, initialData }: TransportationFormProps) {
@@ -147,6 +148,7 @@ export function TransportationForm({ tripId, onSuccess, onCancel, onDelete, init
       case 'FLIGHT': return { provider: 'Airline', code: 'Flight No.', station: 'Airport', terminal: 'Terminal' };
       case 'TRAIN': return { provider: 'Operator', code: 'Train No.', station: 'Station', terminal: 'Platform' };
       case 'FERRY': return { provider: 'Operator', code: 'Vessel', station: 'Port', terminal: 'Pier' };
+      case 'PRIVATE_TRANSFER': return { provider: 'Service', code: 'Plate No.', station: 'Location', terminal: 'Point' };
       default: return { provider: 'Provider', code: 'Reference', station: 'Location', terminal: 'Point' };
     }
   };
@@ -164,7 +166,7 @@ export function TransportationForm({ tripId, onSuccess, onCancel, onDelete, init
             <X size={20} />
           </button>
         </div>
-        <div className="grid grid-cols-3 gap-4">
+        <div className="grid grid-cols-2 gap-4">
           {TRANSPORT_TYPES.map(type => (
             <button
               key={type.id}

@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useAppStore } from '../store';
 import { format, parseISO, addDays, differenceInDays, isSameDay, isPast } from 'date-fns';
-import { MapPin, Clock, Plus, Navigation, DollarSign, Plane, Bed, Map, Info, Wallet, ArrowLeft, Calendar, X, Settings, Edit3, ChevronDown, ChevronUp, Image as ImageIcon, Lock, Unlock, Trash2, Train, Ship, Bus, Car } from 'lucide-react';
+import { MapPin, Clock, Plus, Navigation, DollarSign, Plane, Bed, Map, Info, Wallet, ArrowLeft, Calendar, X, Settings, Edit3, ChevronDown, ChevronUp, Image as ImageIcon, Lock, Unlock, Trash2, Train, Ship, Bus, Car, Footprints } from 'lucide-react';
 import { Trip, Itinerary, Expense, User, Transportation } from '../types';
 import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip } from 'recharts';
 import { clsx } from 'clsx';
@@ -24,7 +24,21 @@ import { DynamicIcon } from '../components/DynamicIcon';
 // ... (rest of imports)
 
 // Transportation Card Component
-function TransportationCard({ item, transportation, canEdit, onEdit }: { item?: Itinerary; transportation?: Transportation; canEdit: boolean; onEdit: () => void }) {
+function TransportationCard({ 
+  item, 
+  transportation, 
+  canEdit, 
+  onEdit,
+  showNextTransport,
+  onEditNextTransport
+}: { 
+  item?: Itinerary; 
+  transportation?: Transportation; 
+  canEdit: boolean; 
+  onEdit: () => void;
+  showNextTransport?: boolean;
+  onEditNextTransport?: () => void;
+}) {
   if (!transportation) return null;
 
   const depDate = parseISO(`${transportation.dep_date}T${transportation.dep_time}`);
@@ -50,6 +64,7 @@ function TransportationCard({ item, transportation, canEdit, onEdit }: { item?: 
       case 'FERRY': return Ship;
       case 'BUS': return Bus;
       case 'DRIVING': return Car;
+      case 'PRIVATE_TRANSFER': return Car;
       default: return Plane;
     }
   };
@@ -61,6 +76,7 @@ function TransportationCard({ item, transportation, canEdit, onEdit }: { item?: 
       case 'FLIGHT': return { station: 'Airport', terminal: 'Terminal' };
       case 'TRAIN': return { station: 'Station', terminal: 'Platform' };
       case 'FERRY': return { station: 'Port', terminal: 'Pier' };
+      case 'PRIVATE_TRANSFER': return { station: 'Location', terminal: 'Point' };
       default: return { station: 'Location', terminal: 'Point' };
     }
   };
@@ -113,15 +129,57 @@ function TransportationCard({ item, transportation, canEdit, onEdit }: { item?: 
             </h3>
           </div>
           
-          <button 
-            className="flex items-center justify-center text-zinc-400 hover:text-orange-500 hover:bg-orange-500/20 transition-colors bg-zinc-800/50 w-10 h-10 rounded-full border border-zinc-700/50 shrink-0 shadow-sm"
-            onClick={(e) => {
-               e.stopPropagation();
-               // Maybe open link?
-            }}
-          >
-             <Map size={18} />
-          </button>
+          <div className="flex flex-col items-end gap-2">
+            <div className="flex flex-col items-center bg-zinc-800/50 rounded-2xl border border-zinc-700/50 overflow-hidden shadow-sm backdrop-blur-sm">
+              <button 
+                className="p-2.5 text-zinc-400 hover:text-orange-500 hover:bg-zinc-700/50 transition-colors flex items-center justify-center w-10 h-10"
+                onClick={(e) => {
+                   e.stopPropagation();
+                   // Maybe open link?
+                }}
+                title="View on Map"
+              >
+                 <Map size={18} />
+              </button>
+
+              {showNextTransport && (canEdit || !!item.next_transport_mode) && (
+                <>
+                  <div className="w-6 h-px bg-zinc-700/50" />
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      if (canEdit) onEditNextTransport?.();
+                    }}
+                    disabled={!canEdit}
+                    className={clsx(
+                      "p-2 flex flex-col items-center justify-center gap-0.5 w-10 transition-colors",
+                      canEdit ? "hover:bg-zinc-700/50 cursor-pointer" : "cursor-default",
+                      item.next_transport_mode ? "text-orange-500" : "text-zinc-500 hover:text-zinc-300"
+                    )}
+                    title={item.next_transport_mode ? `Next: ${item.next_transport_mode}` : "Add Next Transport"}
+                  >
+                    {item.next_transport_mode ? (
+                      <>
+                        {item.next_transport_mode === 'WALKING' && <Footprints size={16} />}
+                        {(item.next_transport_mode === 'TRANSIT' || item.next_transport_mode === 'BUS') && <Bus size={16} />}
+                        {item.next_transport_mode === 'TRAIN' && <Train size={16} />}
+                        {item.next_transport_mode === 'SHIP' && <Ship size={16} />}
+                        {(item.next_transport_mode === 'DRIVING' || item.next_transport_mode === 'TAXI') && <Car size={16} />}
+                        
+                        {(item.next_transport_time || item.next_transport_auto_time) && (
+                          <span className="text-[9px] font-mono font-bold leading-none mt-0.5">
+                            {item.next_transport_time ? item.next_transport_time.replace(' min', 'm') : 'Auto'}
+                          </span>
+                        )}
+                      </>
+                    ) : (
+                      <Plus size={18} />
+                    )}
+                  </button>
+                </>
+              )}
+            </div>
+          </div>
         </div>
 
         {/* Expanded Content */}
@@ -561,7 +619,21 @@ function SubItemRow({ sub, itineraryImageUrl, isLast, hasMore }: { sub: any; iti
 }
 
 // Itinerary Card Component
-function ItineraryCard({ item, canEdit, onEdit, selectedDate }: { item: Itinerary; canEdit: boolean; onEdit: () => void; selectedDate: Date }) {
+function ItineraryCard({ 
+  item, 
+  canEdit, 
+  onEdit, 
+  selectedDate,
+  showNextTransport,
+  onEditNextTransport
+}: { 
+  item: Itinerary; 
+  canEdit: boolean; 
+  onEdit: () => void; 
+  selectedDate: Date;
+  showNextTransport?: boolean;
+  onEditNextTransport?: () => void;
+}) {
   const timeString = item.end_time || item.start_time || '23:59';
   const dateStr = format(selectedDate, 'yyyy-MM-dd');
   const itemDateTime = parseISO(`${dateStr}T${timeString}`);
@@ -616,7 +688,7 @@ function ItineraryCard({ item, canEdit, onEdit, selectedDate }: { item: Itinerar
           <div className="flex items-center gap-2 text-zinc-400">
             <div className="w-1.5 h-1.5 rounded-full bg-orange-500" />
             <span className="font-mono text-sm font-medium tracking-wide">
-              {item.start_time} - {item.end_time}
+              {item.start_time} - {item.start_time === item.end_time ? 'Auto' : item.end_time}
             </span>
           </div>
           <h3 className="text-xl font-bold text-white leading-tight flex items-center">
@@ -626,17 +698,61 @@ function ItineraryCard({ item, canEdit, onEdit, selectedDate }: { item: Itinerar
           </h3>
         </div>
         
-        <a 
-          href={item.address && item.address.startsWith('http') 
-            ? item.address 
-            : `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(item.address || item.title)}`}
-          target="_blank"
-          rel="noopener noreferrer"
-          onClick={(e) => e.stopPropagation()}
-          className="flex items-center justify-center text-zinc-400 hover:text-orange-500 hover:bg-orange-500/20 transition-colors bg-zinc-800/50 w-10 h-10 rounded-full border border-zinc-700/50 shrink-0 shadow-sm"
-        >
-          <Map size={18} />
-        </a>
+        <div className="flex flex-col items-end gap-2">
+          <div className="flex flex-col items-center bg-zinc-800/50 rounded-2xl border border-zinc-700/50 overflow-hidden shadow-sm backdrop-blur-sm">
+            <a 
+              href={item.address && item.address.startsWith('http') 
+                ? item.address 
+                : `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(item.address || item.title)}`}
+              target="_blank"
+              rel="noopener noreferrer"
+              onClick={(e) => e.stopPropagation()}
+              className="p-2.5 text-zinc-400 hover:text-orange-500 hover:bg-zinc-700/50 transition-colors flex items-center justify-center w-10 h-10"
+              title="View on Map"
+            >
+              <Map size={18} />
+            </a>
+
+            {showNextTransport && (canEdit || item.next_transport_mode) && (
+              <>
+                <div className="w-6 h-px bg-zinc-700/50" />
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    if (canEdit) onEditNextTransport?.();
+                  }}
+                  disabled={!canEdit}
+                  className={clsx(
+                    "p-2 flex flex-col items-center justify-center gap-0.5 w-10 transition-colors",
+                    canEdit ? "hover:bg-zinc-700/50 cursor-pointer" : "cursor-default",
+                    item.next_transport_mode ? "text-orange-500" : "text-zinc-500 hover:text-zinc-300"
+                  )}
+                  title={item.next_transport_mode ? `Next: ${item.next_transport_mode}` : "Add Next Transport"}
+                >
+                  {item.next_transport_mode ? (
+                    <>
+                      {item.next_transport_mode === 'WALKING' && <Footprints size={16} />}
+                      {(item.next_transport_mode === 'TRANSIT' || item.next_transport_mode === 'BUS') && <Bus size={16} />}
+                      {item.next_transport_mode === 'TRAIN' && <Train size={16} />}
+                      {item.next_transport_mode === 'SHIP' && <Ship size={16} />}
+                      {(item.next_transport_mode === 'DRIVING' || item.next_transport_mode === 'TAXI') && <Car size={16} />}
+                      
+                      {(item.next_transport_time || item.next_transport_auto_time) && (
+                        <span className="text-[9px] font-mono font-bold leading-none mt-0.5">
+                          {item.next_transport_time 
+                            ? item.next_transport_time.replace(' min', 'm') 
+                            : (item.next_transport_auto_time || 'Auto')}
+                        </span>
+                      )}
+                    </>
+                  ) : (
+                    <Plus size={18} />
+                  )}
+                </button>
+              </>
+            )}
+          </div>
+        </div>
       </div>
 
       {/* Expanded Content Area (Image, Tags, Details) */}
@@ -1165,24 +1281,32 @@ export function TripDetails() {
         )}
       </div>
 
-      {isNextTransportFormOpen && editingItinerary && (
-        <NextTransportForm
-          isOpen={isNextTransportFormOpen}
-          onClose={() => setIsNextTransportFormOpen(false)}
-          itinerary={editingItinerary}
-          onSave={async (data) => {
-            await apiFetch(`/api/trips/${id}/itineraries/${editingItinerary.id}`, {
-              method: 'PUT',
-              body: JSON.stringify({ ...editingItinerary, ...data }),
-            });
-            setIsNextTransportFormOpen(false);
-            // Refresh itineraries
-            const res = await apiFetch(`/api/trips/${id}/itineraries`);
-            const itinerariesData = await res.json() as Itinerary[];
-            await db.itineraries.bulkPut(itinerariesData);
-          }}
-        />
-      )}
+      <AnimatePresence>
+        {isNextTransportFormOpen && editingItinerary && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+          >
+            <NextTransportForm
+              isOpen={isNextTransportFormOpen}
+              onClose={() => setIsNextTransportFormOpen(false)}
+              itinerary={editingItinerary}
+              onSave={async (data) => {
+                await apiFetch(`/api/trips/${id}/itineraries/${editingItinerary.id}`, {
+                  method: 'PUT',
+                  body: JSON.stringify({ ...editingItinerary, ...data }),
+                });
+                setIsNextTransportFormOpen(false);
+                // Refresh itineraries
+                const res = await apiFetch(`/api/trips/${id}/itineraries`);
+                const itinerariesData = await res.json() as Itinerary[];
+                await db.itineraries.bulkPut(itinerariesData);
+              }}
+            />
+          </motion.div>
+        )}
+      </AnimatePresence>
       
       {/* Scrollable Content */}
       <div className="flex-1 overflow-y-auto p-4 pb-32 custom-scrollbar overscroll-none">
@@ -1209,6 +1333,11 @@ export function TripDetails() {
                             setIsTransportationFormOpen(true);
                           }
                         }}
+                        showNextTransport={index < filteredItineraries.length - 1}
+                        onEditNextTransport={() => {
+                          setEditingItinerary(item);
+                          setIsNextTransportFormOpen(true);
+                        }}
                       />
                     );
                   }
@@ -1227,18 +1356,12 @@ export function TripDetails() {
                           setIsItineraryFormOpen(true);
                         }}
                         selectedDate={selectedDate}
+                        showNextTransport={index < filteredItineraries.length - 1}
+                        onEditNextTransport={() => {
+                          setEditingItinerary(item);
+                          setIsNextTransportFormOpen(true);
+                        }}
                       />
-                      {canEdit && index < filteredItineraries.length - 1 && (
-                        <button 
-                          onClick={() => {
-                            setEditingItinerary(item);
-                            setIsNextTransportFormOpen(true);
-                          }}
-                          className="w-full py-2 bg-zinc-800 rounded-xl text-xs text-zinc-400 hover:bg-zinc-700 transition-colors"
-                        >
-                          {item.next_transport_mode ? `${item.next_transport_mode} ${item.next_transport_time || 'Auto'}` : 'Add Next Transport'}
-                        </button>
-                      )}
                     </div>
                   );
                 })

@@ -6,11 +6,12 @@ import { apiFetch } from '../utils/api';
 import { TimeRangePicker } from './TimeRangePicker';
 import { LocationPicker } from './LocationPicker';
 import { ImageCropper, uploadImageToSupabase } from './ImageCropper';
-import { format, parseISO, isSameDay, addMinutes, subMinutes } from 'date-fns';
+import { format, parseISO, isSameDay, addMinutes, subMinutes, differenceInMinutes } from 'date-fns';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { db } from '../db';
 import { Transportation } from '../types';
 import { DynamicIcon } from './DynamicIcon';
+import { clsx } from 'clsx';
 
 interface ItineraryFormProps {
   tripId: number;
@@ -113,6 +114,31 @@ export function ItineraryForm({ tripId, defaultCityId, date, onSuccess, onCancel
     icon: initialData?.icon || ''
   });
 
+  // Calculate initial duration
+  const [duration, setDuration] = useState<number>(() => {
+    if (!initialData) return 60; // Default 1 hour for new items
+    const start = parseISO(`${date}T${initialData.start_time}`);
+    const end = parseISO(`${date}T${initialData.end_time}`);
+    const diff = differenceInMinutes(end, start);
+    return diff > 0 ? diff : 0;
+  });
+
+  // Update end_time when duration or start_time changes
+  useEffect(() => {
+    if (!formData.start_time) return;
+    
+    // If duration is 0 (Auto), we might want to keep end_time same as start_time or handle it specially.
+    // For now, let's set end_time based on duration, but if 0, maybe just +0 minutes.
+    const start = parseISO(`${date}T${formData.start_time}`);
+    const end = addMinutes(start, duration);
+    const endTimeStr = format(end, 'HH:mm');
+    
+    // Only update if different to avoid loops, although dependency array handles it
+    if (endTimeStr !== formData.end_time) {
+      setFormData(prev => ({ ...prev, end_time: endTimeStr }));
+    }
+  }, [duration, formData.start_time, date]);
+
   const transportations = useLiveQuery(() => db.transportations.where('trip_id').equals(tripId).toArray(), [tripId]) || [];
 
   const blockedRanges = useMemo(() => {
@@ -192,14 +218,6 @@ export function ItineraryForm({ tripId, defaultCityId, date, onSuccess, onCancel
     } finally {
       setUploading(false);
     }
-  };
-
-  const handleTimeRangeChange = (range: { start: string; end: string }) => {
-    setFormData(prev => ({
-      ...prev,
-      start_time: range.start,
-      end_time: range.end,
-    }));
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -407,12 +425,72 @@ export function ItineraryForm({ tripId, defaultCityId, date, onSuccess, onCancel
           />
         </div>
 
-        <div className="space-y-4">
-          <TimeRangePicker
-            label="Time Range"
-            value={{ start: formData.start_time, end: formData.end_time }}
-            onChange={handleTimeRangeChange}
-          />
+        <div className="space-y-6">
+          <div className="grid grid-cols-2 gap-4">
+            <div>
+              <label className="block text-sm font-medium text-zinc-400 mb-1">Arrival Time</label>
+              <input
+                type="time"
+                value={formData.start_time}
+                onChange={(e) => setFormData({ ...formData, start_time: e.target.value })}
+                className="w-full bg-zinc-800 border border-zinc-700 rounded-xl px-4 py-3 text-white focus:outline-none focus:ring-2 focus:ring-orange-500"
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-zinc-400 mb-1">Departure Time</label>
+              <div className="w-full bg-zinc-800/50 border border-zinc-700/50 rounded-xl px-4 py-3 text-zinc-400 cursor-not-allowed">
+                {formData.end_time}
+              </div>
+            </div>
+          </div>
+
+          {/* Duration Slider */}
+          <div className="space-y-4">
+            <div className="flex items-center justify-between">
+              <label className="text-sm font-medium text-zinc-400 uppercase tracking-wider flex items-center gap-2">
+                <Clock size={14} />
+                Duration
+              </label>
+              <span className={clsx(
+                "font-mono font-bold text-lg transition-colors",
+                !duration ? "text-zinc-500" : "text-orange-500"
+              )}>
+                {duration ? `${duration} min` : 'Auto'}
+              </span>
+            </div>
+            
+            <div className="space-y-6">
+              <div className="relative pt-1">
+                <input
+                  type="range"
+                  min="0"
+                  max="240"
+                  step="5"
+                  value={Math.min(duration, 240)}
+                  onChange={(e) => setDuration(parseInt(e.target.value))}
+                  className="w-full h-2 bg-zinc-800 rounded-lg appearance-none cursor-pointer accent-orange-500 hover:accent-orange-400 transition-all"
+                />
+                <div className="flex justify-between text-[10px] text-zinc-600 font-mono mt-2 px-1">
+                  <span>Auto</span>
+                  <span>1h</span>
+                  <span>2h</span>
+                  <span>3h</span>
+                  <span>4h+</span>
+                </div>
+              </div>
+
+              <div className="relative">
+                <input
+                  type="number"
+                  value={duration || ''}
+                  onChange={(e) => setDuration(e.target.value === '' ? 0 : parseInt(e.target.value))}
+                  placeholder="Auto (0 min)"
+                  className="w-full bg-zinc-950 border border-zinc-800 rounded-xl p-4 text-white placeholder:text-zinc-600 focus:outline-none focus:border-orange-500 transition-colors"
+                />
+                <span className="absolute right-4 top-1/2 -translate-y-1/2 text-zinc-500 text-sm font-medium">min</span>
+              </div>
+            </div>
+          </div>
         </div>
 
         <div>

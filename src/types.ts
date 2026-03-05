@@ -91,7 +91,7 @@ export interface Expense {
 export interface Transportation {
   id: number;
   trip_id: number;
-  type: 'FLIGHT' | 'TRAIN' | 'BUS' | 'FERRY' | 'DRIVING';
+  type: 'FLIGHT' | 'TRAIN' | 'BUS' | 'FERRY' | 'DRIVING' | 'PRIVATE_TRANSFER';
   provider?: string;
   code?: string;
   
