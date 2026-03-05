@@ -16,6 +16,7 @@ import { TripSettingsForm } from '../components/TripSettingsForm';
 import { WeatherWidget } from '../components/WeatherWidget';
 import { TransportationForm } from '../components/TransportationForm';
 import { AccommodationForm } from '../components/AccommodationForm';
+import { RentalForm } from '../components/RentalForm';
 import { FinanceOverview } from '../components/FinanceOverview';
 import { ConfirmDialog } from '../components/ConfirmDialog';
 import { motion, AnimatePresence } from 'framer-motion';
@@ -494,6 +495,122 @@ function AccommodationCard({ acc, canEdit, onEdit }: { acc: any; canEdit: boolea
   );
 }
 
+// Rental Card Component
+function RentalCard({ rental, canEdit, onEdit }: { rental: any; canEdit: boolean; onEdit: () => void }) {
+  const handleLocationClick = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (!rental.address && !rental.name) return;
+
+    if (rental.address && (rental.address.startsWith('http://') || rental.address.startsWith('https://'))) {
+      window.open(rental.address, '_blank');
+      return;
+    }
+
+    const query = rental.address || rental.name;
+    window.open(`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(query)}`, '_blank');
+  };
+
+  const checkInDate = parseISO(rental.check_in_date);
+  const checkOutDate = parseISO(rental.check_out_date);
+  const isValidCheckIn = !isNaN(checkInDate.getTime());
+  const isValidCheckOut = !isNaN(checkOutDate.getTime());
+
+  const hasExpandableContent = !!rental.notes;
+  const [isExpanded, setIsExpanded] = useState(hasExpandableContent);
+
+  return (
+    <div 
+      className={clsx(
+        "bg-zinc-900 border border-zinc-800 rounded-3xl overflow-hidden shadow-lg relative group transition-all",
+        canEdit && "cursor-pointer hover:border-blue-500/50"
+      )}
+      onClick={() => {
+        if (canEdit) {
+          onEdit();
+        } else if (hasExpandableContent) {
+          setIsExpanded(!isExpanded);
+        }
+      }}
+    >
+      {/* Header */}
+      <div className="bg-zinc-950/50 p-4 border-b border-zinc-800/50 flex items-center justify-between">
+        <div className="flex items-center gap-3">
+          <div className="w-10 h-10 rounded-full bg-blue-500/10 flex items-center justify-center shrink-0">
+            <Car className="text-blue-500" size={20} />
+          </div>
+          <div>
+            <div className="text-white font-bold text-lg">{rental.name}</div>
+          </div>
+        </div>
+        <div className="text-right">
+          <div className="text-[10px] text-zinc-500 uppercase tracking-wider">Pick-up</div>
+          <div className="text-xs font-bold text-zinc-300">
+            {isValidCheckIn ? format(checkInDate, 'MMM d, yyyy') : '---'}
+          </div>
+        </div>
+      </div>
+
+      <div className="p-5">
+        <div className="flex items-start justify-between gap-4 mb-2">
+          <div className="flex-1">
+            <div className="flex flex-wrap gap-6">
+              <div>
+                <div className="text-[10px] text-zinc-500 uppercase tracking-wider mb-1">Duration</div>
+                <div className="text-sm font-bold text-white">
+                  {isValidCheckIn ? format(checkInDate, 'MMM d') : '---'} - {isValidCheckOut ? format(checkOutDate, 'MMM d') : '---'}
+                </div>
+              </div>
+              <div>
+                <div className="text-[10px] text-zinc-500 uppercase tracking-wider mb-1">Pick-up Time</div>
+                <div className="text-sm font-bold text-white">
+                  {rental.check_in_time || '10:00'}
+                </div>
+              </div>
+              <div>
+                <div className="text-[10px] text-zinc-500 uppercase tracking-wider mb-1">Return Time</div>
+                <div className="text-sm font-bold text-white">{rental.check_out_time || '10:00'}</div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {/* Footer - Only show if expanded */}
+        <div className={clsx(
+            "transition-all duration-300 overflow-hidden",
+            isExpanded ? "max-h-[200px] opacity-100 mt-4 pt-4 border-t border-zinc-800/50" : "max-h-0 opacity-0 mt-0 pt-0 border-none"
+        )}>
+          <div className="flex items-center justify-between gap-4">
+            <div className="text-xs text-zinc-500 italic line-clamp-2 flex-1">
+              {rental.notes ? `"${rental.notes}"` : "No notes"}
+            </div>
+            <button 
+              onClick={handleLocationClick}
+              className="p-2 text-zinc-400 hover:text-blue-500 bg-zinc-950/50 rounded-xl border border-zinc-800/50 transition-colors shadow-inner shrink-0"
+            >
+              <Map size={16} />
+            </button>
+          </div>
+        </div>
+
+        {/* Toggle Arrow */}
+        {hasExpandableContent && !canEdit && (
+          <div className="flex justify-center mt-4">
+            <div 
+              className="flex items-center justify-center w-10 h-6 rounded-full bg-zinc-800/80 hover:bg-zinc-700 text-zinc-400 hover:text-white cursor-pointer transition-colors border border-zinc-700/50"
+              onClick={(e) => {
+                e.stopPropagation();
+                setIsExpanded(!isExpanded);
+              }}
+            >
+              {isExpanded ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
 // SubItemRow Component
 function SubItemRow({ sub, itineraryImageUrl, isLast, hasMore }: { sub: any; itineraryImageUrl: string | null; isLast: boolean; hasMore: boolean }) {
   const [showNotes, setShowNotes] = useState(false);
@@ -879,6 +996,7 @@ export function TripDetails() {
   const members = useLiveQuery(() => db.tripMembers.where('trip_id').equals(Number(id) || 0).toArray(), [id]) || [];
   const transportations = useLiveQuery(() => db.transportations.where('trip_id').equals(Number(id) || 0).toArray(), [id]) || [];
   const accommodations = useLiveQuery(() => db.accommodations.where('trip_id').equals(Number(id) || 0).toArray(), [id]) || [];
+  const rentals = useLiveQuery(() => db.rentals.where('trip_id').equals(Number(id) || 0).toArray(), [id]) || [];
 
   const [activeTab, setActiveTab] = useState<'itinerary' | 'info' | 'finance' | 'settings'>('itinerary');
   const [selectedDate, setSelectedDate] = useState<Date | null>(null);
@@ -893,6 +1011,8 @@ export function TripDetails() {
   const [isTransportationFormOpen, setIsTransportationFormOpen] = useState(false);
   const [isNextTransportFormOpen, setIsNextTransportFormOpen] = useState(false);
   const [isAccommodationFormOpen, setIsAccommodationFormOpen] = useState(false);
+  const [isRentalFormOpen, setIsRentalFormOpen] = useState(false);
+  const [isBookingSelectionOpen, setIsBookingSelectionOpen] = useState(false);
   
   const [editingItinerary, setEditingItinerary] = useState<Itinerary | null>(null);
   const [editingExpense, setEditingExpense] = useState<Expense | null>(null);
@@ -930,12 +1050,13 @@ export function TripDetails() {
           is_fully_synced: shouldDeepCache
         });
 
-        const [itinerariesRes, expensesRes, membersRes, transportationsRes, accommodationsRes] = await Promise.all([
+        const [itinerariesRes, expensesRes, membersRes, transportationsRes, accommodationsRes, rentalsRes] = await Promise.all([
           apiFetch(`/api/trips/${id}/itineraries`),
           apiFetch(`/api/trips/${id}/expenses`),
           apiFetch(`/api/trips/${id}/members`),
           apiFetch(`/api/trips/${id}/transportations`),
-          apiFetch(`/api/trips/${id}/accommodations`)
+          apiFetch(`/api/trips/${id}/accommodations`),
+          apiFetch(`/api/trips/${id}/rentals`)
         ]);
 
         if (itinerariesRes.ok) {
@@ -1020,6 +1141,19 @@ export function TripDetails() {
           }
         }
 
+        if (rentalsRes.ok) {
+          const rentalsData = await rentalsRes.json();
+          if (Array.isArray(rentalsData)) {
+            const existingIds = await db.rentals.where('trip_id').equals(Number(id)).primaryKeys();
+            const incomingIds = rentalsData.map((r: any) => r.id);
+            const idsToDelete = existingIds.filter(eid => !incomingIds.includes(eid as number));
+            await db.transaction('rw', db.rentals, async () => {
+              if (idsToDelete.length > 0) await db.rentals.bulkDelete(idsToDelete as number[]);
+              await db.rentals.bulkPut(rentalsData);
+            });
+          }
+        }
+
       } catch (err) {
         console.error('Failed to sync trip details:', err);
       } finally {
@@ -1050,6 +1184,7 @@ export function TripDetails() {
   const [isEditMode, setIsEditMode] = useState(false);
   const [editingTransportation, setEditingTransportation] = useState<any>(null);
   const [editingAccommodation, setEditingAccommodation] = useState<any>(null);
+  const [editingRental, setEditingRental] = useState<any>(null);
 
   const [confirmConfig, setConfirmConfig] = useState<{
     isOpen: boolean;
@@ -1111,6 +1246,29 @@ export function TripDetails() {
         } catch (err) {
           console.error(err);
           alert('Failed to delete transportation');
+        }
+      }
+    });
+  };
+
+  const handleDeleteRental = async (rentalId: number) => {
+    setConfirmConfig({
+      isOpen: true,
+      title: '刪除租車',
+      message: '您確定要刪除此租車資訊嗎？',
+      confirmText: 'Deleting rental...',
+      onConfirm: async () => {
+        if (!id) return;
+        try {
+          const res = await apiFetch(`/api/trips/${id}/rentals/${rentalId}`, { method: 'DELETE' });
+          if (!res.ok) throw new Error('Failed to delete rental');
+          await db.rentals.delete(rentalId);
+          setIsRentalFormOpen(false);
+          setEditingRental(null);
+          setConfirmConfig(prev => ({ ...prev, isOpen: false }));
+        } catch (err) {
+          console.error(err);
+          alert('Failed to delete rental');
         }
       }
     });
@@ -1440,28 +1598,41 @@ export function TripDetails() {
               )}
 
               <div className="flex items-center justify-between px-2 mt-6">
-                <h4 className="text-zinc-500 text-xs font-bold uppercase tracking-widest">Accommodation</h4>
+                <h4 className="text-zinc-500 text-xs font-bold uppercase tracking-widest">Bookings</h4>
                 {canEdit && (
-                  <button onClick={() => setIsAccommodationFormOpen(true)} className="text-orange-500 hover:text-orange-400">
+                  <button onClick={() => setIsBookingSelectionOpen(true)} className="text-orange-500 hover:text-orange-400">
                      <Plus size={18} />
                    </button>
                 )}
               </div>
-              {accommodations.length > 0 ? (
-                accommodations.map(acc => (
-                  <AccommodationCard
-                    key={acc.id}
-                    acc={acc}
-                    canEdit={canEdit}
-                    onEdit={() => {
-                      setEditingAccommodation(acc);
-                      setIsAccommodationFormOpen(true);
-                    }}
-                  />
-                ))
+              {accommodations.length > 0 || rentals.length > 0 ? (
+                <>
+                  {accommodations.map(acc => (
+                    <AccommodationCard
+                      key={`acc-${acc.id}`}
+                      acc={acc}
+                      canEdit={canEdit}
+                      onEdit={() => {
+                        setEditingAccommodation(acc);
+                        setIsAccommodationFormOpen(true);
+                      }}
+                    />
+                  ))}
+                  {rentals.map(rental => (
+                    <RentalCard
+                      key={`rental-${rental.id}`}
+                      rental={rental}
+                      canEdit={canEdit}
+                      onEdit={() => {
+                        setEditingRental(rental);
+                        setIsRentalFormOpen(true);
+                      }}
+                    />
+                  ))}
+                </>
               ) : (
                 <div className="bg-zinc-900/50 border border-dashed border-zinc-800 rounded-3xl p-6 text-center text-zinc-500 text-sm">
-                  No accommodation details added.
+                  No bookings added.
                 </div>
               )}
             </div>
@@ -1708,6 +1879,58 @@ export function TripDetails() {
         )}
       </AnimatePresence>
 
+      {/* Booking Selection Modal */}
+      <AnimatePresence>
+        {isBookingSelectionOpen && (
+          <div className="fixed inset-0 z-[200] flex items-center justify-center p-4">
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              onClick={() => setIsBookingSelectionOpen(false)}
+              className="absolute inset-0 bg-black/80 backdrop-blur-sm"
+            />
+            <motion.div
+              initial={{ scale: 0.95, opacity: 0, y: 20 }}
+              animate={{ scale: 1, opacity: 1, y: 0 }}
+              exit={{ scale: 0.95, opacity: 0, y: 20 }}
+              className="relative w-full max-w-sm z-10 bg-zinc-900 border border-zinc-800 rounded-3xl overflow-hidden shadow-2xl"
+            >
+              <div className="p-4 border-b border-zinc-800 flex items-center justify-between">
+                <h3 className="text-lg font-semibold text-white">Select Booking Type</h3>
+                <button onClick={() => setIsBookingSelectionOpen(false)} className="p-2 hover:bg-zinc-800 rounded-full text-zinc-400">
+                  <X size={20} />
+                </button>
+              </div>
+              <div className="p-6">
+                <div className="grid grid-cols-2 gap-4">
+                  <button
+                    onClick={() => {
+                      setIsBookingSelectionOpen(false);
+                      setIsAccommodationFormOpen(true);
+                    }}
+                    className="flex flex-col items-center gap-3 p-6 rounded-2xl bg-zinc-800 hover:bg-zinc-700 transition-colors border border-zinc-700 hover:border-orange-500 group"
+                  >
+                    <Bed size={32} className="text-zinc-400 group-hover:text-orange-500 transition-colors" />
+                    <span className="text-sm font-bold text-white">Accommodation</span>
+                  </button>
+                  <button
+                    onClick={() => {
+                      setIsBookingSelectionOpen(false);
+                      setIsRentalFormOpen(true);
+                    }}
+                    className="flex flex-col items-center gap-3 p-6 rounded-2xl bg-zinc-800 hover:bg-zinc-700 transition-colors border border-zinc-700 hover:border-orange-500 group"
+                  >
+                    <Car size={32} className="text-zinc-400 group-hover:text-orange-500 transition-colors" />
+                    <span className="text-sm font-bold text-white">Rental</span>
+                  </button>
+                </div>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
       {/* Accommodation Form Modal */}
       <AnimatePresence>
         {isAccommodationFormOpen && id && (
@@ -1746,6 +1969,51 @@ export function TripDetails() {
                 onCancel={() => {
                   setIsAccommodationFormOpen(false);
                   setEditingAccommodation(null);
+                }} 
+              />
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      {/* Rental Form Modal */}
+      <AnimatePresence>
+        {isRentalFormOpen && id && (
+          <div className="fixed inset-0 z-[200] flex items-center justify-center p-4">
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              onClick={() => {
+                setIsRentalFormOpen(false);
+                setEditingRental(null);
+              }}
+              className="absolute inset-0 bg-black/80 backdrop-blur-sm"
+            />
+            <motion.div
+              initial={{ scale: 0.95, opacity: 0, y: 20 }}
+              animate={{ scale: 1, opacity: 1, y: 0 }}
+              exit={{ scale: 0.95, opacity: 0, y: 20 }}
+              className="relative w-full max-w-md z-10"
+            >
+              <RentalForm 
+                tripId={Number(id)} 
+                initialData={editingRental}
+                onDelete={handleDeleteRental}
+                onSuccess={() => {
+                  setIsRentalFormOpen(false);
+                  setEditingRental(null);
+                  apiFetch(`/api/trips/${id}/rentals`)
+                    .then(res => res.json() as Promise<any[]>)
+                    .then(data => db.rentals.bulkPut(data));
+                  // Also refresh itineraries
+                  apiFetch(`/api/trips/${id}/itineraries`)
+                    .then(res => res.json() as Promise<Itinerary[]>)
+                    .then(data => db.itineraries.bulkPut(data));
+                }} 
+                onCancel={() => {
+                  setIsRentalFormOpen(false);
+                  setEditingRental(null);
                 }} 
               />
             </motion.div>

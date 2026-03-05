@@ -162,6 +162,8 @@ async function ensureSchema(db: D1Database) {
     "ALTER TABLE Itineraries ADD COLUMN next_transport_time TEXT DEFAULT ''",
     "ALTER TABLE Itineraries ADD COLUMN next_transport_auto_time TEXT DEFAULT ''",
     "ALTER TABLE Itineraries ADD COLUMN city_id INTEGER",
+    "ALTER TABLE AccommodationsAndRentals RENAME TO Accommodations",
+    "ALTER TABLE Accommodations RENAME COLUMN name TO hotel_name",
     "ALTER TABLE Accommodations ADD COLUMN image_url TEXT",
     "ALTER TABLE Accommodations ADD COLUMN check_in_time TEXT DEFAULT '15:00'",
     "ALTER TABLE Accommodations ADD COLUMN check_out_time TEXT DEFAULT '11:00'",
@@ -234,6 +236,18 @@ async function ensureSchema(db: D1Database) {
       )
     `).run();
   } catch (e) { console.error('Accommodations schema failed', e); }
+
+  try {
+    await db.prepare(`
+      CREATE TABLE IF NOT EXISTS Rentals (
+          id INTEGER PRIMARY KEY AUTOINCREMENT, trip_id INTEGER NOT NULL,
+          name TEXT NOT NULL, address TEXT, check_in_date TEXT NOT NULL, check_out_date TEXT NOT NULL,
+          notes TEXT, created_at INTEGER DEFAULT (strftime('%s', 'now') * 1000),
+          image_url TEXT, check_in_time TEXT DEFAULT '10:00', check_out_time TEXT DEFAULT '10:00',
+          FOREIGN KEY (trip_id) REFERENCES Trips(id) ON DELETE CASCADE
+      )
+    `).run();
+  } catch (e) { console.error('Rentals schema failed', e); }
 }
 
 // Helper: Get Weather for a specific date
@@ -350,31 +364,32 @@ function generateDesiredAccommodationItems(b: any, accId: string | number, hotel
     const dateStr = currentDate.toISOString().split('T')[0];
     const isCheckInDay = dateStr === b.check_in_date;
     const isCheckOutDay = dateStr === b.check_out_date;
+    const itemName = b.name || b.hotel_name;
 
     if (isCheckInDay) {
       desiredItems.push({
         date: dateStr, start_time: checkInTime, end_time: '',
-        title: `Check-in ${b.hotel_name}`, notes: notesWithOrder, image_url: hotelImage, matchType: 'Check-in'
+        title: `Check-in ${itemName}`, notes: notesWithOrder, image_url: hotelImage, matchType: 'Check-in'
       });
       if (!isCheckOutDay) {
         desiredItems.push({
           date: dateStr, start_time: dailyEndTime, end_time: '',
-          title: `Back to Hotel ${b.hotel_name}`, notes: '', image_url: hotelImage, matchType: 'Back to Hotel'
+          title: `Back to ${itemName}`, notes: '', image_url: hotelImage, matchType: 'Back to Hotel'
         });
       }
     } else if (isCheckOutDay) {
       desiredItems.push({
         date: dateStr, start_time: checkOutTime, end_time: '',
-        title: `Check-out ${b.hotel_name}`, notes: notesWithOrder, image_url: hotelImage, matchType: 'Check-out'
+        title: `Check-out ${itemName}`, notes: notesWithOrder, image_url: hotelImage, matchType: 'Check-out'
       });
     } else {
       desiredItems.push({
         date: dateStr, start_time: dailyStartTime, end_time: '',
-        title: `Leave Hotel ${b.hotel_name}`, notes: '', image_url: hotelImage, matchType: 'Leave Hotel'
+        title: `Leave ${itemName}`, notes: '', image_url: hotelImage, matchType: 'Leave Hotel'
       });
       desiredItems.push({
         date: dateStr, start_time: dailyEndTime, end_time: '',
-        title: `Back to Hotel ${b.hotel_name}`, notes: '', image_url: hotelImage, matchType: 'Back to Hotel'
+        title: `Back to ${itemName}`, notes: '', image_url: hotelImage, matchType: 'Back to Hotel'
       });
     }
     currentDate.setDate(currentDate.getDate() + 1);
@@ -850,6 +865,92 @@ app.delete('/api/trips/:id/accommodations/:accId', async (c) => {
 
     await c.env.DB.prepare('DELETE FROM Accommodations WHERE id = ? AND trip_id = ?').bind(accId, tripId).run();
     await c.env.DB.prepare("DELETE FROM Itineraries WHERE type = 'ACCOMMODATION' AND related_id = ? AND trip_id = ?").bind(accId, tripId).run();
+    return c.json({ success: true });
+  } catch (error: any) { return c.json({ error: error.message }, 500); }
+});
+
+// --- Rentals ---
+app.get('/api/trips/:id/rentals', async (c) => {
+  const tripId = c.req.param('id');
+  try {
+    const { results } = await c.env.DB.prepare('SELECT * FROM Rentals WHERE trip_id = ? ORDER BY check_in_date').bind(tripId).all();
+    return c.json(results);
+  } catch (error: any) { return c.json({ error: error.message }, 500); }
+});
+
+app.post('/api/trips/:id/rentals', async (c) => {
+  const tripId = c.req.param('id');
+  try {
+    const canEdit = await checkTripAccess(c, Number(tripId), 'edit');
+    if (!canEdit) return c.json({ error: 'Unauthorized' }, 403);
+
+    const b = await c.req.json();
+    let rentalImage = b.image_url || await searchUnsplash(b.name, c.env);
+
+    const info = await c.env.DB.prepare(`
+      INSERT INTO Rentals (trip_id, name, address, check_in_date, check_out_date, check_in_time, check_out_time, notes, image_url, created_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).bind(tripId, b.name, b.address, b.check_in_date, b.check_out_date, b.check_in_time || '10:00', b.check_out_time || '10:00', b.notes, rentalImage || '', Date.now()).run();
+    
+    // @ts-ignore
+    const rentalId = info.meta.last_row_id;
+
+    // Generate Itineraries for Rental
+    await c.env.DB.prepare(`
+      INSERT INTO Itineraries (trip_id, date, start_time, end_time, title, type, related_id, notes, image_url)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).bind(tripId, b.check_in_date, b.check_in_time || '10:00', '', `Pick up ${b.name}`, 'RENTAL', rentalId, b.notes, rentalImage || '').run();
+
+    await c.env.DB.prepare(`
+      INSERT INTO Itineraries (trip_id, date, start_time, end_time, title, type, related_id, notes, image_url)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).bind(tripId, b.check_out_date, b.check_out_time || '10:00', '', `Return ${b.name}`, 'RENTAL', rentalId, b.notes, rentalImage || '').run();
+
+    return c.json({ success: true, id: rentalId });
+  } catch (error: any) { return c.json({ error: error.message }, 500); }
+});
+
+app.put('/api/trips/:id/rentals/:rentalId', async (c) => {
+  const tripId = c.req.param('id');
+  const rentalId = c.req.param('rentalId');
+  try {
+    const canEdit = await checkTripAccess(c, Number(tripId), 'edit');
+    if (!canEdit) return c.json({ error: 'Unauthorized' }, 403);
+
+    const b = await c.req.json();
+    let rentalImage = b.image_url || await searchUnsplash(b.name, c.env);
+    
+    await c.env.DB.prepare(`
+      UPDATE Rentals SET name = ?, address = ?, check_in_date = ?, check_out_date = ?, check_in_time = ?, check_out_time = ?, notes = ?, image_url = ?
+      WHERE id = ? AND trip_id = ?
+    `).bind(b.name, b.address, b.check_in_date, b.check_out_date, b.check_in_time || '10:00', b.check_out_time || '10:00', b.notes, rentalImage || '', rentalId, tripId).run();
+
+    // Update Itineraries
+    await c.env.DB.prepare("DELETE FROM Itineraries WHERE type = 'RENTAL' AND related_id = ? AND trip_id = ?").bind(rentalId, tripId).run();
+    
+    await c.env.DB.prepare(`
+      INSERT INTO Itineraries (trip_id, date, start_time, end_time, title, type, related_id, notes, image_url)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).bind(tripId, b.check_in_date, b.check_in_time || '10:00', '', `Pick up ${b.name}`, 'RENTAL', rentalId, b.notes, rentalImage || '').run();
+
+    await c.env.DB.prepare(`
+      INSERT INTO Itineraries (trip_id, date, start_time, end_time, title, type, related_id, notes, image_url)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).bind(tripId, b.check_out_date, b.check_out_time || '10:00', '', `Return ${b.name}`, 'RENTAL', rentalId, b.notes, rentalImage || '').run();
+
+    return c.json({ success: true });
+  } catch (error: any) { return c.json({ error: error.message }, 500); }
+});
+
+app.delete('/api/trips/:id/rentals/:rentalId', async (c) => {
+  const tripId = c.req.param('id');
+  const rentalId = c.req.param('rentalId');
+  try {
+    const canEdit = await checkTripAccess(c, Number(tripId), 'edit');
+    if (!canEdit) return c.json({ error: 'Unauthorized' }, 403);
+
+    await c.env.DB.prepare('DELETE FROM Rentals WHERE id = ? AND trip_id = ?').bind(rentalId, tripId).run();
+    await c.env.DB.prepare("DELETE FROM Itineraries WHERE type = 'RENTAL' AND related_id = ? AND trip_id = ?").bind(rentalId, tripId).run();
     return c.json({ success: true });
   } catch (error: any) { return c.json({ error: error.message }, 500); }
 });

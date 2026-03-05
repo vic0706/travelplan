@@ -140,10 +140,10 @@ CREATE TABLE Transportations (
     FOREIGN KEY (trip_id) REFERENCES Trips(id) ON DELETE CASCADE
 );
 
-CREATE TABLE Accommodations (
+CREATE TABLE AccommodationsAndRentals (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     trip_id INTEGER NOT NULL,
-    hotel_name TEXT NOT NULL,
+    name TEXT NOT NULL,
     address TEXT,
     check_in_date TEXT NOT NULL,
     check_out_date TEXT NOT NULL,
@@ -153,6 +153,7 @@ CREATE TABLE Accommodations (
     daily_end_time TEXT DEFAULT '22:00',
     order_id TEXT,
     notes TEXT,
+    image_url TEXT,
     created_at INTEGER DEFAULT (strftime('%s', 'now') * 1000),
     FOREIGN KEY (trip_id) REFERENCES Trips(id) ON DELETE CASCADE
 );
