@@ -971,7 +971,11 @@ app.get('/api/trips/:id/bookings', async (c) => {
   const tripId = c.req.param('id');
   try {
     const { results } = await c.env.DB.prepare('SELECT * FROM Bookings WHERE trip_id = ? ORDER BY start_date, start_time').bind(tripId).all();
-    return c.json(results);
+    const parsedResults = results.map((r: any) => ({
+      ...r,
+      details: r.details ? JSON.parse(r.details) : {}
+    }));
+    return c.json(parsedResults);
   } catch (error: any) { return c.json({ error: error.message }, 500); }
 });
 

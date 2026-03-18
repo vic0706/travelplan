@@ -48,7 +48,13 @@ export function BookingForm({ tripId, onSuccess, onCancel, onDelete, initialData
     end_location: initialData?.end_location || '',
     notes: initialData?.notes || '',
     image_url: initialData?.image_url || '',
-    details: initialData?.details || {} as any,
+    details: (() => {
+      try {
+        return typeof initialData?.details === 'string' ? JSON.parse(initialData.details) : initialData?.details;
+      } catch (e) {
+        return {};
+      }
+    })() || {} as any,
   });
 
   const isHotel = formData.category === 'HOTEL';
@@ -536,6 +542,11 @@ export function BookingForm({ tripId, onSuccess, onCancel, onDelete, initialData
                     {formData.category === 'FLIGHT' ? 'Check-in Buffer' : 'Arrival Buffer'}
                   </span>
                   <div className="flex items-center gap-2">
+                    {formData.start_date && formData.start_time && !isNaN(parseISO(`${formData.start_date}T${formData.start_time}`).getTime()) && (
+                      <span className="text-orange-500/80 text-[10px] font-mono mr-2">
+                        {format(subMinutes(parseISO(`${formData.start_date}T${formData.start_time}`), formData.details.dep_checkin_buffer || 0), 'HH:mm')}
+                      </span>
+                    )}
                     <input 
                       type="number"
                       value={formData.details.dep_checkin_buffer || 0}
@@ -576,6 +587,11 @@ export function BookingForm({ tripId, onSuccess, onCancel, onDelete, initialData
                     Exit Buffer
                   </span>
                   <div className="flex items-center gap-2">
+                    {formData.end_date && formData.end_time && !isNaN(parseISO(`${formData.end_date}T${formData.end_time}`).getTime()) && (
+                      <span className="text-orange-500/80 text-[10px] font-mono mr-2">
+                        {format(addMinutes(parseISO(`${formData.end_date}T${formData.end_time}`), formData.details.arr_exit_buffer || 0), 'HH:mm')}
+                      </span>
+                    )}
                     <input 
                       type="number"
                       value={formData.details.arr_exit_buffer || 0}

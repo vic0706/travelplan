@@ -40,12 +40,12 @@ export function TransportationForm({ tripId, onSuccess, onCancel, onDelete, init
     dep_date: initialData?.dep_date || format(new Date(), 'yyyy-MM-dd'),
     dep_time: initialData?.dep_time || '10:00',
     dep_terminal: initialData?.dep_terminal || '',
-    dep_checkin_buffer: initialData?.dep_checkin_buffer || 120,
+    dep_checkin_buffer: initialData?.dep_checkin_buffer ?? 120,
     arr_station: initialData?.arr_station || '',
     arr_date: initialData?.arr_date || format(new Date(), 'yyyy-MM-dd'),
     arr_time: initialData?.arr_time || '14:00',
     arr_terminal: initialData?.arr_terminal || '',
-    arr_exit_buffer: initialData?.arr_exit_buffer || 60,
+    arr_exit_buffer: initialData?.arr_exit_buffer ?? 60,
     order_id: initialData?.order_id || '',
     notes: initialData?.notes || '',
   });
@@ -287,6 +287,11 @@ export function TransportationForm({ tripId, onSuccess, onCancel, onDelete, init
              <label className="text-xs font-bold text-zinc-500 uppercase tracking-wider flex justify-between items-center">
                <span>Check-in Buffer</span>
                <div className="flex items-center gap-2">
+                 {formData.dep_date && formData.dep_time && !isNaN(parseISO(`${formData.dep_date}T${formData.dep_time}`).getTime()) && (
+                   <span className="text-orange-500/80 text-[10px] font-mono mr-2">
+                     {format(subMinutes(parseISO(`${formData.dep_date}T${formData.dep_time}`), formData.dep_checkin_buffer || 0), 'HH:mm')}
+                   </span>
+                 )}
                  <input 
                    type="number"
                    value={formData.dep_checkin_buffer}
@@ -360,6 +365,11 @@ export function TransportationForm({ tripId, onSuccess, onCancel, onDelete, init
              <label className="text-xs font-bold text-zinc-500 uppercase tracking-wider flex justify-between items-center">
                <span>Exit Buffer</span>
                <div className="flex items-center gap-2">
+                 {formData.arr_date && formData.arr_time && !isNaN(parseISO(`${formData.arr_date}T${formData.arr_time}`).getTime()) && (
+                   <span className="text-orange-500/80 text-[10px] font-mono mr-2">
+                     {format(addMinutes(parseISO(`${formData.arr_date}T${formData.arr_time}`), formData.arr_exit_buffer || 0), 'HH:mm')}
+                   </span>
+                 )}
                  <input 
                    type="number"
                    value={formData.arr_exit_buffer}

@@ -39,6 +39,7 @@ function BookingCard({
   const endDate = parseISO(`${booking.end_date}T${booking.end_time}`);
   
   const isValidStart = !isNaN(startDate.getTime());
+  const isValidEnd = !isNaN(endDate.getTime());
   const isToday = isValidStart && isSameDay(startDate, new Date());
   const isPastItem = isValidStart && isPast(startDate) && !isToday;
 
@@ -66,7 +67,7 @@ function BookingCard({
       )}
     >
       <div className="flex gap-4">
-        {booking.image_url && (
+        {booking.image_url && booking.category !== 'HOTEL' && (
           <div className="w-20 h-20 rounded-2xl overflow-hidden shrink-0 border border-zinc-800">
             <img src={booking.image_url} alt={booking.title} className="w-full h-full object-cover" />
           </div>
@@ -82,8 +83,8 @@ function BookingCard({
           <div className="space-y-1">
             <div className="flex items-center gap-1.5 text-zinc-400 text-xs">
               <Calendar size={12} />
-              <span>{format(startDate, 'MMM d')} {booking.start_time}</span>
-              {booking.category === 'HOTEL' && (
+              <span>{isValidStart ? format(startDate, 'MMM d') : booking.start_date} {booking.start_time}</span>
+              {isValidEnd && (
                 <>
                   <span className="mx-1">→</span>
                   <span>{format(endDate, 'MMM d')} {booking.end_time}</span>
@@ -93,11 +94,17 @@ function BookingCard({
             {booking.start_location && (
               <div className="flex items-center gap-1.5 text-zinc-500 text-xs truncate">
                 <MapPin size={12} />
-                <span>{booking.start_location}</span>
+                <span>
+                  {booking.start_location}
+                  {booking.details?.dep_terminal && ` (T${booking.details.dep_terminal})`}
+                </span>
                 {booking.end_location && (
                   <>
                     <span className="mx-1">→</span>
-                    <span>{booking.end_location}</span>
+                    <span>
+                      {booking.end_location}
+                      {booking.details?.arr_terminal && ` (T${booking.details.arr_terminal})`}
+                    </span>
                   </>
                 )}
               </div>
@@ -105,6 +112,11 @@ function BookingCard({
             {booking.provider && (
               <div className="text-[10px] text-zinc-600 font-medium uppercase tracking-wider">
                 {booking.provider} {booking.order_id && `• ${booking.order_id}`}
+              </div>
+            )}
+            {booking.notes && (
+              <div className="text-xs text-zinc-500 italic mt-1 line-clamp-2">
+                {booking.notes}
               </div>
             )}
           </div>
@@ -149,10 +161,11 @@ function TransportationCard({
   const title = 'title' in data ? data.title : data.code;
   const dep_station = 'start_location' in data ? data.start_location : (data as any).dep_station;
   const arr_station = 'end_location' in data ? data.end_location : (data as any).arr_station;
-  const dep_terminal = 'details' in data ? (data.details as any)?.dep_terminal : (data as any).dep_terminal;
-  const arr_terminal = 'details' in data ? (data.details as any)?.arr_terminal : (data as any).arr_terminal;
-  const dep_checkin_buffer = 'details' in data ? (data.details as any)?.dep_checkin_buffer : (data as any).dep_checkin_buffer;
-  const arr_exit_buffer = 'details' in data ? (data.details as any)?.arr_exit_buffer : (data as any).arr_exit_buffer;
+  const detailsObj = 'details' in data ? (typeof data.details === 'string' ? (() => { try { return JSON.parse(data.details); } catch (e) { return {}; } })() : data.details) : null;
+  const dep_terminal = detailsObj ? detailsObj.dep_terminal : (data as any).dep_terminal;
+  const arr_terminal = detailsObj ? detailsObj.arr_terminal : (data as any).arr_terminal;
+  const dep_checkin_buffer = detailsObj ? detailsObj.dep_checkin_buffer : (data as any).dep_checkin_buffer;
+  const arr_exit_buffer = detailsObj ? detailsObj.arr_exit_buffer : (data as any).arr_exit_buffer;
 
   const depDate = parseISO(`${dep_date}T${dep_time}`);
   const arrDate = parseISO(`${arr_date}T${arr_time}`);
@@ -1638,7 +1651,7 @@ export function TripDetails() {
             <div className="space-y-4">
               {filteredItineraries.length > 0 ? (
                 filteredItineraries.map((item, index) => {
-                  if ((item.type === 'TRANSPORTATION' || item.type === 'ACCOMMODATION' || item.type === 'RENTAL') && item.related_id) {
+                  if ((item.type === 'TRANSPORTATION' || item.type === 'RENTAL') && item.related_id) {
                     const booking = bookings.find(b => b.id === item.related_id);
                     const transport = transportations.find(t => t.id === item.related_id);
                     
@@ -1669,14 +1682,21 @@ export function TripDetails() {
                     }
                   }
 
+                  const booking = item.type === 'ACCOMMODATION' && item.related_id ? bookings.find(b => b.id === item.related_id) : undefined;
+
                   return (
                     <div key={`itinerary-${item.id}`} className="space-y-2">
                       <ItineraryCard 
                         item={item} 
                         canEdit={canEdit}
                         onEdit={() => {
-                          setEditingItinerary(item);
-                          setIsItineraryFormOpen(true);
+                          if (booking) {
+                            setEditingBooking(booking);
+                            setIsBookingFormOpen(true);
+                          } else {
+                            setEditingItinerary(item);
+                            setIsItineraryFormOpen(true);
+                          }
                         }}
                         selectedDate={selectedDate}
                         showNextTransport={index < filteredItineraries.length - 1}
