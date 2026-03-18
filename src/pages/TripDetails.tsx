@@ -44,6 +44,7 @@ const getEffectiveTimes = (item: any, baseDate: Date) => {
   return { start, end };
 };
 
+// 💡 1. 移除 BookingCard 中的圖片顯示區塊
 function BookingCard({ booking, canEdit, onEdit }: { booking: Booking; canEdit: boolean; onEdit: () => void; }) {
   const startDate = parseISO(`${booking.start_date}T${booking.start_time}`);
   const endDate = parseISO(`${booking.end_date}T${booking.end_time}`);
@@ -76,11 +77,6 @@ function BookingCard({ booking, canEdit, onEdit }: { booking: Booking; canEdit: 
       )}
     >
       <div className="flex gap-4">
-        {booking.image_url && booking.category !== 'HOTEL' && (
-          <div className="w-20 h-20 rounded-2xl overflow-hidden shrink-0 border border-zinc-800">
-            <img src={booking.image_url} alt={booking.title} className="w-full h-full object-cover" />
-          </div>
-        )}
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2 mb-1">
             <div className="p-1.5 rounded-lg bg-zinc-800 text-orange-500"><Icon size={14} /></div>
@@ -911,7 +907,6 @@ export function TripDetails() {
                     </div>
                   )}
 
-                  {/* 2. 修改 Booking 卡片的排序邏輯 (過去的置底，其餘由近到遠) */}
                   <div className="grid grid-cols-1 gap-4">
                     {bookings
                       .filter(b => bookingFilter === 'ALL' || b.category === bookingFilter)

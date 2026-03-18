@@ -200,6 +200,7 @@ async function syncWeatherForTrip(tripId: number, env: Env) {
   return getWeatherForDate(tripId, todayStr, env);
 }
 
+// 💡 產生 Hotel 子卡片
 function generateDesiredAccommodationItems(b: any, accId: string | number, hotelImage: string) {
   const desiredItems = [];
   const startDate = new Date(b.check_in_date);
@@ -232,7 +233,7 @@ function generateDesiredAccommodationItems(b: any, accId: string | number, hotel
   return desiredItems;
 }
 
-// 💡 產生 Rental 的 Pick-up 與 Return 子卡片
+// 💡 產生 Rental 子卡片
 function generateDesiredRentalItems(b: any, rentalId: string | number, rentalImage: string) {
   const desiredItems = [];
   const titlePrefix = b.provider ? `${b.provider} ` : '';
@@ -532,6 +533,7 @@ app.post('/api/trips/:id/bookings', async (c) => {
         await c.env.DB.prepare(`INSERT INTO Itineraries (trip_id, date, start_time, end_time, title, type, related_id, notes, image_url) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`).bind(tripId, item.date, item.start_time, item.end_time, item.title, 'ACCOMMODATION', bookingId, item.notes, item.image_url).run();
       }
     } else if (b.category === 'RENTAL') {
+      // 💡 加入 Rental 建立子卡片的邏輯
       const desiredItems = generateDesiredRentalItems(b, bookingId, imageUrl || '');
       for (const item of desiredItems) {
         await c.env.DB.prepare(`INSERT INTO Itineraries (trip_id, date, start_time, end_time, title, type, related_id, notes, image_url) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`).bind(tripId, item.date, item.start_time, item.end_time, item.title, 'RENTAL', bookingId, item.notes, item.image_url).run();
@@ -612,6 +614,7 @@ app.put('/api/trips/:id/bookings/:bookingId', async (c) => {
       }
 
     } else if (b.category === 'RENTAL') {
+      // 💡 加入 Rental 智慧合併邏輯
       const desiredItems = generateDesiredRentalItems(b, bookingId, imageUrl || '');
       const { results: existingItems } = await c.env.DB.prepare("SELECT * FROM Itineraries WHERE related_id = ? AND trip_id = ? AND type = 'RENTAL'").bind(bookingId, tripId).all();
       const existingPool = [...existingItems] as any[];
@@ -704,7 +707,7 @@ app.put('/api/trips/:id/itineraries/:itemId', async (c) => {
       b.city_id, b.date, b.start_time, b.end_time, b.title, b.address || '', b.image_url || '', b.notes || '', JSON.stringify(b.tags || []), b.sub_items || '[]', b.stay_duration || '', b.icon || '', b.next_transport_mode || '', b.next_transport_time || '', b.next_transport_auto_time || '', itemId, tripId
     ).run();
 
-    // 反向雙向同步
+    // 💡 加入 Rental 卡片反向雙向同步
     if (b.type === 'ACCOMMODATION' && b.related_id) {
        if (b.title.includes('Check-in')) {
           await c.env.DB.prepare('UPDATE Bookings SET start_time = ? WHERE id = ? AND trip_id = ?').bind(b.start_time, b.related_id, tripId).run();
