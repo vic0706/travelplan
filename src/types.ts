@@ -100,14 +100,14 @@ export interface Transportation {
   dep_date: string; // YYYY-MM-DD
   dep_time: string; // HH:mm
   dep_terminal?: string;
-  dep_checkin_buffer?: number; // Minutes
+  dep_buffer?: number; // Minutes
 
   // Arrival
   arr_station: string;
   arr_date: string; // YYYY-MM-DD
   arr_time: string; // HH:mm
   arr_terminal?: string;
-  arr_exit_buffer?: number; // Minutes
+  arr_buffer?: number; // Minutes
 
   order_id?: string;
   notes?: string;
@@ -178,8 +178,8 @@ export interface TransportBookingDetails {
   code?: string;
   dep_terminal?: string;
   arr_terminal?: string;
-  dep_checkin_buffer?: number;
-  arr_exit_buffer?: number;
+  dep_buffer?: number;
+  arr_buffer?: number;
 }
 
 export interface HotelBookingDetails {

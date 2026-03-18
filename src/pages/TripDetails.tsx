@@ -166,8 +166,8 @@ function TransportationCard({
   const detailsObj = 'details' in data ? (typeof data.details === 'string' ? (() => { try { return JSON.parse(data.details); } catch (e) { return {}; } })() : data.details) : null;
   const dep_terminal = detailsObj ? detailsObj.dep_terminal : (data as any).dep_terminal;
   const arr_terminal = detailsObj ? detailsObj.arr_terminal : (data as any).arr_terminal;
-  const dep_checkin_buffer = detailsObj ? detailsObj.dep_checkin_buffer : (data as any).dep_checkin_buffer;
-  const arr_exit_buffer = detailsObj ? detailsObj.arr_exit_buffer : (data as any).arr_exit_buffer;
+  const dep_buffer = detailsObj ? detailsObj.dep_buffer : (data as any).dep_buffer;
+  const arr_buffer = detailsObj ? detailsObj.arr_buffer : (data as any).arr_buffer;
 
   const depDate = parseISO(`${dep_date}T${dep_time}`);
   const arrDate = parseISO(`${arr_date}T${arr_time}`);
@@ -225,12 +225,12 @@ function TransportationCard({
   if (item) {
     // Calculate timeline times
     const depDateTime = parseISO(`${dep_date}T${dep_time}`);
-    const checkinBuffer = dep_checkin_buffer || 120;
+    const checkinBuffer = dep_buffer || 120;
     const checkinDate = new Date(depDateTime.getTime() - checkinBuffer * 60000);
     const checkinTimeStr = format(checkinDate, 'HH:mm');
 
     const arrDateTime = parseISO(`${arr_date}T${arr_time}`);
-    const exitBuffer = arr_exit_buffer || 60;
+    const exitBuffer = arr_buffer || 60;
     const exitDate = new Date(arrDateTime.getTime() + exitBuffer * 60000);
     const exitTimeStr = format(exitDate, 'HH:mm');
 

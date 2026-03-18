@@ -40,12 +40,12 @@ export function TransportationForm({ tripId, onSuccess, onCancel, onDelete, init
     dep_date: initialData?.dep_date || format(new Date(), 'yyyy-MM-dd'),
     dep_time: initialData?.dep_time || '10:00',
     dep_terminal: initialData?.dep_terminal || '',
-    dep_checkin_buffer: initialData?.dep_checkin_buffer ?? 120,
+    dep_buffer: initialData?.dep_buffer ?? 120,
     arr_station: initialData?.arr_station || '',
     arr_date: initialData?.arr_date || format(new Date(), 'yyyy-MM-dd'),
     arr_time: initialData?.arr_time || '14:00',
     arr_terminal: initialData?.arr_terminal || '',
-    arr_exit_buffer: initialData?.arr_exit_buffer ?? 60,
+    arr_buffer: initialData?.arr_buffer ?? 60,
     order_id: initialData?.order_id || '',
     notes: initialData?.notes || '',
   });
@@ -56,8 +56,8 @@ export function TransportationForm({ tripId, onSuccess, onCancel, onDelete, init
 
     if (isNaN(depDateTime.getTime()) || isNaN(arrDateTime.getTime())) return null;
 
-    const newStart = subMinutes(depDateTime, formData.dep_checkin_buffer);
-    const newEnd = addMinutes(arrDateTime, formData.arr_exit_buffer);
+    const newStart = addMinutes(depDateTime, formData.dep_buffer);
+    const newEnd = addMinutes(arrDateTime, formData.arr_buffer);
 
     for (const t of transportations) {
       if (initialData && t.id === initialData.id) continue;
@@ -67,8 +67,8 @@ export function TransportationForm({ tripId, onSuccess, onCancel, onDelete, init
 
       if (isNaN(tDepDateTime.getTime()) || isNaN(tArrDateTime.getTime())) continue;
 
-      const tStart = subMinutes(tDepDateTime, t.dep_checkin_buffer || 0);
-      const tEnd = addMinutes(tArrDateTime, t.arr_exit_buffer || 0);
+      const tStart = addMinutes(tDepDateTime, t.dep_buffer || 0);
+      const tEnd = addMinutes(tArrDateTime, t.arr_buffer || 0);
 
       if (newStart < tEnd && newEnd > tStart) {
         return `${t.provider} ${t.code}`;
@@ -149,7 +149,7 @@ export function TransportationForm({ tripId, onSuccess, onCancel, onDelete, init
         dep_terminal: formData.dep_terminal || null,
         departure_terminal: formData.dep_terminal || null,
         
-        dep_checkin_buffer: formData.dep_checkin_buffer ?? 120,
+        dep_buffer: formData.dep_buffer ?? 120,
         
         arr_station: formData.arr_station || '',
         arrival_station: formData.arr_station || '',
@@ -163,7 +163,7 @@ export function TransportationForm({ tripId, onSuccess, onCancel, onDelete, init
         arr_terminal: formData.arr_terminal || null,
         arrival_terminal: formData.arr_terminal || null,
         
-        arr_exit_buffer: formData.arr_exit_buffer ?? 60,
+        arr_buffer: formData.arr_buffer ?? 60,
         
         order_id: formData.order_id || null,
         notes: formData.notes || null,
@@ -285,17 +285,17 @@ export function TransportationForm({ tripId, onSuccess, onCancel, onDelete, init
           
           <div className="space-y-2">
              <label className="text-xs font-bold text-zinc-500 uppercase tracking-wider flex justify-between items-center">
-               <span>Check-in Buffer</span>
+               <span>Departure Buffer (min)</span>
                <div className="flex items-center gap-2">
                  {formData.dep_date && formData.dep_time && !isNaN(parseISO(`${formData.dep_date}T${formData.dep_time}`).getTime()) && (
                    <span className="text-orange-500/80 text-[10px] font-mono mr-2">
-                     {format(subMinutes(parseISO(`${formData.dep_date}T${formData.dep_time}`), formData.dep_checkin_buffer || 0), 'HH:mm')}
+                     {format(addMinutes(parseISO(`${formData.dep_date}T${formData.dep_time}`), formData.dep_buffer || 0), 'HH:mm')}
                    </span>
                  )}
                  <input 
                    type="number"
-                   value={formData.dep_checkin_buffer}
-                   onChange={(e) => setFormData({...formData, dep_checkin_buffer: parseInt(e.target.value) || 0})}
+                   value={formData.dep_buffer}
+                   onChange={(e) => setFormData({...formData, dep_buffer: parseInt(e.target.value) || 0})}
                    className="w-16 bg-zinc-900 border border-zinc-800 rounded-lg px-2 py-1 text-right text-orange-500 font-bold focus:outline-none focus:border-orange-500"
                  />
                  <span className="text-zinc-500 text-[10px]">MIN</span>
@@ -303,11 +303,11 @@ export function TransportationForm({ tripId, onSuccess, onCancel, onDelete, init
              </label>
              <input 
                type="range" 
-               min="0" 
+               min="-120" 
                max="240" 
                step="15"
-               value={formData.dep_checkin_buffer}
-               onChange={(e) => setFormData({...formData, dep_checkin_buffer: parseInt(e.target.value)})}
+               value={formData.dep_buffer}
+               onChange={(e) => setFormData({...formData, dep_buffer: parseInt(e.target.value)})}
                className="w-full h-2 bg-zinc-800 rounded-lg appearance-none cursor-pointer accent-orange-500"
              />
           </div>
@@ -363,17 +363,17 @@ export function TransportationForm({ tripId, onSuccess, onCancel, onDelete, init
           
           <div className="space-y-2">
              <label className="text-xs font-bold text-zinc-500 uppercase tracking-wider flex justify-between items-center">
-               <span>Exit Buffer</span>
+               <span>Arrival Buffer (min)</span>
                <div className="flex items-center gap-2">
                  {formData.arr_date && formData.arr_time && !isNaN(parseISO(`${formData.arr_date}T${formData.arr_time}`).getTime()) && (
                    <span className="text-orange-500/80 text-[10px] font-mono mr-2">
-                     {format(addMinutes(parseISO(`${formData.arr_date}T${formData.arr_time}`), formData.arr_exit_buffer || 0), 'HH:mm')}
+                     {format(addMinutes(parseISO(`${formData.arr_date}T${formData.arr_time}`), formData.arr_buffer || 0), 'HH:mm')}
                    </span>
                  )}
                  <input 
                    type="number"
-                   value={formData.arr_exit_buffer}
-                   onChange={(e) => setFormData({...formData, arr_exit_buffer: parseInt(e.target.value) || 0})}
+                   value={formData.arr_buffer}
+                   onChange={(e) => setFormData({...formData, arr_buffer: parseInt(e.target.value) || 0})}
                    className="w-16 bg-zinc-900 border border-zinc-800 rounded-lg px-2 py-1 text-right text-orange-500 font-bold focus:outline-none focus:border-orange-500"
                  />
                  <span className="text-zinc-500 text-[10px]">MIN</span>
@@ -381,11 +381,11 @@ export function TransportationForm({ tripId, onSuccess, onCancel, onDelete, init
              </label>
              <input 
                type="range" 
-               min="0" 
+               min="-120" 
                max="240" 
                step="15"
-               value={formData.arr_exit_buffer}
-               onChange={(e) => setFormData({...formData, arr_exit_buffer: parseInt(e.target.value)})}
+               value={formData.arr_buffer}
+               onChange={(e) => setFormData({...formData, arr_buffer: parseInt(e.target.value)})}
                className="w-full h-2 bg-zinc-800 rounded-lg appearance-none cursor-pointer accent-orange-500"
              />
           </div>

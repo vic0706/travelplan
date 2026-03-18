@@ -203,7 +203,7 @@ export function BookingForm({ tripId, onSuccess, onCancel, onDelete, initialData
                   // Set default times based on category
                   start_time: cat.id === 'HOTEL' ? '16:00' : '10:00',
                   end_time: cat.id === 'HOTEL' ? '11:00' : '14:00',
-                  details: cat.id === 'HOTEL' ? { daily_start_time: '08:00', daily_end_time: '22:00' } : { dep_checkin_buffer: 120, arr_exit_buffer: 60 }
+                  details: cat.id === 'HOTEL' ? { daily_start_time: '08:00', daily_end_time: '22:00' } : { dep_buffer: 120, arr_buffer: 60 }
                 }); 
                 setStep('form'); 
               }}
@@ -566,15 +566,15 @@ export function BookingForm({ tripId, onSuccess, onCancel, onDelete, initialData
                   <div className="flex items-center gap-2">
                     {formData.start_date && formData.start_time && !isNaN(parseISO(`${formData.start_date}T${formData.start_time}`).getTime()) && (
                       <span className="text-orange-500/80 text-[10px] font-mono mr-2">
-                        {formData.category === 'FLIGHT' ? 'Check-in' : formData.category === 'RENTAL' ? 'Pick-up' : 'Arrive'} @ {format(subMinutes(parseISO(`${formData.start_date}T${formData.start_time}`), formData.details.dep_checkin_buffer || 0), 'HH:mm')}
+                        {formData.category === 'FLIGHT' ? 'Check-in' : formData.category === 'RENTAL' ? 'Pick-up' : 'Arrive'} @ {format(addMinutes(parseISO(`${formData.start_date}T${formData.start_time}`), formData.details.dep_buffer || 0), 'HH:mm')}
                       </span>
                     )}
                     <input 
                       type="number"
-                      value={formData.details.dep_checkin_buffer || 0}
+                      value={formData.details.dep_buffer || 0}
                       onChange={(e) => setFormData({
                         ...formData, 
-                        details: { ...formData.details, dep_checkin_buffer: parseInt(e.target.value) || 0 }
+                        details: { ...formData.details, dep_buffer: parseInt(e.target.value) || 0 }
                       })}
                       className="w-16 bg-zinc-900 border border-zinc-800 rounded-lg px-2 py-1 text-right text-orange-500 font-bold focus:outline-none focus:border-orange-500"
                     />
@@ -586,10 +586,10 @@ export function BookingForm({ tripId, onSuccess, onCancel, onDelete, initialData
                   min="0" 
                   max="240" 
                   step="15"
-                  value={formData.details.dep_checkin_buffer || 0}
+                  value={formData.details.dep_buffer || 0}
                   onChange={(e) => setFormData({
                     ...formData, 
-                    details: { ...formData.details, dep_checkin_buffer: parseInt(e.target.value) }
+                    details: { ...formData.details, dep_buffer: parseInt(e.target.value) }
                   })}
                   className="w-full h-1.5 bg-zinc-800 rounded-lg appearance-none cursor-pointer accent-orange-500"
                 />
@@ -611,15 +611,15 @@ export function BookingForm({ tripId, onSuccess, onCancel, onDelete, initialData
                   <div className="flex items-center gap-2">
                     {formData.end_date && formData.end_time && !isNaN(parseISO(`${formData.end_date}T${formData.end_time}`).getTime()) && (
                       <span className="text-orange-500/80 text-[10px] font-mono mr-2">
-                        {formData.category === 'RENTAL' ? 'Return' : 'Exit'} @ {format(addMinutes(parseISO(`${formData.end_date}T${formData.end_time}`), formData.details.arr_exit_buffer || 0), 'HH:mm')}
+                        {formData.category === 'RENTAL' ? 'Return' : 'Exit'} @ {format(addMinutes(parseISO(`${formData.end_date}T${formData.end_time}`), formData.details.arr_buffer || 0), 'HH:mm')}
                       </span>
                     )}
                     <input 
                       type="number"
-                      value={formData.details.arr_exit_buffer || 0}
+                      value={formData.details.arr_buffer || 0}
                       onChange={(e) => setFormData({
                         ...formData, 
-                        details: { ...formData.details, arr_exit_buffer: parseInt(e.target.value) || 0 }
+                        details: { ...formData.details, arr_buffer: parseInt(e.target.value) || 0 }
                       })}
                       className="w-16 bg-zinc-900 border border-zinc-800 rounded-lg px-2 py-1 text-right text-orange-500 font-bold focus:outline-none focus:border-orange-500"
                     />
@@ -631,10 +631,10 @@ export function BookingForm({ tripId, onSuccess, onCancel, onDelete, initialData
                   min="0" 
                   max="240" 
                   step="15"
-                  value={formData.details.arr_exit_buffer || 0}
+                  value={formData.details.arr_buffer || 0}
                   onChange={(e) => setFormData({
                     ...formData, 
-                    details: { ...formData.details, arr_exit_buffer: parseInt(e.target.value) }
+                    details: { ...formData.details, arr_buffer: parseInt(e.target.value) }
                   })}
                   className="w-full h-1.5 bg-zinc-800 rounded-lg appearance-none cursor-pointer accent-orange-500"
                 />

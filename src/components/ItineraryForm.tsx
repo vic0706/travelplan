@@ -152,8 +152,8 @@ export function ItineraryForm({ tripId, defaultCityId, date, onSuccess, onCancel
       
       if (isNaN(depDateTime.getTime()) || isNaN(arrDateTime.getTime())) return;
 
-      const blockedStart = subMinutes(depDateTime, t.dep_checkin_buffer || 0);
-      const blockedEnd = addMinutes(arrDateTime, t.arr_exit_buffer || 0);
+      const blockedStart = subMinutes(depDateTime, t.dep_buffer || 0);
+      const blockedEnd = addMinutes(arrDateTime, t.arr_buffer || 0);
       
       // Check if this blocked period overlaps with targetDate (00:00 to 23:59)
       const dayStart = new Date(`${date}T00:00`);

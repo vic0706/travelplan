@@ -220,12 +220,12 @@ async function ensureSchema(db: D1Database) {
           dep_date TEXT NOT NULL,
           dep_time TEXT NOT NULL,
           dep_terminal TEXT,
-          dep_checkin_buffer INTEGER DEFAULT 120,
+          dep_buffer INTEGER DEFAULT 120,
           arr_station TEXT NOT NULL,
           arr_date TEXT NOT NULL,
           arr_time TEXT NOT NULL,
           arr_terminal TEXT,
-          arr_exit_buffer INTEGER DEFAULT 60,
+          arr_buffer INTEGER DEFAULT 60,
           order_id TEXT,
           notes TEXT,
           FOREIGN KEY (trip_id) REFERENCES Trips(id) ON DELETE CASCADE
@@ -687,23 +687,23 @@ app.post('/api/trips/:id/transportations', async (c) => {
 
     const b = await c.req.json();
     const info = await c.env.DB.prepare(`
-      INSERT INTO Transportations (trip_id, type, provider, code, dep_station, dep_date, dep_time, dep_terminal, dep_checkin_buffer, arr_station, arr_date, arr_time, arr_terminal, arr_exit_buffer, order_id, notes)
+      INSERT INTO Transportations (trip_id, type, provider, code, dep_station, dep_date, dep_time, dep_terminal, dep_buffer, arr_station, arr_date, arr_time, arr_terminal, arr_buffer, order_id, notes)
       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).bind(
-      tripId, b.type || 'FLIGHT', b.provider || null, b.code || b.transport_code || null, b.dep_station || b.departure_station, b.dep_date || b.departure_date, b.dep_time || b.departure_time, b.dep_terminal || b.departure_terminal || null, b.dep_checkin_buffer ?? 120, b.arr_station || b.arrival_station, b.arr_date || b.arrival_date, b.arr_time || b.arrival_time, b.arr_terminal || b.arrival_terminal || null, b.arr_exit_buffer ?? 60, b.order_id || null, b.notes || null
+      tripId, b.type || 'FLIGHT', b.provider || null, b.code || b.transport_code || null, b.dep_station || b.departure_station, b.dep_date || b.departure_date, b.dep_time || b.departure_time, b.dep_terminal || b.departure_terminal || null, b.dep_buffer ?? 120, b.arr_station || b.arrival_station, b.arr_date || b.arrival_date, b.arr_time || b.arrival_time, b.arr_terminal || b.arrival_terminal || null, b.arr_buffer ?? 60, b.order_id || null, b.notes || null
     ).run();
     
     // @ts-ignore
     const transportId = info.meta.last_row_id;
 
     const depDateTime = new Date(`${b.dep_date || b.departure_date}T${b.dep_time || b.departure_time || '00:00'}`); 
-    depDateTime.setMinutes(depDateTime.getMinutes() - (b.dep_checkin_buffer || 120));
+    depDateTime.setMinutes(depDateTime.getMinutes() + (b.dep_buffer ?? 120));
     const pad = (n: number) => n.toString().padStart(2, '0');
     const checkInDate = `${depDateTime.getFullYear()}-${pad(depDateTime.getMonth() + 1)}-${pad(depDateTime.getDate())}`;
     const checkInTime = depDateTime.toTimeString().substring(0, 5);
 
     const arrDateTime = new Date(`${b.arr_date || b.arrival_date}T${b.arr_time || b.arrival_time || '23:59'}`);
-    arrDateTime.setMinutes(arrDateTime.getMinutes() + (b.arr_exit_buffer || 60));
+    arrDateTime.setMinutes(arrDateTime.getMinutes() + (b.arr_buffer ?? 60));
     const exitEndTime = arrDateTime.toTimeString().substring(0, 5);
 
     await c.env.DB.prepare(`
@@ -727,20 +727,20 @@ app.put('/api/trips/:id/transportations/:transportId', async (c) => {
     const b = await c.req.json();
     await c.env.DB.prepare(`
       UPDATE Transportations 
-      SET type = ?, provider = ?, code = ?, dep_station = ?, dep_date = ?, dep_time = ?, dep_terminal = ?, dep_checkin_buffer = ?, arr_station = ?, arr_date = ?, arr_time = ?, arr_terminal = ?, arr_exit_buffer = ?, order_id = ?, notes = ?
+      SET type = ?, provider = ?, code = ?, dep_station = ?, dep_date = ?, dep_time = ?, dep_terminal = ?, dep_buffer = ?, arr_station = ?, arr_date = ?, arr_time = ?, arr_terminal = ?, arr_buffer = ?, order_id = ?, notes = ?
       WHERE id = ? AND trip_id = ?
     `).bind(
-      b.type || 'FLIGHT', b.provider || null, b.code || b.transport_code || null, b.dep_station || b.departure_station, b.dep_date || b.departure_date, b.dep_time || b.departure_time, b.dep_terminal || b.departure_terminal || null, b.dep_checkin_buffer ?? 120, b.arr_station || b.arrival_station, b.arr_date || b.arrival_date, b.arr_time || b.arrival_time, b.arr_terminal || b.arrival_terminal || null, b.arr_exit_buffer ?? 60, b.order_id || null, b.notes || null, transportId, tripId
+      b.type || 'FLIGHT', b.provider || null, b.code || b.transport_code || null, b.dep_station || b.departure_station, b.dep_date || b.departure_date, b.dep_time || b.departure_time, b.dep_terminal || b.departure_terminal || null, b.dep_buffer ?? 120, b.arr_station || b.arrival_station, b.arr_date || b.arrival_date, b.arr_time || b.arrival_time, b.arr_terminal || b.arrival_terminal || null, b.arr_buffer ?? 60, b.order_id || null, b.notes || null, transportId, tripId
     ).run();
 
     const depDateTime = new Date(`${b.dep_date || b.departure_date}T${b.dep_time || b.departure_time || '00:00'}`);
-    depDateTime.setMinutes(depDateTime.getMinutes() - (b.dep_checkin_buffer || 120));
+    depDateTime.setMinutes(depDateTime.getMinutes() + (b.dep_buffer ?? 120));
     const pad = (n: number) => n.toString().padStart(2, '0');
     const checkInDate = `${depDateTime.getFullYear()}-${pad(depDateTime.getMonth() + 1)}-${pad(depDateTime.getDate())}`;
     const checkInTime = depDateTime.toTimeString().substring(0, 5);
 
     const arrDateTime = new Date(`${b.arr_date || b.arrival_date}T${b.arr_time || b.arrival_time || '23:59'}`);
-    arrDateTime.setMinutes(arrDateTime.getMinutes() + (b.arr_exit_buffer || 60));
+    arrDateTime.setMinutes(arrDateTime.getMinutes() + (b.arr_buffer ?? 60));
     const exitEndTime = arrDateTime.toTimeString().substring(0, 5);
 
     await c.env.DB.prepare(`
@@ -1039,7 +1039,7 @@ app.post('/api/trips/:id/bookings', async (c) => {
       }
     } else {
       const depDateTime = new Date(`${b.start_date}T${b.start_time || '00:00'}`); 
-      const depBuffer = b.details?.dep_checkin_buffer || 0;
+      const depBuffer = b.details?.dep_buffer || 0;
       depDateTime.setMinutes(depDateTime.getMinutes() - depBuffer);
       
       const pad = (n: number) => n.toString().padStart(2, '0');
@@ -1047,7 +1047,7 @@ app.post('/api/trips/:id/bookings', async (c) => {
       const checkInTime = depDateTime.toTimeString().substring(0, 5);
 
       const arrDateTime = new Date(`${b.end_date || b.start_date}T${b.end_time || '23:59'}`);
-      const arrBuffer = b.details?.arr_exit_buffer || 0;
+      const arrBuffer = b.details?.arr_buffer || 0;
       arrDateTime.setMinutes(arrDateTime.getMinutes() + arrBuffer);
       const exitTime = arrDateTime.toTimeString().substring(0, 5);
 
@@ -1108,7 +1108,7 @@ app.put('/api/trips/:id/bookings/:bookingId', async (c) => {
       }
     } else {
       const depDateTime = new Date(`${b.start_date}T${b.start_time || '00:00'}`); 
-      const depBuffer = b.details?.dep_checkin_buffer || 0;
+      const depBuffer = b.details?.dep_buffer || 0;
       depDateTime.setMinutes(depDateTime.getMinutes() - depBuffer);
       
       const pad = (n: number) => n.toString().padStart(2, '0');
@@ -1116,7 +1116,7 @@ app.put('/api/trips/:id/bookings/:bookingId', async (c) => {
       const checkInTime = depDateTime.toTimeString().substring(0, 5);
 
       const arrDateTime = new Date(`${b.end_date || b.start_date}T${b.end_time || '23:59'}`);
-      const arrBuffer = b.details?.arr_exit_buffer || 0;
+      const arrBuffer = b.details?.arr_buffer || 0;
       arrDateTime.setMinutes(arrDateTime.getMinutes() + arrBuffer);
       const exitTime = arrDateTime.toTimeString().substring(0, 5);
 
