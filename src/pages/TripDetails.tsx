@@ -2,7 +2,7 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useAppStore } from '../store';
 import { format, parseISO, addDays, differenceInDays, isSameDay, isPast, addMinutes } from 'date-fns';
-import { MapPin, Clock, Plus, Navigation, DollarSign, Plane, Bed, Map, Info, Wallet, ArrowLeft, Calendar, X, Settings, Edit3, ChevronDown, ChevronUp, Image as ImageIcon, Lock, Unlock, Trash2, Train, Ship, Bus, Car, Footprints } from 'lucide-react';
+import { MapPin, Clock, Plus, Navigation, DollarSign, Plane, Bed, Map, Info, Wallet, ArrowLeft, Calendar, X, Settings, Edit3, ChevronDown, ChevronUp, ChevronsUpDown, ChevronsDownUp, Lock, Unlock, Trash2, Train, Ship, Bus, Car, Footprints } from 'lucide-react';
 import { Trip, Itinerary, Expense, User, Booking, BookingCategory } from '../types';
 import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip } from 'recharts';
 import { clsx } from 'clsx';
@@ -43,6 +43,7 @@ const getEffectiveTimes = (item: any, baseDate: Date) => {
   return { start, end };
 };
 
+// BookingCard 無圖版
 function BookingCard({ booking, canEdit, onEdit }: { booking: Booking; canEdit: boolean; onEdit: () => void; }) {
   const startDate = parseISO(`${booking.start_date}T${booking.start_time}`);
   const endDate = parseISO(`${booking.end_date}T${booking.end_time}`);
@@ -139,6 +140,7 @@ function TransportationCard({ item, booking, canEdit, isConflicted, onEdit, show
   const dep_buffer = detailsObj.dep_buffer;
   const arr_buffer = detailsObj.arr_buffer;
 
+  // 💡 同一使用 selectedDate 判斷，確保今天建立的卡片一定亮橘光
   const itemDateTime = parseISO(`${format(selectedDate, 'yyyy-MM-dd')}T${item.start_time || '00:00'}`);
   const isToday = isSameDay(selectedDate, new Date());
   const isPastItem = !isNaN(itemDateTime.getTime()) && isPast(itemDateTime) && !isToday;
@@ -424,7 +426,7 @@ function ItineraryCard({ item, canEdit, isConflicted, onEdit, selectedDate, show
                       {item.next_transport_mode === 'TRAIN' && <Train size={16} />}
                       {item.next_transport_mode === 'SHIP' && <Ship size={16} />}
                       {(item.next_transport_mode === 'DRIVING' || item.next_transport_mode === 'TAXI') && <Car size={16} />}
-                      {(item.next_transport_time || item.next_transport_auto_time) && <span className="text-[9px] font-mono font-bold leading-none mt-0.5">{item.next_transport_time ? item.next_transport_time.replace(' min', 'm') : (item.next_transport_auto_time || 'Auto')}</span>}
+                      {(item.next_transport_time || item.next_transport_auto_time) && <span className="text-[9px] font-mono font-bold leading-none mt-0.5">{item.next_transport_time ? item.next_transport_time.replace(' min', 'm') : 'Auto'}</span>}
                     </>
                   ) : <Plus size={18} />}
                 </button>
@@ -484,6 +486,7 @@ export function TripDetails() {
   const [isLoading, setIsLoading] = useState(false);
   const [bookingFilter, setBookingFilter] = useState<string>('ALL');
   
+  // 💡 高級一鍵展開切換控制
   const [isAllExpanded, setIsAllExpanded] = useState(false);
   const [expandSignal, setExpandSignal] = useState(0);
   const [collapseSignal, setCollapseSignal] = useState(0);
@@ -805,18 +808,17 @@ export function TripDetails() {
               </div>
               <button
                 onClick={toggleExpandAll}
-                title={isAllExpanded ? "Collapse All" : "Expand All"}
                 className={clsx(
-                  "shrink-0 flex flex-col items-center justify-center w-14 h-16 rounded-xl transition-all border",
+                  "shrink-0 flex flex-col items-center justify-center w-12 h-16 rounded-2xl transition-all border",
                   isAllExpanded 
-                    ? "bg-orange-500/10 border-orange-500/30 text-orange-500 shadow-[inset_0_0_12px_rgba(249,115,22,0.1)]" 
-                    : "bg-zinc-900 border-zinc-800 text-zinc-500 hover:text-white hover:bg-zinc-800 shadow-md"
+                    ? "bg-gradient-to-b from-orange-500 to-orange-600 border-orange-400/50 text-white shadow-[0_4px_20px_rgba(249,115,22,0.4)]" 
+                    : "bg-zinc-900/80 border-zinc-700/50 text-zinc-400 hover:text-white hover:bg-zinc-800 shadow-lg backdrop-blur-sm"
                 )}
               >
-                <span className="text-[9px] font-bold uppercase tracking-widest mb-1">
-                  {isAllExpanded ? 'Hide' : 'Expend'}
-                </span>
-                {isAllExpanded ? <ChevronUp size={20} strokeWidth={2.5} /> : <ChevronDown size={20} strokeWidth={2.5} />}
+                 {isAllExpanded ? <ChevronsDownUp size={18} strokeWidth={2.5} /> : <ChevronsUpDown size={18} strokeWidth={2.5} />}
+                 <span className="text-[8px] font-black uppercase tracking-widest mt-1 opacity-80">
+                   {isAllExpanded ? 'Fold' : 'All'}
+                 </span>
               </button>
             </div>
           </div>

@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { Cloud, CloudDrizzle, CloudFog, CloudLightning, CloudRain, CloudSnow, Sun, Loader2 } from 'lucide-react';
+import { Cloud, CloudDrizzle, CloudFog, CloudLightning, CloudRain, CloudSnow, Sun, Loader2, RefreshCw } from 'lucide-react';
 import { apiFetch } from '../utils/api';
 import { format, isSameDay } from 'date-fns';
 
@@ -29,32 +29,49 @@ export function WeatherWidget({ tripId, date }: WeatherWidgetProps) {
   const [loading, setLoading] = useState(true);
   const [message, setMessage] = useState<string | null>(null);
   const [isExpanded, setIsExpanded] = useState(false);
+  const [syncing, setSyncing] = useState(false);
+
+  const fetchWeather = async () => {
+    setLoading(true);
+    setData(null); 
+    try {
+      const dateStr = format(date, 'yyyy-MM-dd');
+      const res = await apiFetch(`/api/trips/${tripId}/weather?date=${dateStr}`);
+      if (res.status === 202 || res.status === 404) {
+        const json = await res.json() as { message: string };
+        setMessage(json.message);
+        setData(null);
+      } else if (res.ok) {
+        const json = await res.json() as WeatherData;
+        setData(json);
+        setMessage(null);
+      }
+    } catch (err) {
+      console.error('Failed to fetch weather', err);
+    } finally {
+      setLoading(false);
+    }
+  };
 
   useEffect(() => {
-    const fetchWeather = async () => {
-      setLoading(true);
-      setData(null); // Clear previous data to avoid showing wrong date's data while loading
-      try {
-        const dateStr = format(date, 'yyyy-MM-dd');
-        const res = await apiFetch(`/api/trips/${tripId}/weather?date=${dateStr}`);
-        if (res.status === 202 || res.status === 404) {
-          const json = await res.json() as { message: string };
-          setMessage(json.message);
-          setData(null);
-        } else if (res.ok) {
-          const json = await res.json() as WeatherData;
-          setData(json);
-          setMessage(null);
-        }
-      } catch (err) {
-        console.error('Failed to fetch weather', err);
-      } finally {
-        setLoading(false);
-      }
-    };
-
     fetchWeather();
   }, [tripId, date]);
+
+  // 💡 SYNC TRIP NOW 觸發全域同步
+  const handleSync = async (e: React.MouseEvent) => {
+    e.stopPropagation();
+    setSyncing(true);
+    try {
+      const res = await apiFetch(`/api/trips/${tripId}/sync`, { method: 'POST' });
+      if (res.ok) {
+        window.location.reload(); 
+      }
+    } catch (err) {
+      console.error('Sync failed', err);
+    } finally {
+      setSyncing(false);
+    }
+  };
 
   const getWeatherIcon = (code: number | null, size = 24) => {
     if (code === null) return <Cloud size={size} className="text-zinc-500" />;
@@ -77,8 +94,17 @@ export function WeatherWidget({ tripId, date }: WeatherWidgetProps) {
 
   if (message || !data || data.intervals.length === 0) {
     return (
-      <div className="bg-zinc-900 border border-zinc-800 rounded-3xl p-5 flex items-center justify-center shadow-lg h-[80px]">
-        <p className="text-sm text-zinc-400">{message || 'No weather data'}</p>
+      <div className="bg-zinc-900 border border-zinc-800 rounded-3xl p-5 flex flex-col items-center justify-center shadow-lg min-h-[80px] gap-2">
+        <div className="flex items-center justify-between w-full">
+           <p className="text-sm text-zinc-400">{message || 'No weather data'}</p>
+           <button 
+              onClick={handleSync} disabled={syncing}
+              className="text-[10px] font-bold text-orange-500 bg-orange-500/10 hover:bg-orange-500/20 px-3 py-1.5 rounded-full transition-colors flex items-center gap-1.5 disabled:opacity-50"
+            >
+              <RefreshCw size={12} className={syncing ? "animate-spin" : ""} />
+              {syncing ? 'SYNCING...' : 'SYNC TRIP NOW'}
+            </button>
+        </div>
       </div>
     );
   }
@@ -100,8 +126,17 @@ export function WeatherWidget({ tripId, date }: WeatherWidgetProps) {
             )}
           </div>
         </div>
-        <div className="text-xs text-orange-500 font-medium">
-          {isExpanded ? 'Collapse' : 'Expand'}
+        <div className="flex items-center gap-3">
+          <button 
+            onClick={handleSync} disabled={syncing}
+            className="text-[10px] font-bold text-zinc-400 hover:text-orange-500 bg-zinc-800 hover:bg-orange-500/10 px-2 py-1 rounded-full transition-colors flex items-center gap-1 disabled:opacity-50 border border-zinc-700"
+          >
+            <RefreshCw size={10} className={syncing ? "animate-spin" : ""} />
+            {syncing ? 'SYNCING...' : 'SYNC TRIP NOW'}
+          </button>
+          <div className="text-xs text-orange-500 font-medium">
+            {isExpanded ? 'Collapse' : 'Expand'}
+          </div>
         </div>
       </div>
 
@@ -110,14 +145,9 @@ export function WeatherWidget({ tripId, date }: WeatherWidgetProps) {
           {data.intervals
             .filter(interval => {
               const now = new Date();
-              // Use props.date to determine if it's today, not data.date
               const isToday = isSameDay(date, now);
-              
               if (!isToday) return true;
-              
-              // Handle "00:00 (+1)" case
               if (interval.time.includes('(+1)')) return true;
-
               const intervalHour = parseInt(interval.time.split(':')[0], 10);
               return intervalHour + 3 > now.getHours();
             })
