@@ -911,23 +911,27 @@ app.post('/api/trips/:id/rentals', async (c) => {
     const pickUpBuffer = details.pick_up_buffer || 0;
     const returnBuffer = details.return_buffer || 0;
 
-    const pickUpDate = new Date(`${b.check_in_date}T${b.check_in_time || '10:00'}`);
-    pickUpDate.setMinutes(pickUpDate.getMinutes() + pickUpBuffer);
-    const pickUpTime = pickUpDate.toTimeString().slice(0, 5);
+    const pickUpStart = new Date(`${b.check_in_date}T${b.check_in_time || '10:00'}`);
+    const pickUpEnd = new Date(pickUpStart);
+    pickUpEnd.setMinutes(pickUpEnd.getMinutes() + pickUpBuffer);
+    const pickUpStartTime = pickUpStart.toTimeString().slice(0, 5);
+    const pickUpEndTime = pickUpEnd.toTimeString().slice(0, 5);
 
-    const returnDate = new Date(`${b.check_out_date}T${b.check_out_time || '10:00'}`);
-    returnDate.setMinutes(returnDate.getMinutes() + returnBuffer);
-    const returnTime = returnDate.toTimeString().slice(0, 5);
+    const returnStart = new Date(`${b.check_out_date}T${b.check_out_time || '10:00'}`);
+    const returnEnd = new Date(returnStart);
+    returnEnd.setMinutes(returnEnd.getMinutes() + returnBuffer);
+    const returnStartTime = returnStart.toTimeString().slice(0, 5);
+    const returnEndTime = returnEnd.toTimeString().slice(0, 5);
 
     await c.env.DB.prepare(`
       INSERT INTO Itineraries (trip_id, date, start_time, end_time, title, type, related_id, notes, image_url)
       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `).bind(tripId, b.check_in_date, pickUpTime, '', `Pick up ${b.name}`, 'RENTAL', rentalId, b.notes, rentalImage || '').run();
+    `).bind(tripId, b.check_in_date, pickUpStartTime, pickUpEndTime, `Pick up ${b.name}`, 'RENTAL', rentalId, b.notes, rentalImage || '').run();
 
     await c.env.DB.prepare(`
       INSERT INTO Itineraries (trip_id, date, start_time, end_time, title, type, related_id, notes, image_url)
       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `).bind(tripId, b.check_out_date, returnTime, '', `Return ${b.name}`, 'RENTAL', rentalId, b.notes, rentalImage || '').run();
+    `).bind(tripId, b.check_out_date, returnStartTime, returnEndTime, `Return ${b.name}`, 'RENTAL', rentalId, b.notes, rentalImage || '').run();
 
     return c.json({ success: true, id: rentalId });
   } catch (error: any) { return c.json({ error: error.message }, 500); }
