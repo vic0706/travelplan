@@ -705,13 +705,24 @@ app.post('/api/trips/:id/transportations', async (c) => {
     const arrDateTime = new Date(`${b.arr_date || b.arrival_date}T${b.arr_time || b.arrival_time || '23:59'}`);
     arrDateTime.setMinutes(arrDateTime.getMinutes() + (b.arr_buffer ?? 60));
     const exitEndTime = arrDateTime.toTimeString().substring(0, 5);
+    const exitEndDate = `${arrDateTime.getFullYear()}-${pad(arrDateTime.getMonth() + 1)}-${pad(arrDateTime.getDate())}`;
 
-    await c.env.DB.prepare(`
-      INSERT INTO Itineraries (trip_id, date, start_time, end_time, title, type, related_id, notes)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-    `).bind(
-      tripId, checkInDate, checkInTime, exitEndTime, `${b.type || 'Transport'}: ${b.provider} ${b.code || b.transport_code}`, 'TRANSPORTATION', transportId, b.notes || ''
-    ).run();
+    if (b.type === 'RENTAL') {
+      await c.env.DB.prepare(`
+        INSERT INTO Itineraries (trip_id, date, start_time, end_time, title, type, related_id, notes)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?), (?, ?, ?, ?, ?, ?, ?, ?)
+      `).bind(
+        tripId, checkInDate, checkInTime, checkInTime, `Pick-up: ${b.provider} ${b.code || ''}`, 'TRANSPORTATION', transportId, b.notes || '',
+        tripId, exitEndDate, exitEndTime, exitEndTime, `Return: ${b.provider} ${b.code || ''}`, 'TRANSPORTATION', transportId, b.notes || ''
+      ).run();
+    } else {
+      await c.env.DB.prepare(`
+        INSERT INTO Itineraries (trip_id, date, start_time, end_time, title, type, related_id, notes)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+      `).bind(
+        tripId, checkInDate, checkInTime, exitEndTime, `${b.type || 'Transport'}: ${b.provider} ${b.code || b.transport_code}`, 'TRANSPORTATION', transportId, b.notes || ''
+      ).run();
+    }
 
     return c.json({ success: true, id: transportId });
   } catch (error: any) { return c.json({ error: error.message }, 500); }

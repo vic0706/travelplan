@@ -303,7 +303,7 @@ export function TransportationForm({ tripId, onSuccess, onCancel, onDelete, init
              </label>
              <input 
                type="range" 
-               min="-120" 
+               min="-240" 
                max="240" 
                step="15"
                value={formData.dep_buffer}
@@ -381,7 +381,7 @@ export function TransportationForm({ tripId, onSuccess, onCancel, onDelete, init
              </label>
              <input 
                type="range" 
-               min="-120" 
+               min="-240" 
                max="240" 
                step="15"
                value={formData.arr_buffer}
