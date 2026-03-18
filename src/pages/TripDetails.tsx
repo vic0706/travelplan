@@ -20,7 +20,6 @@ import { ConfirmDialog } from '../components/ConfirmDialog';
 import { motion, AnimatePresence } from 'framer-motion';
 import { DynamicIcon } from '../components/DynamicIcon';
 
-// 實用時間解析與計算工具
 const parseTime = (timeStr: string, baseDate: Date) => {
   if (!timeStr) return baseDate;
   const [hours, minutes] = timeStr.split(':').map(Number);
@@ -44,7 +43,6 @@ const getEffectiveTimes = (item: any, baseDate: Date) => {
   return { start, end };
 };
 
-// 💡 已移除圖片顯示區塊，呈現最純粹乾淨的資訊卡片
 function BookingCard({ booking, canEdit, onEdit }: { booking: Booking; canEdit: boolean; onEdit: () => void; }) {
   const startDate = parseISO(`${booking.start_date}T${booking.start_time}`);
   const endDate = parseISO(`${booking.end_date}T${booking.end_time}`);
@@ -122,15 +120,13 @@ function BookingCard({ booking, canEdit, onEdit }: { booking: Booking; canEdit: 
   );
 }
 
-function TransportationCard({ item, booking, canEdit, isConflicted, onEdit, showNextTransport, onEditNextTransport }: { 
-  item?: Itinerary; booking?: Booking; canEdit: boolean; isConflicted?: boolean; onEdit: () => void; showNextTransport?: boolean; onEditNextTransport?: () => void; 
+function TransportationCard({ item, booking, canEdit, isConflicted, onEdit, showNextTransport, onEditNextTransport, selectedDate, expandSignal, collapseSignal }: { 
+  item?: Itinerary; booking?: Booking; canEdit: boolean; isConflicted?: boolean; onEdit: () => void; showNextTransport?: boolean; onEditNextTransport?: () => void; selectedDate: Date; expandSignal: number; collapseSignal: number;
 }) {
   const data = booking;
-  if (!data) return null;
+  if (!data || !item) return null;
 
-  const dep_date = data.start_date;
   const dep_time = data.start_time;
-  const arr_date = data.end_date;
   const arr_time = data.end_time;
   const type = data.category;
   const provider = data.provider;
@@ -143,19 +139,17 @@ function TransportationCard({ item, booking, canEdit, isConflicted, onEdit, show
   const dep_buffer = detailsObj.dep_buffer;
   const arr_buffer = detailsObj.arr_buffer;
 
-  const depDate = parseISO(`${dep_date}T${dep_time}`);
-  const arrDate = parseISO(`${arr_date}T${arr_time}`);
-  
-  const isValidDep = !isNaN(depDate.getTime());
-  const isValidArr = !isNaN(arrDate.getTime());
-  const isCrossDay = isValidDep && isValidArr && !isSameDay(depDate, arrDate);
-  const isToday = isValidDep && isSameDay(depDate, new Date());
-  const isPastItem = isValidDep && isPast(depDate) && !isToday;
+  const itemDateTime = parseISO(`${format(selectedDate, 'yyyy-MM-dd')}T${item.start_time || '00:00'}`);
+  const isToday = isSameDay(selectedDate, new Date());
+  const isPastItem = !isNaN(itemDateTime.getTime()) && isPast(itemDateTime) && !isToday;
+  const isCrossDay = data.start_date !== data.end_date;
   
   const [isExpanded, setIsExpanded] = useState(!isPastItem);
   const [showDetails, setShowDetails] = useState(false);
 
   useEffect(() => { setIsExpanded(!isPastItem); }, [isPastItem]);
+  useEffect(() => { if (expandSignal > 0) setIsExpanded(true); }, [expandSignal]);
+  useEffect(() => { if (collapseSignal > 0) setIsExpanded(false); }, [collapseSignal]);
 
   const getIcon = () => {
     switch (type) {
@@ -181,12 +175,12 @@ function TransportationCard({ item, booking, canEdit, isConflicted, onEdit, show
   const labels = getLabels();
 
   if (item) {
-    const depDateTime = parseISO(`${dep_date}T${dep_time}`);
-    const checkinBuffer = dep_buffer || 120;
-    const checkinDate = new Date(depDateTime.getTime() - checkinBuffer * 60000);
+    const depDateTime = parseISO(`${data.start_date}T${dep_time}`);
+    const checkinBuffer = dep_buffer || -120;
+    const checkinDate = new Date(depDateTime.getTime() + checkinBuffer * 60000); 
     const checkinTimeStr = format(checkinDate, 'HH:mm');
 
-    const arrDateTime = parseISO(`${arr_date}T${arr_time}`);
+    const arrDateTime = parseISO(`${data.end_date || data.start_date}T${arr_time}`);
     const exitBuffer = arr_buffer || 60;
     const exitDate = new Date(arrDateTime.getTime() + exitBuffer * 60000);
     const exitTimeStr = format(exitDate, 'HH:mm');
@@ -358,13 +352,14 @@ function SubItemRow({ sub, itineraryImageUrl, isLast, hasMore }: { sub: any; iti
   );
 }
 
-function ItineraryCard({ item, canEdit, isConflicted, onEdit, selectedDate, showNextTransport, onEditNextTransport, booking }: { 
-  item: Itinerary; canEdit: boolean; isConflicted?: boolean; onEdit: () => void; selectedDate: Date; showNextTransport?: boolean; onEditNextTransport?: () => void; booking?: Booking;
+function ItineraryCard({ item, canEdit, isConflicted, onEdit, selectedDate, showNextTransport, onEditNextTransport, booking, expandSignal, collapseSignal }: { 
+  item: Itinerary; canEdit: boolean; isConflicted?: boolean; onEdit: () => void; selectedDate: Date; showNextTransport?: boolean; onEditNextTransport?: () => void; booking?: Booking; expandSignal: number; collapseSignal: number;
 }) {
   const timeString = item.end_time || item.start_time || '23:59';
   const dateStr = format(selectedDate, 'yyyy-MM-dd');
-  const itemDateTime = parseISO(`${dateStr}T${timeString}`);
-  const isPastItem = !isNaN(itemDateTime.getTime()) && isPast(itemDateTime);
+  const itemDateTime = parseISO(`${dateStr}T${item.start_time || '00:00'}`);
+  const isToday = isSameDay(selectedDate, new Date());
+  const isPastItem = !isNaN(itemDateTime.getTime()) && isPast(itemDateTime) && !isToday;
 
   const subItems = item.sub_items ? JSON.parse(item.sub_items) : [];
   const hasNotes = !!item.notes;
@@ -377,6 +372,8 @@ function ItineraryCard({ item, canEdit, isConflicted, onEdit, selectedDate, show
   const [showDetails, setShowDetails] = useState(false);
   
   useEffect(() => { setIsExpanded(!isPastItem && hasExpandableContent); }, [isPastItem, hasExpandableContent]);
+  useEffect(() => { if (expandSignal > 0 && hasExpandableContent) setIsExpanded(true); }, [expandSignal, hasExpandableContent]);
+  useEffect(() => { if (collapseSignal > 0 && hasExpandableContent) setIsExpanded(false); }, [collapseSignal, hasExpandableContent]);
 
   return (
     <div 
@@ -391,13 +388,13 @@ function ItineraryCard({ item, canEdit, isConflicted, onEdit, selectedDate, show
       <div className="p-5 flex items-start justify-between gap-4 bg-zinc-900 relative z-20">
         <div className="flex flex-col gap-1.5 flex-1">
           <div className="flex items-center gap-2 text-zinc-400">
-            <div className="w-1.5 h-1.5 rounded-full bg-orange-500" />
+            <div className={clsx("w-1.5 h-1.5 rounded-full", isPastItem ? "bg-zinc-600" : "bg-orange-500")} />
             <span className="font-mono text-sm font-medium tracking-wide">{item.start_time} - {item.start_time === item.end_time ? 'Auto' : item.end_time}</span>
           </div>
           <h3 className="text-xl font-bold text-white leading-tight flex items-center">
-            {item.type === 'ACCOMMODATION' && <Bed className="text-orange-500 mr-2 shrink-0" size={20} />}
-            {item.type === 'RENTAL' && <Car className="text-orange-500 mr-2 shrink-0" size={20} />}
-            {item.icon && <DynamicIcon name={item.icon} className="text-orange-500 mr-2 shrink-0" size={20} />}
+            {item.type === 'ACCOMMODATION' && <Bed className={clsx("mr-2 shrink-0", isPastItem ? "text-zinc-500" : "text-orange-500")} size={20} />}
+            {item.type === 'RENTAL' && <Car className={clsx("mr-2 shrink-0", isPastItem ? "text-zinc-500" : "text-orange-500")} size={20} />}
+            {item.icon && <DynamicIcon name={item.icon} className={clsx("mr-2 shrink-0", isPastItem ? "text-zinc-500" : "text-orange-500")} size={20} />}
             {item.title}
           </h3>
         </div>
@@ -486,6 +483,17 @@ export function TripDetails() {
   const [selectedDate, setSelectedDate] = useState<Date | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [bookingFilter, setBookingFilter] = useState<string>('ALL');
+  
+  const [isAllExpanded, setIsAllExpanded] = useState(false);
+  const [expandSignal, setExpandSignal] = useState(0);
+  const [collapseSignal, setCollapseSignal] = useState(0);
+
+  const toggleExpandAll = () => {
+    const nextState = !isAllExpanded;
+    setIsAllExpanded(nextState);
+    if (nextState) setExpandSignal(s => s + 1);
+    else setCollapseSignal(s => s + 1);
+  };
   
   useEffect(() => { setSelectedDate(new Date()); }, []);
   
@@ -777,22 +785,39 @@ export function TripDetails() {
 
         {(activeTab === 'itinerary' || activeTab === 'finance') && (
           <div className="bg-black/95 backdrop-blur-xl border-b border-zinc-800 py-3 px-4">
-            <div className="flex overflow-x-auto gap-3 no-scrollbar pb-1">
-              {dates.map((date, index) => {
-                const isActive = isSameDay(date, selectedDate);
-                return (
-                  <button
-                    key={index} onClick={() => setSelectedDate(date)}
-                    className={clsx(
-                      "flex flex-col items-center justify-center min-w-[56px] h-16 rounded-xl transition-all shrink-0",
-                      isActive ? "bg-orange-500 text-white shadow-lg shadow-orange-500/20 scale-105" : "bg-zinc-900 text-zinc-400 hover:bg-zinc-800 border border-zinc-800"
-                    )}
-                  >
-                    <span className="text-[10px] font-medium uppercase tracking-wider opacity-80">{date instanceof Date && !isNaN(date.getTime()) ? format(date, 'EEE') : '---'}</span>
-                    <span className="text-lg font-bold mt-0.5">{date instanceof Date && !isNaN(date.getTime()) ? format(date, 'd') : '--'}</span>
-                  </button>
-                );
-              })}
+            <div className="flex items-center gap-2">
+              <div className="flex overflow-x-auto gap-3 no-scrollbar pb-1 flex-1">
+                {dates.map((date, index) => {
+                  const isActive = isSameDay(date, selectedDate);
+                  return (
+                    <button
+                      key={index} onClick={() => setSelectedDate(date)}
+                      className={clsx(
+                        "flex flex-col items-center justify-center min-w-[56px] h-16 rounded-xl transition-all shrink-0",
+                        isActive ? "bg-orange-500 text-white shadow-lg shadow-orange-500/20 scale-105" : "bg-zinc-900 text-zinc-400 hover:bg-zinc-800 border border-zinc-800"
+                      )}
+                    >
+                      <span className="text-[10px] font-medium uppercase tracking-wider opacity-80">{date instanceof Date && !isNaN(date.getTime()) ? format(date, 'EEE') : '---'}</span>
+                      <span className="text-lg font-bold mt-0.5">{date instanceof Date && !isNaN(date.getTime()) ? format(date, 'd') : '--'}</span>
+                    </button>
+                  );
+                })}
+              </div>
+              <button
+                onClick={toggleExpandAll}
+                title={isAllExpanded ? "Collapse All" : "Expand All"}
+                className={clsx(
+                  "shrink-0 flex flex-col items-center justify-center w-14 h-16 rounded-xl transition-all border",
+                  isAllExpanded 
+                    ? "bg-orange-500/10 border-orange-500/30 text-orange-500 shadow-[inset_0_0_12px_rgba(249,115,22,0.1)]" 
+                    : "bg-zinc-900 border-zinc-800 text-zinc-500 hover:text-white hover:bg-zinc-800 shadow-md"
+                )}
+              >
+                <span className="text-[9px] font-bold uppercase tracking-widest mb-1">
+                  {isAllExpanded ? 'Fold' : 'All'}
+                </span>
+                {isAllExpanded ? <ChevronUp size={20} strokeWidth={2.5} /> : <ChevronDown size={20} strokeWidth={2.5} />}
+              </button>
             </div>
           </div>
         )}
@@ -823,7 +848,6 @@ export function TripDetails() {
               {filteredItineraries.length > 0 ? (
                 filteredItineraries.map((item, index) => {
                   
-                  // 💡 只有 TRANSPORTATION 使用連線卡片，RENTAL 已經改用 ItineraryCard 獨立編輯
                   if (item.type === 'TRANSPORTATION' && item.related_id) {
                     const booking = bookings.find(b => b.id === item.related_id);
                     if (booking) {
@@ -835,6 +859,9 @@ export function TripDetails() {
                           onEdit={() => { setEditingBooking(booking); setIsBookingFormOpen(true); }}
                           showNextTransport={index < filteredItineraries.length - 1}
                           onEditNextTransport={() => { setEditingItinerary(item); setIsNextTransportFormOpen(true); }}
+                          selectedDate={selectedDate!}
+                          expandSignal={expandSignal}
+                          collapseSignal={collapseSignal}
                         />
                       );
                     }
@@ -850,9 +877,11 @@ export function TripDetails() {
                           setEditingItinerary(item); 
                           setIsItineraryFormOpen(true); 
                         }}
-                        selectedDate={selectedDate} showNextTransport={index < filteredItineraries.length - 1}
+                        selectedDate={selectedDate!} showNextTransport={index < filteredItineraries.length - 1}
                         onEditNextTransport={() => { setEditingItinerary(item); setIsNextTransportFormOpen(true); }}
                         booking={booking}
+                        expandSignal={expandSignal}
+                        collapseSignal={collapseSignal}
                       />
                     </div>
                   );
@@ -889,7 +918,6 @@ export function TripDetails() {
 
               {bookings.length > 0 ? (
                 <>
-                  {/* 💡 橫向滾動篩選按鈕 */}
                   {availableBookingCategories.length > 2 && (
                     <div className="flex gap-2 overflow-x-auto no-scrollbar px-2 pb-2">
                       {availableBookingCategories.map(cat => (
@@ -909,7 +937,6 @@ export function TripDetails() {
                     </div>
                   )}
 
-                  {/* 💡 排序邏輯：過去的置底，其餘由近到遠 */}
                   <div className="grid grid-cols-1 gap-4">
                     {bookings
                       .filter(b => bookingFilter === 'ALL' || b.category === bookingFilter)
@@ -1026,7 +1053,6 @@ export function TripDetails() {
                 onSuccess={async () => { 
                   setIsItineraryFormOpen(false); 
                   setEditingItinerary(null); 
-                  // 💡 確保反向同步更新後能刷新畫面
                   const [bRes, iRes] = await Promise.all([apiFetch(`/api/trips/${id}/bookings`), apiFetch(`/api/trips/${id}/itineraries`)]);
                   if (bRes.ok) await db.bookings.bulkPut(await bRes.json() as any[]);
                   if (iRes.ok) await db.itineraries.bulkPut(await iRes.json() as any[]);

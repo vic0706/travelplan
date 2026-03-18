@@ -207,7 +207,12 @@ export function BookingForm({ tripId, onSuccess, onCancel, onDelete, initialData
                   category: cat.id as BookingCategory,
                   start_time: cat.id === 'HOTEL' ? '16:00' : '10:00',
                   end_time: cat.id === 'HOTEL' ? '11:00' : '14:00',
-                  details: cat.id === 'HOTEL' ? { daily_start_time: '08:00', daily_end_time: '22:00' } : { dep_buffer: 120, arr_buffer: 60 }
+                  // 💡 設定預設的 Buffer Time，Flight為提前(-120)，Rental為耗時(+30)
+                  details: cat.id === 'HOTEL' 
+                    ? { daily_start_time: '08:00', daily_end_time: '22:00' } 
+                    : cat.id === 'RENTAL' 
+                      ? { dep_buffer: 30, arr_buffer: 30 } 
+                      : { dep_buffer: -120, arr_buffer: 60 }
                 }); 
                 setStep('form'); 
               }}
@@ -448,35 +453,59 @@ export function BookingForm({ tripId, onSuccess, onCancel, onDelete, initialData
             <div className="space-y-4 bg-zinc-950/50 p-4 rounded-2xl border border-zinc-800">
               <div className="space-y-3">
                 <label className="text-xs font-bold text-zinc-500 uppercase tracking-wider flex justify-between items-center">
-                  <span className="flex items-center gap-1.5"><Clock size={12} className="text-orange-500" />{formData.category === 'FLIGHT' ? 'Check-in Time' : formData.category === 'RENTAL' ? 'Pick-up Time' : 'Arrival Time'}</span>
+                  <span className="flex items-center gap-1.5"><Clock size={12} className="text-orange-500" />
+                    {formData.category === 'FLIGHT' ? 'Check-in Buffer' : formData.category === 'RENTAL' ? 'Pick-up Duration' : 'Arrival Buffer'}
+                  </span>
                   <div className="flex items-center gap-2">
                     {formData.start_date && formData.start_time && !isNaN(parseISO(`${formData.start_date}T${formData.start_time}`).getTime()) && (
                       <span className="text-orange-500/80 text-[10px] font-mono mr-2">
-                        {formData.category === 'FLIGHT' ? 'Check-in' : formData.category === 'RENTAL' ? 'Pick-up' : 'Arrive'} @ {format(addMinutes(parseISO(`${formData.start_date}T${formData.start_time}`), -(formData.details.dep_buffer || 0)), 'HH:mm')}
+                        {formData.category === 'FLIGHT' ? 'Check-in' : formData.category === 'RENTAL' ? 'Finish' : 'Arrive'} @ {format(addMinutes(parseISO(`${formData.start_date}T${formData.start_time}`), formData.details.dep_buffer || 0), 'HH:mm')}
                       </span>
                     )}
-                    <input type="number" value={-(formData.details.dep_buffer || 0)} onChange={(e) => setFormData({ ...formData, details: { ...formData.details, dep_buffer: -parseInt(e.target.value) || 0 } })} className="w-16 bg-zinc-900 border border-zinc-800 rounded-lg px-2 py-1 text-right text-orange-500 font-bold focus:outline-none focus:border-orange-500" />
+                    <input 
+                       type="number" 
+                       value={formData.details.dep_buffer || 0} 
+                       onChange={(e) => setFormData({ ...formData, details: { ...formData.details, dep_buffer: parseInt(e.target.value) || 0 } })} 
+                       className="w-16 bg-zinc-900 border border-zinc-800 rounded-lg px-2 py-1 text-right text-orange-500 font-bold focus:outline-none focus:border-orange-500" 
+                    />
                     <span className="text-zinc-500 text-[10px]">MIN</span>
                   </div>
                 </label>
-                <input type="range" min="-240" max="240" step="15" value={-(formData.details.dep_buffer || 0)} onChange={(e) => setFormData({ ...formData, details: { ...formData.details, dep_buffer: -parseInt(e.target.value) } })} className="w-full h-1.5 bg-zinc-800 rounded-lg appearance-none cursor-pointer accent-orange-500" />
+                <input 
+                   type="range" min="-240" max="240" step="15" 
+                   value={formData.details.dep_buffer || 0} 
+                   onChange={(e) => setFormData({ ...formData, details: { ...formData.details, dep_buffer: parseInt(e.target.value) } })} 
+                   className="w-full h-1.5 bg-zinc-800 rounded-lg appearance-none cursor-pointer accent-orange-500" 
+                />
                 <div className="flex justify-between text-[10px] text-zinc-600 font-medium"><span>-4h</span><span>-2h</span><span>0</span><span>+2h</span><span>+4h</span></div>
               </div>
 
               <div className="space-y-3">
                 <label className="text-xs font-bold text-zinc-500 uppercase tracking-wider flex justify-between items-center">
-                  <span className="flex items-center gap-1.5"><Clock size={12} className="text-orange-500" />{formData.category === 'RENTAL' ? 'Return Time' : 'Exit Time'}</span>
+                  <span className="flex items-center gap-1.5"><Clock size={12} className="text-orange-500" />
+                    {formData.category === 'RENTAL' ? 'Return Duration' : 'Exit Buffer'}
+                  </span>
                   <div className="flex items-center gap-2">
                     {formData.end_date && formData.end_time && !isNaN(parseISO(`${formData.end_date}T${formData.end_time}`).getTime()) && (
                       <span className="text-orange-500/80 text-[10px] font-mono mr-2">
-                        {formData.category === 'RENTAL' ? 'Return' : 'Exit'} @ {format(addMinutes(parseISO(`${formData.end_date}T${formData.end_time}`), formData.details.arr_buffer || 0), 'HH:mm')}
+                        {formData.category === 'RENTAL' ? 'Finish' : 'Exit'} @ {format(addMinutes(parseISO(`${formData.end_date}T${formData.end_time}`), formData.details.arr_buffer || 0), 'HH:mm')}
                       </span>
                     )}
-                    <input type="number" value={formData.details.arr_buffer || 0} onChange={(e) => setFormData({ ...formData, details: { ...formData.details, arr_buffer: parseInt(e.target.value) || 0 } })} className="w-16 bg-zinc-900 border border-zinc-800 rounded-lg px-2 py-1 text-right text-orange-500 font-bold focus:outline-none focus:border-orange-500" />
+                    <input 
+                       type="number" 
+                       value={formData.details.arr_buffer || 0} 
+                       onChange={(e) => setFormData({ ...formData, details: { ...formData.details, arr_buffer: parseInt(e.target.value) || 0 } })} 
+                       className="w-16 bg-zinc-900 border border-zinc-800 rounded-lg px-2 py-1 text-right text-orange-500 font-bold focus:outline-none focus:border-orange-500" 
+                    />
                     <span className="text-zinc-500 text-[10px]">MIN</span>
                   </div>
                 </label>
-                <input type="range" min="-240" max="240" step="15" value={formData.details.arr_buffer || 0} onChange={(e) => setFormData({ ...formData, details: { ...formData.details, arr_buffer: parseInt(e.target.value) } })} className="w-full h-1.5 bg-zinc-800 rounded-lg appearance-none cursor-pointer accent-orange-500" />
+                <input 
+                   type="range" min="-240" max="240" step="15" 
+                   value={formData.details.arr_buffer || 0} 
+                   onChange={(e) => setFormData({ ...formData, details: { ...formData.details, arr_buffer: parseInt(e.target.value) } })} 
+                   className="w-full h-1.5 bg-zinc-800 rounded-lg appearance-none cursor-pointer accent-orange-500" 
+                />
                 <div className="flex justify-between text-[10px] text-zinc-600 font-medium"><span>-4h</span><span>-2h</span><span>0</span><span>+2h</span><span>+4h</span></div>
               </div>
             </div>

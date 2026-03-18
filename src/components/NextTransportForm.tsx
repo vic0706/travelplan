@@ -1,143 +1,126 @@
-import React, { useState, useEffect } from 'react';
-import { X, Footprints, Bus, Car, Train, Ship, Clock } from 'lucide-react';
+import React, { useState } from 'react';
+import { X, Footprints, Bus, Train, Ship, Car, Clock, Loader2 } from 'lucide-react';
 import { clsx } from 'clsx';
+import { Itinerary } from '../types';
 
 interface NextTransportFormProps {
   isOpen: boolean;
   onClose: () => void;
-  itinerary: any;
-  onSave: (data: any) => void;
+  itinerary: Itinerary;
+  onSave: (data: { next_transport_mode: string; next_transport_time: string; next_transport_auto_time: string }) => Promise<void>;
 }
 
 const TRANSPORT_MODES = [
-  { id: 'WALKING', label: 'Walking', icon: Footprints },
-  { id: 'TRANSIT', label: 'Transit', icon: Bus },
-  { id: 'DRIVING', label: 'Driving', icon: Car },
-  { id: 'TAXI', label: 'Taxi', icon: Car },
+  { id: 'WALKING', label: 'Walk', icon: Footprints },
+  { id: 'BUS', label: 'Bus', icon: Bus },
   { id: 'TRAIN', label: 'Train', icon: Train },
-  { id: 'SHIP', label: 'Ferry', icon: Ship },
+  { id: 'SHIP', label: 'Ship', icon: Ship },
+  { id: 'DRIVING', label: 'Drive', icon: Car },
+  { id: 'TAXI', label: 'Taxi', icon: Car },
 ];
 
 export function NextTransportForm({ isOpen, onClose, itinerary, onSave }: NextTransportFormProps) {
   const [mode, setMode] = useState(itinerary.next_transport_mode || '');
-  // Parse existing time string to minutes if possible, otherwise default to empty
-  const initialDuration = itinerary.next_transport_time ? parseInt(itinerary.next_transport_time) : '';
-  const [duration, setDuration] = useState<number | string>(initialDuration || '');
-
-  useEffect(() => {
-    if (isOpen) {
-      setMode(itinerary.next_transport_mode || '');
-      const timeStr = itinerary.next_transport_time || '';
-      const minutes = parseInt(timeStr);
-      setDuration(isNaN(minutes) ? '' : minutes);
-    }
-  }, [isOpen, itinerary]);
+  
+  // 如果原本有手動設定時間，就解析出來；如果是 Auto 或空，預設為 0
+  const initialMins = itinerary.next_transport_time ? parseInt(itinerary.next_transport_time.replace(/\D/g, '')) : 0;
+  const [duration, setDuration] = useState<number>(initialMins);
+  const [loading, setLoading] = useState(false);
 
   if (!isOpen) return null;
 
-  const handleSave = () => {
-    onSave({ 
-      next_transport_mode: mode, 
-      next_transport_time: duration ? `${duration} min` : '',
-      next_transport_auto_time: '' // Clear auto time if manual is set
-    });
-    onClose();
+  const handleSave = async () => {
+    setLoading(true);
+    try {
+      await onSave({
+        next_transport_mode: mode,
+        // 💡 Duration 為 0 代表交給 Google Maps 自動計算
+        next_transport_time: duration === 0 ? '' : `${duration} min`,
+        next_transport_auto_time: duration === 0 ? 'Auto' : ''
+      });
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleClear = async () => {
+    setMode('');
+    setDuration(0);
+    setLoading(true);
+    try {
+      await onSave({ next_transport_mode: '', next_transport_time: '', next_transport_auto_time: '' });
+    } finally {
+      setLoading(false);
+    }
   };
 
   return (
-    <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-[200] flex items-center justify-center p-4">
-      <div className="bg-zinc-900 border border-zinc-800 rounded-3xl w-full max-w-md overflow-hidden shadow-2xl">
-        <div className="p-6 border-b border-zinc-800 flex justify-between items-center">
-          <h2 className="text-xl font-bold text-white">Next Transport</h2>
-          <button onClick={onClose} className="p-2 hover:bg-zinc-800 rounded-full text-zinc-400 hover:text-white transition-colors">
-            <X size={20} />
-          </button>
+    <div className="absolute inset-0 z-[100] flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm">
+      <div className="bg-zinc-900 border border-zinc-800 rounded-3xl w-full max-w-md shadow-2xl overflow-hidden flex flex-col">
+        <div className="p-6 border-b border-zinc-800 flex justify-between items-center bg-zinc-900/50">
+          <h3 className="text-lg font-bold text-white">Next Transport</h3>
+          <button onClick={onClose} className="text-zinc-400 hover:text-white p-1 rounded-full hover:bg-zinc-800 transition-colors"><X size={20} /></button>
         </div>
         
-        <div className="p-6 space-y-8">
-          {/* Transport Mode Selection */}
+        <div className="p-6 space-y-6">
           <div className="space-y-3">
-            <label className="text-sm font-medium text-zinc-400 uppercase tracking-wider">Transport Mode</label>
+            <label className="text-xs font-bold text-zinc-500 uppercase tracking-wider">Transport Mode</label>
             <div className="grid grid-cols-3 gap-3">
-              {TRANSPORT_MODES.map((m) => (
-                <button
-                  key={m.id}
-                  onClick={() => setMode(m.id)}
-                  className={clsx(
-                    "flex flex-col items-center justify-center gap-2 p-4 rounded-2xl border transition-all duration-200",
-                    mode === m.id
-                      ? "bg-orange-500/10 border-orange-500 text-orange-500 shadow-[0_0_20px_rgba(249,115,22,0.1)]"
-                      : "bg-zinc-800/50 border-zinc-700/50 text-zinc-400 hover:bg-zinc-800 hover:border-zinc-600 hover:text-zinc-200"
-                  )}
-                >
-                  <m.icon size={24} strokeWidth={1.5} />
-                  <span className="text-xs font-medium">{m.label}</span>
-                </button>
-              ))}
+              {TRANSPORT_MODES.map(m => {
+                const Icon = m.icon;
+                const isActive = mode === m.id;
+                return (
+                  <button
+                    key={m.id} type="button"
+                    onClick={() => setMode(m.id)}
+                    className={clsx(
+                      "flex flex-col items-center justify-center py-4 rounded-2xl border transition-all",
+                      isActive ? "bg-orange-500/20 border-orange-500 text-orange-500 shadow-sm" : "bg-zinc-800 border-zinc-700 text-zinc-400 hover:text-white hover:border-zinc-500"
+                    )}
+                  >
+                    <Icon size={24} className="mb-2" />
+                    <span className="text-xs font-bold">{m.label}</span>
+                  </button>
+                );
+              })}
             </div>
           </div>
 
-          {/* Duration Selection */}
-          <div className="space-y-4">
-            <div className="flex items-center justify-between">
-              <label className="text-sm font-medium text-zinc-400 uppercase tracking-wider flex items-center gap-2">
-                <Clock size={14} />
-                Travel Duration
+          {mode && (
+            <div className="space-y-4 bg-zinc-950/50 p-5 rounded-2xl border border-zinc-800">
+              <label className="text-xs font-bold text-zinc-500 uppercase tracking-wider flex justify-between items-center">
+                <span className="flex items-center gap-1.5"><Clock size={14} className="text-orange-500" /> Travel Duration</span>
+                <div className="flex items-center gap-2">
+                  {duration === 0 ? (
+                     <span className="text-orange-500 font-bold px-2 py-1">Auto</span>
+                  ) : (
+                    <>
+                      <input 
+                        type="number" value={duration} onChange={e => setDuration(Math.max(0, parseInt(e.target.value) || 0))}
+                        className="w-16 bg-zinc-900 border border-zinc-700 rounded-lg px-2 py-1.5 text-right text-orange-500 font-bold focus:outline-none focus:border-orange-500 transition-colors"
+                      />
+                      <span className="text-zinc-500 text-[10px] font-bold">MIN</span>
+                    </>
+                  )}
+                </div>
               </label>
-              <span className={clsx(
-                "font-mono font-bold text-lg transition-colors",
-                !duration ? "text-zinc-500" : "text-orange-500"
-              )}>
-                {duration ? `${duration} min` : 'Auto'}
-              </span>
-            </div>
-            
-            <div className="space-y-6">
-              {/* Slider */}
-              <div className="relative pt-1">
-                <input
-                  type="range"
-                  min="0"
-                  max="240"
-                  step="5"
-                  value={typeof duration === 'number' ? Math.min(duration, 240) : 0}
-                  onChange={(e) => setDuration(parseInt(e.target.value))}
-                  className="w-full h-2 bg-zinc-800 rounded-lg appearance-none cursor-pointer accent-orange-500 hover:accent-orange-400 transition-all"
+              <div className="pt-2">
+                <input 
+                  type="range" min="0" max="240" step="5" value={Math.min(duration, 240)} onChange={e => setDuration(parseInt(e.target.value))}
+                  className="w-full h-1.5 bg-zinc-800 rounded-lg appearance-none cursor-pointer accent-orange-500 hover:accent-orange-400 transition-all"
                 />
                 <div className="flex justify-between text-[10px] text-zinc-600 font-mono mt-2 px-1">
-                  <span>Auto</span>
-                  <span>1h</span>
-                  <span>2h</span>
-                  <span>3h</span>
-                  <span>4h+</span>
+                  <span>Auto</span><span>1h</span><span>2h</span><span>3h</span><span>4h+</span>
                 </div>
               </div>
-
-              {/* Manual Input */}
-              <div className="relative">
-                <input
-                  type="number"
-                  value={duration || ''}
-                  onChange={(e) => setDuration(e.target.value === '' ? 0 : parseInt(e.target.value))}
-                  placeholder="Auto (0 min)"
-                  className="w-full bg-zinc-950 border border-zinc-800 rounded-xl p-4 text-white placeholder:text-zinc-600 focus:outline-none focus:border-orange-500 transition-colors"
-                />
-                <span className="absolute right-4 top-1/2 -translate-y-1/2 text-zinc-500 text-sm font-medium">min</span>
-              </div>
             </div>
-          </div>
+          )}
+        </div>
 
-          <button 
-            onClick={handleSave}
-            disabled={!mode}
-            className={clsx(
-              "w-full py-4 rounded-2xl font-bold text-lg transition-all shadow-lg mt-4",
-              mode 
-                ? "bg-orange-500 text-white hover:bg-orange-600 hover:shadow-orange-500/20 hover:scale-[1.02]" 
-                : "bg-zinc-800 text-zinc-500 cursor-not-allowed"
-            )}
-          >
-            Save Transport
+        <div className="p-6 border-t border-zinc-800 bg-zinc-900/50 flex gap-3">
+          <button onClick={handleClear} disabled={loading || !itinerary.next_transport_mode} className="flex-1 py-4 bg-zinc-800 hover:bg-red-500/20 text-zinc-400 hover:text-red-500 font-bold rounded-xl transition-colors disabled:opacity-50">Clear</button>
+          <button onClick={handleSave} disabled={loading || !mode} className="flex-[2] py-4 bg-orange-500 hover:bg-orange-600 text-white font-bold rounded-xl shadow-lg shadow-orange-500/20 transition-colors disabled:opacity-50 flex justify-center items-center gap-2">
+            {loading ? <Loader2 className="animate-spin" size={20} /> : 'Save Transport'}
           </button>
         </div>
       </div>

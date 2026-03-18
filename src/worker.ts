@@ -22,6 +22,7 @@ export interface Env {
 type Variables = { user: { id: number; role: string; name: string } };
 export const app = new Hono<{ Bindings: Env; Variables: Variables }>();
 
+// CORS Middleware
 app.use('*', cors({
   origin: '*',
   allowMethods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
@@ -229,7 +230,7 @@ function generateDesiredAccommodationItems(b: any, accId: string | number, hotel
   return desiredItems;
 }
 
-// 💡 更新版：Rental 子卡片的 Duration 推算邏輯
+// 💡 全面使用「加法」計算： start_time + buffer
 function generateDesiredRentalItems(b: any, rentalId: string | number, rentalImage: string) {
   const desiredItems = [];
   const titlePrefix = b.provider ? `${b.provider} ` : '';
@@ -237,17 +238,18 @@ function generateDesiredRentalItems(b: any, rentalId: string | number, rentalIma
   const notesWithOrder = b.order_id ? `Order ID: ${b.order_id}\n${b.notes || ''}` : (b.notes || '');
 
   const details = typeof b.details === 'string' ? JSON.parse(b.details) : (b.details || {});
-  const depBuffer = details.dep_buffer || 0;
+  
+  const depBuffer = details.dep_buffer || 0; 
   const arrBuffer = details.arr_buffer || 0;
   const pad = (n: number) => n.toString().padStart(2, '0');
 
-  // Pick-up
-  const pickUpStart = new Date(`${b.start_date}T${b.start_time || '10:00'}`);
-  const pickUpEnd = new Date(pickUpStart.getTime() + depBuffer * 60000);
+  // Pick-up (Start_time + Buffer)
+  const pickUpStart = new Date(`1970-01-01T${b.start_time || '10:00'}:00`);
+  const pickUpEnd = new Date(pickUpStart.getTime() + (depBuffer * 60000));
 
   desiredItems.push({
     date: b.start_date,
-    start_time: b.start_time,
+    start_time: b.start_time || '10:00',
     end_time: `${pad(pickUpEnd.getHours())}:${pad(pickUpEnd.getMinutes())}`,
     title: `Pick-up ${titlePrefix}${name}`.trim(),
     notes: notesWithOrder,
@@ -255,13 +257,13 @@ function generateDesiredRentalItems(b: any, rentalId: string | number, rentalIma
     matchType: 'Pick-up'
   });
 
-  // Return
-  const returnStart = new Date(`${b.end_date}T${b.end_time || '10:00'}`);
-  const returnEnd = new Date(returnStart.getTime() + arrBuffer * 60000);
+  // Return (End_time + Buffer)
+  const returnStart = new Date(`1970-01-01T${b.end_time || '10:00'}:00`);
+  const returnEnd = new Date(returnStart.getTime() + (arrBuffer * 60000));
 
   desiredItems.push({
     date: b.end_date,
-    start_time: b.end_time,
+    start_time: b.end_time || '10:00',
     end_time: `${pad(returnEnd.getHours())}:${pad(returnEnd.getMinutes())}`,
     title: `Return ${titlePrefix}${name}`.trim(),
     notes: notesWithOrder,
@@ -489,15 +491,58 @@ app.get('/api/trips/:id/weather', async (c) => {
   } catch (error: any) { return c.json({ error: error.message }, 500); }
 });
 
-app.post('/api/trips/:id/weather/sync', async (c) => {
+app.post('/api/trips/:id/sync', async (c) => {
   const tripId = c.req.param('id');
   try {
     const canEdit = await checkTripAccess(c, Number(tripId), 'edit');
     if (!canEdit) return c.json({ error: 'Unauthorized' }, 403);
+
+    // 1. 同步天氣
     const weatherData = await syncWeatherForTrip(Number(tripId), c.env);
-    if (!weatherData) return c.json({ error: 'Failed to sync weather' }, 500);
-    return c.json(weatherData);
-  } catch (error: any) { return c.json({ error: error.message }, 500); }
+
+    // 2. 同步 Google Maps Auto 時間
+    const { results: items } = await c.env.DB.prepare(`SELECT * FROM Itineraries WHERE trip_id = ? ORDER BY date, start_time`).bind(tripId).all();
+
+    for (let i = 0; i < items.length - 1; i++) {
+      const current = items[i] as any;
+      const next = items[i+1] as any;
+
+      // 如果有設定 mode，且使用者選擇了 Auto (next_transport_time 為空字串)
+      if (current.next_transport_mode && !current.next_transport_time) {
+         const origin = current.address || current.title;
+         const destination = next.address || next.title;
+         
+         let mode = 'transit';
+         if (current.next_transport_mode === 'WALKING') mode = 'walking';
+         if (current.next_transport_mode === 'DRIVING' || current.next_transport_mode === 'TAXI') mode = 'driving';
+
+         if (origin && destination) {
+            try {
+              const url = `https://maps.googleapis.com/maps/api/distancematrix/json?origins=${encodeURIComponent(origin)}&destinations=${encodeURIComponent(destination)}&mode=${mode}&key=${c.env.GOOGLE_MAPS_API_KEY}`;
+              const mapRes = await fetch(url);
+              const mapData = await mapRes.json();
+              
+              if (mapData.rows?.[0]?.elements?.[0]?.status === 'OK') {
+                 // 取得 Google 回傳的時間 (e.g. "15 mins" 或 "1 hour 20 mins")
+                 let durationText = mapData.rows[0].elements[0].duration.text;
+                 durationText = durationText.replace('mins', 'min').replace('hours', 'h').replace('hour', 'h');
+                 
+                 // 將計算結果寫入 next_transport_auto_time 供前端顯示
+                 await c.env.DB.prepare(`UPDATE Itineraries SET next_transport_auto_time = ? WHERE id = ?`)
+                   .bind(durationText, current.id)
+                   .run();
+              }
+            } catch(e) { 
+              console.error("Map sync error", e); 
+            }
+         }
+      }
+    }
+
+    return c.json({ success: true, weather: weatherData });
+  } catch (error: any) { 
+    return c.json({ error: error.message }, 500); 
+  }
 });
 
 // --- Bookings (Unified) ---
@@ -547,15 +592,16 @@ app.post('/api/trips/:id/bookings', async (c) => {
         await c.env.DB.prepare(`INSERT INTO Itineraries (trip_id, date, start_time, end_time, title, type, related_id, notes, image_url) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`).bind(tripId, item.date, item.start_time, item.end_time, item.title, 'RENTAL', bookingId, item.notes, item.image_url).run();
       }
     } else {
-      const depDateTime = new Date(`${b.start_date}T${b.start_time || '00:00'}`); 
-      const depBuffer = b.details?.dep_buffer || 0;
-      depDateTime.setMinutes(depDateTime.getMinutes() - depBuffer);
+      // 💡 交通工具：起飛前提早的 Buffer 也一律用加法處理 (e.g., -120 min)
+      const depDateTime = new Date(`${b.start_date}T${b.start_time || '00:00'}:00`); 
+      const depBuffer = b.details?.dep_buffer ?? -120;
+      depDateTime.setMinutes(depDateTime.getMinutes() + depBuffer);
       const pad = (n: number) => n.toString().padStart(2, '0');
       const checkInDate = `${depDateTime.getFullYear()}-${pad(depDateTime.getMonth() + 1)}-${pad(depDateTime.getDate())}`;
       const checkInTime = depDateTime.toTimeString().substring(0, 5);
 
-      const arrDateTime = new Date(`${b.end_date || b.start_date}T${b.end_time || '23:59'}`);
-      const arrBuffer = b.details?.arr_buffer || 0;
+      const arrDateTime = new Date(`${b.end_date || b.start_date}T${b.end_time || '23:59'}:00`);
+      const arrBuffer = b.details?.arr_buffer ?? 60;
       arrDateTime.setMinutes(arrDateTime.getMinutes() + arrBuffer);
       const exitTime = arrDateTime.toTimeString().substring(0, 5);
 
@@ -648,15 +694,15 @@ app.put('/api/trips/:id/bookings/:bookingId', async (c) => {
     } else {
       await c.env.DB.prepare("DELETE FROM Itineraries WHERE related_id = ? AND trip_id = ? AND type = 'TRANSPORTATION'").bind(bookingId, tripId).run();
       
-      const depDateTime = new Date(`${b.start_date}T${b.start_time || '00:00'}`); 
-      const depBuffer = b.details?.dep_buffer || 0;
-      depDateTime.setMinutes(depDateTime.getMinutes() - depBuffer);
+      const depDateTime = new Date(`${b.start_date}T${b.start_time || '00:00'}:00`); 
+      const depBuffer = b.details?.dep_buffer ?? -120;
+      depDateTime.setMinutes(depDateTime.getMinutes() + depBuffer);
       const pad = (n: number) => n.toString().padStart(2, '0');
       const checkInDate = `${depDateTime.getFullYear()}-${pad(depDateTime.getMonth() + 1)}-${pad(depDateTime.getDate())}`;
       const checkInTime = depDateTime.toTimeString().substring(0, 5);
 
-      const arrDateTime = new Date(`${b.end_date || b.start_date}T${b.end_time || '23:59'}`);
-      const arrBuffer = b.details?.arr_buffer || 0;
+      const arrDateTime = new Date(`${b.end_date || b.start_date}T${b.end_time || '23:59'}:00`);
+      const arrBuffer = b.details?.arr_buffer ?? 60;
       arrDateTime.setMinutes(arrDateTime.getMinutes() + arrBuffer);
       const exitTime = arrDateTime.toTimeString().substring(0, 5);
 
@@ -728,13 +774,14 @@ app.put('/api/trips/:id/itineraries/:itemId', async (c) => {
        if (bookingRecord) {
          const details = typeof bookingRecord.details === 'string' ? JSON.parse(bookingRecord.details) : (bookingRecord.details || {});
          
-         const startD = new Date(`1970-01-01T${b.start_time}`);
-         let endD = new Date(`1970-01-01T${b.end_time}`);
+         const startD = new Date(`1970-01-01T${b.start_time}:00`);
+         let endD = new Date(`1970-01-01T${b.end_time}:00`);
          if (endD < startD) endD.setDate(endD.getDate() + 1);
          const diffMins = Math.round((endD.getTime() - startD.getTime()) / 60000);
 
+         // 💡 反向同步：將差值直接更新回 dep_buffer 與 arr_buffer 
          if (b.title.includes('Pick-up')) {
-            details.dep_buffer = diffMins;
+            details.dep_buffer = diffMins; 
             await c.env.DB.prepare('UPDATE Bookings SET start_time = ?, details = ? WHERE id = ? AND trip_id = ?').bind(b.start_time, JSON.stringify(details), b.related_id, tripId).run();
          } else if (b.title.includes('Return')) {
             details.arr_buffer = diffMins;
