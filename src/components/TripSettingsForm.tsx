@@ -131,7 +131,7 @@ export function TripSettingsForm({ trip, onSuccess }: TripSettingsFormProps) {
   const handleSyncWeather = async () => {
     setSyncingWeather(true);
     try {
-      const res = await apiFetch(`/api/trips/${trip.id}/weather/sync`, { method: 'POST' });
+      const res = await apiFetch(`/api/trips/${trip.id}/sync`, { method: 'POST' });
       if (!res.ok) throw new Error('Failed to sync weather');
       alert('Weather synced successfully!');
     } catch (err: any) {

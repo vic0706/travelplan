@@ -230,7 +230,6 @@ function generateDesiredAccommodationItems(b: any, accId: string | number, hotel
   return desiredItems;
 }
 
-// 💡 全面使用「加法」計算： start_time + buffer
 function generateDesiredRentalItems(b: any, rentalId: string | number, rentalImage: string) {
   const desiredItems = [];
   const titlePrefix = b.provider ? `${b.provider} ` : '';
@@ -243,7 +242,6 @@ function generateDesiredRentalItems(b: any, rentalId: string | number, rentalIma
   const arrBuffer = details.arr_buffer || 0;
   const pad = (n: number) => n.toString().padStart(2, '0');
 
-  // Pick-up (Start_time + Buffer)
   const pickUpStart = new Date(`1970-01-01T${b.start_time || '10:00'}:00`);
   const pickUpEnd = new Date(pickUpStart.getTime() + (depBuffer * 60000));
 
@@ -257,7 +255,6 @@ function generateDesiredRentalItems(b: any, rentalId: string | number, rentalIma
     matchType: 'Pick-up'
   });
 
-  // Return (End_time + Buffer)
   const returnStart = new Date(`1970-01-01T${b.end_time || '10:00'}:00`);
   const returnEnd = new Date(returnStart.getTime() + (arrBuffer * 60000));
 
@@ -273,6 +270,63 @@ function generateDesiredRentalItems(b: any, rentalId: string | number, rentalIma
 
   return desiredItems;
 }
+
+// 💡 終極 Sync API：支援 Google Maps 自動計算與覆寫
+const syncTripHandler = async (c: any) => {
+  const tripId = c.req.param('id');
+  try {
+    const canEdit = await checkTripAccess(c, Number(tripId), 'edit');
+    if (!canEdit) return c.json({ error: 'Unauthorized' }, 403);
+
+    // 1. 同步天氣
+    const weatherData = await syncWeatherForTrip(Number(tripId), c.env);
+
+    // 2. 同步 Google Maps Auto 時間
+    const { results: items } = await c.env.DB.prepare(`SELECT * FROM Itineraries WHERE trip_id = ? ORDER BY date, start_time`).bind(tripId).all();
+
+    for (let i = 0; i < items.length - 1; i++) {
+      const current = items[i] as any;
+      const next = items[i+1] as any;
+
+      // 當使用者設定了 mode 但時間為空值 (Auto) 時才進行計算
+      if (current.date === next.date && current.next_transport_mode && !current.next_transport_time) {
+         const origin = current.address || current.title;
+         const destination = next.address || next.title;
+         
+         let mode = 'transit';
+         if (current.next_transport_mode === 'WALKING') mode = 'walking';
+         if (current.next_transport_mode === 'DRIVING' || current.next_transport_mode === 'TAXI') mode = 'driving';
+
+         if (origin && destination) {
+            try {
+              const url = `https://maps.googleapis.com/maps/api/distancematrix/json?origins=${encodeURIComponent(origin)}&destinations=${encodeURIComponent(destination)}&mode=${mode}&key=${c.env.GOOGLE_MAPS_API_KEY}`;
+              const mapRes = await fetch(url);
+              const mapData = await mapRes.json();
+              
+              if (mapData.rows?.[0]?.elements?.[0]?.status === 'OK') {
+                 // 💡 將 Google 回傳的秒數轉換成精準的分鐘數
+                 const durationSecs = mapData.rows[0].elements[0].duration.value;
+                 const durationMins = Math.ceil(durationSecs / 60);
+                 
+                 // 💡 直接覆寫 next_transport_time！這樣時間就被永久鎖定，下次 Sync 不會再重算
+                 await c.env.DB.prepare(`UPDATE Itineraries SET next_transport_time = ?, next_transport_auto_time = '' WHERE id = ?`)
+                   .bind(`${durationMins} min`, current.id)
+                   .run();
+              } else {
+                 console.error("Map API status not OK:", mapData.rows?.[0]?.elements?.[0]?.status);
+              }
+            } catch(e) { 
+              console.error("Map sync error", e); 
+            }
+         }
+      }
+    }
+
+    return c.json({ success: true, weather: weatherData });
+  } catch (error: any) { 
+    return c.json({ error: error.message }, 500); 
+  }
+};
 
 app.post('/api/init', async (c) => {
   try {
@@ -491,59 +545,8 @@ app.get('/api/trips/:id/weather', async (c) => {
   } catch (error: any) { return c.json({ error: error.message }, 500); }
 });
 
-app.post('/api/trips/:id/sync', async (c) => {
-  const tripId = c.req.param('id');
-  try {
-    const canEdit = await checkTripAccess(c, Number(tripId), 'edit');
-    if (!canEdit) return c.json({ error: 'Unauthorized' }, 403);
-
-    // 1. 同步天氣
-    const weatherData = await syncWeatherForTrip(Number(tripId), c.env);
-
-    // 2. 同步 Google Maps Auto 時間
-    const { results: items } = await c.env.DB.prepare(`SELECT * FROM Itineraries WHERE trip_id = ? ORDER BY date, start_time`).bind(tripId).all();
-
-    for (let i = 0; i < items.length - 1; i++) {
-      const current = items[i] as any;
-      const next = items[i+1] as any;
-
-      // 如果有設定 mode，且使用者選擇了 Auto (next_transport_time 為空字串)
-      if (current.next_transport_mode && !current.next_transport_time) {
-         const origin = current.address || current.title;
-         const destination = next.address || next.title;
-         
-         let mode = 'transit';
-         if (current.next_transport_mode === 'WALKING') mode = 'walking';
-         if (current.next_transport_mode === 'DRIVING' || current.next_transport_mode === 'TAXI') mode = 'driving';
-
-         if (origin && destination) {
-            try {
-              const url = `https://maps.googleapis.com/maps/api/distancematrix/json?origins=${encodeURIComponent(origin)}&destinations=${encodeURIComponent(destination)}&mode=${mode}&key=${c.env.GOOGLE_MAPS_API_KEY}`;
-              const mapRes = await fetch(url);
-              const mapData = await mapRes.json();
-              
-              if (mapData.rows?.[0]?.elements?.[0]?.status === 'OK') {
-                 // 取得 Google 回傳的時間 (e.g. "15 mins" 或 "1 hour 20 mins")
-                 let durationText = mapData.rows[0].elements[0].duration.text;
-                 durationText = durationText.replace('mins', 'min').replace('hours', 'h').replace('hour', 'h');
-                 
-                 // 將計算結果寫入 next_transport_auto_time 供前端顯示
-                 await c.env.DB.prepare(`UPDATE Itineraries SET next_transport_auto_time = ? WHERE id = ?`)
-                   .bind(durationText, current.id)
-                   .run();
-              }
-            } catch(e) { 
-              console.error("Map sync error", e); 
-            }
-         }
-      }
-    }
-
-    return c.json({ success: true, weather: weatherData });
-  } catch (error: any) { 
-    return c.json({ error: error.message }, 500); 
-  }
-});
+app.post('/api/trips/:id/sync', syncTripHandler);
+app.post('/api/trips/:id/weather/sync', syncTripHandler);
 
 // --- Bookings (Unified) ---
 app.get('/api/trips/:id/bookings', async (c) => {
@@ -592,7 +595,6 @@ app.post('/api/trips/:id/bookings', async (c) => {
         await c.env.DB.prepare(`INSERT INTO Itineraries (trip_id, date, start_time, end_time, title, type, related_id, notes, image_url) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`).bind(tripId, item.date, item.start_time, item.end_time, item.title, 'RENTAL', bookingId, item.notes, item.image_url).run();
       }
     } else {
-      // 💡 交通工具：起飛前提早的 Buffer 也一律用加法處理 (e.g., -120 min)
       const depDateTime = new Date(`${b.start_date}T${b.start_time || '00:00'}:00`); 
       const depBuffer = b.details?.dep_buffer ?? -120;
       depDateTime.setMinutes(depDateTime.getMinutes() + depBuffer);
@@ -762,7 +764,6 @@ app.put('/api/trips/:id/itineraries/:itemId', async (c) => {
       b.city_id, b.date, b.start_time, b.end_time, b.title, b.address || '', b.image_url || '', b.notes || '', JSON.stringify(b.tags || []), b.sub_items || '[]', b.stay_duration || '', b.icon || '', b.next_transport_mode || '', b.next_transport_time || '', b.next_transport_auto_time || '', itemId, tripId
     ).run();
 
-    // 💡 反向雙向同步 (Hotel & Rental Duration Sync)
     if (b.type === 'ACCOMMODATION' && b.related_id) {
        if (b.title.includes('Check-in')) {
           await c.env.DB.prepare('UPDATE Bookings SET start_time = ? WHERE id = ? AND trip_id = ?').bind(b.start_time, b.related_id, tripId).run();
@@ -779,7 +780,6 @@ app.put('/api/trips/:id/itineraries/:itemId', async (c) => {
          if (endD < startD) endD.setDate(endD.getDate() + 1);
          const diffMins = Math.round((endD.getTime() - startD.getTime()) / 60000);
 
-         // 💡 反向同步：將差值直接更新回 dep_buffer 與 arr_buffer 
          if (b.title.includes('Pick-up')) {
             details.dep_buffer = diffMins; 
             await c.env.DB.prepare('UPDATE Bookings SET start_time = ?, details = ? WHERE id = ? AND trip_id = ?').bind(b.start_time, JSON.stringify(details), b.related_id, tripId).run();
@@ -943,10 +943,6 @@ app.delete('/api/settings/categories/:id', async (c) => {
     await c.env.DB.prepare('DELETE FROM Categories WHERE id = ? AND is_default = 0').bind(id).run();
     return c.json({ success: true });
   } catch (error: any) { return c.json({ error: error.message }, 500); }
-});
-
-app.post('/api/sync', async (c) => {
-  try { return c.json({ success: true, message: 'Sync completed' }); } catch (error: any) { return c.json({ error: error.message }, 500); }
 });
 
 export default {
