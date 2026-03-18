@@ -695,7 +695,7 @@ app.post('/api/trips/:id/transportations', async (c) => {
     
     // @ts-ignore
     const transportId = info.meta.last_row_id;
-
+    
     const depDateTime = new Date(`${b.dep_date || b.departure_date}T${b.dep_time || b.departure_time || '00:00'}`); 
     depDateTime.setMinutes(depDateTime.getMinutes() + (b.dep_buffer ?? 120));
     const pad = (n: number) => n.toString().padStart(2, '0');
@@ -707,13 +707,30 @@ app.post('/api/trips/:id/transportations', async (c) => {
     const exitEndTime = arrDateTime.toTimeString().substring(0, 5);
     const exitEndDate = `${arrDateTime.getFullYear()}-${pad(arrDateTime.getMonth() + 1)}-${pad(arrDateTime.getDate())}`;
 
+    // For RENTAL: Pick-up based on Start Date/Time, Return based on End Date/Time
+    const pickUpDateTime = new Date(`${b.dep_date || b.departure_date}T${b.dep_time || b.departure_time || '00:00'}`);
+    const pickUpEndDateTime = new Date(pickUpDateTime);
+    pickUpEndDateTime.setMinutes(pickUpEndDateTime.getMinutes() + (b.dep_buffer ?? 120));
+    
+    const returnDateTime = new Date(`${b.arr_date || b.arrival_date}T${b.arr_time || b.arrival_time || '23:59'}`);
+    const returnEndDateTime = new Date(returnDateTime);
+    returnEndDateTime.setMinutes(returnEndDateTime.getMinutes() + (b.arr_buffer ?? 60));
+
     if (b.type === 'RENTAL') {
       await c.env.DB.prepare(`
         INSERT INTO Itineraries (trip_id, date, start_time, end_time, title, type, related_id, notes)
         VALUES (?, ?, ?, ?, ?, ?, ?, ?), (?, ?, ?, ?, ?, ?, ?, ?)
       `).bind(
-        tripId, checkInDate, checkInTime, checkInTime, `Pick-up: ${b.provider} ${b.code || ''}`, 'TRANSPORTATION', transportId, b.notes || '',
-        tripId, exitEndDate, exitEndTime, exitEndTime, `Return: ${b.provider} ${b.code || ''}`, 'TRANSPORTATION', transportId, b.notes || ''
+        tripId, 
+        `${pickUpDateTime.getFullYear()}-${pad(pickUpDateTime.getMonth() + 1)}-${pad(pickUpDateTime.getDate())}`, 
+        pickUpDateTime.toTimeString().substring(0, 5), 
+        pickUpEndDateTime.toTimeString().substring(0, 5), 
+        `Pick-up: ${b.provider} ${b.code || ''}`, 'TRANSPORTATION', transportId, b.notes || '',
+        tripId, 
+        `${returnDateTime.getFullYear()}-${pad(returnDateTime.getMonth() + 1)}-${pad(returnDateTime.getDate())}`, 
+        returnDateTime.toTimeString().substring(0, 5), 
+        returnEndDateTime.toTimeString().substring(0, 5), 
+        `Return: ${b.provider} ${b.code || ''}`, 'TRANSPORTATION', transportId, b.notes || ''
       ).run();
     } else {
       await c.env.DB.prepare(`
