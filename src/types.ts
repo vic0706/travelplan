@@ -56,7 +56,7 @@ export interface Itinerary {
   icon?: string; // New field for activity icon
   sub_items?: string; // JSON string of sub-items (Legacy, but kept for compatibility if needed, or we can remove if we fully switch)
   stay_duration?: string;
-  type?: 'GENERAL' | 'TRANSPORTATION' | 'ACCOMMODATION';
+  type?: 'GENERAL' | 'TRANSPORTATION' | 'ACCOMMODATION' | 'RENTAL';
   related_id?: number;
   next_transport_mode?: string;
   next_transport_time?: string;
@@ -148,4 +148,38 @@ export interface AppSetting {
   id: string;
   key_name: string;
   value: string;
+}
+
+export type BookingCategory = 'FLIGHT' | 'TRAIN' | 'FERRY' | 'RENTAL' | 'PRIVATE_TRANSFER' | 'HOTEL';
+
+export interface Booking {
+  id: number;
+  trip_id: number;
+  category: BookingCategory;
+  title: string;
+  provider?: string;
+  order_id?: string;
+  start_date: string;
+  start_time: string;
+  end_date: string;
+  end_time: string;
+  start_location: string;
+  end_location?: string;
+  notes?: string;
+  image_url?: string;
+  details: string; // JSON string
+  created_at?: number;
+}
+
+export interface TransportBookingDetails {
+  code?: string;
+  dep_terminal?: string;
+  arr_terminal?: string;
+  dep_checkin_buffer?: number;
+  arr_exit_buffer?: number;
+}
+
+export interface HotelBookingDetails {
+  daily_start_time?: string;
+  daily_end_time?: string;
 }

@@ -140,20 +140,55 @@ CREATE TABLE Transportations (
     FOREIGN KEY (trip_id) REFERENCES Trips(id) ON DELETE CASCADE
 );
 
-CREATE TABLE AccommodationsAndRentals (
+CREATE TABLE Accommodations (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    trip_id INTEGER NOT NULL,
+    hotel_name TEXT NOT NULL,
+    address TEXT,
+    check_in_date TEXT NOT NULL,
+    check_out_date TEXT NOT NULL,
+    order_id TEXT,
+    notes TEXT,
+    created_at INTEGER DEFAULT (strftime('%s', 'now') * 1000),
+    check_in_time TEXT DEFAULT '15:00',
+    check_out_time TEXT DEFAULT '11:00',
+    daily_start_time TEXT DEFAULT '08:00',
+    daily_end_time TEXT DEFAULT '22:00',
+    image_url TEXT,
+    FOREIGN KEY (trip_id) REFERENCES Trips(id) ON DELETE CASCADE
+);
+
+CREATE TABLE Rentals (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     trip_id INTEGER NOT NULL,
     name TEXT NOT NULL,
     address TEXT,
     check_in_date TEXT NOT NULL,
     check_out_date TEXT NOT NULL,
-    check_in_time TEXT DEFAULT '15:00',
-    check_out_time TEXT DEFAULT '11:00',
-    daily_start_time TEXT DEFAULT '08:00',
-    daily_end_time TEXT DEFAULT '22:00',
-    order_id TEXT,
+    check_in_time TEXT DEFAULT '10:00',
+    check_out_time TEXT DEFAULT '10:00',
     notes TEXT,
     image_url TEXT,
+    created_at INTEGER DEFAULT (strftime('%s', 'now') * 1000),
+    FOREIGN KEY (trip_id) REFERENCES Trips(id) ON DELETE CASCADE
+);
+
+CREATE TABLE Bookings (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    trip_id INTEGER NOT NULL,
+    category TEXT NOT NULL,       -- 'FLIGHT', 'TRAIN', 'FERRY', 'RENTAL', 'PRIVATE_TRANSFER', 'HOTEL'
+    title TEXT NOT NULL,
+    provider TEXT,
+    order_id TEXT,
+    start_date TEXT NOT NULL,
+    start_time TEXT NOT NULL,
+    end_date TEXT NOT NULL,
+    end_time TEXT NOT NULL,
+    start_location TEXT NOT NULL,
+    end_location TEXT,
+    notes TEXT,
+    image_url TEXT,
+    details TEXT DEFAULT '{}',
     created_at INTEGER DEFAULT (strftime('%s', 'now') * 1000),
     FOREIGN KEY (trip_id) REFERENCES Trips(id) ON DELETE CASCADE
 );

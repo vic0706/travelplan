@@ -168,7 +168,15 @@ async function ensureSchema(db: D1Database) {
     "ALTER TABLE Accommodations ADD COLUMN check_in_time TEXT DEFAULT '15:00'",
     "ALTER TABLE Accommodations ADD COLUMN check_out_time TEXT DEFAULT '11:00'",
     "ALTER TABLE Accommodations ADD COLUMN daily_start_time TEXT DEFAULT '08:00'",
-    "ALTER TABLE Accommodations ADD COLUMN daily_end_time TEXT DEFAULT '22:00'"
+    "ALTER TABLE Accommodations ADD COLUMN daily_end_time TEXT DEFAULT '22:00'",
+    `CREATE TABLE IF NOT EXISTS Bookings (
+        id INTEGER PRIMARY KEY AUTOINCREMENT, trip_id INTEGER NOT NULL,
+        category TEXT NOT NULL, title TEXT NOT NULL, provider TEXT, order_id TEXT,
+        start_date TEXT NOT NULL, start_time TEXT NOT NULL, end_date TEXT NOT NULL, end_time TEXT NOT NULL,
+        start_location TEXT NOT NULL, end_location TEXT, notes TEXT, image_url TEXT,
+        details TEXT DEFAULT '{}', created_at INTEGER DEFAULT (strftime('%s', 'now') * 1000),
+        FOREIGN KEY (trip_id) REFERENCES Trips(id) ON DELETE CASCADE
+    )`
   ];
 
   for (const q of queries) {
@@ -951,6 +959,164 @@ app.delete('/api/trips/:id/rentals/:rentalId', async (c) => {
 
     await c.env.DB.prepare('DELETE FROM Rentals WHERE id = ? AND trip_id = ?').bind(rentalId, tripId).run();
     await c.env.DB.prepare("DELETE FROM Itineraries WHERE type = 'RENTAL' AND related_id = ? AND trip_id = ?").bind(rentalId, tripId).run();
+    return c.json({ success: true });
+  } catch (error: any) { return c.json({ error: error.message }, 500); }
+});
+
+// --- Bookings (Unified Transportation, Accommodation, Rental) ---
+
+app.get('/api/trips/:id/bookings', async (c) => {
+  const tripId = c.req.param('id');
+  try {
+    const { results } = await c.env.DB.prepare('SELECT * FROM Bookings WHERE trip_id = ? ORDER BY start_date, start_time').bind(tripId).all();
+    return c.json(results);
+  } catch (error: any) { return c.json({ error: error.message }, 500); }
+});
+
+app.post('/api/trips/:id/bookings', async (c) => {
+  const tripId = c.req.param('id');
+  try {
+    const canEdit = await checkTripAccess(c, Number(tripId), 'edit');
+    if (!canEdit) return c.json({ error: 'Unauthorized' }, 403);
+
+    const b = await c.req.json();
+    const detailsJson = JSON.stringify(b.details || {});
+    
+    let imageUrl = b.image_url;
+    if (b.category === 'HOTEL' && !imageUrl) {
+      imageUrl = await searchUnsplash(b.title, c.env);
+    }
+
+    const info = await c.env.DB.prepare(`
+      INSERT INTO Bookings (trip_id, category, title, provider, order_id, start_date, start_time, end_date, end_time, start_location, end_location, notes, image_url, details)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).bind(
+      tripId, b.category, b.title, b.provider || null, b.order_id || null, 
+      b.start_date, b.start_time, b.end_date, b.end_time, 
+      b.start_location, b.end_location || null, b.notes || null, imageUrl || null, detailsJson
+    ).run();
+    
+    // @ts-ignore
+    const bookingId = info.meta.last_row_id;
+
+    if (b.category === 'HOTEL') {
+      const desiredItems = generateDesiredAccommodationItems({
+        ...b, 
+        check_in_date: b.start_date, check_out_date: b.end_date, 
+        check_in_time: b.start_time, check_out_time: b.end_time,
+        hotel_name: b.title, name: b.title,
+        daily_start_time: b.details?.daily_start_time, daily_end_time: b.details?.daily_end_time
+      }, bookingId, imageUrl || '');
+      
+      for (const item of desiredItems) {
+        await c.env.DB.prepare(`
+          INSERT INTO Itineraries (trip_id, date, start_time, end_time, title, type, related_id, notes, image_url)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        `).bind(tripId, item.date, item.start_time, item.end_time, item.title, 'ACCOMMODATION', bookingId, item.notes, item.image_url).run();
+      }
+    } else {
+      const depDateTime = new Date(`${b.start_date}T${b.start_time}`); 
+      const depBuffer = b.details?.dep_checkin_buffer || 0;
+      depDateTime.setMinutes(depDateTime.getMinutes() - depBuffer);
+      
+      const checkInDate = depDateTime.toISOString().split('T')[0];
+      const checkInTime = depDateTime.toTimeString().substring(0, 5);
+
+      const arrDateTime = new Date(`${b.end_date || b.start_date}T${b.end_time}`);
+      const arrBuffer = b.details?.arr_exit_buffer || 0;
+      arrDateTime.setMinutes(arrDateTime.getMinutes() + arrBuffer);
+      const exitTime = arrDateTime.toTimeString().substring(0, 5);
+
+      await c.env.DB.prepare(`
+        INSERT INTO Itineraries (trip_id, date, start_time, end_time, title, type, related_id, notes)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+      `).bind(
+        tripId, checkInDate, checkInTime, exitTime, b.title, 'TRANSPORTATION', bookingId, b.notes || ''
+      ).run();
+    }
+
+    return c.json({ success: true, id: bookingId });
+  } catch (error: any) { return c.json({ error: error.message }, 500); }
+});
+
+app.put('/api/trips/:id/bookings/:bookingId', async (c) => {
+  const tripId = c.req.param('id');
+  const bookingId = c.req.param('bookingId');
+  try {
+    const canEdit = await checkTripAccess(c, Number(tripId), 'edit');
+    if (!canEdit) return c.json({ error: 'Unauthorized' }, 403);
+
+    const b = await c.req.json();
+    const detailsJson = JSON.stringify(b.details || {});
+    
+    let imageUrl = b.image_url;
+    if (b.category === 'HOTEL' && !imageUrl) {
+      imageUrl = await searchUnsplash(b.title, c.env);
+    }
+
+    await c.env.DB.prepare(`
+      UPDATE Bookings SET category = ?, title = ?, provider = ?, order_id = ?, start_date = ?, start_time = ?, end_date = ?, end_time = ?, start_location = ?, end_location = ?, notes = ?, image_url = ?, details = ?
+      WHERE id = ? AND trip_id = ?
+    `).bind(
+      b.category, b.title, b.provider || null, b.order_id || null, 
+      b.start_date, b.start_time, b.end_date, b.end_time, 
+      b.start_location, b.end_location || null, b.notes || null, imageUrl || null, detailsJson,
+      bookingId, tripId
+    ).run();
+
+    // Update Itineraries
+    await c.env.DB.prepare("DELETE FROM Itineraries WHERE related_id = ? AND trip_id = ? AND type IN ('TRANSPORTATION', 'ACCOMMODATION')").bind(bookingId, tripId).all();
+
+    if (b.category === 'HOTEL') {
+      const desiredItems = generateDesiredAccommodationItems({
+        ...b, 
+        check_in_date: b.start_date, check_out_date: b.end_date, 
+        check_in_time: b.start_time, check_out_time: b.end_time,
+        hotel_name: b.title, name: b.title,
+        daily_start_time: b.details?.daily_start_time, daily_end_time: b.details?.daily_end_time
+      }, bookingId, imageUrl || '');
+      
+      for (const item of desiredItems) {
+        await c.env.DB.prepare(`
+          INSERT INTO Itineraries (trip_id, date, start_time, end_time, title, type, related_id, notes, image_url)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        `).bind(tripId, item.date, item.start_time, item.end_time, item.title, 'ACCOMMODATION', bookingId, item.notes, item.image_url).run();
+      }
+    } else {
+      const depDateTime = new Date(`${b.start_date}T${b.start_time}`); 
+      const depBuffer = b.details?.dep_checkin_buffer || 0;
+      depDateTime.setMinutes(depDateTime.getMinutes() - depBuffer);
+      
+      const checkInDate = depDateTime.toISOString().split('T')[0];
+      const checkInTime = depDateTime.toTimeString().substring(0, 5);
+
+      const arrDateTime = new Date(`${b.end_date || b.start_date}T${b.end_time}`);
+      const arrBuffer = b.details?.arr_exit_buffer || 0;
+      arrDateTime.setMinutes(arrDateTime.getMinutes() + arrBuffer);
+      const exitTime = arrDateTime.toTimeString().substring(0, 5);
+
+      await c.env.DB.prepare(`
+        INSERT INTO Itineraries (trip_id, date, start_time, end_time, title, type, related_id, notes)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+      `).bind(
+        tripId, checkInDate, checkInTime, exitTime, b.title, 'TRANSPORTATION', bookingId, b.notes || ''
+      ).run();
+    }
+
+    return c.json({ success: true });
+  } catch (error: any) { return c.json({ error: error.message }, 500); }
+});
+
+app.delete('/api/trips/:id/bookings/:bookingId', async (c) => {
+  const tripId = c.req.param('id');
+  const bookingId = c.req.param('bookingId');
+  try {
+    const canEdit = await checkTripAccess(c, Number(tripId), 'edit');
+    if (!canEdit) return c.json({ error: 'Unauthorized' }, 403);
+    
+    await c.env.DB.prepare('DELETE FROM Bookings WHERE id = ? AND trip_id = ?').bind(bookingId, tripId).run();
+    await c.env.DB.prepare("DELETE FROM Itineraries WHERE related_id = ? AND trip_id = ? AND type IN ('TRANSPORTATION', 'ACCOMMODATION')").bind(bookingId, tripId).run();
+    
     return c.json({ success: true });
   } catch (error: any) { return c.json({ error: error.message }, 500); }
 });

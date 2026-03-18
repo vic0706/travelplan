@@ -275,34 +275,50 @@ export function AccommodationForm({ tripId, onSuccess, onCancel, onDelete, initi
 
           <div className="grid grid-cols-2 gap-4">
             <div className="space-y-2">
-              <TimePicker
-                label="Check-in Time"
+              <label className="text-xs font-bold text-zinc-500 uppercase tracking-wider flex items-center gap-1">
+                <Clock size={12} /> Check-in Time
+              </label>
+              <input
+                type="time"
                 value={formData.check_in_time}
-                onChange={time => setFormData({ ...formData, check_in_time: time })}
+                onChange={e => setFormData({ ...formData, check_in_time: e.target.value })}
+                className="w-full bg-zinc-950 border border-zinc-800 rounded-xl px-4 py-4 text-white focus:outline-none focus:border-orange-500 transition-colors [color-scheme:dark]"
               />
             </div>
             <div className="space-y-2">
-              <TimePicker
-                label="Check-out Time"
+              <label className="text-xs font-bold text-zinc-500 uppercase tracking-wider flex items-center gap-1">
+                <Clock size={12} /> Check-out Time
+              </label>
+              <input
+                type="time"
                 value={formData.check_out_time}
-                onChange={time => setFormData({ ...formData, check_out_time: time })}
+                onChange={e => setFormData({ ...formData, check_out_time: e.target.value })}
+                className="w-full bg-zinc-950 border border-zinc-800 rounded-xl px-4 py-4 text-white focus:outline-none focus:border-orange-500 transition-colors [color-scheme:dark]"
               />
             </div>
           </div>
 
           <div className="grid grid-cols-2 gap-4">
             <div className="space-y-2">
-              <TimePicker
-                label="Daily Leave Time"
+              <label className="text-xs font-bold text-zinc-500 uppercase tracking-wider flex items-center gap-1">
+                <Clock size={12} /> Daily Leave Time
+              </label>
+              <input
+                type="time"
                 value={formData.daily_start_time}
-                onChange={time => setFormData({ ...formData, daily_start_time: time })}
+                onChange={e => setFormData({ ...formData, daily_start_time: e.target.value })}
+                className="w-full bg-zinc-950 border border-zinc-800 rounded-xl px-4 py-4 text-white focus:outline-none focus:border-orange-500 transition-colors [color-scheme:dark]"
               />
             </div>
             <div className="space-y-2">
-              <TimePicker
-                label="Daily Return Time"
+              <label className="text-xs font-bold text-zinc-500 uppercase tracking-wider flex items-center gap-1">
+                <Clock size={12} /> Daily Return Time
+              </label>
+              <input
+                type="time"
                 value={formData.daily_end_time}
-                onChange={time => setFormData({ ...formData, daily_end_time: time })}
+                onChange={e => setFormData({ ...formData, daily_end_time: e.target.value })}
+                className="w-full bg-zinc-950 border border-zinc-800 rounded-xl px-4 py-4 text-white focus:outline-none focus:border-orange-500 transition-colors [color-scheme:dark]"
               />
             </div>
           </div>

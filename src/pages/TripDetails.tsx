@@ -3,7 +3,7 @@ import { useParams, useNavigate } from 'react-router-dom';
 import { useAppStore } from '../store';
 import { format, parseISO, addDays, differenceInDays, isSameDay, isPast } from 'date-fns';
 import { MapPin, Clock, Plus, Navigation, DollarSign, Plane, Bed, Map, Info, Wallet, ArrowLeft, Calendar, X, Settings, Edit3, ChevronDown, ChevronUp, Image as ImageIcon, Lock, Unlock, Trash2, Train, Ship, Bus, Car, Footprints } from 'lucide-react';
-import { Trip, Itinerary, Expense, User, Transportation } from '../types';
+import { Trip, Itinerary, Expense, User, Transportation, Booking, BookingCategory } from '../types';
 import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip } from 'recharts';
 import { clsx } from 'clsx';
 import { db } from '../db';
@@ -17,6 +17,7 @@ import { WeatherWidget } from '../components/WeatherWidget';
 import { TransportationForm } from '../components/TransportationForm';
 import { AccommodationForm } from '../components/AccommodationForm';
 import { RentalForm } from '../components/RentalForm';
+import { BookingForm } from '../components/BookingForm';
 import { FinanceOverview } from '../components/FinanceOverview';
 import { ConfirmDialog } from '../components/ConfirmDialog';
 import { motion, AnimatePresence } from 'framer-motion';
@@ -24,10 +25,105 @@ import { DynamicIcon } from '../components/DynamicIcon';
 
 // ... (rest of imports)
 
+// Booking Card Component for Info Tab
+function BookingCard({ 
+  booking, 
+  canEdit, 
+  onEdit 
+}: { 
+  booking: Booking; 
+  canEdit: boolean; 
+  onEdit: () => void;
+}) {
+  const startDate = parseISO(`${booking.start_date}T${booking.start_time}`);
+  const endDate = parseISO(`${booking.end_date}T${booking.end_time}`);
+  
+  const isValidStart = !isNaN(startDate.getTime());
+  const isToday = isValidStart && isSameDay(startDate, new Date());
+  const isPastItem = isValidStart && isPast(startDate) && !isToday;
+
+  const getIcon = () => {
+    switch (booking.category) {
+      case 'FLIGHT': return Plane;
+      case 'TRAIN': return Train;
+      case 'FERRY': return Ship;
+      case 'RENTAL': return Car;
+      case 'PRIVATE_TRANSFER': return Car;
+      case 'HOTEL': return Bed;
+      default: return Info;
+    }
+  };
+
+  const Icon = getIcon();
+
+  return (
+    <div 
+      onClick={() => canEdit && onEdit()}
+      className={clsx(
+        "bg-zinc-900 border border-zinc-800 rounded-3xl p-5 transition-all group relative overflow-hidden",
+        canEdit && "hover:border-orange-500/50 cursor-pointer active:scale-[0.98]",
+        isPastItem && "opacity-60 grayscale-[0.5]"
+      )}
+    >
+      <div className="flex gap-4">
+        {booking.image_url && (
+          <div className="w-20 h-20 rounded-2xl overflow-hidden shrink-0 border border-zinc-800">
+            <img src={booking.image_url} alt={booking.title} className="w-full h-full object-cover" />
+          </div>
+        )}
+        <div className="flex-1 min-w-0">
+          <div className="flex items-center gap-2 mb-1">
+            <div className="p-1.5 rounded-lg bg-zinc-800 text-orange-500">
+              <Icon size={14} />
+            </div>
+            <h4 className="font-bold text-white truncate">{booking.title}</h4>
+          </div>
+          
+          <div className="space-y-1">
+            <div className="flex items-center gap-1.5 text-zinc-400 text-xs">
+              <Calendar size={12} />
+              <span>{format(startDate, 'MMM d')} {booking.start_time}</span>
+              {booking.category === 'HOTEL' && (
+                <>
+                  <span className="mx-1">→</span>
+                  <span>{format(endDate, 'MMM d')} {booking.end_time}</span>
+                </>
+              )}
+            </div>
+            {booking.start_location && (
+              <div className="flex items-center gap-1.5 text-zinc-500 text-xs truncate">
+                <MapPin size={12} />
+                <span>{booking.start_location}</span>
+                {booking.end_location && (
+                  <>
+                    <span className="mx-1">→</span>
+                    <span>{booking.end_location}</span>
+                  </>
+                )}
+              </div>
+            )}
+            {booking.provider && (
+              <div className="text-[10px] text-zinc-600 font-medium uppercase tracking-wider">
+                {booking.provider} {booking.order_id && `• ${booking.order_id}`}
+              </div>
+            )}
+          </div>
+        </div>
+        {canEdit && (
+          <div className="p-2 text-zinc-600 group-hover:text-orange-500 transition-colors">
+            <Edit3 size={16} />
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
 // Transportation Card Component
 function TransportationCard({ 
   item, 
   transportation, 
+  booking,
   canEdit, 
   onEdit,
   showNextTransport,
@@ -35,15 +131,31 @@ function TransportationCard({
 }: { 
   item?: Itinerary; 
   transportation?: Transportation; 
+  booking?: Booking;
   canEdit: boolean; 
   onEdit: () => void;
   showNextTransport?: boolean;
   onEditNextTransport?: () => void;
 }) {
-  if (!transportation) return null;
+  const data = booking || transportation;
+  if (!data) return null;
 
-  const depDate = parseISO(`${transportation.dep_date}T${transportation.dep_time}`);
-  const arrDate = parseISO(`${transportation.arr_date}T${transportation.arr_time}`);
+  const dep_date = 'start_date' in data ? data.start_date : data.dep_date;
+  const dep_time = 'start_time' in data ? data.start_time : data.dep_time;
+  const arr_date = 'end_date' in data ? data.end_date : data.arr_date;
+  const arr_time = 'end_time' in data ? data.end_time : data.arr_time;
+  const type = 'category' in data ? data.category : data.type;
+  const provider = data.provider;
+  const title = 'title' in data ? data.title : data.code;
+  const dep_station = 'start_location' in data ? data.start_location : (data as any).dep_station;
+  const arr_station = 'end_location' in data ? data.end_location : (data as any).arr_station;
+  const dep_terminal = 'details' in data ? (data.details as any).dep_terminal : (data as any).dep_terminal;
+  const arr_terminal = 'details' in data ? (data.details as any).arr_terminal : (data as any).arr_terminal;
+  const dep_checkin_buffer = 'details' in data ? (data.details as any).dep_checkin_buffer : (data as any).dep_checkin_buffer;
+  const arr_exit_buffer = 'details' in data ? (data.details as any).arr_exit_buffer : (data as any).arr_exit_buffer;
+
+  const depDate = parseISO(`${dep_date}T${dep_time}`);
+  const arrDate = parseISO(`${arr_date}T${arr_time}`);
   
   const isValidDep = !isNaN(depDate.getTime());
   const isValidArr = !isNaN(arrDate.getTime());
@@ -60,11 +172,12 @@ function TransportationCard({
   }, [isPastItem]);
 
   const getIcon = () => {
-    switch (transportation.type) {
+    switch (type) {
       case 'TRAIN': return Train;
       case 'FERRY': return Ship;
       case 'BUS': return Bus;
       case 'DRIVING': return Car;
+      case 'RENTAL': return Car;
       case 'PRIVATE_TRANSFER': return Car;
       default: return Plane;
     }
@@ -73,7 +186,7 @@ function TransportationCard({
   const Icon = getIcon();
 
   const getLabels = () => {
-    switch (transportation.type) {
+    switch (type) {
       case 'FLIGHT': return { station: 'Airport', terminal: 'Terminal' };
       case 'TRAIN': return { station: 'Station', terminal: 'Platform' };
       case 'FERRY': return { station: 'Port', terminal: 'Pier' };
@@ -95,13 +208,13 @@ function TransportationCard({
   // If it's an activity (item is present), it should look like ItineraryCard
   if (item) {
     // Calculate timeline times
-    const depDateTime = parseISO(`${transportation.dep_date}T${transportation.dep_time}`);
-    const checkinBuffer = transportation.dep_checkin_buffer || 120;
+    const depDateTime = parseISO(`${dep_date}T${dep_time}`);
+    const checkinBuffer = dep_checkin_buffer || 120;
     const checkinDate = new Date(depDateTime.getTime() - checkinBuffer * 60000);
     const checkinTimeStr = format(checkinDate, 'HH:mm');
 
-    const arrDateTime = parseISO(`${transportation.arr_date}T${transportation.arr_time}`);
-    const exitBuffer = transportation.arr_exit_buffer || 60;
+    const arrDateTime = parseISO(`${arr_date}T${arr_time}`);
+    const exitBuffer = arr_exit_buffer || 60;
     const exitDate = new Date(arrDateTime.getTime() + exitBuffer * 60000);
     const exitTimeStr = format(exitDate, 'HH:mm');
 
@@ -126,7 +239,7 @@ function TransportationCard({
             </div>
             <h3 className="text-xl font-bold text-white leading-tight flex items-center gap-2">
               <Icon size={20} className={isPastItem ? "text-zinc-500" : "text-orange-500"} />
-              <span>{transportation.provider} {transportation.code}</span>
+              <span>{provider} {title}</span>
             </h3>
           </div>
           
@@ -997,6 +1110,7 @@ export function TripDetails() {
   const transportations = useLiveQuery(() => db.transportations.where('trip_id').equals(Number(id) || 0).toArray(), [id]) || [];
   const accommodations = useLiveQuery(() => db.accommodations.where('trip_id').equals(Number(id) || 0).toArray(), [id]) || [];
   const rentals = useLiveQuery(() => db.rentals.where('trip_id').equals(Number(id) || 0).toArray(), [id]) || [];
+  const bookings = useLiveQuery(() => db.bookings.where('trip_id').equals(Number(id) || 0).toArray(), [id]) || [];
 
   const [activeTab, setActiveTab] = useState<'itinerary' | 'info' | 'finance' | 'settings'>('itinerary');
   const [selectedDate, setSelectedDate] = useState<Date | null>(null);
@@ -1050,13 +1164,14 @@ export function TripDetails() {
           is_fully_synced: shouldDeepCache
         });
 
-        const [itinerariesRes, expensesRes, membersRes, transportationsRes, accommodationsRes, rentalsRes] = await Promise.all([
+        const [itinerariesRes, expensesRes, membersRes, transportationsRes, accommodationsRes, rentalsRes, bookingsRes] = await Promise.all([
           apiFetch(`/api/trips/${id}/itineraries`),
           apiFetch(`/api/trips/${id}/expenses`),
           apiFetch(`/api/trips/${id}/members`),
           apiFetch(`/api/trips/${id}/transportations`),
           apiFetch(`/api/trips/${id}/accommodations`),
-          apiFetch(`/api/trips/${id}/rentals`)
+          apiFetch(`/api/trips/${id}/rentals`),
+          apiFetch(`/api/trips/${id}/bookings`)
         ]);
 
         if (itinerariesRes.ok) {
@@ -1154,6 +1269,19 @@ export function TripDetails() {
           }
         }
 
+        if (bookingsRes.ok) {
+          const bookingsData = await bookingsRes.json();
+          if (Array.isArray(bookingsData)) {
+            const existingIds = await db.bookings.where('trip_id').equals(Number(id)).primaryKeys();
+            const incomingIds = bookingsData.map((b: any) => b.id);
+            const idsToDelete = existingIds.filter(eid => !incomingIds.includes(eid as number));
+            await db.transaction('rw', db.bookings, async () => {
+              if (idsToDelete.length > 0) await db.bookings.bulkDelete(idsToDelete as number[]);
+              await db.bookings.bulkPut(bookingsData);
+            });
+          }
+        }
+
       } catch (err) {
         console.error('Failed to sync trip details:', err);
       } finally {
@@ -1185,6 +1313,8 @@ export function TripDetails() {
   const [editingTransportation, setEditingTransportation] = useState<any>(null);
   const [editingAccommodation, setEditingAccommodation] = useState<any>(null);
   const [editingRental, setEditingRental] = useState<any>(null);
+  const [editingBooking, setEditingBooking] = useState<Booking | null>(null);
+  const [isBookingFormOpen, setIsBookingFormOpen] = useState(false);
 
   const [confirmConfig, setConfirmConfig] = useState<{
     isOpen: boolean;
@@ -1292,6 +1422,36 @@ export function TripDetails() {
         } catch (err) {
           console.error(err);
           alert('Failed to delete accommodation');
+        }
+      }
+    });
+  };
+
+  const handleDeleteBooking = async (bookingId: number) => {
+    setConfirmConfig({
+      isOpen: true,
+      title: '刪除預訂',
+      message: '您確定要刪除此預訂資訊嗎？相關的行程項目也會一併刪除。',
+      confirmText: 'Deleting booking...',
+      onConfirm: async () => {
+        if (!id) return;
+        try {
+          const res = await apiFetch(`/api/trips/${id}/bookings/${bookingId}`, { method: 'DELETE' });
+          if (!res.ok) throw new Error('Failed to delete booking');
+          await db.bookings.delete(bookingId);
+          
+          // Also need to delete the associated itinerary items
+          const relatedItineraries = itineraries.filter(i => i.related_id === bookingId && (i.type === 'TRANSPORTATION' || i.type === 'ACCOMMODATION' || i.type === 'RENTAL'));
+          if (relatedItineraries.length > 0) {
+            await db.itineraries.bulkDelete(relatedItineraries.map(i => i.id));
+          }
+          
+          setIsBookingFormOpen(false);
+          setEditingBooking(null);
+          setConfirmConfig(prev => ({ ...prev, isOpen: false }));
+        } catch (err) {
+          console.error(err);
+          alert('Failed to delete booking');
         }
       }
     });
@@ -1477,33 +1637,37 @@ export function TripDetails() {
             <div className="space-y-4">
               {filteredItineraries.length > 0 ? (
                 filteredItineraries.map((item, index) => {
-                  if (item.type === 'TRANSPORTATION' && item.related_id) {
+                  if ((item.type === 'TRANSPORTATION' || item.type === 'ACCOMMODATION' || item.type === 'RENTAL') && item.related_id) {
+                    const booking = bookings.find(b => b.id === item.related_id);
                     const transport = transportations.find(t => t.id === item.related_id);
-                    return (
-                      <TransportationCard
-                        key={item.id}
-                        item={item}
-                        transportation={transport}
-                        canEdit={canEdit}
-                        onEdit={() => {
-                          if (transport) {
-                            setEditingTransportation(transport);
-                            setIsTransportationFormOpen(true);
-                          }
-                        }}
-                        showNextTransport={index < filteredItineraries.length - 1}
-                        onEditNextTransport={() => {
-                          setEditingItinerary(item);
-                          setIsNextTransportFormOpen(true);
-                        }}
-                      />
-                    );
+                    
+                    if (booking || transport) {
+                      return (
+                        <TransportationCard
+                          key={item.id}
+                          item={item}
+                          transportation={transport}
+                          booking={booking}
+                          canEdit={canEdit}
+                          onEdit={() => {
+                            if (booking) {
+                              setEditingBooking(booking);
+                              setIsBookingFormOpen(true);
+                            } else if (transport) {
+                              setEditingTransportation(transport);
+                              setIsTransportationFormOpen(true);
+                            }
+                          }}
+                          showNextTransport={index < filteredItineraries.length - 1}
+                          onEditNextTransport={() => {
+                            setEditingItinerary(item);
+                            setIsNextTransportFormOpen(true);
+                          }}
+                        />
+                      );
+                    }
                   }
 
-                  const itineraryImageUrl = item.image_url && typeof item.image_url === 'string' && item.image_url.startsWith('http')
-                    ? item.image_url
-                    : null;
-                  
                   return (
                     <div key={`itinerary-${item.id}`} className="space-y-2">
                       <ItineraryCard 
@@ -1553,86 +1717,58 @@ export function TripDetails() {
               />
             </div>
 
-            <div className="space-y-4">
+            <div className="space-y-8">
               <div className="flex items-center justify-between px-2">
-                 <h4 className="text-zinc-500 text-xs font-bold uppercase tracking-widest">Transportation</h4>
+                 <h4 className="text-zinc-500 text-xs font-bold uppercase tracking-widest">Bookings</h4>
                  {canEdit && (
-                   <button onClick={() => setIsTransportationFormOpen(true)} className="text-orange-500 hover:text-orange-400">
+                   <button onClick={() => { setEditingBooking(null); setIsBookingFormOpen(true); }} className="p-2 bg-orange-500/10 text-orange-500 rounded-full hover:bg-orange-500/20 transition-colors">
                      <Plus size={18} />
                    </button>
                  )}
               </div>
-              {transportations.length > 0 ? (
-                transportations
-                  .sort((a, b) => {
-                    const dateA = parseISO(`${a.dep_date}T${a.dep_time}`);
-                    const dateB = parseISO(`${b.dep_date}T${b.dep_time}`);
-                    
-                    const isPastA = isPast(dateA) && !isSameDay(dateA, new Date());
-                    const isPastB = isPast(dateB) && !isSameDay(dateB, new Date());
 
-                    // Past items go to the end
-                    if (isPastA && !isPastB) return 1;
-                    if (!isPastA && isPastB) return -1;
-
-                    // Both past or both future, sort by date
-                    const dateCompare = a.dep_date.localeCompare(b.dep_date);
-                    if (dateCompare !== 0) return dateCompare;
-                    return a.dep_time.localeCompare(b.dep_time);
-                  })
-                  .map(transport => (
-                    <TransportationCard
-                      key={transport.id}
-                      transportation={transport}
-                      canEdit={canEdit}
-                      onEdit={() => {
-                        setEditingTransportation(transport);
-                        setIsTransportationFormOpen(true);
-                      }}
-                    />
-                  ))
+              {bookings.length > 0 ? (
+                Object.entries(
+                  bookings.reduce((acc, booking) => {
+                    const cat = booking.category;
+                    if (!acc[cat]) acc[cat] = [];
+                    acc[cat].push(booking);
+                    return acc;
+                  }, {} as Record<string, Booking[]>)
+                ).map(([category, categoryBookings]) => (
+                  <div key={category} className="space-y-4">
+                    <div className="flex items-center gap-2 px-2">
+                      <div className="h-px flex-1 bg-zinc-800"></div>
+                      <span className="text-[10px] font-bold text-zinc-600 uppercase tracking-[0.2em]">{category}</span>
+                      <div className="h-px flex-1 bg-zinc-800"></div>
+                    </div>
+                    <div className="grid grid-cols-1 gap-4">
+                      {categoryBookings
+                        .sort((a, b) => {
+                          const dateA = parseISO(`${a.start_date}T${a.start_time}`);
+                          const dateB = parseISO(`${b.start_date}T${b.start_time}`);
+                          return dateA.getTime() - dateB.getTime();
+                        })
+                        .map(booking => (
+                          <BookingCard
+                            key={booking.id}
+                            booking={booking}
+                            canEdit={canEdit}
+                            onEdit={() => {
+                              setEditingBooking(booking);
+                              setIsBookingFormOpen(true);
+                            }}
+                          />
+                        ))}
+                    </div>
+                  </div>
+                ))
               ) : (
-                <div className="bg-zinc-900/50 border border-dashed border-zinc-800 rounded-3xl p-6 text-center text-zinc-500 text-sm">
-                  No transportation details added.
-                </div>
-              )}
-
-              <div className="flex items-center justify-between px-2 mt-6">
-                <h4 className="text-zinc-500 text-xs font-bold uppercase tracking-widest">Bookings</h4>
-                {canEdit && (
-                  <button onClick={() => setIsBookingSelectionOpen(true)} className="text-orange-500 hover:text-orange-400">
-                     <Plus size={18} />
-                   </button>
-                )}
-              </div>
-              {accommodations.length > 0 || rentals.length > 0 ? (
-                <>
-                  {accommodations.map(acc => (
-                    <AccommodationCard
-                      key={`acc-${acc.id}`}
-                      acc={acc}
-                      canEdit={canEdit}
-                      onEdit={() => {
-                        setEditingAccommodation(acc);
-                        setIsAccommodationFormOpen(true);
-                      }}
-                    />
-                  ))}
-                  {rentals.map(rental => (
-                    <RentalCard
-                      key={`rental-${rental.id}`}
-                      rental={rental}
-                      canEdit={canEdit}
-                      onEdit={() => {
-                        setEditingRental(rental);
-                        setIsRentalFormOpen(true);
-                      }}
-                    />
-                  ))}
-                </>
-              ) : (
-                <div className="bg-zinc-900/50 border border-dashed border-zinc-800 rounded-3xl p-6 text-center text-zinc-500 text-sm">
-                  No bookings added.
+                <div className="bg-zinc-900/50 border border-dashed border-zinc-800 rounded-3xl p-12 text-center text-zinc-500">
+                  <div className="mb-4 flex justify-center">
+                    <Info size={32} className="opacity-20" />
+                  </div>
+                  <p className="text-sm">No bookings added yet.</p>
                 </div>
               )}
             </div>
@@ -2015,6 +2151,41 @@ export function TripDetails() {
                   setIsRentalFormOpen(false);
                   setEditingRental(null);
                 }} 
+              />
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      <AnimatePresence>
+        {isBookingFormOpen && (
+          <div className="fixed inset-0 z-[100] flex items-end sm:items-center justify-center p-0 sm:p-4">
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              onClick={() => setIsBookingFormOpen(false)}
+              className="absolute inset-0 bg-black/80 backdrop-blur-sm"
+            />
+            <motion.div
+              initial={{ y: '100%' }}
+              animate={{ y: 0 }}
+              exit={{ y: '100%' }}
+              transition={{ type: 'spring', damping: 25, stiffness: 200 }}
+              className="relative w-full max-w-2xl z-10"
+            >
+              <BookingForm
+                tripId={Number(id)}
+                initialData={editingBooking || undefined}
+                onSuccess={() => {
+                  setIsBookingFormOpen(false);
+                  setEditingBooking(null);
+                }}
+                onCancel={() => {
+                  setIsBookingFormOpen(false);
+                  setEditingBooking(null);
+                }}
+                onDelete={handleDeleteBooking}
               />
             </motion.div>
           </div>

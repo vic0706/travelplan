@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { X, Plane, Train, Ship, Search, Hash, Loader2, Trash2, Car } from 'lucide-react';
+import { X, Plane, Train, Ship, Search, Hash, Loader2, Trash2, Car, Clock } from 'lucide-react';
 import { format, parseISO, addMinutes, subMinutes } from 'date-fns';
 import { DatePicker } from './DatePicker';
 import { TimePicker } from './TimePicker';
@@ -284,9 +284,17 @@ export function TransportationForm({ tripId, onSuccess, onCancel, onDelete, init
           <h4 className="text-sm font-semibold text-orange-500 uppercase tracking-wider">Departure</h4>
           
           <div className="space-y-2">
-             <label className="text-xs font-bold text-zinc-500 uppercase tracking-wider flex justify-between">
+             <label className="text-xs font-bold text-zinc-500 uppercase tracking-wider flex justify-between items-center">
                <span>Check-in Buffer</span>
-               <span className="text-orange-500">{formData.dep_checkin_buffer} min</span>
+               <div className="flex items-center gap-2">
+                 <input 
+                   type="number"
+                   value={formData.dep_checkin_buffer}
+                   onChange={(e) => setFormData({...formData, dep_checkin_buffer: parseInt(e.target.value) || 0})}
+                   className="w-16 bg-zinc-900 border border-zinc-800 rounded-lg px-2 py-1 text-right text-orange-500 font-bold focus:outline-none focus:border-orange-500"
+                 />
+                 <span className="text-zinc-500 text-[10px]">MIN</span>
+               </div>
              </label>
              <input 
                type="range" 
@@ -308,10 +316,14 @@ export function TransportationForm({ tripId, onSuccess, onCancel, onDelete, init
               />
             </div>
             <div className="space-y-2">
-              <TimePicker
-                label="Time"
+              <label className="text-xs font-bold text-zinc-500 uppercase tracking-wider flex items-center gap-1">
+                <Clock size={12} /> Time
+              </label>
+              <input
+                type="time"
                 value={formData.dep_time}
-                onChange={time => setFormData({ ...formData, dep_time: time })}
+                onChange={e => setFormData({ ...formData, dep_time: e.target.value })}
+                className="w-full bg-zinc-950 border border-zinc-800 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-orange-500 transition-colors [color-scheme:dark]"
               />
             </div>
           </div>
@@ -345,9 +357,17 @@ export function TransportationForm({ tripId, onSuccess, onCancel, onDelete, init
           <h4 className="text-sm font-semibold text-orange-500 uppercase tracking-wider">Arrival</h4>
           
           <div className="space-y-2">
-             <label className="text-xs font-bold text-zinc-500 uppercase tracking-wider flex justify-between">
+             <label className="text-xs font-bold text-zinc-500 uppercase tracking-wider flex justify-between items-center">
                <span>Exit Buffer</span>
-               <span className="text-orange-500">{formData.arr_exit_buffer} min</span>
+               <div className="flex items-center gap-2">
+                 <input 
+                   type="number"
+                   value={formData.arr_exit_buffer}
+                   onChange={(e) => setFormData({...formData, arr_exit_buffer: parseInt(e.target.value) || 0})}
+                   className="w-16 bg-zinc-900 border border-zinc-800 rounded-lg px-2 py-1 text-right text-orange-500 font-bold focus:outline-none focus:border-orange-500"
+                 />
+                 <span className="text-zinc-500 text-[10px]">MIN</span>
+               </div>
              </label>
              <input 
                type="range" 
@@ -369,10 +389,14 @@ export function TransportationForm({ tripId, onSuccess, onCancel, onDelete, init
               />
             </div>
             <div className="space-y-2">
-              <TimePicker
-                label="Time"
+              <label className="text-xs font-bold text-zinc-500 uppercase tracking-wider flex items-center gap-1">
+                <Clock size={12} /> Time
+              </label>
+              <input
+                type="time"
                 value={formData.arr_time}
-                onChange={time => setFormData({ ...formData, arr_time: time })}
+                onChange={e => setFormData({ ...formData, arr_time: e.target.value })}
+                className="w-full bg-zinc-950 border border-zinc-800 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-orange-500 transition-colors [color-scheme:dark]"
               />
             </div>
           </div>
