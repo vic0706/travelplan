@@ -118,6 +118,7 @@ export interface Accommodation {
   trip_id: number;
   hotel_name: string;
   address?: string;
+  city_id?: number;
   check_in_date: string;
   check_in_time?: string;
   check_out_date: string;
@@ -141,6 +142,7 @@ export interface Rental {
   check_out_time?: string;
   notes?: string;
   image_url?: string;
+  details?: string; // JSON string
   created_at?: number;
 }
 
@@ -159,6 +161,7 @@ export interface Booking {
   title: string;
   provider?: string;
   order_id?: string;
+  city_id?: number;
   start_date: string;
   start_time: string;
   end_date: string;

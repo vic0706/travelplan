@@ -77,7 +77,9 @@ function BookingCard({
             <div className="p-1.5 rounded-lg bg-zinc-800 text-orange-500">
               <Icon size={14} />
             </div>
-            <h4 className="font-bold text-white truncate">{booking.title}</h4>
+            <h4 className="font-bold text-white truncate">
+              {booking.category === 'RENTAL' ? `${booking.provider || ''} ${booking.title}` : booking.title}
+            </h4>
           </div>
           
           <div className="space-y-1">
@@ -109,7 +111,7 @@ function BookingCard({
                 )}
               </div>
             )}
-            {booking.provider && (
+            {booking.provider && booking.category !== 'RENTAL' && (
               <div className="text-[10px] text-zinc-600 font-medium uppercase tracking-wider">
                 {booking.provider} {booking.order_id && `• ${booking.order_id}`}
               </div>
@@ -1687,7 +1689,31 @@ export function TripDetails() {
                     }
                   }
 
-                  const booking = (item.type === 'ACCOMMODATION' || item.type === 'RENTAL') && item.related_id ? bookings.find(b => b.id === item.related_id) : undefined;
+                  if (item.type === 'RENTAL' && item.related_id) {
+                    const booking = bookings.find(b => b.id === item.related_id);
+                    if (booking) {
+                      return (
+                        <ItineraryCard 
+                          key={`itinerary-${item.id}`}
+                          item={item} 
+                          canEdit={canEdit}
+                          onEdit={() => {
+                            setEditingBooking(booking);
+                            setIsBookingFormOpen(true);
+                          }}
+                          selectedDate={selectedDate}
+                          showNextTransport={index < filteredItineraries.length - 1}
+                          onEditNextTransport={() => {
+                            setEditingItinerary(item);
+                            setIsNextTransportFormOpen(true);
+                          }}
+                          booking={booking}
+                        />
+                      );
+                    }
+                  }
+
+                  const booking = item.type === 'ACCOMMODATION' && item.related_id ? bookings.find(b => b.id === item.related_id) : undefined;
 
                   return (
                     <div key={`itinerary-${item.id}`} className="space-y-2">

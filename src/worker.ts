@@ -169,12 +169,13 @@ async function ensureSchema(db: D1Database) {
     "ALTER TABLE Accommodations ADD COLUMN check_out_time TEXT DEFAULT '11:00'",
     "ALTER TABLE Accommodations ADD COLUMN daily_start_time TEXT DEFAULT '08:00'",
     "ALTER TABLE Accommodations ADD COLUMN daily_end_time TEXT DEFAULT '22:00'",
+    "ALTER TABLE Accommodations ADD COLUMN city_id INTEGER",
     `CREATE TABLE IF NOT EXISTS Bookings (
         id INTEGER PRIMARY KEY AUTOINCREMENT, trip_id INTEGER NOT NULL,
         category TEXT NOT NULL, title TEXT NOT NULL, provider TEXT, order_id TEXT,
         start_date TEXT NOT NULL, start_time TEXT NOT NULL, end_date TEXT NOT NULL, end_time TEXT NOT NULL,
         start_location TEXT NOT NULL, end_location TEXT, notes TEXT, image_url TEXT,
-        details TEXT DEFAULT '{}', created_at INTEGER DEFAULT (strftime('%s', 'now') * 1000),
+        details TEXT DEFAULT '{}', city_id INTEGER, created_at INTEGER DEFAULT (strftime('%s', 'now') * 1000),
         FOREIGN KEY (trip_id) REFERENCES Trips(id) ON DELETE CASCADE
     )`
   ];
@@ -906,15 +907,27 @@ app.post('/api/trips/:id/rentals', async (c) => {
     const rentalId = info.meta.last_row_id;
 
     // Generate Itineraries for Rental
-    await c.env.DB.prepare(`
-      INSERT INTO Itineraries (trip_id, date, start_time, end_time, title, type, related_id, notes, image_url)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `).bind(tripId, b.check_in_date, b.check_in_time || '10:00', '', `Pick up ${b.name}`, 'RENTAL', rentalId, b.notes, rentalImage || '').run();
+    const details = b.details ? JSON.parse(b.details) : {};
+    const pickUpBuffer = details.pick_up_buffer || 0;
+    const returnBuffer = details.return_buffer || 0;
+
+    const pickUpDate = new Date(`${b.check_in_date}T${b.check_in_time || '10:00'}`);
+    pickUpDate.setMinutes(pickUpDate.getMinutes() + pickUpBuffer);
+    const pickUpTime = pickUpDate.toTimeString().slice(0, 5);
+
+    const returnDate = new Date(`${b.check_out_date}T${b.check_out_time || '10:00'}`);
+    returnDate.setMinutes(returnDate.getMinutes() + returnBuffer);
+    const returnTime = returnDate.toTimeString().slice(0, 5);
 
     await c.env.DB.prepare(`
       INSERT INTO Itineraries (trip_id, date, start_time, end_time, title, type, related_id, notes, image_url)
       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `).bind(tripId, b.check_out_date, b.check_out_time || '10:00', '', `Return ${b.name}`, 'RENTAL', rentalId, b.notes, rentalImage || '').run();
+    `).bind(tripId, b.check_in_date, pickUpTime, '', `Pick up ${b.name}`, 'RENTAL', rentalId, b.notes, rentalImage || '').run();
+
+    await c.env.DB.prepare(`
+      INSERT INTO Itineraries (trip_id, date, start_time, end_time, title, type, related_id, notes, image_url)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).bind(tripId, b.check_out_date, returnTime, '', `Return ${b.name}`, 'RENTAL', rentalId, b.notes, rentalImage || '').run();
 
     return c.json({ success: true, id: rentalId });
   } catch (error: any) { return c.json({ error: error.message }, 500); }

@@ -46,6 +46,7 @@ export function BookingForm({ tripId, onSuccess, onCancel, onDelete, initialData
     end_time: initialData?.end_time || '14:00',
     start_location: initialData?.start_location || '',
     end_location: initialData?.end_location || '',
+    city: initialData?.details ? (typeof initialData.details === 'string' ? JSON.parse(initialData.details).city : initialData.details.city) || '' : '',
     notes: initialData?.notes || '',
     image_url: initialData?.image_url || '',
     details: (() => {
@@ -145,9 +146,17 @@ export function BookingForm({ tripId, onSuccess, onCancel, onDelete, initialData
         : `/api/trips/${tripId}/bookings`;
       const method = initialData ? 'PUT' : 'POST';
 
+      const bookingData = {
+        ...formData,
+        details: {
+          ...formData.details,
+          city: formData.city
+        }
+      };
+
       const res = await apiFetch(endpoint, {
         method,
-        body: JSON.stringify(formData)
+        body: JSON.stringify(bookingData)
       });
       if (!res.ok) throw new Error(`Failed to ${initialData ? 'update' : 'add'} booking`);
       onSuccess();
@@ -384,6 +393,19 @@ export function BookingForm({ tripId, onSuccess, onCancel, onDelete, initialData
               />
             </div>
           </div>
+
+          {isHotel && (
+            <div className="space-y-2">
+              <label className="text-xs font-bold text-zinc-500 uppercase tracking-wider">City</label>
+              <input
+                type="text"
+                value={formData.city}
+                onChange={e => setFormData({ ...formData, city: e.target.value })}
+                className="w-full bg-zinc-950 border border-zinc-800 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-orange-500 transition-colors"
+                placeholder="e.g. Tokyo"
+              />
+            </div>
+          )}
 
           {isHotel ? (
             <div className="space-y-2">
