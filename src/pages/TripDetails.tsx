@@ -259,16 +259,18 @@ function TransportationCard({
           
           <div className="flex flex-col items-end gap-2">
             <div className="flex flex-col items-center bg-zinc-800/50 rounded-2xl border border-zinc-700/50 overflow-hidden shadow-sm backdrop-blur-sm">
-              <button 
+              <a 
+                href={dep_station && dep_station.startsWith('http') 
+                  ? dep_station 
+                  : `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(dep_station || title)}`}
+                target="_blank"
+                rel="noopener noreferrer"
                 className="p-2.5 text-zinc-400 hover:text-orange-500 hover:bg-zinc-700/50 transition-colors flex items-center justify-center w-10 h-10"
-                onClick={(e) => {
-                   e.stopPropagation();
-                   // Maybe open link?
-                }}
+                onClick={(e) => e.stopPropagation()}
                 title="View on Map"
               >
                  <Map size={18} />
-              </button>
+              </a>
 
               {showNextTransport && (canEdit || !!item.next_transport_mode) && (
                 <>
@@ -869,7 +871,8 @@ function ItineraryCard({
   onEdit, 
   selectedDate,
   showNextTransport,
-  onEditNextTransport
+  onEditNextTransport,
+  booking
 }: { 
   item: Itinerary; 
   canEdit: boolean; 
@@ -877,6 +880,7 @@ function ItineraryCard({
   selectedDate: Date;
   showNextTransport?: boolean;
   onEditNextTransport?: () => void;
+  booking?: Booking;
 }) {
   const timeString = item.end_time || item.start_time || '23:59';
   const dateStr = format(selectedDate, 'yyyy-MM-dd');
@@ -937,6 +941,7 @@ function ItineraryCard({
           </div>
           <h3 className="text-xl font-bold text-white leading-tight flex items-center">
             {item.type === 'ACCOMMODATION' && <Bed className="text-orange-500 mr-2 shrink-0" size={20} />}
+            {item.type === 'RENTAL' && <Car className="text-orange-500 mr-2 shrink-0" size={20} />}
             {item.icon && <DynamicIcon name={item.icon} className="text-orange-500 mr-2 shrink-0" size={20} />}
             {item.title}
           </h3>
@@ -1651,7 +1656,7 @@ export function TripDetails() {
             <div className="space-y-4">
               {filteredItineraries.length > 0 ? (
                 filteredItineraries.map((item, index) => {
-                  if ((item.type === 'TRANSPORTATION' || item.type === 'RENTAL') && item.related_id) {
+                  if (item.type === 'TRANSPORTATION' && item.related_id) {
                     const booking = bookings.find(b => b.id === item.related_id);
                     const transport = transportations.find(t => t.id === item.related_id);
                     
@@ -1682,7 +1687,7 @@ export function TripDetails() {
                     }
                   }
 
-                  const booking = item.type === 'ACCOMMODATION' && item.related_id ? bookings.find(b => b.id === item.related_id) : undefined;
+                  const booking = (item.type === 'ACCOMMODATION' || item.type === 'RENTAL') && item.related_id ? bookings.find(b => b.id === item.related_id) : undefined;
 
                   return (
                     <div key={`itinerary-${item.id}`} className="space-y-2">
@@ -1704,6 +1709,7 @@ export function TripDetails() {
                           setEditingItinerary(item);
                           setIsNextTransportFormOpen(true);
                         }}
+                        booking={booking}
                       />
                     </div>
                   );

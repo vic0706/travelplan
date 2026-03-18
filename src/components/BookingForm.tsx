@@ -58,7 +58,7 @@ export function BookingForm({ tripId, onSuccess, onCancel, onDelete, initialData
   });
 
   const isHotel = formData.category === 'HOTEL';
-  const isTransport = ['FLIGHT', 'TRAIN', 'FERRY', 'PRIVATE_TRANSFER'].includes(formData.category);
+  const isTransport = ['FLIGHT', 'TRAIN', 'FERRY', 'PRIVATE_TRANSFER', 'RENTAL'].includes(formData.category);
 
   const handleSearch = async (query: string) => {
     if (!query) return;
@@ -164,7 +164,7 @@ export function BookingForm({ tripId, onSuccess, onCancel, onDelete, initialData
       case 'FLIGHT': return { title: 'Flight No.', provider: 'Airline', start: 'Departure Airport', end: 'Arrival Airport', startTerminal: 'Terminal', endTerminal: 'Terminal' };
       case 'TRAIN': return { title: 'Train No.', provider: 'Operator', start: 'Departure Station', end: 'Arrival Station', startTerminal: 'Platform', endTerminal: 'Platform' };
       case 'FERRY': return { title: 'Vessel', provider: 'Operator', start: 'Departure Port', end: 'Arrival Port', startTerminal: 'Pier', endTerminal: 'Pier' };
-      case 'RENTAL': return { title: 'Vehicle', provider: 'Rental Company', start: 'Pick-up Location', end: 'Return Location', startTerminal: 'Pick-up Counter', endTerminal: 'Return Counter' };
+      case 'RENTAL': return { title: 'Name', provider: 'Rental Company', start: 'Pick-up Location', end: 'Return Location', startTerminal: 'Pick-up Counter', endTerminal: 'Return Counter' };
       case 'PRIVATE_TRANSFER': return { title: 'Service Name', provider: 'Company', start: 'Pickup Point', end: 'Destination', startTerminal: 'Meeting Point', endTerminal: 'Dropoff Point' };
       case 'HOTEL': return { title: 'Hotel Name', provider: 'Booking Site', start: 'Address', end: '', startTerminal: '', endTerminal: '' };
       default: return { title: 'Title', provider: 'Provider', start: 'Location', end: 'Location', startTerminal: 'Point', endTerminal: 'Point' };
@@ -539,12 +539,12 @@ export function BookingForm({ tripId, onSuccess, onCancel, onDelete, initialData
                 <label className="text-xs font-bold text-zinc-500 uppercase tracking-wider flex justify-between items-center">
                   <span className="flex items-center gap-1.5">
                     <Clock size={12} className="text-orange-500" />
-                    {formData.category === 'FLIGHT' ? 'Check-in Buffer' : 'Arrival Buffer'}
+                    {formData.category === 'FLIGHT' ? 'Check-in Buffer' : formData.category === 'RENTAL' ? 'Pick-up Buffer' : 'Arrival Buffer'}
                   </span>
                   <div className="flex items-center gap-2">
                     {formData.start_date && formData.start_time && !isNaN(parseISO(`${formData.start_date}T${formData.start_time}`).getTime()) && (
                       <span className="text-orange-500/80 text-[10px] font-mono mr-2">
-                        {format(subMinutes(parseISO(`${formData.start_date}T${formData.start_time}`), formData.details.dep_checkin_buffer || 0), 'HH:mm')}
+                        {formData.category === 'FLIGHT' ? 'Check-in' : formData.category === 'RENTAL' ? 'Pick-up' : 'Arrive'} @ {format(subMinutes(parseISO(`${formData.start_date}T${formData.start_time}`), formData.details.dep_checkin_buffer || 0), 'HH:mm')}
                       </span>
                     )}
                     <input 
@@ -584,12 +584,12 @@ export function BookingForm({ tripId, onSuccess, onCancel, onDelete, initialData
                 <label className="text-xs font-bold text-zinc-500 uppercase tracking-wider flex justify-between items-center">
                   <span className="flex items-center gap-1.5">
                     <Clock size={12} className="text-orange-500" />
-                    Exit Buffer
+                    {formData.category === 'RENTAL' ? 'Return Buffer' : 'Exit Buffer'}
                   </span>
                   <div className="flex items-center gap-2">
                     {formData.end_date && formData.end_time && !isNaN(parseISO(`${formData.end_date}T${formData.end_time}`).getTime()) && (
                       <span className="text-orange-500/80 text-[10px] font-mono mr-2">
-                        {format(addMinutes(parseISO(`${formData.end_date}T${formData.end_time}`), formData.details.arr_exit_buffer || 0), 'HH:mm')}
+                        {formData.category === 'RENTAL' ? 'Return' : 'Exit'} @ {format(addMinutes(parseISO(`${formData.end_date}T${formData.end_time}`), formData.details.arr_exit_buffer || 0), 'HH:mm')}
                       </span>
                     )}
                     <input 
