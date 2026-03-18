@@ -501,7 +501,7 @@ export function TripSettingsForm({ trip, onSuccess }: TripSettingsFormProps) {
           className="w-full bg-blue-500/10 hover:bg-blue-500/20 text-blue-400 border border-blue-500/30 disabled:opacity-50 disabled:cursor-not-allowed font-medium rounded-xl px-4 py-3 transition-all flex items-center justify-center gap-2"
         >
           {syncingWeather ? <Loader2 size={18} className="animate-spin" /> : <CloudLightning size={18} />}
-          {syncingWeather ? 'Syncing Weather...' : 'Sync Weather Now'}
+          {syncingWeather ? 'Syncing Trip...' : 'Sync Trip Now'}
         </button>
 
         <div className="flex gap-3">
