@@ -22,7 +22,6 @@ export interface Env {
 type Variables = { user: { id: number; role: string; name: string } };
 export const app = new Hono<{ Bindings: Env; Variables: Variables }>();
 
-// CORS Middleware
 app.use('*', cors({
   origin: '*',
   allowMethods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
@@ -31,7 +30,6 @@ app.use('*', cors({
   maxAge: 600,
 }));
 
-// GET /api/images/search
 app.get('/api/images/search', async (c) => {
   const query = c.req.query('query');
   const type = c.req.query('type') || 'trip';
@@ -53,7 +51,6 @@ app.get('/api/images/search', async (c) => {
   } catch (error) { return c.json({ error: 'Internal server error' }, 500); }
 });
 
-// GET /api/flights/lookup
 app.get('/api/flights/lookup', async (c) => {
   const inputCode = c.req.query('code') || '';
   const code = inputCode.replace(/[\u4e00-\u9fa5a-zA-Z\s]+(?=[A-Z]{2}\d+)/g, '').trim().replace(/\s+/g, '');
@@ -200,7 +197,6 @@ async function syncWeatherForTrip(tripId: number, env: Env) {
   return getWeatherForDate(tripId, todayStr, env);
 }
 
-// 💡 產生 Hotel 子卡片
 function generateDesiredAccommodationItems(b: any, accId: string | number, hotelImage: string) {
   const desiredItems = [];
   const startDate = new Date(b.check_in_date);
@@ -233,27 +229,40 @@ function generateDesiredAccommodationItems(b: any, accId: string | number, hotel
   return desiredItems;
 }
 
-// 💡 產生 Rental 子卡片
+// 💡 更新版：Rental 子卡片的 Duration 推算邏輯
 function generateDesiredRentalItems(b: any, rentalId: string | number, rentalImage: string) {
   const desiredItems = [];
   const titlePrefix = b.provider ? `${b.provider} ` : '';
   const name = b.title || '';
   const notesWithOrder = b.order_id ? `Order ID: ${b.order_id}\n${b.notes || ''}` : (b.notes || '');
 
+  const details = typeof b.details === 'string' ? JSON.parse(b.details) : (b.details || {});
+  const depBuffer = details.dep_buffer || 0;
+  const arrBuffer = details.arr_buffer || 0;
+  const pad = (n: number) => n.toString().padStart(2, '0');
+
+  // Pick-up
+  const pickUpStart = new Date(`${b.start_date}T${b.start_time || '10:00'}`);
+  const pickUpEnd = new Date(pickUpStart.getTime() + depBuffer * 60000);
+
   desiredItems.push({
     date: b.start_date,
     start_time: b.start_time,
-    end_time: b.start_time,
+    end_time: `${pad(pickUpEnd.getHours())}:${pad(pickUpEnd.getMinutes())}`,
     title: `Pick-up ${titlePrefix}${name}`.trim(),
     notes: notesWithOrder,
     image_url: rentalImage,
     matchType: 'Pick-up'
   });
 
+  // Return
+  const returnStart = new Date(`${b.end_date}T${b.end_time || '10:00'}`);
+  const returnEnd = new Date(returnStart.getTime() + arrBuffer * 60000);
+
   desiredItems.push({
     date: b.end_date,
     start_time: b.end_time,
-    end_time: b.end_time,
+    end_time: `${pad(returnEnd.getHours())}:${pad(returnEnd.getMinutes())}`,
     title: `Return ${titlePrefix}${name}`.trim(),
     notes: notesWithOrder,
     image_url: rentalImage,
@@ -533,7 +542,6 @@ app.post('/api/trips/:id/bookings', async (c) => {
         await c.env.DB.prepare(`INSERT INTO Itineraries (trip_id, date, start_time, end_time, title, type, related_id, notes, image_url) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`).bind(tripId, item.date, item.start_time, item.end_time, item.title, 'ACCOMMODATION', bookingId, item.notes, item.image_url).run();
       }
     } else if (b.category === 'RENTAL') {
-      // 💡 加入 Rental 建立子卡片的邏輯
       const desiredItems = generateDesiredRentalItems(b, bookingId, imageUrl || '');
       for (const item of desiredItems) {
         await c.env.DB.prepare(`INSERT INTO Itineraries (trip_id, date, start_time, end_time, title, type, related_id, notes, image_url) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`).bind(tripId, item.date, item.start_time, item.end_time, item.title, 'RENTAL', bookingId, item.notes, item.image_url).run();
@@ -599,12 +607,14 @@ app.put('/api/trips/:id/bookings/:bookingId', async (c) => {
           const match = existingPool[matchIndex];
           existingPool.splice(matchIndex, 1);
           let finalStartTime = match.start_time;
+          let finalEndTime = match.end_time;
           let finalTitle = match.title;
           if (item.matchType === 'Check-in' || item.matchType === 'Check-out') {
              finalStartTime = item.start_time;
+             finalEndTime = item.end_time;
              finalTitle = item.title;
           }
-          await c.env.DB.prepare(`UPDATE Itineraries SET date = ?, start_time = ?, title = ?, image_url = ? WHERE id = ?`).bind(item.date, finalStartTime, finalTitle, imageUrl || match.image_url || '', match.id).run();
+          await c.env.DB.prepare(`UPDATE Itineraries SET date = ?, start_time = ?, end_time = ?, title = ?, image_url = ? WHERE id = ?`).bind(item.date, finalStartTime, finalEndTime, finalTitle, imageUrl || match.image_url || '', match.id).run();
         } else {
           await c.env.DB.prepare(`INSERT INTO Itineraries (trip_id, date, start_time, end_time, title, type, related_id, notes, image_url) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`).bind(tripId, item.date, item.start_time, item.end_time, item.title, 'ACCOMMODATION', bookingId, item.notes, item.image_url).run();
         }
@@ -614,7 +624,6 @@ app.put('/api/trips/:id/bookings/:bookingId', async (c) => {
       }
 
     } else if (b.category === 'RENTAL') {
-      // 💡 加入 Rental 智慧合併邏輯
       const desiredItems = generateDesiredRentalItems(b, bookingId, imageUrl || '');
       const { results: existingItems } = await c.env.DB.prepare("SELECT * FROM Itineraries WHERE related_id = ? AND trip_id = ? AND type = 'RENTAL'").bind(bookingId, tripId).all();
       const existingPool = [...existingItems] as any[];
@@ -628,7 +637,7 @@ app.put('/api/trips/:id/bookings/:bookingId', async (c) => {
         if (matchIndex !== -1) {
           const match = existingPool[matchIndex];
           existingPool.splice(matchIndex, 1);
-          await c.env.DB.prepare(`UPDATE Itineraries SET date = ?, start_time = ?, title = ?, image_url = ? WHERE id = ?`).bind(item.date, item.start_time, item.title, imageUrl || match.image_url || '', match.id).run();
+          await c.env.DB.prepare(`UPDATE Itineraries SET date = ?, start_time = ?, end_time = ?, title = ?, image_url = ? WHERE id = ?`).bind(item.date, item.start_time, item.end_time, item.title, imageUrl || match.image_url || '', match.id).run();
         } else {
           await c.env.DB.prepare(`INSERT INTO Itineraries (trip_id, date, start_time, end_time, title, type, related_id, notes, image_url) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`).bind(tripId, item.date, item.start_time, item.end_time, item.title, 'RENTAL', bookingId, item.notes, item.image_url).run();
         }
@@ -707,7 +716,7 @@ app.put('/api/trips/:id/itineraries/:itemId', async (c) => {
       b.city_id, b.date, b.start_time, b.end_time, b.title, b.address || '', b.image_url || '', b.notes || '', JSON.stringify(b.tags || []), b.sub_items || '[]', b.stay_duration || '', b.icon || '', b.next_transport_mode || '', b.next_transport_time || '', b.next_transport_auto_time || '', itemId, tripId
     ).run();
 
-    // 💡 加入 Rental 卡片反向雙向同步
+    // 💡 反向雙向同步 (Hotel & Rental Duration Sync)
     if (b.type === 'ACCOMMODATION' && b.related_id) {
        if (b.title.includes('Check-in')) {
           await c.env.DB.prepare('UPDATE Bookings SET start_time = ? WHERE id = ? AND trip_id = ?').bind(b.start_time, b.related_id, tripId).run();
@@ -715,10 +724,22 @@ app.put('/api/trips/:id/itineraries/:itemId', async (c) => {
           await c.env.DB.prepare('UPDATE Bookings SET end_time = ? WHERE id = ? AND trip_id = ?').bind(b.start_time, b.related_id, tripId).run();
        }
     } else if (b.type === 'RENTAL' && b.related_id) {
-       if (b.title.includes('Pick-up')) {
-          await c.env.DB.prepare('UPDATE Bookings SET start_time = ? WHERE id = ? AND trip_id = ?').bind(b.start_time, b.related_id, tripId).run();
-       } else if (b.title.includes('Return')) {
-          await c.env.DB.prepare('UPDATE Bookings SET end_time = ? WHERE id = ? AND trip_id = ?').bind(b.start_time, b.related_id, tripId).run();
+       const bookingRecord = await c.env.DB.prepare('SELECT details FROM Bookings WHERE id = ? AND trip_id = ?').bind(b.related_id, tripId).first();
+       if (bookingRecord) {
+         const details = typeof bookingRecord.details === 'string' ? JSON.parse(bookingRecord.details) : (bookingRecord.details || {});
+         
+         const startD = new Date(`1970-01-01T${b.start_time}`);
+         let endD = new Date(`1970-01-01T${b.end_time}`);
+         if (endD < startD) endD.setDate(endD.getDate() + 1);
+         const diffMins = Math.round((endD.getTime() - startD.getTime()) / 60000);
+
+         if (b.title.includes('Pick-up')) {
+            details.dep_buffer = diffMins;
+            await c.env.DB.prepare('UPDATE Bookings SET start_time = ?, details = ? WHERE id = ? AND trip_id = ?').bind(b.start_time, JSON.stringify(details), b.related_id, tripId).run();
+         } else if (b.title.includes('Return')) {
+            details.arr_buffer = diffMins;
+            await c.env.DB.prepare('UPDATE Bookings SET end_time = ?, details = ? WHERE id = ? AND trip_id = ?').bind(b.start_time, JSON.stringify(details), b.related_id, tripId).run();
+         }
        }
     }
 

@@ -44,7 +44,7 @@ const getEffectiveTimes = (item: any, baseDate: Date) => {
   return { start, end };
 };
 
-// 💡 1. 移除 BookingCard 中的圖片顯示區塊
+// 💡 已移除圖片顯示區塊，呈現最純粹乾淨的資訊卡片
 function BookingCard({ booking, canEdit, onEdit }: { booking: Booking; canEdit: boolean; onEdit: () => void; }) {
   const startDate = parseISO(`${booking.start_date}T${booking.start_time}`);
   const endDate = parseISO(`${booking.end_date}T${booking.end_time}`);
@@ -823,6 +823,7 @@ export function TripDetails() {
               {filteredItineraries.length > 0 ? (
                 filteredItineraries.map((item, index) => {
                   
+                  // 💡 只有 TRANSPORTATION 使用連線卡片，RENTAL 已經改用 ItineraryCard 獨立編輯
                   if (item.type === 'TRANSPORTATION' && item.related_id) {
                     const booking = bookings.find(b => b.id === item.related_id);
                     if (booking) {
@@ -888,6 +889,7 @@ export function TripDetails() {
 
               {bookings.length > 0 ? (
                 <>
+                  {/* 💡 橫向滾動篩選按鈕 */}
                   {availableBookingCategories.length > 2 && (
                     <div className="flex gap-2 overflow-x-auto no-scrollbar px-2 pb-2">
                       {availableBookingCategories.map(cat => (
@@ -907,6 +909,7 @@ export function TripDetails() {
                     </div>
                   )}
 
+                  {/* 💡 排序邏輯：過去的置底，其餘由近到遠 */}
                   <div className="grid grid-cols-1 gap-4">
                     {bookings
                       .filter(b => bookingFilter === 'ALL' || b.category === bookingFilter)
@@ -1023,6 +1026,7 @@ export function TripDetails() {
                 onSuccess={async () => { 
                   setIsItineraryFormOpen(false); 
                   setEditingItinerary(null); 
+                  // 💡 確保反向同步更新後能刷新畫面
                   const [bRes, iRes] = await Promise.all([apiFetch(`/api/trips/${id}/bookings`), apiFetch(`/api/trips/${id}/itineraries`)]);
                   if (bRes.ok) await db.bookings.bulkPut(await bRes.json() as any[]);
                   if (iRes.ok) await db.itineraries.bulkPut(await iRes.json() as any[]);
