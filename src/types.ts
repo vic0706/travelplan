@@ -30,8 +30,8 @@ export interface Trip {
   // Local cache fields
   last_accessed?: number;
   is_fully_synced?: boolean;
-  is_public?: boolean; // New field for public/private status
-  members?: TripMember[]; // New field to store trip members for access control
+  is_public?: boolean;
+  members?: TripMember[];
 }
 
 export interface TripMember {
@@ -53,8 +53,8 @@ export interface Itinerary {
   image_url: string;
   notes: string;
   tags: string[]; // Parsed from JSON
-  icon?: string; // New field for activity icon
-  sub_items?: string; // JSON string of sub-items (Legacy, but kept for compatibility if needed, or we can remove if we fully switch)
+  icon?: string;
+  sub_items?: string; // JSON string
   stay_duration?: string;
   type?: 'GENERAL' | 'TRANSPORTATION' | 'ACCOMMODATION' | 'RENTAL';
   related_id?: number;
@@ -88,64 +88,6 @@ export interface Expense {
   updated_at?: number;
 }
 
-export interface Transportation {
-  id: number;
-  trip_id: number;
-  type: 'FLIGHT' | 'TRAIN' | 'BUS' | 'FERRY' | 'DRIVING' | 'PRIVATE_TRANSFER';
-  provider?: string;
-  code?: string;
-  
-  // Departure
-  dep_station: string;
-  dep_date: string; // YYYY-MM-DD
-  dep_time: string; // HH:mm
-  dep_terminal?: string;
-  dep_buffer?: number; // Minutes
-
-  // Arrival
-  arr_station: string;
-  arr_date: string; // YYYY-MM-DD
-  arr_time: string; // HH:mm
-  arr_terminal?: string;
-  arr_buffer?: number; // Minutes
-
-  order_id?: string;
-  notes?: string;
-}
-
-export interface Accommodation {
-  id: number;
-  trip_id: number;
-  hotel_name: string;
-  address?: string;
-  city_id?: number;
-  check_in_date: string;
-  check_in_time?: string;
-  check_out_date: string;
-  check_out_time?: string;
-  daily_start_time?: string;
-  daily_end_time?: string;
-  order_id?: string;
-  notes?: string;
-  image_url?: string;
-  created_at?: number;
-}
-
-export interface Rental {
-  id: number;
-  trip_id: number;
-  name: string;
-  address?: string;
-  check_in_date: string;
-  check_in_time?: string;
-  check_out_date: string;
-  check_out_time?: string;
-  notes?: string;
-  image_url?: string;
-  details?: string; // JSON string
-  created_at?: number;
-}
-
 export interface AppSetting {
   id: string;
   key_name: string;
@@ -170,7 +112,7 @@ export interface Booking {
   end_location?: string;
   notes?: string;
   image_url?: string;
-  details: string; // JSON string
+  details: string | any; // JSON string or parsed object
   created_at?: number;
 }
 

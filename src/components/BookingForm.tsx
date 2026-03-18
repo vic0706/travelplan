@@ -7,6 +7,9 @@ import { apiFetch } from '../utils/api';
 import { Booking, BookingCategory } from '../types';
 import { motion, AnimatePresence } from 'framer-motion';
 import { ImageCropper, uploadImageToSupabase } from './ImageCropper';
+import { useLiveQuery } from 'dexie-react-hooks';
+import { db } from '../db';
+import { ConfirmDialog } from './ConfirmDialog';
 
 interface BookingFormProps {
   tripId: number;
@@ -34,6 +37,9 @@ export function BookingForm({ tripId, onSuccess, onCancel, onDelete, initialData
   const [showImageSearch, setShowImageSearch] = useState(false);
   const [searchResults, setSearchResults] = useState<any[]>([]);
   const [searchQuery, setSearchQuery] = useState('');
+  const [overlapConflict, setOverlapConflict] = useState<string | null>(null);
+
+  const existingBookings = useLiveQuery(() => db.bookings.where('trip_id').equals(tripId).toArray(), [tripId]) || [];
 
   const [formData, setFormData] = useState({
     category: initialData?.category || 'FLIGHT' as BookingCategory,
@@ -60,6 +66,37 @@ export function BookingForm({ tripId, onSuccess, onCancel, onDelete, initialData
 
   const isHotel = formData.category === 'HOTEL';
   const isTransport = ['FLIGHT', 'TRAIN', 'FERRY', 'PRIVATE_TRANSFER', 'RENTAL'].includes(formData.category);
+
+  const checkOverlap = () => {
+    const transportTypes = ['FLIGHT', 'TRAIN', 'FERRY', 'PRIVATE_TRANSFER', 'RENTAL'];
+    if (!transportTypes.includes(formData.category)) return null;
+
+    const depDateTime = parseISO(`${formData.start_date}T${formData.start_time}`);
+    const arrDateTime = parseISO(`${formData.end_date}T${formData.end_time}`);
+
+    if (isNaN(depDateTime.getTime()) || isNaN(arrDateTime.getTime())) return null;
+
+    const newStart = subMinutes(depDateTime, formData.details.dep_buffer || 0);
+    const newEnd = addMinutes(arrDateTime, formData.details.arr_buffer || 0);
+
+    for (const b of existingBookings) {
+      if ((initialData && b.id === initialData.id) || !transportTypes.includes(b.category)) continue;
+
+      const bDepDateTime = parseISO(`${b.start_date}T${b.start_time}`);
+      const bArrDateTime = parseISO(`${b.end_date}T${b.end_time}`);
+
+      if (isNaN(bDepDateTime.getTime()) || isNaN(bArrDateTime.getTime())) continue;
+
+      const bDetails = typeof b.details === 'string' ? JSON.parse(b.details) : (b.details || {});
+      const bStart = subMinutes(bDepDateTime, bDetails.dep_buffer || 0);
+      const bEnd = addMinutes(bArrDateTime, bDetails.arr_buffer || 0);
+
+      if (newStart < bEnd && newEnd > bStart) {
+        return `${b.provider || ''} ${b.title}`;
+      }
+    }
+    return null;
+  };
 
   const handleSearch = async (query: string) => {
     if (!query) return;
@@ -137,8 +174,17 @@ export function BookingForm({ tripId, onSuccess, onCancel, onDelete, initialData
     }
   };
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
+  const handleSubmit = async (e?: React.FormEvent, bypassCheck = false) => {
+    if (e) e.preventDefault();
+
+    if (!bypassCheck) {
+      const overlap = checkOverlap();
+      if (overlap && !overlapConflict) {
+        setOverlapConflict(overlap);
+        return;
+      }
+    }
+
     setLoading(true);
     try {
       const endpoint = initialData 
@@ -649,8 +695,6 @@ export function BookingForm({ tripId, onSuccess, onCancel, onDelete, initialData
             </div>
           )}
 
-
-
           <div className="space-y-2">
             <label className="text-xs font-bold text-zinc-500 uppercase tracking-wider">Notes</label>
             <div className="relative">
@@ -695,6 +739,21 @@ export function BookingForm({ tripId, onSuccess, onCancel, onDelete, initialData
           </div>
         </form>
       </div>
+
+      <ConfirmDialog
+        isOpen={!!overlapConflict}
+        title="時間重疊警告"
+        message={`此行程的時間段（包含緩衝時間）與現有的「${overlapConflict}」重疊。您確定要繼續儲存嗎？`}
+        confirmText="確定繼續"
+        cancelText="返回修改"
+        type="warning"
+        onConfirm={() => {
+          setOverlapConflict(null);
+          handleSubmit(undefined, true);
+        }}
+        onCancel={() => setOverlapConflict(null)}
+      />
+
       {croppingImage && (
         <ImageCropper
           imageSrc={croppingImage}
