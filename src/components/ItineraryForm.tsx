@@ -1,12 +1,12 @@
 import React, { useState, useMemo, useEffect } from 'react';
 import { useAppStore } from '../store';
-import { X, MapPin, Loader2, Image as ImageIcon, Plus, Trash2, Clock, Check, AlertCircle } from 'lucide-react';
+import { X, MapPin, Loader2, Image as ImageIcon, Plus, Trash2, Clock, Check, AlertCircle, ChevronRight, ChevronDown } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { apiFetch } from '../utils/api';
 import { TimeRangePicker } from './TimeRangePicker';
 import { LocationPicker } from './LocationPicker';
 import { ImageCropper, uploadImageToSupabase } from './ImageCropper';
-import { format, parseISO, isSameDay, addMinutes, subMinutes, differenceInMinutes } from 'date-fns';
+import { format, parseISO, addMinutes, differenceInMinutes } from 'date-fns';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { db } from '../db';
 import { DynamicIcon } from './DynamicIcon';
@@ -64,13 +64,42 @@ function TagsInput({ value, onChange, placeholder }: { value: string, onChange: 
   );
 }
 
+// 實用時間解析與計算工具
+const parseTime = (timeStr: string, baseDate: Date) => {
+  if (!timeStr) return baseDate;
+  const [hours, minutes] = timeStr.split(':').map(Number);
+  const d = new Date(baseDate);
+  d.setHours(hours || 0, minutes || 0, 0, 0);
+  return d;
+};
+
+const getEffectiveTimes = (item: any, baseDate: Date) => {
+  let start = parseTime(item.start_time, baseDate);
+  let end = parseTime(item.end_time || item.start_time, baseDate);
+  if (item.next_transport_mode) {
+    let addMins = 0;
+    if (item.next_transport_time) {
+      addMins = parseInt(item.next_transport_time.replace(/\D/g, '')) || 0;
+    } else if (item.next_transport_auto_time) {
+      addMins = parseInt(item.next_transport_auto_time.replace(/\D/g, '')) || 0;
+    }
+    end = addMinutes(end, addMins);
+  }
+  return { start, end };
+};
+
 export function ItineraryForm({ tripId, defaultCityId, date, onSuccess, onCancel, onDelete, initialData }: ItineraryFormProps) {
   const { cities } = useAppStore();
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [uploading, setUploading] = useState(false);
   const [croppingImage, setCroppingImage] = useState<string | null>(null);
+  
+  // Modals States
   const [isLocationPickerOpen, setIsLocationPickerOpen] = useState(false);
+  const [isIconPickerOpen, setIsIconPickerOpen] = useState(false);
+  const [isTimePickerOpen, setIsTimePickerOpen] = useState(false);
+  
   const [categories, setCategories] = useState<any[]>([]);
 
   useEffect(() => {
@@ -78,11 +107,12 @@ export function ItineraryForm({ tripId, defaultCityId, date, onSuccess, onCancel
       try {
         const res = await apiFetch('/api/settings/categories');
         if (res.ok) {
-          setCategories(await res.json());
+          const data = await res.json() as any[];
+          // 1. 去除重複的 Icon
+          const uniqueCategories = Array.from(new Map(data.map(item => [item.icon, item])).values());
+          setCategories(uniqueCategories);
         }
-      } catch (err) {
-        console.error('Failed to fetch categories:', err);
-      }
+      } catch (err) { console.error('Failed to fetch categories:', err); }
     };
     fetchCategories();
   }, []);
@@ -119,6 +149,7 @@ export function ItineraryForm({ tripId, defaultCityId, date, onSuccess, onCancel
     return diff > 0 ? diff : 0;
   });
 
+  // 自動更新 end_time
   useEffect(() => {
     if (!formData.start_time) return;
     const start = parseISO(`${date}T${formData.start_time}`);
@@ -129,50 +160,50 @@ export function ItineraryForm({ tripId, defaultCityId, date, onSuccess, onCancel
     }
   }, [duration, formData.start_time, date]);
 
-  // Changed to fetch from unified bookings table
-  const transportBookings = useLiveQuery(() => db.bookings.where('trip_id').equals(tripId).toArray(), [tripId]) || [];
+  // 取得 Bookings 來檢查衝突與自動綁定 Hotel City
+  const bookings = useLiveQuery(() => db.bookings.where('trip_id').equals(tripId).toArray(), [tripId]) || [];
+  const dailyItineraries = useLiveQuery(async () => {
+    const all = await db.itineraries.where('trip_id').equals(tripId).toArray();
+    return all.filter(i => i.date === date);
+  }, [tripId, date]) || [];
 
-  const blockedRanges = useMemo(() => {
-    const ranges: { start: string, end: string, transportInfo: string }[] = [];
-    const targetDate = new Date(`${date}T00:00`);
-    const transportTypes = ['FLIGHT', 'TRAIN', 'FERRY', 'PRIVATE_TRANSFER', 'RENTAL'];
-    
-    transportBookings.forEach(b => {
-      if (!transportTypes.includes(b.category)) return;
-
-      const depDateTime = parseISO(`${b.start_date}T${b.start_time}`);
-      const arrDateTime = parseISO(`${b.end_date}T${b.end_time}`);
-      
-      if (isNaN(depDateTime.getTime()) || isNaN(arrDateTime.getTime())) return;
-
-      const details = typeof b.details === 'string' ? JSON.parse(b.details) : (b.details || {});
-      const blockedStart = subMinutes(depDateTime, details.dep_buffer || 0);
-      const blockedEnd = addMinutes(arrDateTime, details.arr_buffer || 0);
-      
-      const dayStart = new Date(`${date}T00:00`);
-      const dayEnd = new Date(`${date}T23:59:59`);
-      
-      if (blockedStart <= dayEnd && blockedEnd >= dayStart) {
-        let rangeStart = "00:00";
-        let rangeEnd = "23:59";
-        
-        if (isSameDay(blockedStart, targetDate)) rangeStart = format(blockedStart, 'HH:mm');
-        if (isSameDay(blockedEnd, targetDate)) rangeEnd = format(blockedEnd, 'HH:mm');
-        
-        ranges.push({ 
-          start: rangeStart, 
-          end: rangeEnd, 
-          transportInfo: `${b.provider || ''} ${b.title}`.trim()
-        });
+  // 4. 智能載入當天 Hotel 城市
+  const [hasAutoDetectedCity, setHasAutoDetectedCity] = useState(false);
+  useEffect(() => {
+    if (!initialData && !hasAutoDetectedCity && bookings.length > 0 && cities.length > 0) {
+      const hotelToday = bookings.find(b => b.category === 'HOTEL' && date >= b.start_date && date <= b.end_date);
+      if (hotelToday) {
+        const details = typeof hotelToday.details === 'string' ? JSON.parse(hotelToday.details || '{}') : (hotelToday.details || {});
+        const hotelCityName = details.city;
+        if (hotelCityName) {
+          const matchedCity = cities.find(c => 
+            c.name.toLowerCase().includes(hotelCityName.toLowerCase()) || 
+            hotelCityName.toLowerCase().includes(c.name.toLowerCase())
+          );
+          if (matchedCity) {
+            setFormData(prev => ({ ...prev, city_id: String(matchedCity.id) }));
+          }
+        }
       }
-    });
-    return ranges;
-  }, [transportBookings, date]);
+      setHasAutoDetectedCity(true);
+    }
+  }, [bookings, date, cities, initialData, hasAutoDetectedCity]);
 
-  const checkTransportationOverlap = (start: string, end: string) => {
-    if (initialData?.type === 'TRANSPORTATION') return null;
-    for (const range of blockedRanges) {
-      if (start < range.end && end > range.start) return range.transportInfo;
+  const checkOverlapWithBooking = (start: string, end: string) => {
+    if (initialData?.type && initialData.type !== 'GENERAL') return null;
+
+    const baseDate = parseISO(date);
+    const s = parseTime(start, baseDate);
+    const e = parseTime(end, baseDate);
+
+    for (const item of dailyItineraries) {
+      if (item.type === 'GENERAL') continue; 
+      if (initialData && item.id === initialData.id) continue;
+
+      const { start: itemS, end: itemE } = getEffectiveTimes(item, baseDate);
+      if (s < itemE && e > itemS) {
+        return item.title;
+      }
     }
     return null;
   };
@@ -211,9 +242,9 @@ export function ItineraryForm({ tripId, defaultCityId, date, onSuccess, onCancel
       return;
     }
 
-    const overlappingTransport = checkTransportationOverlap(formData.start_time, formData.end_time);
-    if (overlappingTransport) {
-      if (!confirm(`This time range overlaps with transportation ${overlappingTransport} (including check-in and stay time). Do you want to continue?`)) {
+    const overlappingBooking = checkOverlapWithBooking(formData.start_time, formData.end_time);
+    if (overlappingBooking) {
+      if (!window.confirm(`此時間段與已建立的預訂行程「${overlappingBooking}」衝突（包含緩衝/交通時間）。\n\nBooking 享有最高優先權。您確定要繼續建立嗎？`)) {
         setLoading(false);
         return;
       }
@@ -236,13 +267,10 @@ export function ItineraryForm({ tripId, defaultCityId, date, onSuccess, onCancel
             const images = await searchRes.json() as any[];
             if (images && images.length > 0) finalImageUrl = images[0].url;
           }
-        } catch (e) { console.error('Failed to auto-fetch activity image:', e); }
+        } catch (e) { console.error('Failed to auto-fetch image:', e); }
       }
 
-      const endpoint = initialData 
-        ? `/api/trips/${tripId}/itineraries/${initialData.id}` 
-        : `/api/trips/${tripId}/itineraries`;
-      
+      const endpoint = initialData ? `/api/trips/${tripId}/itineraries/${initialData.id}` : `/api/trips/${tripId}/itineraries`;
       const method = initialData ? 'PUT' : 'POST';
 
       const res = await apiFetch(endpoint, {
@@ -263,11 +291,7 @@ export function ItineraryForm({ tripId, defaultCityId, date, onSuccess, onCancel
         })
       });
 
-      if (!res.ok) {
-        const data = await res.json() as { error?: string };
-        throw new Error(data.error || `Failed to ${initialData ? 'update' : 'add'} activity`);
-      }
-
+      if (!res.ok) throw new Error(`Failed to save activity`);
       onSuccess();
     } catch (err: any) {
       setError(err.message);
@@ -287,7 +311,7 @@ export function ItineraryForm({ tripId, defaultCityId, date, onSuccess, onCancel
         </button>
       </div>
 
-      <div className="overflow-y-auto p-6 space-y-6">
+      <div className="overflow-y-auto p-6 space-y-6 pb-24">
         {error && <div className="p-3 bg-red-500/10 border border-red-500/20 rounded-xl text-red-400 text-sm">{error}</div>}
 
         <div>
@@ -316,77 +340,59 @@ export function ItineraryForm({ tripId, defaultCityId, date, onSuccess, onCancel
 
         <div>
           <label className="block text-sm font-medium text-zinc-400 mb-1">Activity Title</label>
-          <input
-            type="text" required value={formData.title}
-            onChange={e => setFormData({ ...formData, title: e.target.value })}
-            className="w-full bg-zinc-800 border border-zinc-700 rounded-xl px-4 py-3 text-white focus:outline-none focus:ring-2 focus:ring-orange-500"
-            placeholder="e.g., Visit Tokyo Tower"
-          />
+          <input type="text" required value={formData.title} onChange={e => setFormData({ ...formData, title: e.target.value })} className="w-full bg-zinc-800 border border-zinc-700 rounded-xl px-4 py-3 text-white focus:outline-none focus:ring-2 focus:ring-orange-500" placeholder="e.g., Visit Tokyo Tower" />
         </div>
 
-        <div>
-          <label className="block text-sm font-medium text-zinc-400 mb-2">Category Icon</label>
-          <div className="flex flex-wrap gap-3">
-            {categories.map((cat) => (
-              <button
-                key={cat.id} type="button"
-                onClick={() => setFormData({ ...formData, icon: formData.icon === cat.icon ? '' : cat.icon })}
-                className={`flex flex-col items-center gap-1 p-2 rounded-xl border transition-all ${formData.icon === cat.icon ? 'bg-orange-500/20 border-orange-500 text-orange-500' : 'bg-zinc-800 border-zinc-700 text-zinc-400 hover:bg-zinc-700 hover:text-white'}`}
-                title={cat.name}
-              >
-                <div className="w-8 h-8 flex items-center justify-center rounded-full bg-black/20">
-                  <DynamicIcon name={cat.icon} size={18} />
-                </div>
-                <span className="text-[10px] font-medium max-w-[60px] truncate">{cat.name}</span>
-              </button>
-            ))}
+        <div className="grid grid-cols-2 gap-4">
+          {/* 3. 時間與時長彈窗選擇器 */}
+          <div>
+            <label className="block text-sm font-medium text-zinc-400 mb-1">Schedule</label>
+            <button
+              type="button"
+              onClick={() => setIsTimePickerOpen(true)}
+              className="w-full bg-zinc-800 border border-zinc-700 rounded-xl px-4 py-3 text-white flex items-center justify-between hover:border-orange-500 transition-colors"
+            >
+              <div className="flex items-center gap-2">
+                 <Clock className="text-orange-500 shrink-0" size={16} />
+                 <span className="font-medium tracking-wide text-sm whitespace-nowrap">
+                   {formData.start_time} - {formData.end_time}
+                 </span>
+              </div>
+            </button>
+          </div>
+
+          {/* 2. Category Icon 彈窗選擇器 */}
+          <div>
+            <label className="block text-sm font-medium text-zinc-400 mb-1">Category Icon</label>
+            <button
+              type="button"
+              onClick={() => setIsIconPickerOpen(true)}
+              className="w-full bg-zinc-800 border border-zinc-700 rounded-xl px-4 py-3 text-white flex items-center justify-between hover:border-orange-500 transition-colors"
+            >
+              <div className="flex items-center gap-2">
+                {formData.icon ? (
+                  <>
+                    <div className="bg-orange-500/20 p-1 rounded-lg text-orange-500 shrink-0">
+                      <DynamicIcon name={formData.icon} size={16} />
+                    </div>
+                    <span className="font-medium text-sm truncate">{categories.find(c => c.icon === formData.icon)?.name || 'Selected'}</span>
+                  </>
+                ) : (
+                  <span className="text-zinc-500 font-medium text-sm">Select icon...</span>
+                )}
+              </div>
+              <ChevronRight size={16} className="text-zinc-500 shrink-0" />
+            </button>
           </div>
         </div>
 
         <div>
           <label className="block text-sm font-medium text-zinc-400 mb-1">City</label>
-          <div 
-            onClick={() => setIsLocationPickerOpen(true)}
-            className="w-full bg-zinc-800 border border-zinc-700 rounded-xl px-4 py-3 text-white cursor-pointer hover:border-orange-500 transition-colors flex items-center justify-between"
-          >
-            <span className={formData.city_id ? 'text-white' : 'text-zinc-500'}>
-              {formData.city_id ? cities.find(c => String(c.id) === String(formData.city_id))?.name : 'Select a city...'}
-            </span>
+          <div onClick={() => setIsLocationPickerOpen(true)} className="w-full bg-zinc-800 border border-zinc-700 rounded-xl px-4 py-3 text-white cursor-pointer hover:border-orange-500 transition-colors flex items-center justify-between">
+            <span className={formData.city_id ? 'text-white' : 'text-zinc-500'}>{formData.city_id ? cities.find(c => String(c.id) === String(formData.city_id))?.name : 'Select a city...'}</span>
             <Check size={16} className={formData.city_id ? 'text-orange-500' : 'text-transparent'} />
           </div>
           <LocationPicker isOpen={isLocationPickerOpen} onClose={() => setIsLocationPickerOpen(false)} onSelect={(cityId) => setFormData({ ...formData, city_id: String(cityId) })} groupedCities={groupedCities} />
-        </div>
-
-        <div className="space-y-6">
-          <div className="grid grid-cols-2 gap-4">
-            <div>
-              <label className="block text-sm font-medium text-zinc-400 mb-1">Arrival Time</label>
-              <input type="time" value={formData.start_time} onChange={(e) => setFormData({ ...formData, start_time: e.target.value })} className="w-full bg-zinc-800 border border-zinc-700 rounded-xl px-4 py-3 text-white focus:outline-none focus:ring-2 focus:ring-orange-500" />
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-zinc-400 mb-1">Departure Time</label>
-              <div className="w-full bg-zinc-800/50 border border-zinc-700/50 rounded-xl px-4 py-3 text-zinc-400 cursor-not-allowed">{formData.end_time}</div>
-            </div>
-          </div>
-
-          <div className="space-y-4">
-            <div className="flex items-center justify-between">
-              <label className="text-sm font-medium text-zinc-400 uppercase tracking-wider flex items-center gap-2"><Clock size={14} /> Duration</label>
-              <span className={clsx("font-mono font-bold text-lg transition-colors", !duration ? "text-zinc-500" : "text-orange-500")}>
-                {duration ? `${duration} min` : 'Auto'}
-              </span>
-            </div>
-            <div className="space-y-6">
-              <div className="relative pt-1">
-                <input type="range" min="0" max="240" step="5" value={Math.min(duration, 240)} onChange={(e) => setDuration(parseInt(e.target.value))} className="w-full h-2 bg-zinc-800 rounded-lg appearance-none cursor-pointer accent-orange-500 hover:accent-orange-400 transition-all" />
-                <div className="flex justify-between text-[10px] text-zinc-600 font-mono mt-2 px-1"><span>Auto</span><span>1h</span><span>2h</span><span>3h</span><span>4h+</span></div>
-              </div>
-              <div className="relative">
-                <input type="number" value={duration || ''} onChange={(e) => setDuration(e.target.value === '' ? 0 : parseInt(e.target.value))} placeholder="Auto (0 min)" className="w-full bg-zinc-950 border border-zinc-800 rounded-xl p-4 text-white placeholder:text-zinc-600 focus:outline-none focus:border-orange-500 transition-colors" />
-                <span className="absolute right-4 top-1/2 -translate-y-1/2 text-zinc-500 text-sm font-medium">min</span>
-              </div>
-            </div>
-          </div>
         </div>
 
         <div>
@@ -427,7 +433,7 @@ export function ItineraryForm({ tripId, defaultCityId, date, onSuccess, onCancel
           <textarea value={formData.notes} onChange={e => setFormData({ ...formData, notes: e.target.value })} className="w-full bg-zinc-800 border border-zinc-700 rounded-xl px-4 py-3 text-white focus:outline-none focus:ring-2 focus:ring-orange-500 min-h-[100px]" placeholder="Any additional details..." />
         </div>
 
-        <div className="flex flex-col gap-3">
+        <div className="flex flex-col gap-3 pt-4">
           <button type="button" onClick={handleSubmit} disabled={loading} className="w-full bg-orange-500 hover:bg-orange-600 disabled:opacity-50 disabled:cursor-not-allowed text-white font-bold rounded-xl px-4 py-3 transition-all shadow-lg shadow-orange-500/20 active:scale-95">
             {loading ? <span className="flex items-center justify-center gap-2"><Loader2 size={18} className="animate-spin" /> {initialData ? 'Updating...' : 'Adding...'}</span> : (initialData ? 'Update Activity' : 'Add Activity')}
           </button>
@@ -436,6 +442,87 @@ export function ItineraryForm({ tripId, defaultCityId, date, onSuccess, onCancel
           )}
         </div>
       </div>
+
+      {/* --- Inner Modals --- */}
+      <AnimatePresence>
+        {isTimePickerOpen && (
+          <div className="absolute inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm">
+            <motion.div
+              initial={{ scale: 0.95, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.95, opacity: 0 }}
+              className="bg-zinc-900 border border-zinc-800 rounded-2xl w-full max-w-sm shadow-2xl flex flex-col max-h-full overflow-hidden"
+            >
+              <div className="p-5 border-b border-zinc-800 flex justify-between items-center shrink-0">
+                <h3 className="text-lg font-bold text-white">Schedule</h3>
+                <button onClick={() => setIsTimePickerOpen(false)} className="text-zinc-400 hover:text-white"><X size={20} /></button>
+              </div>
+              <div className="p-6 space-y-6 overflow-y-auto custom-scrollbar">
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-sm font-medium text-zinc-400 mb-1">Arrival Time</label>
+                    <input type="time" value={formData.start_time} onChange={(e) => setFormData({ ...formData, start_time: e.target.value })} className="w-full bg-zinc-800 border border-zinc-700 rounded-xl px-4 py-3 text-white focus:outline-none focus:ring-2 focus:ring-orange-500 [color-scheme:dark]" />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-zinc-400 mb-1">Departure Time</label>
+                    <div className="w-full bg-zinc-800/50 border border-zinc-700/50 rounded-xl px-4 py-3 text-zinc-400 cursor-not-allowed">{formData.end_time}</div>
+                  </div>
+                </div>
+
+                <div className="space-y-4">
+                  <div className="flex items-center justify-between">
+                    <label className="text-sm font-medium text-zinc-400 uppercase tracking-wider flex items-center gap-2"><Clock size={14} /> Duration</label>
+                    <span className={clsx("font-mono font-bold text-lg transition-colors", !duration ? "text-zinc-500" : "text-orange-500")}>{duration ? `${duration} min` : 'Auto'}</span>
+                  </div>
+                  <div className="space-y-6">
+                    <div className="relative pt-1">
+                      <input type="range" min="0" max="240" step="5" value={Math.min(duration, 240)} onChange={(e) => setDuration(parseInt(e.target.value))} className="w-full h-2 bg-zinc-800 rounded-lg appearance-none cursor-pointer accent-orange-500 hover:accent-orange-400 transition-all" />
+                      <div className="flex justify-between text-[10px] text-zinc-600 font-mono mt-2 px-1"><span>Auto</span><span>1h</span><span>2h</span><span>3h</span><span>4h+</span></div>
+                    </div>
+                    <div className="relative">
+                      <input type="number" value={duration || ''} onChange={(e) => setDuration(e.target.value === '' ? 0 : parseInt(e.target.value))} placeholder="Auto (0 min)" className="w-full bg-zinc-950 border border-zinc-800 rounded-xl p-4 text-white placeholder:text-zinc-600 focus:outline-none focus:border-orange-500 transition-colors" />
+                      <span className="absolute right-4 top-1/2 -translate-y-1/2 text-zinc-500 text-sm font-medium">min</span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+              <div className="p-5 border-t border-zinc-800 shrink-0">
+                <button onClick={() => setIsTimePickerOpen(false)} className="w-full bg-orange-500 hover:bg-orange-600 text-white font-bold py-3 rounded-xl transition-colors">Confirm</button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      <AnimatePresence>
+        {isIconPickerOpen && (
+          <div className="absolute inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm">
+            <motion.div
+              initial={{ scale: 0.95, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.95, opacity: 0 }}
+              className="bg-zinc-900 border border-zinc-800 rounded-2xl w-full max-w-sm shadow-2xl flex flex-col max-h-full overflow-hidden"
+            >
+              <div className="p-5 border-b border-zinc-800 flex justify-between items-center shrink-0">
+                <h3 className="text-lg font-bold text-white">Select Icon</h3>
+                <button onClick={() => setIsIconPickerOpen(false)} className="text-zinc-400 hover:text-white"><X size={20} /></button>
+              </div>
+              <div className="p-5 overflow-y-auto custom-scrollbar grid grid-cols-4 gap-3">
+                 {categories.map(cat => (
+                   <button 
+                     key={cat.id} 
+                     onClick={() => { setFormData({...formData, icon: cat.icon}); setIsIconPickerOpen(false); }}
+                     className={clsx("flex flex-col items-center justify-center p-3 rounded-xl border transition-colors", formData.icon === cat.icon ? "bg-orange-500/20 border-orange-500 text-orange-500" : "bg-zinc-800 border-zinc-700 text-zinc-400 hover:bg-zinc-700 hover:text-white")}
+                     title={cat.name}
+                   >
+                     <DynamicIcon name={cat.icon} size={24} />
+                   </button>
+                 ))}
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
 
       <AnimatePresence>
         {isSubItemModalOpen && (
@@ -470,7 +557,7 @@ function SubItemModal({ onClose, onSave, parentStartTime, parentEndTime, initial
   };
 
   return (
-    <div className="absolute inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm">
+    <div className="absolute inset-0 z-[60] flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm">
       <motion.div initial={{ scale: 0.95, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0.95, opacity: 0 }} className="bg-zinc-900 border border-zinc-800 rounded-2xl p-5 w-full max-w-sm shadow-2xl max-h-[90vh] overflow-y-auto custom-scrollbar">
         <div className="flex justify-between items-center mb-4">
           <h3 className="text-lg font-bold text-white">{initialData ? 'Edit Sub-item' : 'Add Sub-item'}</h3>

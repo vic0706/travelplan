@@ -661,7 +661,7 @@ app.put('/api/trips/:id/bookings/:bookingId', async (c) => {
     ).run();
 
     // Update Itineraries
-    await c.env.DB.prepare("DELETE FROM Itineraries WHERE related_id = ? AND trip_id = ? AND type IN ('TRANSPORTATION', 'ACCOMMODATION')").bind(bookingId, tripId).all();
+    await c.env.DB.prepare("DELETE FROM Itineraries WHERE related_id = ? AND trip_id = ? AND type = 'TRANSPORTATION'").bind(bookingId, tripId).all();
 
     if (b.category === 'HOTEL') {
       const desiredItems = generateDesiredAccommodationItems({
