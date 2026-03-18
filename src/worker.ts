@@ -695,12 +695,13 @@ app.post('/api/trips/:id/transportations', async (c) => {
     // @ts-ignore
     const transportId = info.meta.last_row_id;
 
-    const depDateTime = new Date(`${b.dep_date || b.departure_date}T${b.dep_time || b.departure_time}`); 
+    const depDateTime = new Date(`${b.dep_date || b.departure_date}T${b.dep_time || b.departure_time || '00:00'}`); 
     depDateTime.setMinutes(depDateTime.getMinutes() - (b.dep_checkin_buffer || 120));
-    const checkInDate = depDateTime.toISOString().split('T')[0];
+    const pad = (n: number) => n.toString().padStart(2, '0');
+    const checkInDate = `${depDateTime.getFullYear()}-${pad(depDateTime.getMonth() + 1)}-${pad(depDateTime.getDate())}`;
     const checkInTime = depDateTime.toTimeString().substring(0, 5);
 
-    const arrDateTime = new Date(`${b.arr_date || b.arrival_date}T${b.arr_time || b.arrival_time}`);
+    const arrDateTime = new Date(`${b.arr_date || b.arrival_date}T${b.arr_time || b.arrival_time || '23:59'}`);
     arrDateTime.setMinutes(arrDateTime.getMinutes() + (b.arr_exit_buffer || 60));
     const exitEndTime = arrDateTime.toTimeString().substring(0, 5);
 
@@ -731,12 +732,13 @@ app.put('/api/trips/:id/transportations/:transportId', async (c) => {
       b.type || 'FLIGHT', b.provider || null, b.code || b.transport_code || null, b.dep_station || b.departure_station, b.dep_date || b.departure_date, b.dep_time || b.departure_time, b.dep_terminal || b.departure_terminal || null, b.dep_checkin_buffer ?? 120, b.arr_station || b.arrival_station, b.arr_date || b.arrival_date, b.arr_time || b.arrival_time, b.arr_terminal || b.arrival_terminal || null, b.arr_exit_buffer ?? 60, b.order_id || null, b.notes || null, transportId, tripId
     ).run();
 
-    const depDateTime = new Date(`${b.dep_date || b.departure_date}T${b.dep_time || b.departure_time}`);
+    const depDateTime = new Date(`${b.dep_date || b.departure_date}T${b.dep_time || b.departure_time || '00:00'}`);
     depDateTime.setMinutes(depDateTime.getMinutes() - (b.dep_checkin_buffer || 120));
-    const checkInDate = depDateTime.toISOString().split('T')[0];
+    const pad = (n: number) => n.toString().padStart(2, '0');
+    const checkInDate = `${depDateTime.getFullYear()}-${pad(depDateTime.getMonth() + 1)}-${pad(depDateTime.getDate())}`;
     const checkInTime = depDateTime.toTimeString().substring(0, 5);
 
-    const arrDateTime = new Date(`${b.arr_date || b.arrival_date}T${b.arr_time || b.arrival_time}`);
+    const arrDateTime = new Date(`${b.arr_date || b.arrival_date}T${b.arr_time || b.arrival_time || '23:59'}`);
     arrDateTime.setMinutes(arrDateTime.getMinutes() + (b.arr_exit_buffer || 60));
     const exitEndTime = arrDateTime.toTimeString().substring(0, 5);
 
@@ -1015,14 +1017,15 @@ app.post('/api/trips/:id/bookings', async (c) => {
         `).bind(tripId, item.date, item.start_time, item.end_time, item.title, 'ACCOMMODATION', bookingId, item.notes, item.image_url).run();
       }
     } else {
-      const depDateTime = new Date(`${b.start_date}T${b.start_time}`); 
+      const depDateTime = new Date(`${b.start_date}T${b.start_time || '00:00'}`); 
       const depBuffer = b.details?.dep_checkin_buffer || 0;
       depDateTime.setMinutes(depDateTime.getMinutes() - depBuffer);
       
-      const checkInDate = depDateTime.toISOString().split('T')[0];
+      const pad = (n: number) => n.toString().padStart(2, '0');
+      const checkInDate = `${depDateTime.getFullYear()}-${pad(depDateTime.getMonth() + 1)}-${pad(depDateTime.getDate())}`;
       const checkInTime = depDateTime.toTimeString().substring(0, 5);
 
-      const arrDateTime = new Date(`${b.end_date || b.start_date}T${b.end_time}`);
+      const arrDateTime = new Date(`${b.end_date || b.start_date}T${b.end_time || '23:59'}`);
       const arrBuffer = b.details?.arr_exit_buffer || 0;
       arrDateTime.setMinutes(arrDateTime.getMinutes() + arrBuffer);
       const exitTime = arrDateTime.toTimeString().substring(0, 5);
@@ -1083,14 +1086,15 @@ app.put('/api/trips/:id/bookings/:bookingId', async (c) => {
         `).bind(tripId, item.date, item.start_time, item.end_time, item.title, 'ACCOMMODATION', bookingId, item.notes, item.image_url).run();
       }
     } else {
-      const depDateTime = new Date(`${b.start_date}T${b.start_time}`); 
+      const depDateTime = new Date(`${b.start_date}T${b.start_time || '00:00'}`); 
       const depBuffer = b.details?.dep_checkin_buffer || 0;
       depDateTime.setMinutes(depDateTime.getMinutes() - depBuffer);
       
-      const checkInDate = depDateTime.toISOString().split('T')[0];
+      const pad = (n: number) => n.toString().padStart(2, '0');
+      const checkInDate = `${depDateTime.getFullYear()}-${pad(depDateTime.getMonth() + 1)}-${pad(depDateTime.getDate())}`;
       const checkInTime = depDateTime.toTimeString().substring(0, 5);
 
-      const arrDateTime = new Date(`${b.end_date || b.start_date}T${b.end_time}`);
+      const arrDateTime = new Date(`${b.end_date || b.start_date}T${b.end_time || '23:59'}`);
       const arrBuffer = b.details?.arr_exit_buffer || 0;
       arrDateTime.setMinutes(arrDateTime.getMinutes() + arrBuffer);
       const exitTime = arrDateTime.toTimeString().substring(0, 5);

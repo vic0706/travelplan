@@ -149,10 +149,10 @@ function TransportationCard({
   const title = 'title' in data ? data.title : data.code;
   const dep_station = 'start_location' in data ? data.start_location : (data as any).dep_station;
   const arr_station = 'end_location' in data ? data.end_location : (data as any).arr_station;
-  const dep_terminal = 'details' in data ? (data.details as any).dep_terminal : (data as any).dep_terminal;
-  const arr_terminal = 'details' in data ? (data.details as any).arr_terminal : (data as any).arr_terminal;
-  const dep_checkin_buffer = 'details' in data ? (data.details as any).dep_checkin_buffer : (data as any).dep_checkin_buffer;
-  const arr_exit_buffer = 'details' in data ? (data.details as any).arr_exit_buffer : (data as any).arr_exit_buffer;
+  const dep_terminal = 'details' in data ? (data.details as any)?.dep_terminal : (data as any).dep_terminal;
+  const arr_terminal = 'details' in data ? (data.details as any)?.arr_terminal : (data as any).arr_terminal;
+  const dep_checkin_buffer = 'details' in data ? (data.details as any)?.dep_checkin_buffer : (data as any).dep_checkin_buffer;
+  const arr_exit_buffer = 'details' in data ? (data.details as any)?.arr_exit_buffer : (data as any).arr_exit_buffer;
 
   const depDate = parseISO(`${dep_date}T${dep_time}`);
   const arrDate = parseISO(`${arr_date}T${arr_time}`);
@@ -190,6 +190,7 @@ function TransportationCard({
       case 'FLIGHT': return { station: 'Airport', terminal: 'Terminal' };
       case 'TRAIN': return { station: 'Station', terminal: 'Platform' };
       case 'FERRY': return { station: 'Port', terminal: 'Pier' };
+      case 'RENTAL': return { station: 'Location', terminal: 'Counter' };
       case 'PRIVATE_TRANSFER': return { station: 'Location', terminal: 'Point' };
       default: return { station: 'Location', terminal: 'Point' };
     }
@@ -311,9 +312,9 @@ function TransportationCard({
                             {/* Departure */}
                             <div className="flex flex-col">
                                 <div className="text-[10px] text-zinc-500 uppercase tracking-wider mb-0.5">Dep</div>
-                                <div className="text-2xl font-bold text-white leading-none tracking-tight">{transportation.dep_time}</div>
-                                <div className="text-sm font-medium text-zinc-300 mt-1 truncate">{transportation.dep_station}</div>
-                                {transportation.dep_terminal && <div className="text-[10px] text-orange-500 mt-0.5">{labels.terminal} {transportation.dep_terminal}</div>}
+                                <div className="text-2xl font-bold text-white leading-none tracking-tight">{dep_time}</div>
+                                <div className="text-sm font-medium text-zinc-300 mt-1 truncate">{dep_station}</div>
+                                {dep_terminal && <div className="text-[10px] text-orange-500 mt-0.5">{labels.terminal} {dep_terminal}</div>}
                             </div>
                             
                             {/* Arrow */}
@@ -327,9 +328,9 @@ function TransportationCard({
                             {/* Arrival */}
                             <div className="flex flex-col text-right">
                                 <div className="text-[10px] text-zinc-500 uppercase tracking-wider mb-0.5">Arr</div>
-                                <div className="text-2xl font-bold text-white leading-none tracking-tight">{transportation.arr_time}</div>
-                                <div className="text-sm font-medium text-zinc-300 mt-1 truncate">{transportation.arr_station}</div>
-                                {transportation.arr_terminal && <div className="text-[10px] text-orange-500 mt-0.5">{labels.terminal} {transportation.arr_terminal}</div>}
+                                <div className="text-2xl font-bold text-white leading-none tracking-tight">{arr_time}</div>
+                                <div className="text-sm font-medium text-zinc-300 mt-1 truncate">{arr_station}</div>
+                                {arr_terminal && <div className="text-[10px] text-orange-500 mt-0.5">{labels.terminal} {arr_terminal}</div>}
                             </div>
                         </div>
                         
@@ -351,14 +352,14 @@ function TransportationCard({
 
                              {/* Departure */}
                              <div className="flex flex-col items-center gap-1 relative z-10 group/point">
-                               <div className="text-[10px] font-mono text-white font-bold mb-1">{transportation.dep_time}</div>
+                               <div className="text-[10px] font-mono text-white font-bold mb-1">{dep_time}</div>
                                <div className="w-2.5 h-2.5 rounded-full bg-zinc-600 border-2 border-zinc-500 group-hover/point:border-orange-500 transition-colors"></div>
                                <div className="text-[9px] font-mono text-zinc-300 font-medium mt-1">Dep</div>
                              </div>
 
                              {/* Arrival */}
                              <div className="flex flex-col items-center gap-1 relative z-10 group/point">
-                               <div className="text-[10px] font-mono text-white font-bold mb-1">{transportation.arr_time}</div>
+                               <div className="text-[10px] font-mono text-white font-bold mb-1">{arr_time}</div>
                                <div className="w-2.5 h-2.5 rounded-full bg-zinc-600 border-2 border-zinc-500 group-hover/point:border-orange-500 transition-colors"></div>
                                <div className="text-[9px] font-mono text-zinc-300 font-medium mt-1">Arr</div>
                              </div>
@@ -373,9 +374,9 @@ function TransportationCard({
                          </div>
 
                          {/* Notes */}
-                         {transportation.notes && (
+                         {data.notes && (
                            <div className="mt-3 pt-3 border-t border-zinc-800 text-xs text-zinc-400 italic text-center leading-relaxed">
-                             {transportation.notes}
+                             {data.notes}
                            </div>
                          )}
                      </div>
@@ -420,8 +421,8 @@ function TransportationCard({
             <Icon className={isPastItem ? "text-zinc-500" : "text-orange-500"} size={20} />
           </div>
           <div>
-            <div className="text-white font-bold text-lg">{transportation.provider}</div>
-            <div className="text-zinc-500 text-xs font-mono tracking-wider">{transportation.code}</div>
+            <div className="text-white font-bold text-lg">{provider}</div>
+            <div className="text-zinc-500 text-xs font-mono tracking-wider">{title}</div>
           </div>
         </div>
         <div className="flex items-center gap-2">
@@ -446,12 +447,12 @@ function TransportationCard({
       <div className="p-5">
         <div className="flex items-center justify-between mb-6">
           <div className="flex-1">
-            <div className="text-2xl font-bold text-white">{transportation.dep_station}</div>
+            <div className="text-2xl font-bold text-white">{dep_station}</div>
             <div className="text-sm font-medium text-zinc-300 mt-0.5">{isValidDep ? format(depDate, 'HH:mm') : '--:--'}</div>
-            {transportation.dep_terminal && (
+            {dep_terminal && (
               <div className="mt-2 inline-flex items-center gap-1 px-2 py-0.5 bg-zinc-800 rounded-md border border-zinc-700">
                 <span className="text-[10px] text-zinc-500 font-bold uppercase">{labels.terminal}</span>
-                <span className="text-xs font-bold text-orange-500">{transportation.dep_terminal}</span>
+                <span className="text-xs font-bold text-orange-500">{dep_terminal}</span>
               </div>
             )}
           </div>
@@ -463,22 +464,22 @@ function TransportationCard({
           </div>
 
           <div className="flex-1 text-right">
-            <div className="text-2xl font-bold text-white">{transportation.arr_station}</div>
+            <div className="text-2xl font-bold text-white">{arr_station}</div>
             <div className="text-sm font-medium text-zinc-300 mt-0.5">{isValidArr ? format(arrDate, 'HH:mm') : '--:--'}</div>
-            {transportation.arr_terminal && (
+            {arr_terminal && (
               <div className="mt-2 inline-flex items-center gap-1 px-2 py-0.5 bg-zinc-800 rounded-md border border-zinc-700">
                 <span className="text-[10px] text-zinc-500 font-bold uppercase">{labels.terminal}</span>
-                <span className="text-xs font-bold text-orange-500">{transportation.arr_terminal}</span>
+                <span className="text-xs font-bold text-orange-500">{arr_terminal}</span>
               </div>
             )}
           </div>
         </div>
 
         {/* Footer Actions */}
-        {transportation.notes && (
+        {data.notes && (
           <div className="mt-6 flex items-center justify-between pt-4 border-t border-zinc-800/50">
              <div className="text-xs text-zinc-500 italic max-w-[70%] truncate">
-               {transportation.notes}
+               {data.notes}
              </div>
           </div>
         )}
@@ -2177,9 +2178,37 @@ export function TripDetails() {
               <BookingForm
                 tripId={Number(id)}
                 initialData={editingBooking || undefined}
-                onSuccess={() => {
+                onSuccess={async () => {
                   setIsBookingFormOpen(false);
                   setEditingBooking(null);
+                  try {
+                    const [bookingsRes, itinerariesRes] = await Promise.all([
+                      apiFetch(`/api/trips/${id}/bookings`),
+                      apiFetch(`/api/trips/${id}/itineraries`)
+                    ]);
+                    if (bookingsRes.ok) {
+                      const data = await bookingsRes.json() as any[];
+                      const existingIds = await db.bookings.where('trip_id').equals(Number(id)).primaryKeys();
+                      const incomingIds = data.map((b: any) => b.id);
+                      const idsToDelete = existingIds.filter(eid => !incomingIds.includes(eid as number));
+                      await db.transaction('rw', db.bookings, async () => {
+                        if (idsToDelete.length > 0) await db.bookings.bulkDelete(idsToDelete as number[]);
+                        await db.bookings.bulkPut(data);
+                      });
+                    }
+                    if (itinerariesRes.ok) {
+                      const data = await itinerariesRes.json() as any[];
+                      const existingIds = await db.itineraries.where('trip_id').equals(Number(id)).primaryKeys();
+                      const incomingIds = data.map((i: any) => i.id);
+                      const idsToDelete = existingIds.filter(eid => !incomingIds.includes(eid as number));
+                      await db.transaction('rw', db.itineraries, async () => {
+                        if (idsToDelete.length > 0) await db.itineraries.bulkDelete(idsToDelete as number[]);
+                        await db.itineraries.bulkPut(data);
+                      });
+                    }
+                  } catch (e) {
+                    console.error('Failed to refresh data:', e);
+                  }
                 }}
                 onCancel={() => {
                   setIsBookingFormOpen(false);

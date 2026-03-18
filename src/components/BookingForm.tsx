@@ -158,7 +158,7 @@ export function BookingForm({ tripId, onSuccess, onCancel, onDelete, initialData
       case 'FLIGHT': return { title: 'Flight No.', provider: 'Airline', start: 'Departure Airport', end: 'Arrival Airport', startTerminal: 'Terminal', endTerminal: 'Terminal' };
       case 'TRAIN': return { title: 'Train No.', provider: 'Operator', start: 'Departure Station', end: 'Arrival Station', startTerminal: 'Platform', endTerminal: 'Platform' };
       case 'FERRY': return { title: 'Vessel', provider: 'Operator', start: 'Departure Port', end: 'Arrival Port', startTerminal: 'Pier', endTerminal: 'Pier' };
-      case 'RENTAL': return { title: 'Vehicle', provider: 'Rental Company', start: 'Pickup Location', end: 'Dropoff Location', startTerminal: 'Counter', endTerminal: 'Counter' };
+      case 'RENTAL': return { title: 'Vehicle', provider: 'Rental Company', start: 'Pick-up Location', end: 'Return Location', startTerminal: 'Pick-up Counter', endTerminal: 'Return Counter' };
       case 'PRIVATE_TRANSFER': return { title: 'Service Name', provider: 'Company', start: 'Pickup Point', end: 'Destination', startTerminal: 'Meeting Point', endTerminal: 'Dropoff Point' };
       case 'HOTEL': return { title: 'Hotel Name', provider: 'Booking Site', start: 'Address', end: '', startTerminal: '', endTerminal: '' };
       default: return { title: 'Title', provider: 'Provider', start: 'Location', end: 'Location', startTerminal: 'Point', endTerminal: 'Point' };
@@ -466,35 +466,63 @@ export function BookingForm({ tripId, onSuccess, onCancel, onDelete, initialData
           )}
 
           <div className="space-y-4">
-            <div className="space-y-2">
-              <label className="text-xs font-bold text-zinc-500 uppercase tracking-wider">{labels.start}</label>
-              <div className="relative">
-                <MapPin className="absolute left-4 top-1/2 -translate-y-1/2 text-zinc-500" size={18} />
-                <input
-                  type="text"
-                  required
-                  value={formData.start_location}
-                  onChange={e => setFormData({ ...formData, start_location: e.target.value })}
-                  className="w-full bg-zinc-950 border border-zinc-800 rounded-xl pl-12 pr-4 py-3 text-white focus:outline-none focus:border-orange-500 transition-colors"
-                  placeholder={isHotel ? 'Hotel Address' : 'Departure Location'}
-                />
-              </div>
-            </div>
-
-            {!isHotel && (
+            <div className="space-y-4 bg-zinc-950/50 p-4 rounded-2xl border border-zinc-800">
               <div className="space-y-2">
-                <label className="text-xs font-bold text-zinc-500 uppercase tracking-wider">{labels.end}</label>
+                <label className="text-xs font-bold text-zinc-500 uppercase tracking-wider">{labels.start}</label>
                 <div className="relative">
                   <MapPin className="absolute left-4 top-1/2 -translate-y-1/2 text-zinc-500" size={18} />
                   <input
                     type="text"
                     required
-                    value={formData.end_location}
-                    onChange={e => setFormData({ ...formData, end_location: e.target.value })}
+                    value={formData.start_location}
+                    onChange={e => setFormData({ ...formData, start_location: e.target.value })}
                     className="w-full bg-zinc-950 border border-zinc-800 rounded-xl pl-12 pr-4 py-3 text-white focus:outline-none focus:border-orange-500 transition-colors"
-                    placeholder="Arrival Location"
+                    placeholder={isHotel ? 'Hotel Address' : 'Departure Location'}
                   />
                 </div>
+              </div>
+              {isTransport && (
+                <div className="space-y-2">
+                  <label className="text-xs font-bold text-zinc-500 uppercase tracking-wider">{labels.startTerminal}</label>
+                  <input
+                    type="text"
+                    value={formData.details.dep_terminal || ''}
+                    onChange={e => setFormData({ ...formData, details: { ...formData.details, dep_terminal: e.target.value } })}
+                    className="w-full bg-zinc-950 border border-zinc-800 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-orange-500 transition-colors"
+                    placeholder="e.g. 2"
+                  />
+                </div>
+              )}
+            </div>
+
+            {!isHotel && (
+              <div className="space-y-4 bg-zinc-950/50 p-4 rounded-2xl border border-zinc-800">
+                <div className="space-y-2">
+                  <label className="text-xs font-bold text-zinc-500 uppercase tracking-wider">{labels.end}</label>
+                  <div className="relative">
+                    <MapPin className="absolute left-4 top-1/2 -translate-y-1/2 text-zinc-500" size={18} />
+                    <input
+                      type="text"
+                      required
+                      value={formData.end_location}
+                      onChange={e => setFormData({ ...formData, end_location: e.target.value })}
+                      className="w-full bg-zinc-950 border border-zinc-800 rounded-xl pl-12 pr-4 py-3 text-white focus:outline-none focus:border-orange-500 transition-colors"
+                      placeholder="Arrival Location"
+                    />
+                  </div>
+                </div>
+                {isTransport && (
+                  <div className="space-y-2">
+                    <label className="text-xs font-bold text-zinc-500 uppercase tracking-wider">{labels.endTerminal}</label>
+                    <input
+                      type="text"
+                      value={formData.details.arr_terminal || ''}
+                      onChange={e => setFormData({ ...formData, details: { ...formData.details, arr_terminal: e.target.value } })}
+                      className="w-full bg-zinc-950 border border-zinc-800 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-orange-500 transition-colors"
+                      placeholder="e.g. 1"
+                    />
+                  </div>
+                )}
               </div>
             )}
           </div>
@@ -583,30 +611,7 @@ export function BookingForm({ tripId, onSuccess, onCancel, onDelete, initialData
             </div>
           )}
 
-          {isTransport && (
-            <div className="grid grid-cols-2 gap-4">
-              <div className="space-y-2">
-                <label className="text-xs font-bold text-zinc-500 uppercase tracking-wider">{labels.startTerminal}</label>
-                <input
-                  type="text"
-                  value={formData.details.dep_terminal || ''}
-                  onChange={e => setFormData({ ...formData, details: { ...formData.details, dep_terminal: e.target.value } })}
-                  className="w-full bg-zinc-950 border border-zinc-800 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-orange-500 transition-colors"
-                  placeholder="e.g. 2"
-                />
-              </div>
-              <div className="space-y-2">
-                <label className="text-xs font-bold text-zinc-500 uppercase tracking-wider">{labels.endTerminal}</label>
-                <input
-                  type="text"
-                  value={formData.details.arr_terminal || ''}
-                  onChange={e => setFormData({ ...formData, details: { ...formData.details, arr_terminal: e.target.value } })}
-                  className="w-full bg-zinc-950 border border-zinc-800 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-orange-500 transition-colors"
-                  placeholder="e.g. 1"
-                />
-              </div>
-            </div>
-          )}
+
 
           <div className="space-y-2">
             <label className="text-xs font-bold text-zinc-500 uppercase tracking-wider">Notes</label>
