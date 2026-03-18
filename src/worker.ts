@@ -31,73 +31,53 @@ app.use('*', cors({
   maxAge: 600,
 }));
 
-// GET /api/images/search?query=...&type=trip|activity
+// GET /api/images/search
 app.get('/api/images/search', async (c) => {
   const query = c.req.query('query');
   const type = c.req.query('type') || 'trip';
   if (!query) return c.json({ error: 'Missing query' }, 400);
 
-  const searchQuery = type === 'trip' 
-    ? `${query} Landmark Travel Cityscape` 
-    : query;
+  const searchQuery = type === 'trip' ? `${query} Landmark Travel Cityscape` : query;
   
   try {
     const response = await fetch(
       `https://api.unsplash.com/search/photos?query=${encodeURIComponent(searchQuery)}&per_page=12&orientation=landscape`,
       { headers: { 'Authorization': `Client-ID ${c.env.UNSPLASH_ACCESS_KEY}` } }
     );
-
     if (!response.ok) return c.json({ error: 'Failed to fetch images' }, response.status as any);
-
     const data = await response.json() as any;
     const photos = (data.results || []).map((p: any) => ({
-      id: p.id,
-      url: p.urls.regular,
-      thumb: p.urls.thumb,
-      attribution: p.user.name,
-      attribution_url: p.user.links.html
+      id: p.id, url: p.urls.regular, thumb: p.urls.thumb, attribution: p.user.name, attribution_url: p.user.links.html
     }));
-
     return c.json(photos);
   } catch (error) { return c.json({ error: 'Internal server error' }, 500); }
 });
 
-// GET /api/flights/lookup?code=BR192
+// GET /api/flights/lookup
 app.get('/api/flights/lookup', async (c) => {
   const inputCode = c.req.query('code') || '';
   const code = inputCode.replace(/[\u4e00-\u9fa5a-zA-Z\s]+(?=[A-Z]{2}\d+)/g, '').trim().replace(/\s+/g, '');
-  
   if (!code) return c.json({ error: '請輸入正確的航班編號' }, 400);
 
   const response = await fetch(`http://api.aviationstack.com/v1/flights?access_key=${c.env.FLIGHT_API_KEY}&flight_iata=${code}`);
   const data = await response.json() as any;
-  
   if (!data.data || data.data.length === 0) return c.json({ error: '找不到該航班資訊' }, 404);
 
   const f = data.data[0];
   return c.json({
-    airline: f.airline.name,
-    flight_number: f.flight.iata,
-    departure_airport: f.departure.iata,
-    departure_terminal: f.departure.terminal,
-    departure_date: f.departure.scheduled.split('T')[0],
-    departure_time: f.departure.scheduled.split('T')[1].substring(0, 5),
-    arrival_airport: f.arrival.iata,
-    arrival_terminal: f.arrival.terminal,
-    arrival_date: f.arrival.scheduled.split('T')[0],
-    arrival_time: f.arrival.scheduled.split('T')[1].substring(0, 5),
+    airline: f.airline.name, flight_number: f.flight.iata,
+    departure_airport: f.departure.iata, departure_terminal: f.departure.terminal,
+    departure_date: f.departure.scheduled.split('T')[0], departure_time: f.departure.scheduled.split('T')[1].substring(0, 5),
+    arrival_airport: f.arrival.iata, arrival_terminal: f.arrival.terminal,
+    arrival_date: f.arrival.scheduled.split('T')[0], arrival_time: f.arrival.scheduled.split('T')[1].substring(0, 5),
   });
 });
 
-// Health Check
 app.get('/', (c) => c.text('Worker is running!'));
 app.get('/health-check', (c) => c.text('Worker is running!'));
 app.get('/api/health', (c) => c.json({ status: 'ok', timestamp: new Date().toISOString() }));
-
-// Custom 404 for API
 app.notFound((c) => c.json({ error: 'API route not found' }, 404));
 
-// Helper: Hash
 async function generateHash(password: string, salt: string): Promise<string> {
   const encoder = new TextEncoder();
   const data = encoder.encode(password + salt);
@@ -106,7 +86,6 @@ async function generateHash(password: string, salt: string): Promise<string> {
   return hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
 }
 
-// Auth Middleware
 const decodeUserMiddleware = async (c: any, next: any) => {
   const authHeader = c.req.header('Authorization');
   if (authHeader && authHeader.startsWith('Bearer ')) {
@@ -114,7 +93,7 @@ const decodeUserMiddleware = async (c: any, next: any) => {
     try {
       const userData = await c.env.KV.get(`session:${token}`, 'json');
       if (userData) c.set('user', userData);
-    } catch (e) { /* Ignore KV errors */ }
+    } catch (e) {}
   }
   await next();
 };
@@ -124,7 +103,6 @@ const requireAuthMiddleware = async (c: any, next: any) => {
   await next();
 };
 
-// Helper: Check Trip Access
 async function checkTripAccess(c: any, tripId: number, level: 'view' | 'edit' | 'admin') {
   const user = c.get('user');
   if (user && user.role === 'Admin') return true;
@@ -137,32 +115,23 @@ async function checkTripAccess(c: any, tripId: number, level: 'view' | 'edit' | 
     const memberRecord = await c.env.DB.prepare('SELECT 1 FROM TripMembers WHERE trip_id = ? AND user_id = ?').bind(tripId, user.id).first();
     isMember = !!memberRecord;
   }
-
   if (level === 'admin') return user?.role === 'Admin';
   if (level === 'edit') return isMember;
   if (level === 'view') return trip.is_public === 1 || isMember;
   return false;
 }
 
-// Helper: Get Weather for a specific date
 async function getWeatherForDate(tripId: number, dateStr: string, env: Env) {
   const cacheKey = `weather:trip:${tripId}:${dateStr}`;
   const cached = await env.KV.get(cacheKey, 'json');
   if (cached) return cached;
 
-  const { results: tripResults } = await env.DB.prepare(`
-    SELECT t.id, c.name as default_city, c.lat as default_lat, c.lng as default_lng 
-    FROM Trips t JOIN Cities c ON t.default_city_id = c.id WHERE t.id = ?
-  `).bind(tripId).all();
-
+  const { results: tripResults } = await env.DB.prepare(`SELECT t.id, c.name as default_city, c.lat as default_lat, c.lng as default_lng FROM Trips t JOIN Cities c ON t.default_city_id = c.id WHERE t.id = ?`).bind(tripId).all();
   if (tripResults.length === 0) return null;
   const trip = tripResults[0] as any;
 
   const targetHours = ['00:00', '03:00', '06:00', '09:00', '12:00', '15:00', '18:00', '21:00', '24:00'];
-  const { results: itineraries } = await env.DB.prepare(`
-    SELECT i.start_time, i.end_time, c.name as city, c.lat, c.lng 
-    FROM Itineraries i JOIN Cities c ON i.city_id = c.id WHERE i.trip_id = ? AND i.date = ?
-  `).bind(trip.id, dateStr).all();
+  const { results: itineraries } = await env.DB.prepare(`SELECT i.start_time, i.end_time, c.name as city, c.lat, c.lng FROM Itineraries i JOIN Cities c ON i.city_id = c.id WHERE i.trip_id = ? AND i.date = ?`).bind(trip.id, dateStr).all();
 
   const intervals = [];
   const uniqueCoords = new Map();
@@ -194,8 +163,7 @@ async function getWeatherForDate(tripId: number, dateStr: string, env: Env) {
       const timeString = hour === '24:00' ? `${nextDateStr}T00:00` : `${dateStr}T${hour}`;
       const index = weatherData.hourly.time.indexOf(timeString);
       intervals.push({
-        time: hour === '24:00' ? '00:00 (+1)' : hour,
-        city: currentCity,
+        time: hour === '24:00' ? '00:00 (+1)' : hour, city: currentCity,
         temp: index !== -1 ? Math.round(weatherData.hourly.temperature_2m[index]) : null,
         pop: index !== -1 ? weatherData.hourly.precipitation_probability[index] : null,
         code: index !== -1 ? weatherData.hourly.weathercode[index] : null
@@ -209,11 +177,7 @@ async function getWeatherForDate(tripId: number, dateStr: string, env: Env) {
      const coordKey = [...uniqueCoords.keys()].find(k => uniqueCoords.get(k).hourly.time.includes(`${dateStr}T12:00`)) || [...uniqueCoords.keys()][0];
      const mainWeather = uniqueCoords.get(coordKey);
      if (mainWeather && mainWeather.daily) {
-       summary = {
-         max_temp: Math.round(mainWeather.daily.temperature_2m_max[0]),
-         min_temp: Math.round(mainWeather.daily.temperature_2m_min[0]),
-         weather_code: mainWeather.daily.weathercode[0]
-       };
+       summary = { max_temp: Math.round(mainWeather.daily.temperature_2m_max[0]), min_temp: Math.round(mainWeather.daily.temperature_2m_min[0]), weather_code: mainWeather.daily.weathercode[0] };
      }
   }
 
@@ -222,26 +186,20 @@ async function getWeatherForDate(tripId: number, dateStr: string, env: Env) {
   return finalJSON;
 }
 
-// Helper: Search Unsplash (Internal)
 async function searchUnsplash(query: string, env: Env): Promise<string | null> {
   try {
-    const response = await fetch(
-      `https://api.unsplash.com/search/photos?query=${encodeURIComponent(query)}&per_page=1&orientation=landscape`,
-      { headers: { 'Authorization': `Client-ID ${env.UNSPLASH_ACCESS_KEY}` } }
-    );
+    const response = await fetch(`https://api.unsplash.com/search/photos?query=${encodeURIComponent(query)}&per_page=1&orientation=landscape`, { headers: { 'Authorization': `Client-ID ${env.UNSPLASH_ACCESS_KEY}` } });
     if (!response.ok) return null;
     const data = await response.json() as any;
     return data.results && data.results.length > 0 ? data.results[0].urls.regular : null;
   } catch (e) { return null; }
 }
 
-// Helper: Sync Weather for a Trip
 async function syncWeatherForTrip(tripId: number, env: Env) {
   const todayStr = new Date().toISOString().split('T')[0];
   return getWeatherForDate(tripId, todayStr, env);
 }
 
-// Helper: Generate Accommodation Itineraries Array (Still required for Unified Bookings: HOTEL)
 function generateDesiredAccommodationItems(b: any, accId: string | number, hotelImage: string) {
   const desiredItems = [];
   const startDate = new Date(b.check_in_date);
@@ -261,48 +219,55 @@ function generateDesiredAccommodationItems(b: any, accId: string | number, hotel
     const itemName = b.name || b.hotel_name;
 
     if (isCheckInDay) {
-      desiredItems.push({
-        date: dateStr, start_time: checkInTime, end_time: '',
-        title: `Check-in ${itemName}`, notes: notesWithOrder, image_url: hotelImage, matchType: 'Check-in'
-      });
-      if (!isCheckOutDay) {
-        desiredItems.push({
-          date: dateStr, start_time: dailyEndTime, end_time: '',
-          title: `Back to ${itemName}`, notes: '', image_url: hotelImage, matchType: 'Back to Hotel'
-        });
-      }
+      desiredItems.push({ date: dateStr, start_time: checkInTime, end_time: checkInTime, title: `Check-in ${itemName}`, notes: notesWithOrder, image_url: hotelImage, matchType: 'Check-in' });
+      if (!isCheckOutDay) desiredItems.push({ date: dateStr, start_time: dailyEndTime, end_time: dailyEndTime, title: `Back to ${itemName}`, notes: '', image_url: hotelImage, matchType: 'Back to Hotel' });
     } else if (isCheckOutDay) {
-      desiredItems.push({
-        date: dateStr, start_time: checkOutTime, end_time: '',
-        title: `Check-out ${itemName}`, notes: notesWithOrder, image_url: hotelImage, matchType: 'Check-out'
-      });
+      desiredItems.push({ date: dateStr, start_time: checkOutTime, end_time: checkOutTime, title: `Check-out ${itemName}`, notes: notesWithOrder, image_url: hotelImage, matchType: 'Check-out' });
     } else {
-      desiredItems.push({
-        date: dateStr, start_time: dailyStartTime, end_time: '',
-        title: `Leave ${itemName}`, notes: '', image_url: hotelImage, matchType: 'Leave Hotel'
-      });
-      desiredItems.push({
-        date: dateStr, start_time: dailyEndTime, end_time: '',
-        title: `Back to ${itemName}`, notes: '', image_url: hotelImage, matchType: 'Back to Hotel'
-      });
+      desiredItems.push({ date: dateStr, start_time: dailyStartTime, end_time: dailyStartTime, title: `Leave ${itemName}`, notes: '', image_url: hotelImage, matchType: 'Leave Hotel' });
+      desiredItems.push({ date: dateStr, start_time: dailyEndTime, end_time: dailyEndTime, title: `Back to ${itemName}`, notes: '', image_url: hotelImage, matchType: 'Back to Hotel' });
     }
     currentDate.setDate(currentDate.getDate() + 1);
   }
   return desiredItems;
 }
 
-// ==========================================
-// 🔓 Public API
-// ==========================================
+// 💡 產生 Rental 的 Pick-up 與 Return 子卡片
+function generateDesiredRentalItems(b: any, rentalId: string | number, rentalImage: string) {
+  const desiredItems = [];
+  const titlePrefix = b.provider ? `${b.provider} ` : '';
+  const name = b.title || '';
+  const notesWithOrder = b.order_id ? `Order ID: ${b.order_id}\n${b.notes || ''}` : (b.notes || '');
+
+  desiredItems.push({
+    date: b.start_date,
+    start_time: b.start_time,
+    end_time: b.start_time,
+    title: `Pick-up ${titlePrefix}${name}`.trim(),
+    notes: notesWithOrder,
+    image_url: rentalImage,
+    matchType: 'Pick-up'
+  });
+
+  desiredItems.push({
+    date: b.end_date,
+    start_time: b.end_time,
+    end_time: b.end_time,
+    title: `Return ${titlePrefix}${name}`.trim(),
+    notes: notesWithOrder,
+    image_url: rentalImage,
+    matchType: 'Return'
+  });
+
+  return desiredItems;
+}
+
 app.post('/api/init', async (c) => {
   try {
     const { results } = await c.env.DB.prepare('SELECT COUNT(*) as count FROM Users').all();
     if ((results[0] as any).count === 0) {
       const passwordHash = await generateHash('123456', c.env.PASSWORD_SALT || 'default_salt');
-      await c.env.DB.prepare(`
-        INSERT INTO Users (role, name, avatar_url, password_hash, allow_login, created_at, updated_at) 
-        VALUES ('Admin', '超級管理員', 'https://api.dicebear.com/7.x/avataaars/svg?seed=Admin', ?, 1, ?, ?)
-      `).bind(passwordHash, Date.now(), Date.now()).run();
+      await c.env.DB.prepare(`INSERT INTO Users (role, name, avatar_url, password_hash, allow_login, created_at, updated_at) VALUES ('Admin', '超級管理員', 'https://api.dicebear.com/7.x/avataaars/svg?seed=Admin', ?, 1, ?, ?)`).bind(passwordHash, Date.now(), Date.now()).run();
       return c.json({ success: true, message: 'Admin created.' });
     }
     return c.json({ success: false, message: 'Not empty.' });
@@ -323,7 +288,6 @@ app.post('/api/auth/login', async (c) => {
     const { results } = await c.env.DB.prepare('SELECT * FROM Users WHERE id = ? AND allow_login = 1').bind(username).all();
     const user = results[0] as any;
     if (!user) return c.json({ error: 'User not found' }, 404);
-    
     const passwordHash = await generateHash(password, c.env.PASSWORD_SALT);
     if (passwordHash !== user.password_hash) return c.json({ error: 'Invalid' }, 401);
 
@@ -334,9 +298,6 @@ app.post('/api/auth/login', async (c) => {
   } catch (error: any) { return c.json({ error: error.message }, 500); }
 });
 
-// ==========================================
-// 🔒 Protected API
-// ==========================================
 app.use('/api/*', decodeUserMiddleware);
 app.use('/api/users', requireAuthMiddleware);
 app.use('/api/users/*', requireAuthMiddleware);
@@ -353,7 +314,6 @@ app.post('/api/upload', async (c) => {
     const body = await c.req.parseBody();
     const file = body['file']; 
     const folder = body['folder'] || 'trips';
-
     if (!file || !(file instanceof File)) return c.json({ error: 'No file uploaded' }, 400);
 
     const supabaseUrl = c.env.VITE_SUPABASE_URL;
@@ -391,9 +351,7 @@ app.post('/api/users', async (c) => {
     const { name, password, role, allow_login } = await c.req.json();
     const passwordHash = await generateHash(password, c.env.PASSWORD_SALT || 'salt');
     const avatar_url = `https://ui-avatars.com/api/?name=${encodeURIComponent(name)}&background=random`;
-    const info = await c.env.DB.prepare(`
-      INSERT INTO Users (name, password_hash, role, avatar_url, allow_login, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)
-    `).bind(name, passwordHash, role || 'user', avatar_url, allow_login ?? 1, Date.now(), Date.now()).run();
+    const info = await c.env.DB.prepare(`INSERT INTO Users (name, password_hash, role, avatar_url, allow_login, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)`).bind(name, passwordHash, role || 'user', avatar_url, allow_login ?? 1, Date.now(), Date.now()).run();
     return c.json({ id: info.meta.last_row_id, name, role, avatar_url });
   } catch (error: any) { return c.json({ error: error.message }, 500); }
 });
@@ -412,15 +370,13 @@ app.put('/api/users/:id', async (c) => {
     if (payment_info !== undefined) { query += ', payment_info = ?'; params.push(typeof payment_info === 'string' ? payment_info : JSON.stringify(payment_info)); }
     if (password) { query += ', password_hash = ?'; params.push(await generateHash(password, c.env.PASSWORD_SALT || 'salt')); }
     
-    query += ' WHERE id = ?';
-    params.push(id);
+    query += ' WHERE id = ?'; params.push(id);
     
     await c.env.DB.prepare(query).bind(...params).run();
     return c.json({ success: true });
   } catch (error: any) { return c.json({ error: error.message }, 500); }
 });
 
-// --- Trips ---
 app.get('/api/trips', async (c) => {
   try {
     const user = c.get('user');
@@ -441,14 +397,8 @@ app.get('/api/trips', async (c) => {
     if (trips.length === 0) return c.json([]);
 
     const tripIds = trips.map((t: any) => t.id).join(',');
-    const { results: allMembers } = await c.env.DB.prepare(
-      `SELECT trip_id, user_id, role FROM TripMembers WHERE trip_id IN (${tripIds})`
-    ).all();
-
-    const tripsWithMembers = trips.map((trip: any) => ({
-      ...trip,
-      members: allMembers.filter((m: any) => m.trip_id === trip.id)
-    }));
+    const { results: allMembers } = await c.env.DB.prepare(`SELECT trip_id, user_id, role FROM TripMembers WHERE trip_id IN (${tripIds})`).all();
+    const tripsWithMembers = trips.map((trip: any) => ({ ...trip, members: allMembers.filter((m: any) => m.trip_id === trip.id) }));
 
     return c.json(tripsWithMembers);
   } catch (error: any) { return c.json({ error: error.message }, 500); }
@@ -458,17 +408,11 @@ app.post('/api/trips', async (c) => {
   try {
     const user = c.get('user');
     if (!user || user.role !== 'Admin') return c.json({ error: 'Only Admins can create trips' }, 403);
-
     const { title, start_date, end_date, cover_image_url, default_city_id, is_public } = await c.req.json();
-    await c.env.DB.prepare(`
-      INSERT INTO Trips (title, start_date, end_date, cover_image_url, default_city_id, created_at, updated_at, currencies, is_public)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `).bind(title, start_date, end_date, cover_image_url || '', default_city_id, Date.now(), Date.now(), JSON.stringify(['TWD']), is_public || 0).run();
-    
+    await c.env.DB.prepare(`INSERT INTO Trips (title, start_date, end_date, cover_image_url, default_city_id, created_at, updated_at, currencies, is_public) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`).bind(title, start_date, end_date, cover_image_url || '', default_city_id, Date.now(), Date.now(), JSON.stringify(['TWD']), is_public || 0).run();
     const idResult = await c.env.DB.prepare('SELECT last_insert_rowid() as id').first();
     const id = idResult ? (idResult as any).id : null;
     if (!id) return c.json({ error: 'Failed to create trip.' }, 500);
-
     const newTrip = await c.env.DB.prepare('SELECT * FROM Trips WHERE id = ?').bind(id).first();
     return c.json(newTrip);
   } catch (error: any) { return c.json({ error: error.message }, 500); }
@@ -481,13 +425,10 @@ app.get('/api/trips/:id', async (c) => {
     const { results } = await c.env.DB.prepare('SELECT * FROM Trips WHERE id = ?').bind(id).all();
     if (results.length === 0) return c.json({ error: 'Trip not found' }, 404);
     const trip = results[0] as any;
-
     const { results: members } = await c.env.DB.prepare('SELECT user_id, role FROM TripMembers WHERE trip_id = ?').bind(id).all();
     const isMember = user && members.some((m: any) => m.user_id === user.id);
     const canView = trip.is_public === 1 || isMember || (user && user.role === 'Admin');
-
     if (!canView) return c.json({ error: 'Unauthorized' }, 401);
-
     if (trip.currencies) trip.currencies = JSON.parse(trip.currencies);
     trip.members = members || [];
     return c.json(trip);
@@ -500,17 +441,13 @@ app.put('/api/trips/:id', async (c) => {
   try {
     const canEdit = await checkTripAccess(c, Number(id), 'edit');
     if (!canEdit) return c.json({ error: 'Unauthorized' }, 403);
-
     const { title, start_date, end_date, cover_image_url, default_city_id, currencies, is_public } = await c.req.json();
     let finalIsPublic = is_public;
     if (is_public !== undefined && user.role !== 'Admin') {
        const existing = await c.env.DB.prepare('SELECT is_public FROM Trips WHERE id = ?').bind(id).first();
        finalIsPublic = existing.is_public;
     }
-
-    await c.env.DB.prepare(`
-      UPDATE Trips SET title = ?, start_date = ?, end_date = ?, cover_image_url = ?, default_city_id = ?, currencies = ?, is_public = ?, updated_at = ? WHERE id = ?
-    `).bind(title, start_date, end_date, cover_image_url, default_city_id, JSON.stringify(currencies || ['TWD']), finalIsPublic, Date.now(), id).run();
+    await c.env.DB.prepare(`UPDATE Trips SET title = ?, start_date = ?, end_date = ?, cover_image_url = ?, default_city_id = ?, currencies = ?, is_public = ?, updated_at = ? WHERE id = ?`).bind(title, start_date, end_date, cover_image_url, default_city_id, JSON.stringify(currencies || ['TWD']), finalIsPublic, Date.now(), id).run();
     return c.json({ success: true });
   } catch (error: any) { return c.json({ error: error.message }, 500); }
 });
@@ -525,7 +462,6 @@ app.delete('/api/trips/:id', async (c) => {
   } catch (error: any) { return c.json({ error: error.message }, 500); }
 });
 
-// --- Weather ---
 app.get('/api/trips/:id/weather', async (c) => {
   const tripId = c.req.param('id');
   const date = c.req.query('date');
@@ -554,16 +490,12 @@ app.post('/api/trips/:id/weather/sync', async (c) => {
   } catch (error: any) { return c.json({ error: error.message }, 500); }
 });
 
-// --- Bookings (Unified Transportation, Accommodation, Rental) ---
-
+// --- Bookings (Unified) ---
 app.get('/api/trips/:id/bookings', async (c) => {
   const tripId = c.req.param('id');
   try {
     const { results } = await c.env.DB.prepare('SELECT * FROM Bookings WHERE trip_id = ? ORDER BY start_date, start_time').bind(tripId).all();
-    const parsedResults = results.map((r: any) => ({
-      ...r,
-      details: r.details ? JSON.parse(r.details) : {}
-    }));
+    const parsedResults = results.map((r: any) => ({ ...r, details: r.details ? JSON.parse(r.details) : {} }));
     return c.json(parsedResults);
   } catch (error: any) { return c.json({ error: error.message }, 500); }
 });
@@ -578,42 +510,36 @@ app.post('/api/trips/:id/bookings', async (c) => {
     const detailsJson = JSON.stringify(b.details || {});
     
     let imageUrl = b.image_url;
-    if (b.category === 'HOTEL' && !imageUrl) {
+    if ((b.category === 'HOTEL' || b.category === 'RENTAL') && !imageUrl) {
       imageUrl = await searchUnsplash(b.title, c.env);
     }
 
     const info = await c.env.DB.prepare(`
-      INSERT INTO Bookings (trip_id, category, title, provider, order_id, start_date, start_time, end_date, end_time, start_location, end_location, notes, image_url, details)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      INSERT INTO Bookings (trip_id, category, title, provider, order_id, start_date, start_time, end_date, end_time, start_location, end_location, notes, image_url, details, city_id) 
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).bind(
       tripId, b.category, b.title, b.provider || null, b.order_id || null, 
       b.start_date, b.start_time, b.end_date, b.end_time, 
-      b.start_location, b.end_location || null, b.notes || null, imageUrl || null, detailsJson
+      b.start_location, b.end_location || null, b.notes || null, imageUrl || null, detailsJson, b.city_id || null
     ).run();
     
     // @ts-ignore
     const bookingId = info.meta.last_row_id;
 
     if (b.category === 'HOTEL') {
-      const desiredItems = generateDesiredAccommodationItems({
-        ...b, 
-        check_in_date: b.start_date, check_out_date: b.end_date, 
-        check_in_time: b.start_time, check_out_time: b.end_time,
-        hotel_name: b.title, name: b.title,
-        daily_start_time: b.details?.daily_start_time, daily_end_time: b.details?.daily_end_time
-      }, bookingId, imageUrl || '');
-      
+      const desiredItems = generateDesiredAccommodationItems({ ...b, check_in_date: b.start_date, check_out_date: b.end_date, check_in_time: b.start_time, check_out_time: b.end_time, hotel_name: b.title, name: b.title, daily_start_time: b.details?.daily_start_time, daily_end_time: b.details?.daily_end_time }, bookingId, imageUrl || '');
       for (const item of desiredItems) {
-        await c.env.DB.prepare(`
-          INSERT INTO Itineraries (trip_id, date, start_time, end_time, title, type, related_id, notes, image_url)
-          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-        `).bind(tripId, item.date, item.start_time, item.end_time, item.title, 'ACCOMMODATION', bookingId, item.notes, item.image_url).run();
+        await c.env.DB.prepare(`INSERT INTO Itineraries (trip_id, date, start_time, end_time, title, type, related_id, notes, image_url) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`).bind(tripId, item.date, item.start_time, item.end_time, item.title, 'ACCOMMODATION', bookingId, item.notes, item.image_url).run();
+      }
+    } else if (b.category === 'RENTAL') {
+      const desiredItems = generateDesiredRentalItems(b, bookingId, imageUrl || '');
+      for (const item of desiredItems) {
+        await c.env.DB.prepare(`INSERT INTO Itineraries (trip_id, date, start_time, end_time, title, type, related_id, notes, image_url) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`).bind(tripId, item.date, item.start_time, item.end_time, item.title, 'RENTAL', bookingId, item.notes, item.image_url).run();
       }
     } else {
       const depDateTime = new Date(`${b.start_date}T${b.start_time || '00:00'}`); 
       const depBuffer = b.details?.dep_buffer || 0;
       depDateTime.setMinutes(depDateTime.getMinutes() - depBuffer);
-      
       const pad = (n: number) => n.toString().padStart(2, '0');
       const checkInDate = `${depDateTime.getFullYear()}-${pad(depDateTime.getMonth() + 1)}-${pad(depDateTime.getDate())}`;
       const checkInTime = depDateTime.toTimeString().substring(0, 5);
@@ -623,14 +549,8 @@ app.post('/api/trips/:id/bookings', async (c) => {
       arrDateTime.setMinutes(arrDateTime.getMinutes() + arrBuffer);
       const exitTime = arrDateTime.toTimeString().substring(0, 5);
 
-      await c.env.DB.prepare(`
-        INSERT INTO Itineraries (trip_id, date, start_time, end_time, title, type, related_id, notes)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-      `).bind(
-        tripId, checkInDate, checkInTime, exitTime, b.title, 'TRANSPORTATION', bookingId, b.notes || ''
-      ).run();
+      await c.env.DB.prepare(`INSERT INTO Itineraries (trip_id, date, start_time, end_time, title, type, related_id, notes) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`).bind(tripId, checkInDate, checkInTime, exitTime, b.title, 'TRANSPORTATION', bookingId, b.notes || '').run();
     }
-
     return c.json({ success: true, id: bookingId });
   } catch (error: any) { return c.json({ error: error.message }, 500); }
 });
@@ -644,45 +564,81 @@ app.put('/api/trips/:id/bookings/:bookingId', async (c) => {
 
     const b = await c.req.json();
     const detailsJson = JSON.stringify(b.details || {});
-    
     let imageUrl = b.image_url;
-    if (b.category === 'HOTEL' && !imageUrl) {
+    if ((b.category === 'HOTEL' || b.category === 'RENTAL') && !imageUrl) {
       imageUrl = await searchUnsplash(b.title, c.env);
     }
 
     await c.env.DB.prepare(`
-      UPDATE Bookings SET category = ?, title = ?, provider = ?, order_id = ?, start_date = ?, start_time = ?, end_date = ?, end_time = ?, start_location = ?, end_location = ?, notes = ?, image_url = ?, details = ?
+      UPDATE Bookings SET category = ?, title = ?, provider = ?, order_id = ?, start_date = ?, start_time = ?, end_date = ?, end_time = ?, start_location = ?, end_location = ?, notes = ?, image_url = ?, details = ?, city_id = ? 
       WHERE id = ? AND trip_id = ?
     `).bind(
       b.category, b.title, b.provider || null, b.order_id || null, 
       b.start_date, b.start_time, b.end_date, b.end_time, 
-      b.start_location, b.end_location || null, b.notes || null, imageUrl || null, detailsJson,
+      b.start_location, b.end_location || null, b.notes || null, imageUrl || null, detailsJson, b.city_id || null,
       bookingId, tripId
     ).run();
 
-    // Update Itineraries
-    await c.env.DB.prepare("DELETE FROM Itineraries WHERE related_id = ? AND trip_id = ? AND type = 'TRANSPORTATION'").bind(bookingId, tripId).all();
-
     if (b.category === 'HOTEL') {
-      const desiredItems = generateDesiredAccommodationItems({
-        ...b, 
-        check_in_date: b.start_date, check_out_date: b.end_date, 
-        check_in_time: b.start_time, check_out_time: b.end_time,
-        hotel_name: b.title, name: b.title,
-        daily_start_time: b.details?.daily_start_time, daily_end_time: b.details?.daily_end_time
-      }, bookingId, imageUrl || '');
-      
+      const desiredItems = generateDesiredAccommodationItems({ ...b, check_in_date: b.start_date, check_out_date: b.end_date, check_in_time: b.start_time, check_out_time: b.end_time, hotel_name: b.title, name: b.title, daily_start_time: b.details?.daily_start_time, daily_end_time: b.details?.daily_end_time }, bookingId, imageUrl || '');
+      const { results: existingItems } = await c.env.DB.prepare("SELECT * FROM Itineraries WHERE related_id = ? AND trip_id = ? AND type = 'ACCOMMODATION'").bind(bookingId, tripId).all();
+      const existingPool = [...existingItems] as any[];
+
       for (const item of desiredItems) {
-        await c.env.DB.prepare(`
-          INSERT INTO Itineraries (trip_id, date, start_time, end_time, title, type, related_id, notes, image_url)
-          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-        `).bind(tripId, item.date, item.start_time, item.end_time, item.title, 'ACCOMMODATION', bookingId, item.notes, item.image_url).run();
+        const matchIndex = existingPool.findIndex(e =>
+          e.date === item.date &&
+          ((item.matchType === 'Check-in' && e.title.includes('Check-in')) ||
+           (item.matchType === 'Check-out' && e.title.includes('Check-out')) ||
+           (item.matchType === 'Back to Hotel' && e.title.includes('Back')) ||
+           (item.matchType === 'Leave Hotel' && e.title.includes('Leave')))
+        );
+
+        if (matchIndex !== -1) {
+          const match = existingPool[matchIndex];
+          existingPool.splice(matchIndex, 1);
+          let finalStartTime = match.start_time;
+          let finalTitle = match.title;
+          if (item.matchType === 'Check-in' || item.matchType === 'Check-out') {
+             finalStartTime = item.start_time;
+             finalTitle = item.title;
+          }
+          await c.env.DB.prepare(`UPDATE Itineraries SET date = ?, start_time = ?, title = ?, image_url = ? WHERE id = ?`).bind(item.date, finalStartTime, finalTitle, imageUrl || match.image_url || '', match.id).run();
+        } else {
+          await c.env.DB.prepare(`INSERT INTO Itineraries (trip_id, date, start_time, end_time, title, type, related_id, notes, image_url) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`).bind(tripId, item.date, item.start_time, item.end_time, item.title, 'ACCOMMODATION', bookingId, item.notes, item.image_url).run();
+        }
+      }
+      for (const leftover of existingPool) {
+        await c.env.DB.prepare("DELETE FROM Itineraries WHERE id = ?").bind(leftover.id).run();
+      }
+
+    } else if (b.category === 'RENTAL') {
+      const desiredItems = generateDesiredRentalItems(b, bookingId, imageUrl || '');
+      const { results: existingItems } = await c.env.DB.prepare("SELECT * FROM Itineraries WHERE related_id = ? AND trip_id = ? AND type = 'RENTAL'").bind(bookingId, tripId).all();
+      const existingPool = [...existingItems] as any[];
+
+      for (const item of desiredItems) {
+        const matchIndex = existingPool.findIndex(e =>
+          (item.matchType === 'Pick-up' && e.title.includes('Pick-up')) ||
+          (item.matchType === 'Return' && e.title.includes('Return'))
+        );
+
+        if (matchIndex !== -1) {
+          const match = existingPool[matchIndex];
+          existingPool.splice(matchIndex, 1);
+          await c.env.DB.prepare(`UPDATE Itineraries SET date = ?, start_time = ?, title = ?, image_url = ? WHERE id = ?`).bind(item.date, item.start_time, item.title, imageUrl || match.image_url || '', match.id).run();
+        } else {
+          await c.env.DB.prepare(`INSERT INTO Itineraries (trip_id, date, start_time, end_time, title, type, related_id, notes, image_url) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`).bind(tripId, item.date, item.start_time, item.end_time, item.title, 'RENTAL', bookingId, item.notes, item.image_url).run();
+        }
+      }
+      for (const leftover of existingPool) {
+        await c.env.DB.prepare("DELETE FROM Itineraries WHERE id = ?").bind(leftover.id).run();
       }
     } else {
+      await c.env.DB.prepare("DELETE FROM Itineraries WHERE related_id = ? AND trip_id = ? AND type = 'TRANSPORTATION'").bind(bookingId, tripId).run();
+      
       const depDateTime = new Date(`${b.start_date}T${b.start_time || '00:00'}`); 
       const depBuffer = b.details?.dep_buffer || 0;
       depDateTime.setMinutes(depDateTime.getMinutes() - depBuffer);
-      
       const pad = (n: number) => n.toString().padStart(2, '0');
       const checkInDate = `${depDateTime.getFullYear()}-${pad(depDateTime.getMonth() + 1)}-${pad(depDateTime.getDate())}`;
       const checkInTime = depDateTime.toTimeString().substring(0, 5);
@@ -692,14 +648,8 @@ app.put('/api/trips/:id/bookings/:bookingId', async (c) => {
       arrDateTime.setMinutes(arrDateTime.getMinutes() + arrBuffer);
       const exitTime = arrDateTime.toTimeString().substring(0, 5);
 
-      await c.env.DB.prepare(`
-        INSERT INTO Itineraries (trip_id, date, start_time, end_time, title, type, related_id, notes)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-      `).bind(
-        tripId, checkInDate, checkInTime, exitTime, b.title, 'TRANSPORTATION', bookingId, b.notes || ''
-      ).run();
+      await c.env.DB.prepare(`INSERT INTO Itineraries (trip_id, date, start_time, end_time, title, type, related_id, notes) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`).bind(tripId, checkInDate, checkInTime, exitTime, b.title, 'TRANSPORTATION', bookingId, b.notes || '').run();
     }
-
     return c.json({ success: true });
   } catch (error: any) { return c.json({ error: error.message }, 500); }
 });
@@ -712,13 +662,79 @@ app.delete('/api/trips/:id/bookings/:bookingId', async (c) => {
     if (!canEdit) return c.json({ error: 'Unauthorized' }, 403);
     
     await c.env.DB.prepare('DELETE FROM Bookings WHERE id = ? AND trip_id = ?').bind(bookingId, tripId).run();
-    await c.env.DB.prepare("DELETE FROM Itineraries WHERE related_id = ? AND trip_id = ? AND type IN ('TRANSPORTATION', 'ACCOMMODATION')").bind(bookingId, tripId).run();
+    await c.env.DB.prepare("DELETE FROM Itineraries WHERE related_id = ? AND trip_id = ? AND type IN ('TRANSPORTATION', 'ACCOMMODATION', 'RENTAL')").bind(bookingId, tripId).run();
     
     return c.json({ success: true });
   } catch (error: any) { return c.json({ error: error.message }, 500); }
 });
 
-// --- Trip Members ---
+// --- Itineraries ---
+app.get('/api/trips/:id/itineraries', async (c) => {
+  const tripId = c.req.param('id');
+  try {
+    const { results } = await c.env.DB.prepare(`SELECT i.*, c.name as city_name FROM Itineraries i LEFT JOIN Cities c ON i.city_id = c.id WHERE i.trip_id = ? ORDER BY date, start_time`).bind(tripId).all();
+    const parsedResults = results.map((item: any) => ({ ...item, tags: item.tags ? JSON.parse(item.tags) : [] }));
+    return c.json(parsedResults);
+  } catch (error: any) { return c.json({ error: error.message }, 500); }
+});
+
+app.post('/api/trips/:id/itineraries', async (c) => {
+  const tripId = c.req.param('id');
+  try {
+    const canEdit = await checkTripAccess(c, Number(tripId), 'edit');
+    if (!canEdit) return c.json({ error: 'Unauthorized' }, 403);
+
+    const b = await c.req.json();
+    const info = await c.env.DB.prepare(`INSERT INTO Itineraries (trip_id, city_id, date, start_time, end_time, title, address, image_url, notes, tags, sub_items, stay_duration, type, related_id, icon, next_transport_mode, next_transport_time, next_transport_auto_time) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).bind(
+      tripId, b.city_id, b.date, b.start_time, b.end_time, b.title, b.address || '', b.image_url || '', b.notes || '', JSON.stringify(b.tags || []), b.sub_items || '[]', b.stay_duration || '', b.type || 'GENERAL', b.related_id || null, b.icon || '', b.next_transport_mode || '', b.next_transport_time || '', b.next_transport_auto_time || ''
+    ).run();
+    return c.json({ success: true, id: info.meta.last_row_id });
+  } catch (error: any) { return c.json({ error: error.message }, 500); }
+});
+
+app.put('/api/trips/:id/itineraries/:itemId', async (c) => {
+  const tripId = c.req.param('id');
+  const itemId = c.req.param('itemId');
+  try {
+    const canEdit = await checkTripAccess(c, Number(tripId), 'edit');
+    if (!canEdit) return c.json({ error: 'Unauthorized' }, 403);
+
+    const b = await c.req.json();
+    await c.env.DB.prepare(`UPDATE Itineraries SET city_id = ?, date = ?, start_time = ?, end_time = ?, title = ?, address = ?, image_url = ?, notes = ?, tags = ?, sub_items = ?, stay_duration = ?, icon = ?, next_transport_mode = ?, next_transport_time = ?, next_transport_auto_time = ? WHERE id = ? AND trip_id = ?`).bind(
+      b.city_id, b.date, b.start_time, b.end_time, b.title, b.address || '', b.image_url || '', b.notes || '', JSON.stringify(b.tags || []), b.sub_items || '[]', b.stay_duration || '', b.icon || '', b.next_transport_mode || '', b.next_transport_time || '', b.next_transport_auto_time || '', itemId, tripId
+    ).run();
+
+    // 反向雙向同步
+    if (b.type === 'ACCOMMODATION' && b.related_id) {
+       if (b.title.includes('Check-in')) {
+          await c.env.DB.prepare('UPDATE Bookings SET start_time = ? WHERE id = ? AND trip_id = ?').bind(b.start_time, b.related_id, tripId).run();
+       } else if (b.title.includes('Check-out')) {
+          await c.env.DB.prepare('UPDATE Bookings SET end_time = ? WHERE id = ? AND trip_id = ?').bind(b.start_time, b.related_id, tripId).run();
+       }
+    } else if (b.type === 'RENTAL' && b.related_id) {
+       if (b.title.includes('Pick-up')) {
+          await c.env.DB.prepare('UPDATE Bookings SET start_time = ? WHERE id = ? AND trip_id = ?').bind(b.start_time, b.related_id, tripId).run();
+       } else if (b.title.includes('Return')) {
+          await c.env.DB.prepare('UPDATE Bookings SET end_time = ? WHERE id = ? AND trip_id = ?').bind(b.start_time, b.related_id, tripId).run();
+       }
+    }
+
+    return c.json({ success: true });
+  } catch (error: any) { return c.json({ error: error.message }, 500); }
+});
+
+app.delete('/api/trips/:id/itineraries/:itemId', async (c) => {
+  const tripId = c.req.param('id');
+  const itemId = c.req.param('itemId');
+  try {
+    const canEdit = await checkTripAccess(c, Number(tripId), 'edit');
+    if (!canEdit) return c.json({ error: 'Unauthorized' }, 403);
+    await c.env.DB.prepare('DELETE FROM Itineraries WHERE id = ? AND trip_id = ?').bind(itemId, tripId).run();
+    return c.json({ success: true });
+  } catch (error: any) { return c.json({ error: error.message }, 500); }
+});
+
+// 其他 API (Members, Expenses, etc...) 保持不變
 app.get('/api/trips/:id/members', async (c) => {
   const tripId = c.req.param('id');
   try {
@@ -741,65 +757,6 @@ app.post('/api/trips/:id/members', async (c) => {
   } catch (error: any) { return c.json({ error: error.message }, 500); }
 });
 
-// --- Itineraries & Expenses ---
-app.get('/api/trips/:id/itineraries', async (c) => {
-  const tripId = c.req.param('id');
-  try {
-    const { results } = await c.env.DB.prepare(`
-      SELECT i.*, c.name as city_name FROM Itineraries i LEFT JOIN Cities c ON i.city_id = c.id 
-      WHERE i.trip_id = ? ORDER BY date, start_time
-    `).bind(tripId).all();
-    const parsedResults = results.map((item: any) => ({ ...item, tags: item.tags ? JSON.parse(item.tags) : [] }));
-    return c.json(parsedResults);
-  } catch (error: any) { return c.json({ error: error.message }, 500); }
-});
-
-app.post('/api/trips/:id/itineraries', async (c) => {
-  const tripId = c.req.param('id');
-  try {
-    const canEdit = await checkTripAccess(c, Number(tripId), 'edit');
-    if (!canEdit) return c.json({ error: 'Unauthorized' }, 403);
-
-    const b = await c.req.json();
-    const info = await c.env.DB.prepare(`
-      INSERT INTO Itineraries (trip_id, city_id, date, start_time, end_time, title, address, image_url, notes, tags, sub_items, stay_duration, type, related_id, icon, next_transport_mode, next_transport_time, next_transport_auto_time)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `).bind(
-      tripId, b.city_id, b.date, b.start_time, b.end_time, b.title, b.address || '', b.image_url || '', b.notes || '', JSON.stringify(b.tags || []), b.sub_items || '[]', b.stay_duration || '', b.type || 'GENERAL', b.related_id || null, b.icon || '', b.next_transport_mode || '', b.next_transport_time || '', b.next_transport_auto_time || ''
-    ).run();
-    return c.json({ success: true, id: info.meta.last_row_id });
-  } catch (error: any) { return c.json({ error: error.message }, 500); }
-});
-
-app.put('/api/trips/:id/itineraries/:itemId', async (c) => {
-  const tripId = c.req.param('id');
-  const itemId = c.req.param('itemId');
-  try {
-    const canEdit = await checkTripAccess(c, Number(tripId), 'edit');
-    if (!canEdit) return c.json({ error: 'Unauthorized' }, 403);
-
-    const b = await c.req.json();
-    await c.env.DB.prepare(`
-      UPDATE Itineraries SET city_id = ?, date = ?, start_time = ?, end_time = ?, title = ?, address = ?, image_url = ?, notes = ?, tags = ?, sub_items = ?, stay_duration = ?, icon = ?, next_transport_mode = ?, next_transport_time = ?, next_transport_auto_time = ?
-      WHERE id = ? AND trip_id = ?
-    `).bind(
-      b.city_id, b.date, b.start_time, b.end_time, b.title, b.address || '', b.image_url || '', b.notes || '', JSON.stringify(b.tags || []), b.sub_items || '[]', b.stay_duration || '', b.icon || '', b.next_transport_mode || '', b.next_transport_time || '', b.next_transport_auto_time || '', itemId, tripId
-    ).run();
-    return c.json({ success: true });
-  } catch (error: any) { return c.json({ error: error.message }, 500); }
-});
-
-app.delete('/api/trips/:id/itineraries/:itemId', async (c) => {
-  const tripId = c.req.param('id');
-  const itemId = c.req.param('itemId');
-  try {
-    const canEdit = await checkTripAccess(c, Number(tripId), 'edit');
-    if (!canEdit) return c.json({ error: 'Unauthorized' }, 403);
-    await c.env.DB.prepare('DELETE FROM Itineraries WHERE id = ? AND trip_id = ?').bind(itemId, tripId).run();
-    return c.json({ success: true });
-  } catch (error: any) { return c.json({ error: error.message }, 500); }
-});
-
 app.get('/api/itineraries/:itineraryId/sub-items', async (c) => {
   const itineraryId = c.req.param('itineraryId');
   try {
@@ -813,10 +770,7 @@ app.post('/api/itineraries/:itineraryId/sub-items', async (c) => {
   try {
     const b = await c.req.json();
     const id = crypto.randomUUID();
-    await c.env.DB.prepare(`
-      INSERT INTO Sub_Itineraries (id, itinerary_id, start_time, end_time, title, tags, notes)
-      VALUES (?, ?, ?, ?, ?, ?, ?)
-    `).bind(id, itineraryId, b.start_time, b.end_time, b.title, b.tags || '', b.notes || '').run();
+    await c.env.DB.prepare(`INSERT INTO Sub_Itineraries (id, itinerary_id, start_time, end_time, title, tags, notes) VALUES (?, ?, ?, ?, ?, ?, ?)`).bind(id, itineraryId, b.start_time, b.end_time, b.title, b.tags || '', b.notes || '').run();
     return c.json({ success: true, id });
   } catch (error: any) { return c.json({ error: error.message }, 500); }
 });
@@ -825,9 +779,7 @@ app.put('/api/sub-items/:id', async (c) => {
   const id = c.req.param('id');
   try {
     const b = await c.req.json();
-    await c.env.DB.prepare(`
-      UPDATE Sub_Itineraries SET start_time = ?, end_time = ?, title = ?, tags = ?, notes = ? WHERE id = ?
-    `).bind(b.start_time, b.end_time, b.title, b.tags || '', b.notes || '', id).run();
+    await c.env.DB.prepare(`UPDATE Sub_Itineraries SET start_time = ?, end_time = ?, title = ?, tags = ?, notes = ? WHERE id = ?`).bind(b.start_time, b.end_time, b.title, b.tags || '', b.notes || '', id).run();
     return c.json({ success: true });
   } catch (error: any) { return c.json({ error: error.message }, 500); }
 });
@@ -854,12 +806,8 @@ app.post('/api/trips/:id/expenses', async (c) => {
   try {
     const canEdit = await checkTripAccess(c, Number(tripId), 'edit');
     if (!canEdit) return c.json({ error: 'Unauthorized' }, 403);
-
     const b = await c.req.json();
-    const info = await c.env.DB.prepare(`
-      INSERT INTO Expenses (trip_id, item_name, amount, currency, date, payer_id, split_members, notes, category, created_at, updated_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `).bind(tripId, b.item_name, b.amount, b.currency, b.date, b.payer_id, JSON.stringify(b.split_members), b.notes, b.category || 'other', Date.now(), Date.now()).run();
+    const info = await c.env.DB.prepare(`INSERT INTO Expenses (trip_id, item_name, amount, currency, date, payer_id, split_members, notes, category, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).bind(tripId, b.item_name, b.amount, b.currency, b.date, b.payer_id, JSON.stringify(b.split_members), b.notes, b.category || 'other', Date.now(), Date.now()).run();
     return c.json({ success: true, id: info.meta.last_row_id });
   } catch (error: any) { return c.json({ error: error.message }, 500); }
 });
@@ -870,12 +818,8 @@ app.put('/api/trips/:id/expenses/:expenseId', async (c) => {
   try {
     const canEdit = await checkTripAccess(c, Number(tripId), 'edit');
     if (!canEdit) return c.json({ error: 'Unauthorized' }, 403);
-
     const b = await c.req.json();
-    await c.env.DB.prepare(`
-      UPDATE Expenses SET item_name = ?, amount = ?, currency = ?, date = ?, payer_id = ?, split_members = ?, notes = ?, category = ?, updated_at = ?
-      WHERE id = ? AND trip_id = ?
-    `).bind(b.item_name, b.amount, b.currency, b.date, b.payer_id, JSON.stringify(b.split_members), b.notes, b.category || 'other', Date.now(), expenseId, tripId).run();
+    await c.env.DB.prepare(`UPDATE Expenses SET item_name = ?, amount = ?, currency = ?, date = ?, payer_id = ?, split_members = ?, notes = ?, category = ?, updated_at = ? WHERE id = ? AND trip_id = ?`).bind(b.item_name, b.amount, b.currency, b.date, b.payer_id, JSON.stringify(b.split_members), b.notes, b.category || 'other', Date.now(), expenseId, tripId).run();
     return c.json({ success: true });
   } catch (error: any) { return c.json({ error: error.message }, 500); }
 });
@@ -891,7 +835,6 @@ app.delete('/api/trips/:id/expenses/:expenseId', async (c) => {
   } catch (error: any) { return c.json({ error: error.message }, 500); }
 });
 
-// --- Settings & Sync ---
 app.get('/api/settings', async (c) => {
   try {
     const { results } = await c.env.DB.prepare('SELECT * FROM App_Settings').all();
@@ -932,14 +875,9 @@ app.delete('/api/settings/categories/:id', async (c) => {
 });
 
 app.post('/api/sync', async (c) => {
-  try {
-    return c.json({ success: true, message: 'Sync completed' });
-  } catch (error: any) { return c.json({ error: error.message }, 500); }
+  try { return c.json({ success: true, message: 'Sync completed' }); } catch (error: any) { return c.json({ error: error.message }, 500); }
 });
 
-// ==========================================
-// Export default (Fetch & Scheduled)
-// ==========================================
 export default {
   async fetch(request: Request, env: Env, ctx: ExecutionContext) {
     const url = new URL(request.url);
@@ -953,44 +891,27 @@ export default {
         return response;
       } catch (e: any) { return new Response(JSON.stringify({ error: 'Error', message: e.message }), { status: 500, headers: { 'Content-Type': 'application/json' } }); }
     }
-    // SPA Fallback
     try {
       let assetManifest = {};
-      try { assetManifest = JSON.parse(manifestJSON); } catch (e) { console.error('Failed to parse manifest:', e); }
+      try { assetManifest = JSON.parse(manifestJSON); } catch (e) {}
       return await getAssetFromKV({ request, waitUntil: ctx.waitUntil.bind(ctx) }, { ASSET_NAMESPACE: env.__STATIC_CONTENT, ASSET_MANIFEST: assetManifest });
     } catch (e: any) {
-      console.error('getAssetFromKV error:', e.message);
       try {
         const indexRequest = new Request(new URL('/index.html', request.url), request);
         let assetManifest = {};
         try { assetManifest = JSON.parse(manifestJSON); } catch (e) {}
         return await getAssetFromKV({ request: indexRequest, waitUntil: ctx.waitUntil.bind(ctx) }, { ASSET_NAMESPACE: env.__STATIC_CONTENT, ASSET_MANIFEST: assetManifest });
-      } catch (fallbackError: any) { 
-        console.error('SPA fallback error:', fallbackError.message);
-        return new Response('Not Found (SPA Fallback failed) - Manifest: ' + (manifestJSON ? 'Present' : 'Missing'), { status: 404 }); 
-      }
+      } catch (fallbackError: any) { return new Response('Not Found', { status: 404 }); }
     }
   },
   
-  // --- 神級動態天氣演算法 Cron Job (極簡優化版) ---
   async scheduled(event: ScheduledEvent, env: Env, ctx: ExecutionContext) {
-    console.log(`Cron Job triggered at ${new Date().toISOString()}`);
     ctx.waitUntil((async () => {
       try {
         const todayStr = new Date().toISOString().split('T')[0];
-        
-        // 1. 撈出所有進行中/未來的 Trips
-        const { results: activeTrips } = await env.DB.prepare(`
-          SELECT id FROM Trips WHERE end_date >= date('now')
-        `).all();
-
+        const { results: activeTrips } = await env.DB.prepare(`SELECT id FROM Trips WHERE end_date >= date('now')`).all();
         if (activeTrips.length === 0) return;
-
-        // 2. 直接利用既有的 Helper 函數來更新並快取
-        for (const trip of activeTrips as any[]) {
-          await getWeatherForDate(trip.id, todayStr, env);
-          console.log(`Weather updated for Trip ${trip.id}`);
-        }
+        for (const trip of activeTrips as any[]) await getWeatherForDate(trip.id, todayStr, env);
       } catch (error) { console.error("Cron job failed:", error); }
     })());
   }

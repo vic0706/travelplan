@@ -20,6 +20,7 @@ import { ConfirmDialog } from '../components/ConfirmDialog';
 import { motion, AnimatePresence } from 'framer-motion';
 import { DynamicIcon } from '../components/DynamicIcon';
 
+// 實用時間解析與計算工具
 const parseTime = (timeStr: string, baseDate: Date) => {
   if (!timeStr) return baseDate;
   const [hours, minutes] = timeStr.split(':').map(Number);
@@ -33,8 +34,11 @@ const getEffectiveTimes = (item: any, baseDate: Date) => {
   let end = parseTime(item.end_time || item.start_time, baseDate);
   if (item.next_transport_mode) {
     let addMins = 0;
-    if (item.next_transport_time) addMins = parseInt(item.next_transport_time.replace(/\D/g, '')) || 0;
-    else if (item.next_transport_auto_time) addMins = parseInt(item.next_transport_auto_time.replace(/\D/g, '')) || 0;
+    if (item.next_transport_time) {
+      addMins = parseInt(item.next_transport_time.replace(/\D/g, '')) || 0;
+    } else if (item.next_transport_auto_time) {
+      addMins = parseInt(item.next_transport_auto_time.replace(/\D/g, '')) || 0;
+    }
     end = addMinutes(end, addMins);
   }
   return { start, end };
@@ -59,19 +63,30 @@ function BookingCard({ booking, canEdit, onEdit }: { booking: Booking; canEdit: 
       default: return Info;
     }
   };
+
   const Icon = getIcon();
 
   return (
-    <div onClick={() => canEdit && onEdit()} className={clsx("bg-zinc-900 border border-zinc-800 rounded-3xl p-5 transition-all group relative overflow-hidden", canEdit && "hover:border-orange-500/50 cursor-pointer active:scale-[0.98]", isPastItem && "opacity-60 grayscale-[0.5]")}>
+    <div 
+      onClick={() => canEdit && onEdit()}
+      className={clsx(
+        "bg-zinc-900 border border-zinc-800 rounded-3xl p-5 transition-all group relative overflow-hidden",
+        canEdit && "hover:border-orange-500/50 cursor-pointer active:scale-[0.98]",
+        isPastItem && "opacity-60 grayscale-[0.5]"
+      )}
+    >
       <div className="flex gap-4">
         {booking.image_url && booking.category !== 'HOTEL' && (
-          <div className="w-20 h-20 rounded-2xl overflow-hidden shrink-0 border border-zinc-800"><img src={booking.image_url} alt={booking.title} className="w-full h-full object-cover" /></div>
+          <div className="w-20 h-20 rounded-2xl overflow-hidden shrink-0 border border-zinc-800">
+            <img src={booking.image_url} alt={booking.title} className="w-full h-full object-cover" />
+          </div>
         )}
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2 mb-1">
             <div className="p-1.5 rounded-lg bg-zinc-800 text-orange-500"><Icon size={14} /></div>
             <h4 className="font-bold text-white truncate">{booking.category === 'RENTAL' ? `${booking.provider || ''} ${booking.title}` : booking.title}</h4>
           </div>
+          
           <div className="space-y-1">
             <div className="flex items-center gap-1.5 text-zinc-400 text-xs">
               <Calendar size={12} />
@@ -81,11 +96,27 @@ function BookingCard({ booking, canEdit, onEdit }: { booking: Booking; canEdit: 
             {booking.start_location && (
               <div className="flex items-center gap-1.5 text-zinc-500 text-xs truncate">
                 <MapPin size={12} />
-                <span>{booking.start_location}{booking.details?.dep_terminal && ` (T${booking.details.dep_terminal})`}</span>
-                {booking.end_location && <><span className="mx-1">→</span><span>{booking.end_location}{booking.details?.arr_terminal && ` (T${booking.details.arr_terminal})`}</span></>}
+                <span>
+                  {booking.start_location}
+                  {(() => {
+                     try { return JSON.parse(booking.details as string).dep_terminal ? ` (T${JSON.parse(booking.details as string).dep_terminal})` : ''; }
+                     catch(e) { return (booking.details as any)?.dep_terminal ? ` (T${(booking.details as any).dep_terminal})` : ''; }
+                  })()}
+                </span>
+                {booking.end_location && (
+                  <><span className="mx-1">→</span><span>
+                    {booking.end_location}
+                    {(() => {
+                       try { return JSON.parse(booking.details as string).arr_terminal ? ` (T${JSON.parse(booking.details as string).arr_terminal})` : ''; }
+                       catch(e) { return (booking.details as any)?.arr_terminal ? ` (T${(booking.details as any).arr_terminal})` : ''; }
+                    })()}
+                  </span></>
+                )}
               </div>
             )}
-            {booking.provider && booking.category !== 'RENTAL' && <div className="text-[10px] text-zinc-600 font-medium uppercase tracking-wider">{booking.provider} {booking.order_id && `• ${booking.order_id}`}</div>}
+            {booking.provider && booking.category !== 'RENTAL' && (
+              <div className="text-[10px] text-zinc-600 font-medium uppercase tracking-wider">{booking.provider} {booking.order_id && `• ${booking.order_id}`}</div>
+            )}
             {booking.notes && <div className="text-xs text-zinc-500 italic mt-1 line-clamp-2">{booking.notes}</div>}
           </div>
         </div>
@@ -191,8 +222,9 @@ function TransportationCard({ item, booking, canEdit, isConflicted, onEdit, show
             <div className="flex flex-col items-center bg-zinc-800/50 rounded-2xl border border-zinc-700/50 overflow-hidden shadow-sm backdrop-blur-sm">
               <a 
                 href={dep_station && dep_station.startsWith('http') ? dep_station : `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(dep_station || title)}`}
-                target="_blank" rel="noopener noreferrer" onClick={(e) => e.stopPropagation()} title="View on Map"
+                target="_blank" rel="noopener noreferrer"
                 className="p-2.5 text-zinc-400 hover:text-orange-500 hover:bg-zinc-700/50 transition-colors flex items-center justify-center w-10 h-10"
+                onClick={(e) => e.stopPropagation()} title="View on Map"
               >
                  <Map size={18} />
               </a>
@@ -201,8 +233,13 @@ function TransportationCard({ item, booking, canEdit, isConflicted, onEdit, show
                 <>
                   <div className="w-6 h-px bg-zinc-700/50" />
                   <button
-                    onClick={(e) => { e.stopPropagation(); if (canEdit) onEditNextTransport?.(); }} disabled={!canEdit}
-                    className={clsx("p-2 flex flex-col items-center justify-center gap-0.5 w-10 transition-colors", canEdit ? "hover:bg-zinc-700/50 cursor-pointer" : "cursor-default", item.next_transport_mode ? "text-orange-500" : "text-zinc-500 hover:text-zinc-300")}
+                    onClick={(e) => { e.stopPropagation(); if (canEdit) onEditNextTransport?.(); }}
+                    disabled={!canEdit}
+                    className={clsx(
+                      "p-2 flex flex-col items-center justify-center gap-0.5 w-10 transition-colors",
+                      canEdit ? "hover:bg-zinc-700/50 cursor-pointer" : "cursor-default",
+                      item.next_transport_mode ? "text-orange-500" : "text-zinc-500 hover:text-zinc-300"
+                    )}
                   >
                     {item.next_transport_mode ? (
                       <>
@@ -211,7 +248,9 @@ function TransportationCard({ item, booking, canEdit, isConflicted, onEdit, show
                         {item.next_transport_mode === 'TRAIN' && <Train size={16} />}
                         {item.next_transport_mode === 'SHIP' && <Ship size={16} />}
                         {(item.next_transport_mode === 'DRIVING' || item.next_transport_mode === 'TAXI') && <Car size={16} />}
-                        {(item.next_transport_time || item.next_transport_auto_time) && <span className="text-[9px] font-mono font-bold leading-none mt-0.5">{item.next_transport_time ? item.next_transport_time.replace(' min', 'm') : 'Auto'}</span>}
+                        {(item.next_transport_time || item.next_transport_auto_time) && (
+                          <span className="text-[9px] font-mono font-bold leading-none mt-0.5">{item.next_transport_time ? item.next_transport_time.replace(' min', 'm') : 'Auto'}</span>
+                        )}
                       </>
                     ) : <Plus size={18} />}
                   </button>
@@ -323,8 +362,8 @@ function SubItemRow({ sub, itineraryImageUrl, isLast, hasMore }: { sub: any; iti
   );
 }
 
-function ItineraryCard({ item, canEdit, isConflicted, onEdit, selectedDate, showNextTransport, onEditNextTransport }: { 
-  item: Itinerary; canEdit: boolean; isConflicted?: boolean; onEdit: () => void; selectedDate: Date; showNextTransport?: boolean; onEditNextTransport?: () => void;
+function ItineraryCard({ item, canEdit, isConflicted, onEdit, selectedDate, showNextTransport, onEditNextTransport, booking }: { 
+  item: Itinerary; canEdit: boolean; isConflicted?: boolean; onEdit: () => void; selectedDate: Date; showNextTransport?: boolean; onEditNextTransport?: () => void; booking?: Booking;
 }) {
   const timeString = item.end_time || item.start_time || '23:59';
   const dateStr = format(selectedDate, 'yyyy-MM-dd');
@@ -371,8 +410,8 @@ function ItineraryCard({ item, canEdit, isConflicted, onEdit, selectedDate, show
           <div className="flex flex-col items-center bg-zinc-800/50 rounded-2xl border border-zinc-700/50 overflow-hidden shadow-sm backdrop-blur-sm">
             <a 
               href={item.address && item.address.startsWith('http') ? item.address : `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(item.address || item.title)}`}
-              target="_blank" rel="noopener noreferrer" onClick={(e) => e.stopPropagation()} title="View on Map"
-              className="p-2.5 text-zinc-400 hover:text-orange-500 hover:bg-zinc-700/50 transition-colors flex items-center justify-center w-10 h-10" 
+              target="_blank" rel="noopener noreferrer" onClick={(e) => e.stopPropagation()}
+              className="p-2.5 text-zinc-400 hover:text-orange-500 hover:bg-zinc-700/50 transition-colors flex items-center justify-center w-10 h-10" title="View on Map"
             >
               <Map size={18} />
             </a>
@@ -381,7 +420,8 @@ function ItineraryCard({ item, canEdit, isConflicted, onEdit, selectedDate, show
               <>
                 <div className="w-6 h-px bg-zinc-700/50" />
                 <button
-                  onClick={(e) => { e.stopPropagation(); if (canEdit) onEditNextTransport?.(); }} disabled={!canEdit}
+                  onClick={(e) => { e.stopPropagation(); if (canEdit) onEditNextTransport?.(); }}
+                  disabled={!canEdit}
                   className={clsx("p-2 flex flex-col items-center justify-center gap-0.5 w-10 transition-colors", canEdit ? "hover:bg-zinc-700/50 cursor-pointer" : "cursor-default", item.next_transport_mode ? "text-orange-500" : "text-zinc-500 hover:text-zinc-300")}
                 >
                   {item.next_transport_mode ? (
@@ -449,6 +489,7 @@ export function TripDetails() {
   const [activeTab, setActiveTab] = useState<'itinerary' | 'info' | 'finance' | 'settings'>('itinerary');
   const [selectedDate, setSelectedDate] = useState<Date | null>(null);
   const [isLoading, setIsLoading] = useState(false);
+  const [bookingFilter, setBookingFilter] = useState<string>('ALL');
   
   useEffect(() => { setSelectedDate(new Date()); }, []);
   
@@ -670,12 +711,22 @@ export function TripDetails() {
     if (isEditMode) {
        if (checkAllConflicts()) {
          setConfirmConfig({
-           isOpen: true, title: '時間衝突警告', message: '目前行程中有卡片時間重疊（已標示紅框），建議您調整時間。確定要直接離開編輯模式嗎？',
-           confirmText: '確定離開', cancelText: '繼續編輯',
-           onConfirm: () => { setIsEditMode(false); setConfirmConfig(prev => ({ ...prev, isOpen: false })); }
+           isOpen: true,
+           title: '時間衝突警告',
+           message: '目前行程中有卡片時間重疊（已標示紅框），建議您調整時間。確定要直接離開編輯模式嗎？',
+           confirmText: '確定離開',
+           cancelText: '繼續編輯',
+           onConfirm: () => {
+             setIsEditMode(false);
+             setConfirmConfig(prev => ({ ...prev, isOpen: false }));
+           }
          });
-       } else { setIsEditMode(false); }
-    } else { setIsEditMode(true); }
+       } else {
+         setIsEditMode(false);
+       }
+    } else {
+       setIsEditMode(true);
+    }
   };
 
   const filteredExpenses = expenses.filter(e => {
@@ -687,6 +738,11 @@ export function TripDetails() {
     const u = tripUsers?.find(u => u.id === userId);
     return u ? u.name : `User ${userId}`;
   };
+
+  const availableBookingCategories = useMemo(() => {
+    const cats = new Set(bookings.map(b => b.category));
+    return ['ALL', ...Array.from(cats)];
+  }, [bookings]);
 
   if (!trip) return <div className="flex items-center justify-center h-full min-h-[50vh]"><div className="text-zinc-500">Loading trip details...</div></div>;
 
@@ -717,4 +773,325 @@ export function TripDetails() {
             <div className="flex items-center gap-3 text-zinc-200 text-sm font-medium">
               <div className="flex items-center gap-1.5 bg-black/30 backdrop-blur-sm px-2 py-1 rounded-lg border border-white/10">
                 <Calendar size={14} className="text-orange-500" />
-                <span>{validTripStartDate ? format(validTripStartDate,
+                <span>{validTripStartDate ? format(validTripStartDate, 'MMM d') : ''} - {validTripEndDate ? format(validTripEndDate, 'MMM d, yyyy') : ''}</span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {(activeTab === 'itinerary' || activeTab === 'finance') && (
+          <div className="bg-black/95 backdrop-blur-xl border-b border-zinc-800 py-3 px-4">
+            <div className="flex overflow-x-auto gap-3 no-scrollbar pb-1">
+              {dates.map((date, index) => {
+                const isActive = isSameDay(date, selectedDate);
+                return (
+                  <button
+                    key={index} onClick={() => setSelectedDate(date)}
+                    className={clsx(
+                      "flex flex-col items-center justify-center min-w-[56px] h-16 rounded-xl transition-all shrink-0",
+                      isActive ? "bg-orange-500 text-white shadow-lg shadow-orange-500/20 scale-105" : "bg-zinc-900 text-zinc-400 hover:bg-zinc-800 border border-zinc-800"
+                    )}
+                  >
+                    <span className="text-[10px] font-medium uppercase tracking-wider opacity-80">{date instanceof Date && !isNaN(date.getTime()) ? format(date, 'EEE') : '---'}</span>
+                    <span className="text-lg font-bold mt-0.5">{date instanceof Date && !isNaN(date.getTime()) ? format(date, 'd') : '--'}</span>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        )}
+      </div>
+
+      <AnimatePresence>
+        {isNextTransportFormOpen && editingItinerary && (
+          <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
+            <NextTransportForm
+              isOpen={isNextTransportFormOpen} onClose={() => setIsNextTransportFormOpen(false)} itinerary={editingItinerary}
+              onSave={async (data) => {
+                await apiFetch(`/api/trips/${id}/itineraries/${editingItinerary.id}`, { method: 'PUT', body: JSON.stringify({ ...editingItinerary, ...data }) });
+                setIsNextTransportFormOpen(false);
+                const res = await apiFetch(`/api/trips/${id}/itineraries`);
+                const itinerariesData = await res.json() as Itinerary[];
+                await db.itineraries.bulkPut(itinerariesData);
+              }}
+            />
+          </motion.div>
+        )}
+      </AnimatePresence>
+      
+      <div className="flex-1 overflow-y-auto p-4 pb-32 custom-scrollbar overscroll-none">
+        {activeTab === 'itinerary' && (
+          <div className="space-y-6">
+            {id && <WeatherWidget tripId={Number(id)} date={selectedDate} />}
+            <div className="space-y-4">
+              {filteredItineraries.length > 0 ? (
+                filteredItineraries.map((item, index) => {
+                  
+                  if (item.type === 'TRANSPORTATION' && item.related_id) {
+                    const booking = bookings.find(b => b.id === item.related_id);
+                    if (booking) {
+                      return (
+                        <TransportationCard
+                          key={`transport-${item.id}`}
+                          item={item} booking={booking} canEdit={canEdit}
+                          isConflicted={conflictedIdsInView.has(item.id)}
+                          onEdit={() => { setEditingBooking(booking); setIsBookingFormOpen(true); }}
+                          showNextTransport={index < filteredItineraries.length - 1}
+                          onEditNextTransport={() => { setEditingItinerary(item); setIsNextTransportFormOpen(true); }}
+                        />
+                      );
+                    }
+                  }
+
+                  const booking = (item.type === 'ACCOMMODATION' || item.type === 'RENTAL') && item.related_id ? bookings.find(b => b.id === item.related_id) : undefined;
+                  return (
+                    <div key={`itinerary-${item.id}`} className="space-y-2">
+                      <ItineraryCard 
+                        item={item} canEdit={canEdit}
+                        isConflicted={conflictedIdsInView.has(item.id)}
+                        onEdit={() => {
+                          setEditingItinerary(item); 
+                          setIsItineraryFormOpen(true); 
+                        }}
+                        selectedDate={selectedDate} showNextTransport={index < filteredItineraries.length - 1}
+                        onEditNextTransport={() => { setEditingItinerary(item); setIsNextTransportFormOpen(true); }}
+                        booking={booking}
+                      />
+                    </div>
+                  );
+                })
+              ) : (
+                <div className="text-center py-12 text-zinc-500 border border-dashed border-zinc-800 rounded-3xl"><p>No activities for this day.</p></div>
+              )}
+
+              {canEdit && (
+                <button onClick={() => setIsItineraryFormOpen(true)} className="w-full mt-6 py-4 border-2 border-dashed border-zinc-800 rounded-3xl flex items-center justify-center gap-2 text-zinc-500 hover:text-orange-500 hover:border-orange-500/50 hover:bg-orange-500/5 transition-all">
+                  <Plus size={20} /><span className="font-medium">Add Activity</span>
+                </button>
+              )}
+            </div>
+          </div>
+        )}
+
+        {activeTab === 'info' && (
+          <div className="space-y-6">
+            <div className="bg-zinc-900 border border-zinc-800 rounded-3xl p-6 shadow-lg">
+              <h3 className="text-lg font-semibold text-white mb-6">Expenses Overview</h3>
+              <FinanceOverview expenses={expenses} members={tripUsers || []} currency={trip.currencies?.[0] || 'TWD'} />
+            </div>
+
+            <div className="space-y-4">
+              <div className="flex items-center justify-between px-2">
+                 <h4 className="text-zinc-500 text-xs font-bold uppercase tracking-widest">Bookings</h4>
+                 {canEdit && (
+                   <button onClick={() => { setEditingBooking(null); setIsBookingFormOpen(true); }} className="p-2 bg-orange-500/10 text-orange-500 rounded-full hover:bg-orange-500/20 transition-colors">
+                     <Plus size={18} />
+                   </button>
+                 )}
+              </div>
+
+              {bookings.length > 0 ? (
+                <>
+                  {availableBookingCategories.length > 2 && (
+                    <div className="flex gap-2 overflow-x-auto no-scrollbar px-2 pb-2">
+                      {availableBookingCategories.map(cat => (
+                        <button
+                          key={cat}
+                          onClick={() => setBookingFilter(cat)}
+                          className={clsx(
+                            "px-4 py-1.5 rounded-full text-xs font-bold whitespace-nowrap transition-colors border",
+                            bookingFilter === cat 
+                              ? "bg-orange-500 text-white border-orange-500" 
+                              : "bg-zinc-900 border-zinc-800 text-zinc-400 hover:text-white hover:bg-zinc-800"
+                          )}
+                        >
+                          {cat}
+                        </button>
+                      ))}
+                    </div>
+                  )}
+
+                  {/* 2. 修改 Booking 卡片的排序邏輯 (過去的置底，其餘由近到遠) */}
+                  <div className="grid grid-cols-1 gap-4">
+                    {bookings
+                      .filter(b => bookingFilter === 'ALL' || b.category === bookingFilter)
+                      .sort((a, b) => {
+                        const now = new Date();
+                        const dateA = parseISO(`${a.start_date}T${a.start_time}`);
+                        const dateB = parseISO(`${b.start_date}T${b.start_time}`);
+                        const aPast = isPast(dateA) && !isSameDay(dateA, now);
+                        const bPast = isPast(dateB) && !isSameDay(dateB, now);
+
+                        if (aPast && !bPast) return 1;
+                        if (!aPast && bPast) return -1;
+                        return dateA.getTime() - dateB.getTime();
+                      })
+                      .map(booking => (
+                        <BookingCard
+                          key={booking.id} booking={booking} canEdit={canEdit}
+                          onEdit={() => { setEditingBooking(booking); setIsBookingFormOpen(true); }}
+                        />
+                      ))}
+                  </div>
+                </>
+              ) : (
+                <div className="bg-zinc-900/50 border border-dashed border-zinc-800 rounded-3xl p-12 text-center text-zinc-500">
+                  <div className="mb-4 flex justify-center"><Info size={32} className="opacity-20" /></div>
+                  <p className="text-sm">No bookings added yet.</p>
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+
+        {activeTab === 'finance' && (
+          <div className="space-y-4">
+            {filteredExpenses.length > 0 ? (
+              filteredExpenses.map(expense => (
+                <div 
+                  key={expense.id} 
+                  onClick={() => { if (canEdit) { setEditingExpense(expense); setIsFinanceFormOpen(true); } }}
+                  className={`bg-zinc-900 border border-zinc-800 rounded-3xl p-5 shadow-lg flex items-center justify-between transition-colors ${canEdit ? 'cursor-pointer hover:bg-zinc-800/50' : ''}`}
+                >
+                  <div className="flex items-center gap-4">
+                    <div className="w-12 h-12 rounded-full bg-zinc-800 flex items-center justify-center shrink-0"><DollarSign className="text-zinc-400" size={20} /></div>
+                    <div>
+                      <h4 className="text-white font-medium">{expense.item_name}</h4>
+                      <p className="text-xs text-zinc-500 mt-1 uppercase tracking-wider">Paid by {getUserNameById(expense.payer_id)}</p>
+                    </div>
+                  </div>
+                  <div className="text-right">
+                    <div className="text-lg font-semibold text-white">{expense.amount.toLocaleString()}</div>
+                    <div className="text-[10px] text-zinc-500 uppercase tracking-wider mt-1">{expense.currency}</div>
+                  </div>
+                </div>
+              ))
+            ) : <div className="text-center py-12 text-zinc-500 border border-dashed border-zinc-800 rounded-3xl"><p>No expenses recorded for this day.</p></div>}
+
+            {canEdit && (
+              <button onClick={() => { setEditingExpense(null); setIsFinanceFormOpen(true); }} className="w-full mt-6 py-4 border-2 border-dashed border-zinc-800 rounded-3xl flex items-center justify-center gap-2 text-zinc-500 hover:text-orange-500 hover:border-orange-500/50 hover:bg-orange-500/5 transition-all">
+                <Plus size={20} /><span className="font-medium">Add Expense</span>
+              </button>
+            )}
+          </div>
+        )}
+
+        {activeTab === 'settings' && hasEditPermission && (
+          <div className="space-y-6">
+            <div className="bg-zinc-900 border border-zinc-800 rounded-3xl p-6 shadow-lg">
+              <h3 className="text-lg font-semibold text-white mb-6">Trip Settings</h3>
+              <TripSettingsForm trip={trip} onSuccess={() => { apiFetch(`/api/trips/${id}`).then(res => res.json() as Promise<Trip>).then(data => db.trips.put(data)); }} />
+            </div>
+          </div>
+        )}
+      </div>
+
+      <div className="fixed bottom-0 left-0 right-0 bg-zinc-900/95 backdrop-blur-xl border-t border-zinc-800 flex items-center justify-around px-4 pt-2 z-[100] shadow-[0_-4px_20px_rgba(0,0,0,0.5)]" style={{ paddingBottom: 'max(0.5rem, calc(env(safe-area-inset-bottom) + 0.5rem))' }}>
+        <button onClick={() => setActiveTab('itinerary')} className={clsx("flex flex-col items-center justify-center w-full h-12 space-y-1 transition-colors active:scale-95", activeTab === 'itinerary' ? "text-orange-500" : "text-zinc-500 hover:text-zinc-300")}>
+          <Map size={24} strokeWidth={activeTab === 'itinerary' ? 2.5 : 2} /><span className="text-[10px] font-bold uppercase tracking-wider">Itinerary</span>
+        </button>
+        <button onClick={() => setActiveTab('info')} className={clsx("flex flex-col items-center justify-center w-full h-12 space-y-1 transition-colors active:scale-95", activeTab === 'info' ? "text-orange-500" : "text-zinc-500 hover:text-zinc-300")}>
+          <Info size={24} strokeWidth={activeTab === 'info' ? 2.5 : 2} /><span className="text-[10px] font-bold uppercase tracking-wider">Info</span>
+        </button>
+        <button onClick={() => setActiveTab('finance')} className={clsx("flex flex-col items-center justify-center w-full h-12 space-y-1 transition-colors active:scale-95", activeTab === 'finance' ? "text-orange-500" : "text-zinc-500 hover:text-zinc-300")}>
+          <Wallet size={24} strokeWidth={activeTab === 'finance' ? 2.5 : 2} /><span className="text-[10px] font-bold uppercase tracking-wider">Finance</span>
+        </button>
+        {hasEditPermission && (
+          <button onClick={() => setActiveTab('settings')} className={clsx("flex flex-col items-center justify-center w-full h-12 space-y-1 transition-colors active:scale-95", activeTab === 'settings' ? "text-orange-500" : "text-zinc-500 hover:text-zinc-300")}>
+            <Settings size={24} strokeWidth={activeTab === 'settings' ? 2.5 : 2} /><span className="text-[10px] font-bold uppercase tracking-wider">Settings</span>
+          </button>
+        )}
+      </div>
+
+      <AnimatePresence>
+        {isFinanceFormOpen && id && (
+          <div className="fixed inset-0 z-[200] flex items-center justify-center p-4">
+            <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={() => setIsFinanceFormOpen(false)} className="absolute inset-0 bg-black/80 backdrop-blur-sm" />
+            <motion.div initial={{ scale: 0.95, opacity: 0, y: 20 }} animate={{ scale: 1, opacity: 1, y: 0 }} exit={{ scale: 0.95, opacity: 0, y: 20 }} className="relative w-full max-w-md z-10">
+              <FinanceForm 
+                tripId={id} defaultDate={format(selectedDate, 'yyyy-MM-dd')} currencies={trip.currencies || ['TWD']} initialData={editingExpense}
+                onSuccess={() => { setIsFinanceFormOpen(false); apiFetch(`/api/trips/${id}/expenses`).then(res => res.json() as Promise<Expense[]>).then(data => db.expenses.bulkPut(data)); }} 
+                onCancel={() => setIsFinanceFormOpen(false)} 
+              />
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      <AnimatePresence>
+        {isItineraryFormOpen && id && (
+          <div className="fixed inset-0 z-[200] flex items-center justify-center p-4">
+            <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={() => setIsItineraryFormOpen(false)} className="absolute inset-0 bg-black/80 backdrop-blur-sm" />
+            <motion.div initial={{ scale: 0.95, opacity: 0, y: 20 }} animate={{ scale: 1, opacity: 1, y: 0 }} exit={{ scale: 0.95, opacity: 0, y: 20 }} className="relative w-full max-w-md z-10">
+              <ItineraryForm 
+                tripId={Number(id)} defaultCityId={trip.default_city_id} date={format(selectedDate, 'yyyy-MM-dd')} initialData={editingItinerary} onDelete={handleDeleteItinerary}
+                onSuccess={async () => { 
+                  setIsItineraryFormOpen(false); 
+                  setEditingItinerary(null); 
+                  const [bRes, iRes] = await Promise.all([apiFetch(`/api/trips/${id}/bookings`), apiFetch(`/api/trips/${id}/itineraries`)]);
+                  if (bRes.ok) await db.bookings.bulkPut(await bRes.json() as any[]);
+                  if (iRes.ok) await db.itineraries.bulkPut(await iRes.json() as any[]);
+                }} 
+                onCancel={() => { setIsItineraryFormOpen(false); setEditingItinerary(null); }} 
+              />
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      <AnimatePresence>
+        {isBookingFormOpen && (
+          <div className="fixed inset-0 z-[100] flex items-end sm:items-center justify-center p-0 sm:p-4">
+            <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={() => setIsBookingFormOpen(false)} className="absolute inset-0 bg-black/80 backdrop-blur-sm" />
+            <motion.div initial={{ y: '100%' }} animate={{ y: 0 }} exit={{ y: '100%' }} transition={{ type: 'spring', damping: 25, stiffness: 200 }} className="relative w-full max-w-2xl z-10">
+              <BookingForm
+                tripId={Number(id)} initialData={editingBooking || undefined}
+                onSuccess={async () => {
+                  setIsBookingFormOpen(false);
+                  setEditingBooking(null);
+                  try {
+                    const [bookingsRes, itinerariesRes] = await Promise.all([
+                      apiFetch(`/api/trips/${id}/bookings`), apiFetch(`/api/trips/${id}/itineraries`)
+                    ]);
+                    if (bookingsRes.ok) {
+                      const data = await bookingsRes.json() as any[];
+                      const existingIds = await db.bookings.where('trip_id').equals(Number(id)).primaryKeys();
+                      const incomingIds = data.map((b: any) => b.id);
+                      const idsToDelete = existingIds.filter(eid => !incomingIds.includes(eid as number));
+                      await db.transaction('rw', db.bookings, async () => {
+                        if (idsToDelete.length > 0) await db.bookings.bulkDelete(idsToDelete as number[]);
+                        await db.bookings.bulkPut(data);
+                      });
+                    }
+                    if (itinerariesRes.ok) {
+                      const data = await itinerariesRes.json() as any[];
+                      const existingIds = await db.itineraries.where('trip_id').equals(Number(id)).primaryKeys();
+                      const incomingIds = data.map((i: any) => i.id);
+                      const idsToDelete = existingIds.filter(eid => !incomingIds.includes(eid as number));
+                      await db.transaction('rw', db.itineraries, async () => {
+                        if (idsToDelete.length > 0) await db.itineraries.bulkDelete(idsToDelete as number[]);
+                        await db.itineraries.bulkPut(data);
+                      });
+                    }
+                  } catch (e) { console.error('Failed to refresh data:', e); }
+                }}
+                onCancel={() => { setIsBookingFormOpen(false); setEditingBooking(null); }}
+                onDelete={handleDeleteBooking}
+              />
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      <ConfirmDialog
+        isOpen={confirmConfig.isOpen}
+        title={confirmConfig.title}
+        message={confirmConfig.message}
+        confirmText={confirmConfig.confirmText}
+        cancelText={confirmConfig.cancelText}
+        onConfirm={confirmConfig.onConfirm}
+        onCancel={() => setConfirmConfig({ ...confirmConfig, isOpen: false })}
+      />
+    </div>
+  );
+}

@@ -6,6 +6,8 @@ import { apiFetch } from '../utils/api';
 import { Booking, BookingCategory } from '../types';
 import { motion, AnimatePresence } from 'framer-motion';
 import { ImageCropper, uploadImageToSupabase } from './ImageCropper';
+import { useAppStore } from '../store';
+import { LocationPicker } from './LocationPicker';
 
 interface BookingFormProps {
   tripId: number;
@@ -25,6 +27,7 @@ const BOOKING_CATEGORIES = [
 ] as const;
 
 export function BookingForm({ tripId, onSuccess, onCancel, onDelete, initialData }: BookingFormProps) {
+  const { cities } = useAppStore();
   const [loading, setLoading] = useState(false);
   const [step, setStep] = useState(initialData ? 'form' : 'select');
   const [searching, setSearching] = useState(false);
@@ -33,6 +36,13 @@ export function BookingForm({ tripId, onSuccess, onCancel, onDelete, initialData
   const [showImageSearch, setShowImageSearch] = useState(false);
   const [searchResults, setSearchResults] = useState<any[]>([]);
   const [searchQuery, setSearchQuery] = useState('');
+  const [isLocationPickerOpen, setIsLocationPickerOpen] = useState(false);
+
+  const groupedCities = cities.reduce((acc, city) => {
+    if (!acc[city.country]) acc[city.country] = [];
+    acc[city.country].push(city);
+    return acc;
+  }, {} as Record<string, typeof cities>);
 
   const [formData, setFormData] = useState({
     category: initialData?.category || 'FLIGHT' as BookingCategory,
@@ -45,7 +55,7 @@ export function BookingForm({ tripId, onSuccess, onCancel, onDelete, initialData
     end_time: initialData?.end_time || '14:00',
     start_location: initialData?.start_location || '',
     end_location: initialData?.end_location || '',
-    city: initialData?.details ? (typeof initialData.details === 'string' ? JSON.parse(initialData.details).city : initialData.details.city) || '' : '',
+    city_id: initialData?.city_id ? String(initialData.city_id) : '',
     notes: initialData?.notes || '',
     image_url: initialData?.image_url || '',
     details: (() => {
@@ -65,8 +75,15 @@ export function BookingForm({ tripId, onSuccess, onCancel, onDelete, initialData
     setSearching(true);
     try {
       const res = await apiFetch(`/api/images/search?query=${encodeURIComponent(query)}&type=${isHotel ? 'hotel' : 'transport'}`);
-      if (res.ok) setSearchResults(await res.json());
-    } catch (e) { console.error('Search failed', e); } finally { setSearching(false); }
+      if (res.ok) {
+        const data = await res.json();
+        setSearchResults(data as any[]);
+      }
+    } catch (e) {
+      console.error('Search failed', e);
+    } finally {
+      setSearching(false);
+    }
   };
 
   const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -85,7 +102,11 @@ export function BookingForm({ tripId, onSuccess, onCancel, onDelete, initialData
       const publicUrl = await uploadImageToSupabase(croppedBlob);
       setFormData(prev => ({ ...prev, image_url: publicUrl }));
       setShowImageSearch(false);
-    } catch (err: any) { alert('Upload failed: ' + err.message); } finally { setUploading(false); }
+    } catch (err: any) {
+      alert('Upload failed: ' + err.message);
+    } finally {
+      setUploading(false);
+    }
   };
 
   const handleSearchFlight = async () => {
@@ -99,6 +120,7 @@ export function BookingForm({ tripId, onSuccess, onCancel, onDelete, initialData
         return;
       }
       const data = await res.json() as any;
+      
       setFormData(prev => ({
         ...prev,
         provider: data.airline || prev.provider,
@@ -115,19 +137,40 @@ export function BookingForm({ tripId, onSuccess, onCancel, onDelete, initialData
         }
       }));
       alert(`航班資訊已參考 ${format(new Date(), 'yyyy-MM-dd')} 自動填入。`);
-    } catch (error) { alert('Failed to lookup flight'); } finally { setSearching(false); }
+    } catch (error) {
+      console.error(error);
+      alert('Failed to lookup flight');
+    } finally {
+      setSearching(false);
+    }
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoading(true);
     try {
-      const endpoint = initialData ? `/api/trips/${tripId}/bookings/${initialData.id}` : `/api/trips/${tripId}/bookings`;
+      const endpoint = initialData 
+        ? `/api/trips/${tripId}/bookings/${initialData.id}` 
+        : `/api/trips/${tripId}/bookings`;
       const method = initialData ? 'PUT' : 'POST';
-      const res = await apiFetch(endpoint, { method, body: JSON.stringify({ ...formData, details: { ...formData.details, city: formData.city } }) });
-      if (!res.ok) throw new Error(`Failed to save booking`);
+
+      const bookingData = {
+        ...formData,
+        city_id: formData.city_id ? Number(formData.city_id) : null,
+      };
+
+      const res = await apiFetch(endpoint, {
+        method,
+        body: JSON.stringify(bookingData)
+      });
+      if (!res.ok) throw new Error(`Failed to ${initialData ? 'update' : 'add'} booking`);
       onSuccess();
-    } catch (error) { alert(`Failed to save booking`); } finally { setLoading(false); }
+    } catch (error) {
+      console.error(error);
+      alert(`Failed to ${initialData ? 'update' : 'add'} booking`);
+    } finally {
+      setLoading(false);
+    }
   };
 
   const getLabels = () => {
@@ -150,7 +193,9 @@ export function BookingForm({ tripId, onSuccess, onCancel, onDelete, initialData
       <div className="bg-zinc-900 border border-zinc-800 rounded-3xl overflow-hidden shadow-2xl p-6 w-full max-w-2xl mx-auto">
         <div className="flex justify-between items-center mb-6">
           <h3 className="text-lg font-semibold text-white">Select Booking Type</h3>
-          <button onClick={onCancel} className="p-2 hover:bg-zinc-800 rounded-full text-zinc-400"><X size={20} /></button>
+          <button onClick={onCancel} className="p-2 hover:bg-zinc-800 rounded-full text-zinc-400">
+            <X size={20} />
+          </button>
         </div>
         <div className="grid grid-cols-2 gap-4">
           {BOOKING_CATEGORIES.map(cat => (
@@ -158,15 +203,19 @@ export function BookingForm({ tripId, onSuccess, onCancel, onDelete, initialData
               key={cat.id}
               onClick={() => { 
                 setFormData({ 
-                  ...formData, category: cat.id as BookingCategory,
-                  start_time: cat.id === 'HOTEL' ? '16:00' : '10:00', end_time: cat.id === 'HOTEL' ? '11:00' : '14:00',
+                  ...formData, 
+                  category: cat.id as BookingCategory,
+                  start_time: cat.id === 'HOTEL' ? '16:00' : '10:00',
+                  end_time: cat.id === 'HOTEL' ? '11:00' : '14:00',
                   details: cat.id === 'HOTEL' ? { daily_start_time: '08:00', daily_end_time: '22:00' } : { dep_buffer: 120, arr_buffer: 60 }
                 }); 
                 setStep('form'); 
               }}
               className="flex flex-col items-center gap-3 p-6 rounded-2xl bg-zinc-800 hover:bg-zinc-700 transition-all border border-zinc-700 hover:border-orange-500 group text-center"
             >
-              <div className={`p-4 rounded-full ${cat.bg} ${cat.color} group-hover:scale-110 transition-transform`}><cat.icon size={32} /></div>
+              <div className={`p-4 rounded-full ${cat.bg} ${cat.color} group-hover:scale-110 transition-transform`}>
+                <cat.icon size={32} />
+              </div>
               <span className="text-sm font-bold text-white">{cat.label}</span>
             </button>
           ))}
@@ -179,10 +228,17 @@ export function BookingForm({ tripId, onSuccess, onCancel, onDelete, initialData
     <div className="bg-zinc-900 border border-zinc-800 rounded-3xl overflow-hidden shadow-2xl max-h-[90vh] flex flex-col w-full max-w-2xl mx-auto">
       <div className="p-4 border-b border-zinc-800 flex items-center justify-between sticky top-0 bg-zinc-900 z-10 shrink-0">
         <div className="flex items-center gap-3">
-          <button onClick={() => setStep('select')} className="p-2 hover:bg-zinc-800 rounded-full text-zinc-400"><ChevronRight size={20} className="rotate-180" /></button>
-          <h3 className="text-lg font-semibold text-white flex items-center gap-2"><CategoryIcon className="text-orange-500" size={20} />{initialData ? 'Edit Booking' : `Add ${BOOKING_CATEGORIES.find(c => c.id === formData.category)?.label}`}</h3>
+          <button onClick={() => setStep('select')} className="p-2 hover:bg-zinc-800 rounded-full text-zinc-400">
+            <ChevronRight size={20} className="rotate-180" />
+          </button>
+          <h3 className="text-lg font-semibold text-white flex items-center gap-2">
+            <CategoryIcon className="text-orange-500" size={20} />
+            {initialData ? 'Edit Booking' : `Add ${BOOKING_CATEGORIES.find(c => c.id === formData.category)?.label}`}
+          </h3>
         </div>
-        <button onClick={onCancel} className="p-2 hover:bg-zinc-800 rounded-full text-zinc-400"><X size={20} /></button>
+        <button onClick={onCancel} className="p-2 hover:bg-zinc-800 rounded-full text-zinc-400">
+          <X size={20} />
+        </button>
       </div>
 
       <div className="overflow-y-auto p-6 space-y-6 custom-scrollbar">
@@ -192,8 +248,12 @@ export function BookingForm({ tripId, onSuccess, onCancel, onDelete, initialData
             <div className="relative h-48 w-full rounded-xl overflow-hidden group border border-zinc-700">
               <img src={formData.image_url} alt="Booking" className="w-full h-full object-cover" />
               <div className="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-2">
-                <button type="button" onClick={() => setShowImageSearch(true)} className="bg-white/10 hover:bg-white/20 text-white px-3 py-2 rounded-lg backdrop-blur-sm text-sm font-medium flex items-center gap-2 transition-colors"><ImageIcon size={16} /> Change Photo</button>
-                <button type="button" onClick={() => setFormData({ ...formData, image_url: '' })} className="bg-red-500/80 hover:bg-red-500 text-white p-2 rounded-lg backdrop-blur-sm transition-colors"><X size={16} /></button>
+                <button type="button" onClick={() => setShowImageSearch(true)} className="bg-white/10 hover:bg-white/20 text-white px-3 py-2 rounded-lg backdrop-blur-sm text-sm font-medium flex items-center gap-2 transition-colors">
+                  <ImageIcon size={16} /> Change Photo
+                </button>
+                <button type="button" onClick={() => setFormData({ ...formData, image_url: '' })} className="bg-red-500/80 hover:bg-red-500 text-white p-2 rounded-lg backdrop-blur-sm transition-colors">
+                  <X size={16} />
+                </button>
               </div>
             </div>
           ) : (
@@ -213,17 +273,22 @@ export function BookingForm({ tripId, onSuccess, onCancel, onDelete, initialData
                     <Search size={16} className="absolute left-3 top-3 text-zinc-500" />
                     <input type="text" value={searchQuery} onChange={e => setSearchQuery(e.target.value)} onKeyDown={e => e.key === 'Enter' && handleSearch(searchQuery)} placeholder="Search for photos..." className="w-full bg-zinc-900 border border-zinc-700 rounded-xl pl-10 pr-4 py-2.5 text-white focus:outline-none focus:ring-2 focus:ring-orange-500 text-sm" />
                   </div>
-                  <button type="button" onClick={() => handleSearch(searchQuery)} disabled={searching} className="bg-orange-500 hover:bg-orange-600 text-white px-4 rounded-xl font-medium text-sm disabled:opacity-50">{searching ? <Loader2 size={16} className="animate-spin" /> : 'Search'}</button>
+                  <button type="button" onClick={() => handleSearch(searchQuery)} disabled={searching} className="bg-orange-500 hover:bg-orange-600 text-white px-4 rounded-xl font-medium text-sm disabled:opacity-50">
+                    {searching ? <Loader2 size={16} className="animate-spin" /> : 'Search'}
+                  </button>
                 </div>
                 <div className="grid grid-cols-3 gap-2 max-h-60 overflow-y-auto custom-scrollbar">
                   <label className="aspect-video bg-zinc-900 border border-zinc-700 rounded-lg flex flex-col items-center justify-center cursor-pointer hover:bg-zinc-800 transition-colors text-zinc-500 hover:text-white gap-1">
                     <input type="file" accept="image/*" onChange={handleFileUpload} className="hidden" />
-                    <Upload size={20} /><span className="text-xs">Upload</span>
+                    <Upload size={20} />
+                    <span className="text-xs">Upload</span>
                   </label>
                   {searchResults.map((img) => (
                     <div key={img.id} onClick={() => { setFormData({ ...formData, image_url: img.url }); setShowImageSearch(false); }} className="relative aspect-video rounded-lg overflow-hidden cursor-pointer group">
                       <img src={img.thumb} alt={img.alt} className="w-full h-full object-cover transition-transform group-hover:scale-110" />
-                      <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center"><Check size={20} className="text-white" /></div>
+                      <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
+                        <Check size={20} className="text-white" />
+                      </div>
                     </div>
                   ))}
                 </div>
@@ -234,38 +299,37 @@ export function BookingForm({ tripId, onSuccess, onCancel, onDelete, initialData
         </AnimatePresence>
 
         <form onSubmit={handleSubmit} className="space-y-6">
-          {/* 排版重構：依照分類動態顯示欄位 */}
           {isHotel ? (
-            <>
-              <div className="space-y-2">
+            <div className="space-y-6">
+              <div className="space-y-2 relative">
                 <label className="text-xs font-bold text-zinc-500 uppercase tracking-wider">{labels.title}</label>
-                <input type="text" required value={formData.title} onChange={e => setFormData({ ...formData, title: e.target.value })} className="w-full bg-zinc-950 border border-zinc-800 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-orange-500 transition-colors" placeholder="e.g. Grand Hotel" />
+                <div className="relative">
+                  <input type="text" required value={formData.title} onChange={e => setFormData({ ...formData, title: e.target.value })} className="w-full bg-zinc-950 border border-zinc-800 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-orange-500 transition-colors" placeholder="e.g. Grand Hotel" />
+                </div>
               </div>
               <div className="grid grid-cols-2 gap-4">
                 <div className="space-y-2">
                   <label className="text-xs font-bold text-zinc-500 uppercase tracking-wider">{labels.provider}</label>
-                  <input type="text" value={formData.provider} onChange={e => setFormData({ ...formData, provider: e.target.value })} className="w-full bg-zinc-950 border border-zinc-800 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-orange-500 transition-colors" placeholder="e.g. Agoda" />
+                  <input type="text" value={formData.provider} onChange={e => setFormData({ ...formData, provider: e.target.value })} className="w-full bg-zinc-950 border border-zinc-800 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-orange-500 transition-colors" placeholder="Booking Site" />
                 </div>
                 <div className="space-y-2">
-                  <label className="text-xs font-bold text-zinc-500 uppercase tracking-wider flex items-center gap-1"><Hash size={12} /> Order ID</label>
+                  <label className="text-xs font-bold text-zinc-500 uppercase tracking-wider flex items-center gap-1">
+                    <Hash size={12} /> Order ID
+                  </label>
                   <div className="relative">
                     <Hash className="absolute left-4 top-1/2 -translate-y-1/2 text-zinc-500" size={18} />
-                    <input type="text" value={formData.order_id} onChange={e => setFormData({ ...formData, order_id: e.target.value })} className="w-full bg-zinc-950 border border-zinc-800 rounded-xl pl-12 pr-4 py-3 text-white focus:outline-none focus:border-orange-500 transition-colors" placeholder="Reference" />
+                    <input type="text" value={formData.order_id} onChange={e => setFormData({ ...formData, order_id: e.target.value })} className="w-full bg-zinc-950 border border-zinc-800 rounded-xl pl-12 pr-4 py-3 text-white focus:outline-none focus:border-orange-500 transition-colors" placeholder="Booking Reference" />
                   </div>
                 </div>
               </div>
-              <div className="space-y-2">
-                <label className="text-xs font-bold text-zinc-500 uppercase tracking-wider">City</label>
-                <input type="text" value={formData.city} onChange={e => setFormData({ ...formData, city: e.target.value })} className="w-full bg-zinc-950 border border-zinc-800 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-orange-500 transition-colors" placeholder="e.g. Tokyo" />
-              </div>
-            </>
+            </div>
           ) : (
-            <>
+            <div className="space-y-6">
               <div className="grid grid-cols-2 gap-4">
                 <div className="space-y-2 relative">
                   <label className="text-xs font-bold text-zinc-500 uppercase tracking-wider">{labels.title}</label>
                   <div className="relative">
-                    <input type="text" required value={formData.title} onChange={e => setFormData({ ...formData, title: e.target.value })} className="w-full bg-zinc-950 border border-zinc-800 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-orange-500 transition-colors" placeholder={`e.g. ${formData.category === 'FLIGHT' ? 'BR123' : 'Transfer'}`} />
+                    <input type="text" required value={formData.title} onChange={e => setFormData({ ...formData, title: e.target.value })} className="w-full bg-zinc-950 border border-zinc-800 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-orange-500 transition-colors" placeholder={`e.g. ${formData.category === 'FLIGHT' ? 'BR123' : ''}`} />
                     {formData.category === 'FLIGHT' && (
                       <button type="button" onClick={handleSearchFlight} disabled={searching || !formData.title} className="absolute right-2 top-1/2 -translate-y-1/2 p-2 text-zinc-400 hover:text-white disabled:opacity-50">
                         {searching ? <Loader2 className="animate-spin" size={18} /> : <Search size={18} />}
@@ -279,13 +343,38 @@ export function BookingForm({ tripId, onSuccess, onCancel, onDelete, initialData
                 </div>
               </div>
               <div className="space-y-2">
-                <label className="text-xs font-bold text-zinc-500 uppercase tracking-wider flex items-center gap-1"><Hash size={12} /> Order ID</label>
+                <label className="text-xs font-bold text-zinc-500 uppercase tracking-wider flex items-center gap-1">
+                  <Hash size={12} /> Order ID
+                </label>
                 <div className="relative">
                   <Hash className="absolute left-4 top-1/2 -translate-y-1/2 text-zinc-500" size={18} />
                   <input type="text" value={formData.order_id} onChange={e => setFormData({ ...formData, order_id: e.target.value })} className="w-full bg-zinc-950 border border-zinc-800 rounded-xl pl-12 pr-4 py-3 text-white focus:outline-none focus:border-orange-500 transition-colors" placeholder="Booking Reference" />
                 </div>
               </div>
-            </>
+            </div>
+          )}
+
+          {isHotel && (
+            <div>
+              <label className="text-xs font-bold text-zinc-500 uppercase tracking-wider mb-2 block">City</label>
+              <div 
+                onClick={() => setIsLocationPickerOpen(true)}
+                className="w-full bg-zinc-950 border border-zinc-800 rounded-xl px-4 py-3 text-white cursor-pointer hover:border-orange-500 transition-colors flex items-center justify-between"
+              >
+                <span className={formData.city_id ? 'text-white' : 'text-zinc-500'}>
+                  {formData.city_id 
+                    ? cities.find(c => String(c.id) === String(formData.city_id))?.name 
+                    : 'Select a city...'}
+                </span>
+                <Check size={16} className={formData.city_id ? 'text-orange-500' : 'text-transparent'} />
+              </div>
+              <LocationPicker
+                isOpen={isLocationPickerOpen}
+                onClose={() => setIsLocationPickerOpen(false)}
+                onSelect={(cityId) => setFormData({ ...formData, city_id: String(cityId) })}
+                groupedCities={groupedCities}
+              />
+            </div>
           )}
 
           <div className="space-y-2">
@@ -310,7 +399,10 @@ export function BookingForm({ tripId, onSuccess, onCancel, onDelete, initialData
                 end_time: range.end_time,
                 details: {
                   ...formData.details,
-                  ...(formData.category === 'HOTEL' && { daily_start_time: range.daily_start_time, daily_end_time: range.daily_end_time })
+                  ...(formData.category === 'HOTEL' && {
+                    daily_start_time: range.daily_start_time,
+                    daily_end_time: range.daily_end_time
+                  })
                 }
               })}
             />
@@ -391,7 +483,9 @@ export function BookingForm({ tripId, onSuccess, onCancel, onDelete, initialData
           )}
 
           <div className="space-y-2">
-            <label className="text-xs font-bold text-zinc-500 uppercase tracking-wider flex items-center gap-1"><FileText size={12} /> Notes</label>
+            <label className="text-xs font-bold text-zinc-500 uppercase tracking-wider flex items-center gap-1">
+              <FileText size={12} /> Notes
+            </label>
             <div className="relative">
               <FileText className="absolute left-4 top-4 text-zinc-500" size={18} />
               <textarea value={formData.notes} onChange={e => setFormData({ ...formData, notes: e.target.value })} className="w-full bg-zinc-950 border border-zinc-800 rounded-xl pl-12 pr-4 py-3 text-white focus:outline-none focus:border-orange-500 transition-colors min-h-[100px]" placeholder="Additional notes..." />
@@ -406,7 +500,9 @@ export function BookingForm({ tripId, onSuccess, onCancel, onDelete, initialData
               </button>
             </div>
             {initialData && onDelete && (
-              <button type="button" onClick={() => onDelete(initialData.id)} className="w-full py-4 bg-red-500/10 hover:bg-red-500/20 text-red-500 border border-red-500/20 font-bold rounded-xl transition-all flex items-center justify-center gap-2"><Trash2 size={18} /> Delete</button>
+              <button type="button" onClick={() => onDelete(initialData.id)} className="w-full py-4 bg-red-500/10 hover:bg-red-500/20 text-red-500 border border-red-500/20 font-bold rounded-xl transition-all flex items-center justify-center gap-2">
+                <Trash2 size={18} /> Delete
+              </button>
             )}
           </div>
         </form>
