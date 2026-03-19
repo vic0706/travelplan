@@ -1,11 +1,11 @@
 import React, { useEffect, useState } from 'react';
-import { Cloud, CloudDrizzle, CloudFog, CloudLightning, CloudRain, CloudSnow, Sun, Loader2, RefreshCw } from 'lucide-react';
+import { Cloud, CloudDrizzle, CloudFog, CloudLightning, CloudRain, CloudSnow, Sun, Loader2, RefreshCw, Cpu } from 'lucide-react';
 import { apiFetch } from '../utils/api';
-import { format, isSameDay } from 'date-fns';
+import { format, isSameDay, isBefore, startOfDay } from 'date-fns';
 
 interface WeatherWidgetProps {
   tripId: number;
-  date: Date;
+  date: Date | null;
 }
 
 interface WeatherData {
@@ -32,6 +32,7 @@ export function WeatherWidget({ tripId, date }: WeatherWidgetProps) {
   const [syncing, setSyncing] = useState(false);
 
   const fetchWeather = async () => {
+    if (!date) return;
     setLoading(true);
     setData(null); 
     try {
@@ -57,7 +58,7 @@ export function WeatherWidget({ tripId, date }: WeatherWidgetProps) {
     fetchWeather();
   }, [tripId, date]);
 
-  // 💡 SYNC TRIP NOW 觸發全域同步
+  // 💡 觸發全域同步 (天氣 + Google Maps 車程)
   const handleSync = async (e: React.MouseEvent) => {
     e.stopPropagation();
     setSyncing(true);
@@ -84,6 +85,8 @@ export function WeatherWidget({ tripId, date }: WeatherWidgetProps) {
     return <Cloud size={size} className="text-zinc-500" />;
   };
 
+  const isPastDate = date ? isBefore(startOfDay(date), startOfDay(new Date())) : false;
+
   if (loading) {
     return (
       <div className="bg-zinc-900 border border-zinc-800 rounded-3xl p-5 flex items-center justify-center shadow-lg h-[80px]">
@@ -93,6 +96,7 @@ export function WeatherWidget({ tripId, date }: WeatherWidgetProps) {
   }
 
   if (message || !data || data.intervals.length === 0) {
+    if (isPastDate) return null;
     return (
       <div className="bg-zinc-900 border border-zinc-800 rounded-3xl p-5 flex flex-col items-center justify-center shadow-lg min-h-[80px] gap-2">
         <div className="flex items-center justify-between w-full">
@@ -101,8 +105,8 @@ export function WeatherWidget({ tripId, date }: WeatherWidgetProps) {
               onClick={handleSync} disabled={syncing}
               className="text-[10px] font-bold text-orange-500 bg-orange-500/10 hover:bg-orange-500/20 px-3 py-1.5 rounded-full transition-colors flex items-center gap-1.5 disabled:opacity-50"
             >
-              <RefreshCw size={12} className={syncing ? "animate-spin" : ""} />
-              {syncing ? 'SYNCING...' : 'SYNC TRIP NOW'}
+              {syncing ? <Loader2 size={14} className="animate-spin" /> : <Cpu size={14} />}
+              {syncing ? 'CALCULATING...' : 'AI Trip Calculation'}
             </button>
         </div>
       </div>
@@ -127,13 +131,15 @@ export function WeatherWidget({ tripId, date }: WeatherWidgetProps) {
           </div>
         </div>
         <div className="flex items-center gap-3">
-          <button 
-            onClick={handleSync} disabled={syncing}
-            className="text-[10px] font-bold text-zinc-400 hover:text-orange-500 bg-zinc-800 hover:bg-orange-500/10 px-2 py-1 rounded-full transition-colors flex items-center gap-1 disabled:opacity-50 border border-zinc-700"
-          >
-            <RefreshCw size={10} className={syncing ? "animate-spin" : ""} />
-            {syncing ? 'SYNCING...' : 'SYNC TRIP NOW'}
-          </button>
+          {!isPastDate && (
+             <button 
+               onClick={handleSync} disabled={syncing}
+               className="text-[10px] font-bold text-zinc-400 hover:text-orange-500 bg-zinc-800 hover:bg-orange-500/10 px-2 py-1 rounded-full transition-colors flex items-center gap-1.5 disabled:opacity-50 border border-zinc-700"
+             >
+               {syncing ? <Loader2 size={12} className="animate-spin" /> : <Cpu size={12} />}
+               {syncing ? 'CALCULATING...' : 'AI Trip Calculation'}
+             </button>
+          )}
           <div className="text-xs text-orange-500 font-medium">
             {isExpanded ? 'Collapse' : 'Expand'}
           </div>
@@ -145,7 +151,7 @@ export function WeatherWidget({ tripId, date }: WeatherWidgetProps) {
           {data.intervals
             .filter(interval => {
               const now = new Date();
-              const isToday = isSameDay(date, now);
+              const isToday = date ? isSameDay(date, now) : false;
               if (!isToday) return true;
               if (interval.time.includes('(+1)')) return true;
               const intervalHour = parseInt(interval.time.split(':')[0], 10);
