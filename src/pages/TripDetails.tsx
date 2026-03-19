@@ -43,7 +43,19 @@ const getEffectiveTimes = (item: any, baseDate: Date) => {
   return { start, end };
 };
 
-// BookingCard 無圖版
+// 💡 輔助函數：如果地址是網址，優雅地顯示為 [ Map Link ]
+const renderLocation = (loc: string, terminal?: string) => {
+  if (!loc) return null;
+  if (loc.startsWith('http')) {
+      return (
+          <a href={loc} target="_blank" rel="noopener noreferrer" className="text-orange-500 hover:text-orange-400 hover:underline transition-colors" onClick={e => e.stopPropagation()}>
+              [ Map Link ]
+          </a>
+      );
+  }
+  return <span>{loc}{terminal ? ` (T${terminal})` : ''}</span>;
+};
+
 function BookingCard({ booking, canEdit, onEdit }: { booking: Booking; canEdit: boolean; onEdit: () => void; }) {
   const startDate = parseISO(`${booking.start_date}T${booking.start_time}`);
   const endDate = parseISO(`${booking.end_date}T${booking.end_time}`);
@@ -90,23 +102,16 @@ function BookingCard({ booking, canEdit, onEdit }: { booking: Booking; canEdit: 
             </div>
             {booking.start_location && (
               <div className="flex items-center gap-1.5 text-zinc-500 text-xs truncate">
-                <MapPin size={12} />
-                <span>
-                  {booking.start_location}
-                  {(() => {
-                     try { return JSON.parse(booking.details as string).dep_terminal ? ` (T${JSON.parse(booking.details as string).dep_terminal})` : ''; }
-                     catch(e) { return (booking.details as any)?.dep_terminal ? ` (T${(booking.details as any).dep_terminal})` : ''; }
-                  })()}
-                </span>
-                {booking.end_location && (
-                  <><span className="mx-1">→</span><span>
-                    {booking.end_location}
-                    {(() => {
-                       try { return JSON.parse(booking.details as string).arr_terminal ? ` (T${JSON.parse(booking.details as string).arr_terminal})` : ''; }
-                       catch(e) { return (booking.details as any)?.arr_terminal ? ` (T${(booking.details as any).arr_terminal})` : ''; }
-                    })()}
-                  </span></>
-                )}
+                <MapPin size={12} className="shrink-0" />
+                <div className="truncate">
+                  {renderLocation(booking.start_location, (() => { try { return JSON.parse(booking.details as string).dep_terminal; } catch(e) { return (booking.details as any)?.dep_terminal; } })())}
+                  {booking.end_location && (
+                    <>
+                      <span className="mx-1">→</span>
+                      {renderLocation(booking.end_location, (() => { try { return JSON.parse(booking.details as string).arr_terminal; } catch(e) { return (booking.details as any)?.arr_terminal; } })())}
+                    </>
+                  )}
+                </div>
               </div>
             )}
             {booking.provider && booking.category !== 'RENTAL' && (
@@ -140,7 +145,6 @@ function TransportationCard({ item, booking, canEdit, isConflicted, onEdit, show
   const dep_buffer = detailsObj.dep_buffer;
   const arr_buffer = detailsObj.arr_buffer;
 
-  // 💡 同一使用 selectedDate 判斷，確保今天建立的卡片一定亮橘光
   const itemDateTime = parseISO(`${format(selectedDate, 'yyyy-MM-dd')}T${item.start_time || '00:00'}`);
   const isToday = isSameDay(selectedDate, new Date());
   const isPastItem = !isNaN(itemDateTime.getTime()) && isPast(itemDateTime) && !isToday;
@@ -213,7 +217,7 @@ function TransportationCard({ item, booking, canEdit, isConflicted, onEdit, show
           <div className="flex flex-col items-end gap-2">
             <div className="flex flex-col items-center bg-zinc-800/50 rounded-2xl border border-zinc-700/50 overflow-hidden shadow-sm backdrop-blur-sm">
               <a 
-                href={dep_station && dep_station.startsWith('http') ? dep_station : `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(dep_station || title)}`}
+                href={dep_station && dep_station.startsWith('http') ? dep_station : `http://maps.google.com/?q=${encodeURIComponent(dep_station || title)}`}
                 target="_blank" rel="noopener noreferrer"
                 className="p-2.5 text-zinc-400 hover:text-orange-500 hover:bg-zinc-700/50 transition-colors flex items-center justify-center w-10 h-10"
                 onClick={(e) => e.stopPropagation()} title="View on Map"
@@ -235,10 +239,10 @@ function TransportationCard({ item, booking, canEdit, isConflicted, onEdit, show
                   >
                     {item.next_transport_mode ? (
                       <>
-                        {item.next_transport_mode === 'DRIVING' && <Car size={16} />}
-                        {item.next_transport_mode === 'TRANSIT' && <Bus size={16} />}
                         {item.next_transport_mode === 'WALKING' && <Footprints size={16} />}
                         {item.next_transport_mode === 'BICYCLING' && <Bike size={16} />}
+                        {item.next_transport_mode === 'TRANSIT' && <Bus size={16} />}
+                        {item.next_transport_mode === 'DRIVING' && <Car size={16} />}
                         {(item.next_transport_time || item.next_transport_auto_time) && (
                           <span className="text-[9px] font-mono font-bold leading-none mt-0.5">{item.next_transport_time ? item.next_transport_time.replace(' min', 'm') : 'Auto'}</span>
                         )}
@@ -260,7 +264,9 @@ function TransportationCard({ item, booking, canEdit, isConflicted, onEdit, show
                             <div className="flex flex-col">
                                 <div className="text-[10px] text-zinc-500 uppercase tracking-wider mb-0.5">Dep</div>
                                 <div className="text-2xl font-bold text-white leading-none tracking-tight">{dep_time}</div>
-                                <div className="text-sm font-medium text-zinc-300 mt-1 truncate">{dep_station}</div>
+                                <div className="text-sm font-medium text-zinc-300 mt-1 truncate">
+                                    {dep_station?.startsWith('http') ? <a href={dep_station} target="_blank" rel="noopener noreferrer" className="text-orange-500 hover:underline text-xs" onClick={e=>e.stopPropagation()}>[ Map Link ]</a> : dep_station}
+                                </div>
                                 {dep_terminal && <div className="text-[10px] text-orange-500 mt-0.5">{labels.terminal} {dep_terminal}</div>}
                             </div>
                             <div className="flex flex-col items-center justify-center pt-2">
@@ -270,7 +276,9 @@ function TransportationCard({ item, booking, canEdit, isConflicted, onEdit, show
                             <div className="flex flex-col text-right">
                                 <div className="text-[10px] text-zinc-500 uppercase tracking-wider mb-0.5">Arr</div>
                                 <div className="text-2xl font-bold text-white leading-none tracking-tight">{arr_time}</div>
-                                <div className="text-sm font-medium text-zinc-300 mt-1 truncate">{arr_station}</div>
+                                <div className="text-sm font-medium text-zinc-300 mt-1 truncate">
+                                    {arr_station?.startsWith('http') ? <a href={arr_station} target="_blank" rel="noopener noreferrer" className="text-orange-500 hover:underline text-xs" onClick={e=>e.stopPropagation()}>[ Map Link ]</a> : arr_station}
+                                </div>
                                 {arr_terminal && <div className="text-[10px] text-orange-500 mt-0.5">{labels.terminal} {arr_terminal}</div>}
                             </div>
                         </div>
@@ -336,7 +344,7 @@ function SubItemRow({ sub, itineraryImageUrl, isLast, hasMore }: { sub: any; iti
         <div className="text-xs font-mono text-zinc-400 whitespace-nowrap min-w-[80px]">{sub.start_time} - {sub.end_time}</div>
         <div className={clsx("font-semibold flex-1 truncate", itineraryImageUrl ? "text-white" : "text-zinc-100")}>{sub.title || sub.text}</div>
         <div className="flex items-center gap-2 shrink-0">
-          {sub.address && <a href={sub.address.startsWith('http') ? sub.address : `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(sub.address)}`} target="_blank" rel="noopener noreferrer" onClick={(e) => e.stopPropagation()} className={clsx("p-1.5 rounded-full transition-colors", itineraryImageUrl ? "text-white/70 hover:text-white hover:bg-white/10" : "text-zinc-500 hover:text-orange-500 hover:bg-zinc-800")}><Map size={14} /></a>}
+          {sub.address && <a href={sub.address.startsWith('http') ? sub.address : `http://maps.google.com/?q=${encodeURIComponent(sub.address)}`} target="_blank" rel="noopener noreferrer" onClick={(e) => e.stopPropagation()} className={clsx("p-1.5 rounded-full transition-colors", itineraryImageUrl ? "text-white/70 hover:text-white hover:bg-white/10" : "text-zinc-500 hover:text-orange-500 hover:bg-zinc-800")}><Map size={14} /></a>}
           {(sub.notes || (sub.tags && sub.tags.length > 0)) && <button onClick={handleToggle} className={clsx("p-1.5 rounded-full transition-colors", itineraryImageUrl ? "text-white/70 hover:text-white hover:bg-white/10" : "text-zinc-500 hover:text-white hover:bg-zinc-800")}><ChevronDown size={14} className={clsx("transition-transform", showNotes ? "rotate-180" : "")} /></button>}
         </div>
       </div>
@@ -403,7 +411,7 @@ function ItineraryCard({ item, canEdit, isConflicted, onEdit, selectedDate, show
         <div className="flex flex-col items-end gap-2">
           <div className="flex flex-col items-center bg-zinc-800/50 rounded-2xl border border-zinc-700/50 overflow-hidden shadow-sm backdrop-blur-sm">
             <a 
-              href={item.address && item.address.startsWith('http') ? item.address : `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(item.address || item.title)}`}
+              href={item.address && item.address.startsWith('http') ? item.address : `http://maps.google.com/?q=${encodeURIComponent(item.address || item.title)}`}
               target="_blank" rel="noopener noreferrer" onClick={(e) => e.stopPropagation()}
               className="p-2.5 text-zinc-400 hover:text-orange-500 hover:bg-zinc-700/50 transition-colors flex items-center justify-center w-10 h-10" title="View on Map"
             >
@@ -421,10 +429,9 @@ function ItineraryCard({ item, canEdit, isConflicted, onEdit, selectedDate, show
                   {item.next_transport_mode ? (
                     <>
                       {item.next_transport_mode === 'WALKING' && <Footprints size={16} />}
-                      {(item.next_transport_mode === 'TRANSIT' || item.next_transport_mode === 'BUS') && <Bus size={16} />}
-                      {item.next_transport_mode === 'TRAIN' && <Train size={16} />}
-                      {item.next_transport_mode === 'SHIP' && <Ship size={16} />}
-                      {(item.next_transport_mode === 'DRIVING' || item.next_transport_mode === 'TAXI') && <Car size={16} />}
+                      {item.next_transport_mode === 'BICYCLING' && <Bike size={16} />}
+                      {item.next_transport_mode === 'TRANSIT' && <Bus size={16} />}
+                      {item.next_transport_mode === 'DRIVING' && <Car size={16} />}
                       {(item.next_transport_time || item.next_transport_auto_time) && <span className="text-[9px] font-mono font-bold leading-none mt-0.5">{item.next_transport_time ? item.next_transport_time.replace(' min', 'm') : (item.next_transport_auto_time || 'Auto')}</span>}
                     </>
                   ) : <Plus size={18} />}

@@ -201,6 +201,91 @@ async function getWeatherForDate(tripId: number, dateStr: string, env: Env, forc
   return finalJSON;
 }
 
+async function searchUnsplash(query: string, env: Env): Promise<string | null> {
+  try {
+    const response = await fetch(`https://api.unsplash.com/search/photos?query=${encodeURIComponent(query)}&per_page=1&orientation=landscape`, { headers: { 'Authorization': `Client-ID ${env.UNSPLASH_ACCESS_KEY}` } });
+    if (!response.ok) return null;
+    const data = await response.json() as any;
+    return data.results && data.results.length > 0 ? data.results[0].urls.regular : null;
+  } catch (e) { return null; }
+}
+
+// 💡 確保自動生成 Itinerary 卡片時，順便帶入地址 (address)
+function generateDesiredAccommodationItems(b: any, accId: string | number, hotelImage: string) {
+  const desiredItems = [];
+  const startDate = new Date(b.check_in_date);
+  const endDate = new Date(b.check_out_date);
+  const checkInTime = b.check_in_time || '16:00';
+  const checkOutTime = b.check_out_time || '11:00';
+  const dailyStartTime = b.daily_start_time || '08:00';
+  const dailyEndTime = b.daily_end_time || '22:00';
+
+  const currentDate = new Date(startDate);
+  const notesWithOrder = b.order_id ? `Order ID: ${b.order_id}\n${b.notes || ''}` : (b.notes || '');
+
+  while (currentDate <= endDate) {
+    const dateStr = currentDate.toISOString().split('T')[0];
+    const isCheckInDay = dateStr === b.check_in_date;
+    const isCheckOutDay = dateStr === b.check_out_date;
+    const itemName = b.name || b.hotel_name;
+
+    if (isCheckInDay) {
+      desiredItems.push({ date: dateStr, start_time: checkInTime, end_time: checkInTime, title: `Check-in ${itemName}`, notes: notesWithOrder, image_url: hotelImage, address: b.start_location || '', matchType: 'Check-in' });
+      if (!isCheckOutDay) desiredItems.push({ date: dateStr, start_time: dailyEndTime, end_time: dailyEndTime, title: `Back to ${itemName}`, notes: '', image_url: hotelImage, address: b.start_location || '', matchType: 'Back to Hotel' });
+    } else if (isCheckOutDay) {
+      desiredItems.push({ date: dateStr, start_time: checkOutTime, end_time: checkOutTime, title: `Check-out ${itemName}`, notes: notesWithOrder, image_url: hotelImage, address: b.start_location || '', matchType: 'Check-out' });
+    } else {
+      desiredItems.push({ date: dateStr, start_time: dailyStartTime, end_time: dailyStartTime, title: `Leave ${itemName}`, notes: '', image_url: hotelImage, address: b.start_location || '', matchType: 'Leave Hotel' });
+      desiredItems.push({ date: dateStr, start_time: dailyEndTime, end_time: dailyEndTime, title: `Back to ${itemName}`, notes: '', image_url: hotelImage, address: b.start_location || '', matchType: 'Back to Hotel' });
+    }
+    currentDate.setDate(currentDate.getDate() + 1);
+  }
+  return desiredItems;
+}
+
+function generateDesiredRentalItems(b: any, rentalId: string | number, rentalImage: string) {
+  const desiredItems = [];
+  const titlePrefix = b.provider ? `${b.provider} ` : '';
+  const name = b.title || '';
+  const notesWithOrder = b.order_id ? `Order ID: ${b.order_id}\n${b.notes || ''}` : (b.notes || '');
+
+  const details = typeof b.details === 'string' ? JSON.parse(b.details) : (b.details || {});
+  
+  const depBuffer = details.dep_buffer || 0; 
+  const arrBuffer = details.arr_buffer || 0;
+  const pad = (n: number) => n.toString().padStart(2, '0');
+
+  const pickUpStart = new Date(`1970-01-01T${b.start_time || '10:00'}:00`);
+  const pickUpEnd = new Date(pickUpStart.getTime() + (depBuffer * 60000));
+
+  desiredItems.push({
+    date: b.start_date,
+    start_time: b.start_time || '10:00',
+    end_time: `${pad(pickUpEnd.getHours())}:${pad(pickUpEnd.getMinutes())}`,
+    title: `Pick-up ${titlePrefix}${name}`.trim(),
+    notes: notesWithOrder,
+    image_url: rentalImage,
+    address: b.start_location || '',
+    matchType: 'Pick-up'
+  });
+
+  const returnStart = new Date(`1970-01-01T${b.end_time || '10:00'}:00`);
+  const returnEnd = new Date(returnStart.getTime() + (arrBuffer * 60000));
+
+  desiredItems.push({
+    date: b.end_date,
+    start_time: b.end_time || '10:00',
+    end_time: `${pad(returnEnd.getHours())}:${pad(returnEnd.getMinutes())}`,
+    title: `Return ${titlePrefix}${name}`.trim(),
+    notes: notesWithOrder,
+    image_url: rentalImage,
+    address: b.end_location || b.start_location || '',
+    matchType: 'Return'
+  });
+
+  return desiredItems;
+}
+
 async function extractCoordsFromUrl(url: string): Promise<{coords: string | null, debug: string[]}> {
   const debug: string[] = [];
   debug.push(`https://www.merriam-webster.com/dictionary/parse Start with URL: ${url}`);
@@ -241,7 +326,6 @@ async function extractCoordsFromUrl(url: string): Promise<{coords: string | null
         if (continueUrl) {
            currentUrl = decodeURIComponent(continueUrl);
            debug.push(`https://www.merriam-webster.com/dictionary/parse Bypassed consent.google.com -> ${currentUrl}`);
-           
            const res = await fetch(currentUrl, { headers: { 'User-Agent': 'Mozilla/5.0' }});
            finalHtml = await res.text();
         }
@@ -280,13 +364,11 @@ async function extractCoordsFromUrl(url: string): Promise<{coords: string | null
 
     if (finalHtml && (currentUrl.includes('google.com/maps') || currentUrl.includes('maps.app.goo.gl'))) {
        debug.push(`https://www.merriam-webster.com/dictionary/parse Scanning HTML for coords...`);
-       
        const centerMatch = finalHtml.match(/center=(-?\d+\.\d+)%2C(-?\d+\.\d+)/) || finalHtml.match(/center=(-?\d+\.\d+),(-?\d+\.\d+)/);
        if (centerMatch) {
           debug.push(`https://www.merriam-webster.com/dictionary/parse HTML meta matched -> ${centerMatch[1]},${centerMatch[2]}`);
           return { coords: `${centerMatch[1]},${centerMatch[2]}`, debug };
        }
-
        const initMatch = finalHtml.match(/\[null,null,(-?\d+\.\d+),(-?\d+\.\d+)/);
        if (initMatch) {
           debug.push(`https://www.merriam-webster.com/dictionary/parse HTML INIT_STATE matched -> ${initMatch[2]},${initMatch[1]}`);
@@ -319,7 +401,7 @@ async function geocodeTextToCoords(text: string, apiKey: string): Promise<{coord
   }
 }
 
-// 💡 終極全域 Sync Handler (AI Trip Calculation)
+// 💡 終極全域 Sync Handler
 const syncTripHandler = async (c: any) => {
   const tripId = c.req.param('id');
   const targetDate = c.req.query('date'); 
@@ -355,22 +437,40 @@ const syncTripHandler = async (c: any) => {
 
     const { results: bookings } = await c.env.DB.prepare(`SELECT * FROM Bookings WHERE trip_id = ?`).bind(tripId).all();
 
+    // 💡 智慧起終點判定與自動補綴後綴詞 (Airport / Station / Port)
     const getLocationString = (item: any, type: 'origin' | 'destination') => {
       let loc = '';
+      let category = '';
+
       if (item.related_id) {
          const b = bookings.find((x: any) => x.id === item.related_id);
          if (b) {
+            category = b.category;
             if (b.category === 'HOTEL') {
                loc = b.start_location;
-            } else if (['PRIVATE_TRANSFER', 'RENTAL', 'FERRY', 'TRAIN', 'FLIGHT'].includes(b.category)) {
+            } else if (['PRIVATE_TRANSFER', 'RENTAL', 'FERRY', 'TRAIN', 'FLIGHT', 'BUS'].includes(b.category)) {
+               // 判斷：若為 origin，代表剛抵達(完成該行程)，要用 end_location。若為 destination，代表要前往(開始)，用 start_location。
                loc = type === 'origin' ? (b.end_location || b.start_location) : b.start_location;
             } else {
                loc = type === 'origin' ? (b.end_location || b.start_location) : b.start_location;
             }
          }
       }
-      if (!loc) loc = item.address;
-      return loc;
+      
+      // 使用者手動設定的地址擁有最高優先權
+      if (item.address && item.address.trim() !== '') {
+          loc = item.address;
+      }
+
+      // 如果非網址，自動幫純文字補上重要後綴，讓 Google 更容易精準辨識
+      if (loc && !loc.startsWith('http')) {
+          const lowerLoc = loc.toLowerCase();
+          if (category === 'FLIGHT' && !lowerLoc.includes('airport') && !lowerLoc.includes('機場')) loc += ' Airport';
+          if (category === 'TRAIN' && !lowerLoc.includes('station') && !lowerLoc.includes('車站') && !lowerLoc.includes('站')) loc += ' Station';
+          if (category === 'FERRY' && !lowerLoc.includes('port') && !lowerLoc.includes('pier') && !lowerLoc.includes('港')) loc += ' Port';
+      }
+
+      return loc || '';
     };
 
     let mapsProcessed = 0;
@@ -437,7 +537,6 @@ const syncTripHandler = async (c: any) => {
              continue;
          }
 
-         // 💡 1. 統一 Google Maps API 支援的四種交通模式
          let mode = 'driving';
          if (current.next_transport_mode === 'WALKING') mode = 'walking';
          else if (current.next_transport_mode === 'BICYCLING') mode = 'bicycling';
@@ -454,7 +553,6 @@ const syncTripHandler = async (c: any) => {
               const durationMins = Math.ceil(durationSecs / 60);
               debugLogs.push(`SUCCESS: Maps returned ${durationMins} minutes.`);
               
-              // 💡 2. 反向快取 (Auto-Caching)：成功取得結果後，將精準的座標直接寫回 next_transport_auto_time
               const savedAutoTime = `${origin}|${destination}`;
 
               await c.env.DB.prepare(`UPDATE Itineraries SET next_transport_time = ?, next_transport_auto_time = ? WHERE id = ?`)
@@ -495,7 +593,9 @@ const syncTripHandler = async (c: any) => {
 };
 
 
-// --- 無身分驗證路由 ---
+// ============================================================================
+// 🔓 無身分驗證路由 (Login, Init, etc.)
+// ============================================================================
 
 app.post('/api/init', async (c) => {
   try {
@@ -533,6 +633,9 @@ app.post('/api/auth/login', async (c) => {
   } catch (error: any) { return c.json({ error: error.message }, 500); }
 });
 
+// ============================================================================
+// 🔒 授權攔截器 (MIDDLEWARE) - 在此之後的所有路由都需要 Token
+// ============================================================================
 app.use('/api/*', decodeUserMiddleware);
 app.use('/api/users', requireAuthMiddleware);
 app.use('/api/users/*', requireAuthMiddleware);
@@ -717,6 +820,7 @@ app.delete('/api/trips/:id', async (c) => {
   } catch (error: any) { return c.json({ error: error.message }, 500); }
 });
 
+// 💡 BOOKINGS (新增 Itinerary 卡片時一併帶入 Address)
 app.get('/api/trips/:id/bookings', async (c) => {
   const tripId = c.req.param('id');
   try {
@@ -755,12 +859,12 @@ app.post('/api/trips/:id/bookings', async (c) => {
     if (b.category === 'HOTEL') {
       const desiredItems = generateDesiredAccommodationItems({ ...b, check_in_date: b.start_date, check_out_date: b.end_date, check_in_time: b.start_time, check_out_time: b.end_time, hotel_name: b.title, name: b.title, daily_start_time: b.details?.daily_start_time, daily_end_time: b.details?.daily_end_time }, bookingId, imageUrl || '');
       for (const item of desiredItems) {
-        await c.env.DB.prepare(`INSERT INTO Itineraries (trip_id, date, start_time, end_time, title, type, related_id, notes, image_url) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`).bind(tripId, item.date, item.start_time, item.end_time, item.title, 'ACCOMMODATION', bookingId, item.notes, item.image_url).run();
+        await c.env.DB.prepare(`INSERT INTO Itineraries (trip_id, date, start_time, end_time, title, type, related_id, notes, image_url, address) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).bind(tripId, item.date, item.start_time, item.end_time, item.title, 'ACCOMMODATION', bookingId, item.notes, item.image_url, item.address).run();
       }
     } else if (b.category === 'RENTAL') {
       const desiredItems = generateDesiredRentalItems(b, bookingId, imageUrl || '');
       for (const item of desiredItems) {
-        await c.env.DB.prepare(`INSERT INTO Itineraries (trip_id, date, start_time, end_time, title, type, related_id, notes, image_url) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`).bind(tripId, item.date, item.start_time, item.end_time, item.title, 'RENTAL', bookingId, item.notes, item.image_url).run();
+        await c.env.DB.prepare(`INSERT INTO Itineraries (trip_id, date, start_time, end_time, title, type, related_id, notes, image_url, address) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).bind(tripId, item.date, item.start_time, item.end_time, item.title, 'RENTAL', bookingId, item.notes, item.image_url, item.address).run();
       }
     } else {
       const depDateTime = new Date(`${b.start_date}T${b.start_time || '00:00'}:00`); 
@@ -775,7 +879,7 @@ app.post('/api/trips/:id/bookings', async (c) => {
       arrDateTime.setMinutes(arrDateTime.getMinutes() + arrBuffer);
       const exitTime = arrDateTime.toTimeString().substring(0, 5);
 
-      await c.env.DB.prepare(`INSERT INTO Itineraries (trip_id, date, start_time, end_time, title, type, related_id, notes) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`).bind(tripId, checkInDate, checkInTime, exitTime, b.title, 'TRANSPORTATION', bookingId, b.notes || '').run();
+      await c.env.DB.prepare(`INSERT INTO Itineraries (trip_id, date, start_time, end_time, title, type, related_id, notes, address) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`).bind(tripId, checkInDate, checkInTime, exitTime, b.title, 'TRANSPORTATION', bookingId, b.notes || '', b.start_location || '').run();
     }
     return c.json({ success: true, id: bookingId });
   } catch (error: any) { return c.json({ error: error.message }, 500); }
@@ -830,9 +934,9 @@ app.put('/api/trips/:id/bookings/:bookingId', async (c) => {
              finalEndTime = item.end_time;
              finalTitle = item.title;
           }
-          await c.env.DB.prepare(`UPDATE Itineraries SET date = ?, start_time = ?, end_time = ?, title = ?, image_url = ? WHERE id = ?`).bind(item.date, finalStartTime, finalEndTime, finalTitle, imageUrl || match.image_url || '', match.id).run();
+          await c.env.DB.prepare(`UPDATE Itineraries SET date = ?, start_time = ?, end_time = ?, title = ?, image_url = ?, address = ? WHERE id = ?`).bind(item.date, finalStartTime, finalEndTime, finalTitle, imageUrl || match.image_url || '', item.address || '', match.id).run();
         } else {
-          await c.env.DB.prepare(`INSERT INTO Itineraries (trip_id, date, start_time, end_time, title, type, related_id, notes, image_url) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`).bind(tripId, item.date, item.start_time, item.end_time, item.title, 'ACCOMMODATION', bookingId, item.notes, item.image_url).run();
+          await c.env.DB.prepare(`INSERT INTO Itineraries (trip_id, date, start_time, end_time, title, type, related_id, notes, image_url, address) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).bind(tripId, item.date, item.start_time, item.end_time, item.title, 'ACCOMMODATION', bookingId, item.notes, item.image_url, item.address).run();
         }
       }
       for (const leftover of existingPool) {
@@ -853,9 +957,9 @@ app.put('/api/trips/:id/bookings/:bookingId', async (c) => {
         if (matchIndex !== -1) {
           const match = existingPool[matchIndex];
           existingPool.splice(matchIndex, 1);
-          await c.env.DB.prepare(`UPDATE Itineraries SET date = ?, start_time = ?, end_time = ?, title = ?, image_url = ? WHERE id = ?`).bind(item.date, item.start_time, item.end_time, item.title, imageUrl || match.image_url || '', match.id).run();
+          await c.env.DB.prepare(`UPDATE Itineraries SET date = ?, start_time = ?, end_time = ?, title = ?, image_url = ?, address = ? WHERE id = ?`).bind(item.date, item.start_time, item.end_time, item.title, imageUrl || match.image_url || '', item.address || '', match.id).run();
         } else {
-          await c.env.DB.prepare(`INSERT INTO Itineraries (trip_id, date, start_time, end_time, title, type, related_id, notes, image_url) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`).bind(tripId, item.date, item.start_time, item.end_time, item.title, 'RENTAL', bookingId, item.notes, item.image_url).run();
+          await c.env.DB.prepare(`INSERT INTO Itineraries (trip_id, date, start_time, end_time, title, type, related_id, notes, image_url, address) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).bind(tripId, item.date, item.start_time, item.end_time, item.title, 'RENTAL', bookingId, item.notes, item.image_url, item.address).run();
         }
       }
       for (const leftover of existingPool) {
@@ -876,7 +980,7 @@ app.put('/api/trips/:id/bookings/:bookingId', async (c) => {
       arrDateTime.setMinutes(arrDateTime.getMinutes() + arrBuffer);
       const exitTime = arrDateTime.toTimeString().substring(0, 5);
 
-      await c.env.DB.prepare(`INSERT INTO Itineraries (trip_id, date, start_time, end_time, title, type, related_id, notes) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`).bind(tripId, checkInDate, checkInTime, exitTime, b.title, 'TRANSPORTATION', bookingId, b.notes || '').run();
+      await c.env.DB.prepare(`INSERT INTO Itineraries (trip_id, date, start_time, end_time, title, type, related_id, notes, address) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`).bind(tripId, checkInDate, checkInTime, exitTime, b.title, 'TRANSPORTATION', bookingId, b.notes || '', b.start_location || '').run();
     }
     return c.json({ success: true });
   } catch (error: any) { return c.json({ error: error.message }, 500); }
