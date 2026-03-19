@@ -99,6 +99,10 @@ export function ItineraryForm({ tripId, defaultCityId, date, onSuccess, onCancel
   
   const [categories, setCategories] = useState<any[]>([]);
 
+  // 💡 自製彈窗 State
+  const [alertMessage, setAlertMessage] = useState('');
+  const [confirmMessage, setConfirmMessage] = useState<{title: string, msg: string, onConfirm: () => void} | null>(null);
+
   useEffect(() => {
     const fetchCategories = async () => {
       try {
@@ -237,40 +241,21 @@ export function ItineraryForm({ tripId, defaultCityId, date, onSuccess, onCancel
       const publicUrl = await uploadImageToSupabase(croppedBlob);
       setFormData(prev => ({ ...prev, image_url: publicUrl }));
     } catch (err: any) {
-      setError('Failed to upload image: ' + err.message);
+      setAlertMessage('Failed to upload image: ' + err.message);
     } finally {
       setUploading(false);
     }
   };
 
-  const handleSubmit = async (e: React.MouseEvent | React.FormEvent) => {
-    e.preventDefault();
+  // 💡 將實際執行的儲存邏輯抽離出來，讓 Confirm 彈窗按確定後可以呼叫
+  const executeSave = async () => {
+    setLoading(true);
     try {
-      setLoading(true);
-      setError('');
-
-      const isHotelInstance = initialData?.type === 'ACCOMMODATION' || initialData?.type === 'RENTAL';
-      
-      if (!formData.city_id && !isHotelInstance) {
-        setError('Please select a city.');
-        setLoading(false);
-        document.querySelector('.custom-scrollbar')?.scrollTo({ top: 0, behavior: 'smooth' });
-        return;
-      }
-
-      const overlappingBooking = checkOverlapWithBooking(formData.start_time, formData.end_time);
-      if (overlappingBooking) {
-        if (!window.confirm(`此時間段與已建立的預訂行程「${overlappingBooking}」衝突（包含緩衝/交通時間）。\n\nBooking 享有最高優先權。您確定要繼續建立嗎？`)) {
-          setLoading(false);
-          return;
-        }
-      }
-
       for (const sub of subItems) {
         if (sub.start_time < formData.start_time || sub.end_time > formData.end_time) {
-          setError(`Sub-item "${sub.title}" must be within the parent activity's time range (${formData.start_time} - ${formData.end_time}).`);
+          setError(`Sub-item "${sub.title}" must be within the parent activity's time range.`);
+          setAlertMessage(`子行程 "${sub.title}" 的時間必須在主行程的時間範圍內。`);
           setLoading(false);
-          document.querySelector('.custom-scrollbar')?.scrollTo({ top: 0, behavior: 'smooth' });
           return;
         }
       }
@@ -288,6 +273,7 @@ export function ItineraryForm({ tripId, defaultCityId, date, onSuccess, onCancel
         }
       }
 
+      const isHotelInstance = initialData?.type === 'ACCOMMODATION' || initialData?.type === 'RENTAL';
       const endpoint = initialData ? `/api/trips/${tripId}/itineraries/${initialData.id}` : `/api/trips/${tripId}/itineraries`;
       const method = initialData ? 'PUT' : 'POST';
 
@@ -321,12 +307,47 @@ export function ItineraryForm({ tripId, defaultCityId, date, onSuccess, onCancel
       await onSuccess();
       
     } catch (err: any) {
-      console.error("[DEBUG] Error caught in handleSubmit:", err);
+      console.error("[DEBUG] Error caught in executeSave:", err);
       setError(err.message);
-      alert(`發生錯誤: ${err.message}`);
+      setAlertMessage(`發生錯誤: ${err.message}`);
     } finally {
       setLoading(false);
     }
+  };
+
+  const handleSubmit = async (e: React.MouseEvent | React.FormEvent) => {
+    e.preventDefault();
+    
+    // 基本防呆檢查
+    if (!formData.title.trim()) {
+       setAlertMessage('請輸入活動標題！(Title is required)');
+       return;
+    }
+
+    const isHotelInstance = initialData?.type === 'ACCOMMODATION' || initialData?.type === 'RENTAL';
+    if (!formData.city_id && !isHotelInstance) {
+      setError('Please select a city.');
+      setAlertMessage('請選擇一個城市！(Please select a city)');
+      return;
+    }
+
+    // 檢查是否有行程衝突
+    const overlappingBooking = checkOverlapWithBooking(formData.start_time, formData.end_time);
+    if (overlappingBooking) {
+      // 🚨 觸發自製 Confirm 彈窗，代替原本的 window.confirm
+      setConfirmMessage({
+         title: '時間衝突警告',
+         msg: `此時間段與已建立的預訂行程「${overlappingBooking}」衝突（包含緩衝/交通時間）。\n\nBooking 享有最高優先權。您確定要繼續建立嗎？`,
+         onConfirm: () => {
+            setConfirmMessage(null);
+            executeSave(); // 使用者按下確定後才執行儲存
+         }
+      });
+      return; // 暫停執行，等待彈窗結果
+    }
+
+    // 若無衝突，直接儲存
+    await executeSave();
   };
 
   const isLockedTitle = (initialData?.type === 'ACCOMMODATION' && initialData?.title.match(/^(Check-in|Check-out|Back to|Leave)/)) ||
@@ -344,7 +365,7 @@ export function ItineraryForm({ tripId, defaultCityId, date, onSuccess, onCancel
       </div>
 
       <div className="overflow-y-auto p-6 space-y-6 pb-24 custom-scrollbar relative z-0">
-        {error && <div className="p-3 bg-red-500/10 border border-red-500/20 rounded-xl text-red-400 text-sm">{error}</div>}
+        {error && <div className="p-3 bg-red-500/10 border border-red-500/20 rounded-xl text-red-400 text-sm hidden">{error}</div>}
 
         <div>
           <label className="block text-[10px] font-bold text-zinc-500 uppercase tracking-wider mb-2">Cover Image</label>
@@ -386,7 +407,6 @@ export function ItineraryForm({ tripId, defaultCityId, date, onSuccess, onCancel
           {isLockedTitle && <p className="text-[10px] text-orange-500 mt-1 ml-1">Title is synced with Booking.</p>}
         </div>
 
-        {/* 1. 優化後的 Icon 與 Schedule 排版 */}
         <div className="flex gap-3">
           <div className="w-[64px] shrink-0">
             <label className="block text-[10px] font-bold text-zinc-500 uppercase tracking-wider mb-1">Icon</label>
@@ -506,7 +526,6 @@ export function ItineraryForm({ tripId, defaultCityId, date, onSuccess, onCancel
 
       {/* --- Inner Modals --- */}
       
-      {/* 2. 升級版的 Schedule Time/Duration Picker Modal */}
       <AnimatePresence>
         {isTimePickerOpen && (
           <div className="absolute inset-0 z-[60] flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm">
@@ -629,6 +648,74 @@ export function ItineraryForm({ tripId, defaultCityId, date, onSuccess, onCancel
           />
         )}
       </AnimatePresence>
+
+      {/* 🚨 高質感自製 Alert 彈窗 (錯誤提示) */}
+      <AnimatePresence>
+        {alertMessage && (
+          <div className="absolute inset-0 z-[300] flex items-center justify-center p-6 bg-black/60 backdrop-blur-sm">
+            <motion.div 
+              initial={{ scale: 0.9, opacity: 0, y: 10 }} 
+              animate={{ scale: 1, opacity: 1, y: 0 }} 
+              exit={{ scale: 0.9, opacity: 0, y: 10 }} 
+              className="bg-zinc-900 border border-orange-500/30 rounded-3xl p-6 w-full max-w-[320px] shadow-2xl flex flex-col items-center text-center"
+            >
+              <div className="w-14 h-14 rounded-full bg-orange-500/10 flex items-center justify-center text-orange-500 mb-4 shadow-[0_0_15px_rgba(249,115,22,0.2)]">
+                <AlertCircle size={28} />
+              </div>
+              <h3 className="font-bold text-white text-lg mb-2">Notice</h3>
+              <p className="text-zinc-400 text-sm mb-6 leading-relaxed">
+                {alertMessage}
+              </p>
+              <button 
+                type="button"
+                onClick={() => setAlertMessage('')} 
+                className="w-full py-3.5 bg-orange-500 hover:bg-orange-600 text-white rounded-xl font-bold transition-colors shadow-lg shadow-orange-500/20 active:scale-[0.98]"
+              >
+                Got it
+              </button>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      {/* 🚨 高質感自製 Confirm 彈窗 (時間衝突確認) */}
+      <AnimatePresence>
+        {confirmMessage && (
+          <div className="absolute inset-0 z-[300] flex items-center justify-center p-6 bg-black/60 backdrop-blur-sm">
+            <motion.div 
+              initial={{ scale: 0.9, opacity: 0, y: 10 }} 
+              animate={{ scale: 1, opacity: 1, y: 0 }} 
+              exit={{ scale: 0.9, opacity: 0, y: 10 }} 
+              className="bg-zinc-900 border border-orange-500/30 rounded-3xl p-6 w-full max-w-[320px] shadow-2xl flex flex-col items-center text-center"
+            >
+              <div className="w-14 h-14 rounded-full bg-orange-500/10 flex items-center justify-center text-orange-500 mb-4 shadow-[0_0_15px_rgba(249,115,22,0.2)]">
+                <AlertCircle size={28} />
+              </div>
+              <h3 className="font-bold text-white text-lg mb-2">{confirmMessage.title}</h3>
+              <p className="text-zinc-400 text-sm mb-6 leading-relaxed whitespace-pre-wrap">
+                {confirmMessage.msg}
+              </p>
+              <div className="flex gap-3 w-full">
+                <button 
+                  type="button"
+                  onClick={() => setConfirmMessage(null)} 
+                  className="flex-1 py-3.5 bg-zinc-800 hover:bg-zinc-700 text-zinc-400 hover:text-white rounded-xl font-bold transition-colors"
+                >
+                  Cancel
+                </button>
+                <button 
+                  type="button"
+                  onClick={confirmMessage.onConfirm} 
+                  className="flex-1 py-3.5 bg-orange-500 hover:bg-orange-600 text-white rounded-xl font-bold transition-colors shadow-lg shadow-orange-500/20"
+                >
+                  Confirm
+                </button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
     </div>
   );
 }
