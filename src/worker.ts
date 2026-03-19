@@ -285,7 +285,7 @@ function generateDesiredRentalItems(b: any, rentalId: string | number, rentalIma
   return desiredItems;
 }
 
-// 💡 暴力 URL 解析引擎：展開短網址並精準捕捉 Google Maps 座標
+// 💡 暴力 URL 解析引擎：展開短網址並精準捕捉 Google Maps 座標 (不再抓 HTML 原始碼)
 async function extractCoordsFromUrl(url: string): Promise<string | null> {
   try {
     let currentUrl = url;
@@ -296,7 +296,7 @@ async function extractCoordsFromUrl(url: string): Promise<string | null> {
         method: 'GET', 
         redirect: 'manual',
         headers: {
-          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
+          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
         }
       });
       
@@ -311,7 +311,7 @@ async function extractCoordsFromUrl(url: string): Promise<string | null> {
       break;
     }
 
-    // 2. 如果被導向到 Google 的 Cookie 同意頁面，真網址通常藏在 continue 參數裡
+    // 2. 穿越 Google 的 Cookie 同意頁面
     if (currentUrl.includes('consent.google.com')) {
       try {
         const urlObj = new URL(currentUrl);
@@ -333,6 +333,9 @@ async function extractCoordsFromUrl(url: string): Promise<string | null> {
     const llMatch = currentUrl.match(/ll=(-?\d+\.\d+),(-?\d+\.\d+)/);
     if (llMatch) return `${llMatch[1]},${llMatch[2]}`;
 
+    const searchMatch = currentUrl.match(/search\/(-?\d+\.\d+),(-?\d+\.\d+)/);
+    if (searchMatch) return `${searchMatch[1]},${searchMatch[2]}`;
+
     return null;
   } catch (e) {
     console.error("URL extraction failed:", e);
@@ -340,7 +343,7 @@ async function extractCoordsFromUrl(url: string): Promise<string | null> {
   }
 }
 
-// 💡 終極全域 Sync Handler
+// 💡 終極全域 Sync Handler (AI Trip Calculation)
 const syncTripHandler = async (c: any) => {
   const tripId = c.req.param('id');
   const targetDate = c.req.query('date'); 
@@ -378,11 +381,15 @@ const syncTripHandler = async (c: any) => {
 
     const { results: bookings } = await c.env.DB.prepare(`SELECT * FROM Bookings WHERE trip_id = ?`).bind(tripId).all();
 
-    // 取得文字地址或 URL 的邏輯
+    // 取得文字地址
     const getLocationString = (item: any, type: 'origin' | 'destination') => {
-      let loc = '';
+      // 1. 如果使用者在行程卡片手動輸入了 Address，絕對是第一優先
+      if (item.address && item.address.trim() !== '') {
+          return item.address;
+      }
       
-      // 若該卡片是綁定 Booking 的 INFO 卡片
+      // 2. 如果沒有自訂 Address，尋找是否有綁定 Booking
+      let loc = '';
       if (item.related_id) {
          const b = bookings.find((x: any) => x.id === item.related_id);
          if (b) {
@@ -395,16 +402,24 @@ const syncTripHandler = async (c: any) => {
             }
          }
       }
-      
-      // 如果 Booking 沒有地址，或者是普通的 Itinerary 卡片，優先使用 item.address
-      if (!loc) loc = item.address;
+      return loc || '';
+    };
 
-      // 如果使用者在地址欄貼上了網址，直接回傳網址，讓後續處理
-      if (item.address && item.address.includes('http')) {
-          loc = item.address;
-      }
-      
-      return loc;
+    // 💡 智慧清洗網址與取得位置
+    const getCleanLocation = async (rawLoc: string, city: string, title: string) => {
+        if (!rawLoc) return `${city || ''} ${title}`.trim();
+        
+        const urlMatch = rawLoc.match(/https?:\/\/[^\s]+/);
+        if (urlMatch) {
+            // 嘗試從網址提取座標
+            const coords = await extractCoordsFromUrl(urlMatch[0]);
+            if (coords) return coords;
+            
+            // 提取失敗（例如純圖片網址），剝除網址，留下純文字讓 Google 搜尋
+            const textOnly = rawLoc.replace(/https?:\/\/[^\s]+/g, '').trim();
+            return textOnly || `${city || ''} ${title}`.trim();
+        }
+        return rawLoc; 
     };
 
     let mapsProcessed = 0;
@@ -421,35 +436,20 @@ const syncTripHandler = async (c: any) => {
          let origin = '';
          let destination = '';
          
-         // 1. 優先使用手動輸入在 auto_time 裡面的經緯度 (lat,lng|lat,lng)
+         // 1. 優先解析手動輸入的經緯度 (lat,lng|lat,lng)
          if (current.next_transport_auto_time && current.next_transport_auto_time.includes('|')) {
              const parts = current.next_transport_auto_time.split('|');
              origin = parts[0];
              destination = parts[1];
          }
          
-         // 2. 如果沒有手動經緯度，開始進行智慧抓取
+         // 2. 如果沒有手動經緯度，進行智慧抓取與清洗
          if (!origin || !destination) {
-             let rawOrigin = getLocationString(current, 'origin');
-             let rawDest = getLocationString(next, 'destination');
+             let rawOrigin = origin || getLocationString(current, 'origin');
+             let rawDest = destination || getLocationString(next, 'destination');
              
-             // 掃描 Origin 是否包含網址
-             const originUrlMatch = rawOrigin?.match(/https?:\/\/[^\s]+/);
-             if (originUrlMatch) {
-                 const extracted = await extractCoordsFromUrl(originUrlMatch[0]);
-                 origin = extracted || `${current.city_name || ''} ${current.title}`.trim();
-             } else {
-                 origin = rawOrigin || `${current.city_name || ''} ${current.title}`.trim();
-             }
-
-             // 掃描 Destination 是否包含網址
-             const destUrlMatch = rawDest?.match(/https?:\/\/[^\s]+/);
-             if (destUrlMatch) {
-                 const extracted = await extractCoordsFromUrl(destUrlMatch[0]);
-                 destination = extracted || `${next.city_name || ''} ${next.title}`.trim();
-             } else {
-                 destination = rawDest || `${next.city_name || ''} ${next.title}`.trim();
-             }
+             origin = origin || await getCleanLocation(rawOrigin, current.city_name, current.title);
+             destination = destination || await getCleanLocation(rawDest, next.city_name, next.title);
          }
 
          if (!origin || !destination) {
@@ -461,7 +461,7 @@ const syncTripHandler = async (c: any) => {
          if (current.next_transport_mode === 'WALKING') mode = 'walking';
          if (current.next_transport_mode === 'DRIVING' || current.next_transport_mode === 'TAXI' || current.next_transport_mode === 'RENTAL') mode = 'driving';
 
-         // 3. 把經緯度 (或最後的防呆字串) 餵給 Google Maps
+         // 3. 交由 Google Maps 運算
          if (origin && destination) {
             try {
               const url = `https://maps.googleapis.com/maps/api/distancematrix/json?origins=${encodeURIComponent(origin)}&destinations=${encodeURIComponent(destination)}&mode=${mode}&key=${c.env.GOOGLE_MAPS_API_KEY}`;
@@ -472,11 +472,11 @@ const syncTripHandler = async (c: any) => {
                  const durationSecs = mapData.rows[0].elements[0].duration.value;
                  const durationMins = Math.ceil(durationSecs / 60);
                  
+                 // 保留原始使用者在前端輸入的經緯度 (如果有)
                  const originalAutoTime = (current.next_transport_auto_time && current.next_transport_auto_time.includes('|')) 
                                           ? current.next_transport_auto_time 
                                           : '';
 
-                 // 寫入運算好的分鐘數，鎖定結果
                  await c.env.DB.prepare(`UPDATE Itineraries SET next_transport_time = ?, next_transport_auto_time = ? WHERE id = ?`)
                    .bind(`${durationMins} min`, originalAutoTime, current.id)
                    .run();
@@ -502,6 +502,11 @@ const syncTripHandler = async (c: any) => {
     return c.json({ error: error.message }, 500); 
   }
 };
+
+
+// ============================================================================
+// 🔓 無身分驗證路由 (Login, Init, etc.)
+// ============================================================================
 
 app.post('/api/init', async (c) => {
   try {
@@ -539,6 +544,9 @@ app.post('/api/auth/login', async (c) => {
   } catch (error: any) { return c.json({ error: error.message }, 500); }
 });
 
+// ============================================================================
+// 🔒 授權攔截器 (MIDDLEWARE) - 在此之後的所有路由都需要 Token
+// ============================================================================
 app.use('/api/*', decodeUserMiddleware);
 app.use('/api/users', requireAuthMiddleware);
 app.use('/api/users/*', requireAuthMiddleware);
@@ -550,6 +558,9 @@ app.post('/api/trips/*', requireAuthMiddleware);
 app.put('/api/trips/*', requireAuthMiddleware);
 app.delete('/api/trips/*', requireAuthMiddleware);
 
+// --- 需身分驗證的路由 ---
+
+// 💡 註冊 SYNC API
 app.post('/api/trips/:id/sync', syncTripHandler);
 app.post('/api/trips/:id/weather/sync', syncTripHandler);
 
