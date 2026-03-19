@@ -2,7 +2,7 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useAppStore } from '../store';
 import { format, parseISO, addDays, differenceInDays, isSameDay, isPast, addMinutes } from 'date-fns';
-import { MapPin, Clock, Plus, Navigation, DollarSign, Plane, Bed, Map, Info, Wallet, ArrowLeft, Calendar, X, Settings, Edit3, ChevronDown, ChevronUp, ChevronsUpDown, ChevronsDownUp, Lock, Unlock, Trash2, Train, Ship, Bus, Car, Footprints } from 'lucide-react';
+import { MapPin, Clock, Plus, Navigation, DollarSign, Plane, Bed, Map, Info, Wallet, ArrowLeft, Calendar, X, Settings, Edit3, ChevronDown, ChevronUp, ChevronsUpDown, ChevronsDownUp, Lock, Unlock, Trash2, Train, Ship, Bus, Car, Footprints, Bike } from 'lucide-react';
 import { Trip, Itinerary, Expense, User, Booking, BookingCategory } from '../types';
 import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip } from 'recharts';
 import { clsx } from 'clsx';
@@ -235,11 +235,10 @@ function TransportationCard({ item, booking, canEdit, isConflicted, onEdit, show
                   >
                     {item.next_transport_mode ? (
                       <>
+                        {item.next_transport_mode === 'DRIVING' && <Car size={16} />}
+                        {item.next_transport_mode === 'TRANSIT' && <Bus size={16} />}
                         {item.next_transport_mode === 'WALKING' && <Footprints size={16} />}
-                        {(item.next_transport_mode === 'TRANSIT' || item.next_transport_mode === 'BUS') && <Bus size={16} />}
-                        {item.next_transport_mode === 'TRAIN' && <Train size={16} />}
-                        {item.next_transport_mode === 'SHIP' && <Ship size={16} />}
-                        {(item.next_transport_mode === 'DRIVING' || item.next_transport_mode === 'TAXI') && <Car size={16} />}
+                        {item.next_transport_mode === 'BICYCLING' && <Bike size={16} />}
                         {(item.next_transport_time || item.next_transport_auto_time) && (
                           <span className="text-[9px] font-mono font-bold leading-none mt-0.5">{item.next_transport_time ? item.next_transport_time.replace(' min', 'm') : 'Auto'}</span>
                         )}

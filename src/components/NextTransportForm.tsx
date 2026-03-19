@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { X, Footprints, Bus, Train, Ship, Car, Clock, Loader2, MapPin } from 'lucide-react';
+import { X, Footprints, Bus, Car, Bike, Clock, Loader2, MapPin } from 'lucide-react';
 import { clsx } from 'clsx';
 import { Itinerary } from '../types';
 import { apiFetch } from '../utils/api';
@@ -12,13 +12,12 @@ interface NextTransportFormProps {
   onSave: (data: { next_transport_mode: string; next_transport_time: string; next_transport_auto_time: string }) => Promise<void>;
 }
 
+// 💡 1. 統一為 Google Maps 支援的四種模式
 const TRANSPORT_MODES = [
-  { id: 'WALKING', label: 'Walk', icon: Footprints },
-  { id: 'BUS', label: 'Bus', icon: Bus },
-  { id: 'TRAIN', label: 'Train', icon: Train },
-  { id: 'SHIP', label: 'Ship', icon: Ship },
   { id: 'DRIVING', label: 'Drive', icon: Car },
-  { id: 'TAXI', label: 'Taxi', icon: Car },
+  { id: 'TRANSIT', label: 'Transit', icon: Bus },
+  { id: 'WALKING', label: 'Walk', icon: Footprints },
+  { id: 'BICYCLING', label: 'Bicycle', icon: Bike },
 ];
 
 export function NextTransportForm({ isOpen, onClose, itinerary, nextItinerary, onSave }: NextTransportFormProps) {
@@ -32,6 +31,7 @@ export function NextTransportForm({ isOpen, onClose, itinerary, nextItinerary, o
   const [destCoords, setDestCoords] = useState('');
   const [fetchingCoords, setFetchingCoords] = useState(false);
 
+  // 載入資料庫裡儲存的座標或網址 (可能是上次 Auto-Cache 留下來的精準座標)
   useEffect(() => {
     if (itinerary.next_transport_auto_time && itinerary.next_transport_auto_time.includes('|')) {
        const [o, d] = itinerary.next_transport_auto_time.split('|');
@@ -71,29 +71,17 @@ export function NextTransportForm({ isOpen, onClose, itinerary, nextItinerary, o
   if (!isOpen) return null;
 
   const handleSave = async () => {
-    // 💡 放寬限制：允許空值。如果有填寫，才檢查格式。
-    if (duration === 0) {
-       const coordRegex = /^-?\d+(\.\d+)?,\s*-?\d+(\.\d+)?$/;
-       if (originCoords && !coordRegex.test(originCoords.trim())) {
-           alert('起點經緯度格式錯誤！\n請輸入純數字格式，例如：25.0330, 121.5654');
-           return;
-       }
-       if (destCoords && !coordRegex.test(destCoords.trim())) {
-           alert('終點經緯度格式錯誤！\n請輸入純數字格式，例如：25.0330, 121.5654');
-           return;
-       }
-    }
-
     setLoading(true);
     try {
-      const safeOrigin = originCoords ? originCoords.replace(/\s/g,'') : '';
-      const safeDest = destCoords ? destCoords.replace(/\s/g,'') : '';
+      const safeOrigin = originCoords ? originCoords.trim() : '';
+      const safeDest = destCoords ? destCoords.trim() : '';
       
       await onSave({
         next_transport_mode: mode,
         next_transport_time: duration === 0 ? '' : `${duration} min`,
-        // 只有在 Auto 模式且至少有填寫其中一個時，才存入 auto_time
-        next_transport_auto_time: duration === 0 && (safeOrigin || safeDest) ? `${safeOrigin}|${safeDest}` : ''
+        // 💡 2. 放寬限制，無論手動設定幾分鐘，永遠保留這些座標！
+        // 這樣下次只要使用者拉回 0 (Auto)，就能立刻無縫重算
+        next_transport_auto_time: (safeOrigin || safeDest) ? `${safeOrigin}|${safeDest}` : ''
       });
     } finally {
       setLoading(false);
@@ -124,7 +112,7 @@ export function NextTransportForm({ isOpen, onClose, itinerary, nextItinerary, o
         <div className="p-6 space-y-6 overflow-y-auto custom-scrollbar">
           <div className="space-y-3">
             <label className="text-xs font-bold text-zinc-500 uppercase tracking-wider">Transport Mode</label>
-            <div className="grid grid-cols-3 gap-3">
+            <div className="grid grid-cols-4 gap-2">
               {TRANSPORT_MODES.map(m => {
                 const Icon = m.icon;
                 const isActive = mode === m.id;
@@ -133,12 +121,12 @@ export function NextTransportForm({ isOpen, onClose, itinerary, nextItinerary, o
                     key={m.id} type="button"
                     onClick={() => setMode(m.id)}
                     className={clsx(
-                      "flex flex-col items-center justify-center py-4 rounded-2xl border transition-all",
+                      "flex flex-col items-center justify-center py-3 rounded-2xl border transition-all",
                       isActive ? "bg-orange-500/20 border-orange-500 text-orange-500 shadow-sm" : "bg-zinc-800 border-zinc-700 text-zinc-400 hover:text-white hover:border-zinc-500"
                     )}
                   >
-                    <Icon size={24} className="mb-2" />
-                    <span className="text-xs font-bold">{m.label}</span>
+                    <Icon size={20} className="mb-1.5" />
+                    <span className="text-[10px] font-bold">{m.label}</span>
                   </button>
                 );
               })}
@@ -175,34 +163,39 @@ export function NextTransportForm({ isOpen, onClose, itinerary, nextItinerary, o
             </div>
           )}
 
-          {mode && duration === 0 && (
+          {/* 💡 讓座標/網址欄位永遠可見，讓使用者知道這次 Sync 用了什麼資料 */}
+          {mode && (
              <div className="space-y-4 bg-orange-500/5 p-5 rounded-2xl border border-orange-500/20">
                 <div className="flex items-center justify-between">
                    <h4 className="text-xs font-bold text-orange-500 uppercase tracking-wider flex items-center gap-1.5">
-                     <MapPin size={14} /> Map Coordinates <span className="text-[9px] text-orange-400/70 ml-1">(Optional)</span>
+                     <MapPin size={14} /> Waypoints
+                     {duration === 0 
+                        ? <span className="text-[9px] text-orange-400/70 ml-1">(Used for Auto Sync)</span> 
+                        : <span className="text-[9px] text-orange-400/70 ml-1">(Saved in cache)</span>
+                     }
                    </h4>
                    {fetchingCoords && <Loader2 size={14} className="animate-spin text-orange-500" />}
                 </div>
                 
                 <div className="space-y-3">
                   <div>
-                    <label className="text-[10px] font-bold text-zinc-400 uppercase tracking-wider mb-1 block">Origin Coordinates (Lat, Lng)</label>
+                    <label className="text-[10px] font-bold text-zinc-400 uppercase tracking-wider mb-1 block">Origin (Coords, URL, or Text)</label>
                     <input 
                       type="text" value={originCoords} onChange={e => setOriginCoords(e.target.value)}
-                      placeholder="e.g., 25.0330, 121.5654"
+                      placeholder="e.g., 25.0330, 121.5654 or TPE"
                       className="w-full bg-zinc-900 border border-zinc-700 rounded-xl px-4 py-2.5 text-white focus:outline-none focus:border-orange-500 transition-colors font-mono text-sm"
                     />
                   </div>
                   <div>
-                    <label className="text-[10px] font-bold text-zinc-400 uppercase tracking-wider mb-1 block">Destination Coordinates (Lat, Lng)</label>
+                    <label className="text-[10px] font-bold text-zinc-400 uppercase tracking-wider mb-1 block">Destination (Coords, URL, or Text)</label>
                     <input 
                       type="text" value={destCoords} onChange={e => setDestCoords(e.target.value)}
-                      placeholder="e.g., 25.0430, 121.5554"
+                      placeholder="e.g., 25.0430, 121.5554 or Tokyo Tower"
                       className="w-full bg-zinc-900 border border-zinc-700 rounded-xl px-4 py-2.5 text-white focus:outline-none focus:border-orange-500 transition-colors font-mono text-sm"
                     />
                   </div>
                   <p className="text-[10px] text-zinc-500 leading-relaxed italic">
-                    If left empty, the system will automatically parse the address/URL.
+                    You can paste Google Maps URLs here. Auto Sync will resolve them to precise coordinates and cache them.
                   </p>
                 </div>
              </div>

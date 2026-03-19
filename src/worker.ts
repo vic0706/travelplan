@@ -30,8 +30,6 @@ app.use('*', cors({
   maxAge: 600,
 }));
 
-// --- 公開與工具 API ---
-
 app.get('/api/geocode', async (c) => {
   const address = c.req.query('address');
   if (!address) return c.json({ lat: '', lng: '' });
@@ -203,89 +201,6 @@ async function getWeatherForDate(tripId: number, dateStr: string, env: Env, forc
   return finalJSON;
 }
 
-async function searchUnsplash(query: string, env: Env): Promise<string | null> {
-  try {
-    const response = await fetch(`https://api.unsplash.com/search/photos?query=${encodeURIComponent(query)}&per_page=1&orientation=landscape`, { headers: { 'Authorization': `Client-ID ${env.UNSPLASH_ACCESS_KEY}` } });
-    if (!response.ok) return null;
-    const data = await response.json() as any;
-    return data.results && data.results.length > 0 ? data.results[0].urls.regular : null;
-  } catch (e) { return null; }
-}
-
-function generateDesiredAccommodationItems(b: any, accId: string | number, hotelImage: string) {
-  const desiredItems = [];
-  const startDate = new Date(b.check_in_date);
-  const endDate = new Date(b.check_out_date);
-  const checkInTime = b.check_in_time || '16:00';
-  const checkOutTime = b.check_out_time || '11:00';
-  const dailyStartTime = b.daily_start_time || '08:00';
-  const dailyEndTime = b.daily_end_time || '22:00';
-
-  const currentDate = new Date(startDate);
-  const notesWithOrder = b.order_id ? `Order ID: ${b.order_id}\n${b.notes || ''}` : (b.notes || '');
-
-  while (currentDate <= endDate) {
-    const dateStr = currentDate.toISOString().split('T')[0];
-    const isCheckInDay = dateStr === b.check_in_date;
-    const isCheckOutDay = dateStr === b.check_out_date;
-    const itemName = b.name || b.hotel_name;
-
-    if (isCheckInDay) {
-      desiredItems.push({ date: dateStr, start_time: checkInTime, end_time: checkInTime, title: `Check-in ${itemName}`, notes: notesWithOrder, image_url: hotelImage, matchType: 'Check-in' });
-      if (!isCheckOutDay) desiredItems.push({ date: dateStr, start_time: dailyEndTime, end_time: dailyEndTime, title: `Back to ${itemName}`, notes: '', image_url: hotelImage, matchType: 'Back to Hotel' });
-    } else if (isCheckOutDay) {
-      desiredItems.push({ date: dateStr, start_time: checkOutTime, end_time: checkOutTime, title: `Check-out ${itemName}`, notes: notesWithOrder, image_url: hotelImage, matchType: 'Check-out' });
-    } else {
-      desiredItems.push({ date: dateStr, start_time: dailyStartTime, end_time: dailyStartTime, title: `Leave ${itemName}`, notes: '', image_url: hotelImage, matchType: 'Leave Hotel' });
-      desiredItems.push({ date: dateStr, start_time: dailyEndTime, end_time: dailyEndTime, title: `Back to ${itemName}`, notes: '', image_url: hotelImage, matchType: 'Back to Hotel' });
-    }
-    currentDate.setDate(currentDate.getDate() + 1);
-  }
-  return desiredItems;
-}
-
-function generateDesiredRentalItems(b: any, rentalId: string | number, rentalImage: string) {
-  const desiredItems = [];
-  const titlePrefix = b.provider ? `${b.provider} ` : '';
-  const name = b.title || '';
-  const notesWithOrder = b.order_id ? `Order ID: ${b.order_id}\n${b.notes || ''}` : (b.notes || '');
-
-  const details = typeof b.details === 'string' ? JSON.parse(b.details) : (b.details || {});
-  
-  const depBuffer = details.dep_buffer || 0; 
-  const arrBuffer = details.arr_buffer || 0;
-  const pad = (n: number) => n.toString().padStart(2, '0');
-
-  const pickUpStart = new Date(`1970-01-01T${b.start_time || '10:00'}:00`);
-  const pickUpEnd = new Date(pickUpStart.getTime() + (depBuffer * 60000));
-
-  desiredItems.push({
-    date: b.start_date,
-    start_time: b.start_time || '10:00',
-    end_time: `${pad(pickUpEnd.getHours())}:${pad(pickUpEnd.getMinutes())}`,
-    title: `Pick-up ${titlePrefix}${name}`.trim(),
-    notes: notesWithOrder,
-    image_url: rentalImage,
-    matchType: 'Pick-up'
-  });
-
-  const returnStart = new Date(`1970-01-01T${b.end_time || '10:00'}:00`);
-  const returnEnd = new Date(returnStart.getTime() + (arrBuffer * 60000));
-
-  desiredItems.push({
-    date: b.end_date,
-    start_time: b.end_time || '10:00',
-    end_time: `${pad(returnEnd.getHours())}:${pad(returnEnd.getMinutes())}`,
-    title: `Return ${titlePrefix}${name}`.trim(),
-    notes: notesWithOrder,
-    image_url: rentalImage,
-    matchType: 'Return'
-  });
-
-  return desiredItems;
-}
-
-// 💡 暴力 URL 解析引擎
 async function extractCoordsFromUrl(url: string): Promise<{coords: string | null, debug: string[]}> {
   const debug: string[] = [];
   debug.push(`https://www.merriam-webster.com/dictionary/parse Start with URL: ${url}`);
@@ -294,7 +209,6 @@ async function extractCoordsFromUrl(url: string): Promise<{coords: string | null
     let currentUrl = url;
     let finalHtml = '';
     
-    // 跟隨 Redirect
     for (let i = 0; i < 5; i++) {
       const response = await fetch(currentUrl, { 
         method: 'GET', 
@@ -320,7 +234,6 @@ async function extractCoordsFromUrl(url: string): Promise<{coords: string | null
       break;
     }
 
-    // 穿越 Google Cookie 同意頁面
     if (currentUrl.includes('consent.google.com')) {
       try {
         const urlObj = new URL(currentUrl);
@@ -335,7 +248,6 @@ async function extractCoordsFromUrl(url: string): Promise<{coords: string | null
       } catch(e) {}
     }
     
-    // 正規表達式掃描 URL
     const atMatch = currentUrl.match(/@(-?\d+\.\d+),(-?\d+\.\d+)/);
     if (atMatch) {
        debug.push(`https://www.merriam-webster.com/dictionary/parse Matched @lat,lng in URL -> ${atMatch[1]},${atMatch[2]}`);
@@ -366,7 +278,6 @@ async function extractCoordsFromUrl(url: string): Promise<{coords: string | null
        return { coords: `${searchMatch[1]},${searchMatch[2]}`, debug };
     }
 
-    // 從 HTML 中挖座標 (Google Maps 專屬)
     if (finalHtml && (currentUrl.includes('google.com/maps') || currentUrl.includes('maps.app.goo.gl'))) {
        debug.push(`https://www.merriam-webster.com/dictionary/parse Scanning HTML for coords...`);
        
@@ -391,7 +302,6 @@ async function extractCoordsFromUrl(url: string): Promise<{coords: string | null
   }
 }
 
-// 💡 伺服器端：將純文字轉換成經緯度的引擎 (Google Geocoding API)
 async function geocodeTextToCoords(text: string, apiKey: string): Promise<{coords: string | null, debug: string}> {
   try {
     const url = `https://maps.googleapis.com/maps/api/geocode/json?address=${encodeURIComponent(text)}&key=${apiKey}`;
@@ -408,7 +318,6 @@ async function geocodeTextToCoords(text: string, apiKey: string): Promise<{coord
     return { coords: null, debug: `Geocode exception for [${text}]: ${e.message}` };
   }
 }
-
 
 // 💡 終極全域 Sync Handler (AI Trip Calculation)
 const syncTripHandler = async (c: any) => {
@@ -427,7 +336,6 @@ const syncTripHandler = async (c: any) => {
     const endDate = new Date(trip.end_date);
     let currentDate = new Date(startDate);
     
-    // 全旅程強制重算天氣
     while (currentDate <= endDate) {
       const dStr = currentDate.toISOString().split('T')[0];
       await getWeatherForDate(Number(tripId), dStr, c.env, true);
@@ -470,32 +378,24 @@ const syncTripHandler = async (c: any) => {
     let mapErrors: string[] = [];
     let allDebugLogs: any[] = [];
 
-    // Helper: 處理純文字/網址 -> 最終座標的核心邏輯
     const resolveLocationToCoords = async (rawStr: string, cityName: string, title: string, logs: string[]): Promise<string> => {
         if (!rawStr) rawStr = `${cityName || ''} ${title}`.trim();
         
         const urlMatch = rawStr.match(/https?:\/\/[^\s]+/);
         if (urlMatch) {
-            // 嘗試從網址提取座標
             const { coords, debug } = await extractCoordsFromUrl(urlMatch[0]);
             logs.push(...debug);
-            if (coords) return coords; // 成功從 URL 拿到座標
+            if (coords) return coords; 
             
-            // 解析失敗，剃除網址
             rawStr = rawStr.replace(/https?:\/\/[^\s]+/g, '').trim() || `${cityName || ''} ${title}`.trim();
             logs.push(`[Geocode] URL parsing failed, falling back to text: ${rawStr}`);
         }
 
-        // 走到這裡，代表手上的 rawStr 是一串純文字 (例如: TPE 或 東京鐵塔)
-        // 呼叫 Google Geocoding API 將文字轉成精準經緯度！
         const geoResult = await geocodeTextToCoords(rawStr, c.env.GOOGLE_MAPS_API_KEY);
         logs.push(geoResult.debug);
         
-        if (geoResult.coords) {
-            return geoResult.coords; // 成功把文字轉成經緯度！
-        }
+        if (geoResult.coords) return geoResult.coords; 
         
-        // 如果連 Geocode 都失敗，就硬著頭皮把原本的純文字丟回去，讓 Distance Matrix 碰運氣
         return rawStr;
     };
 
@@ -511,7 +411,6 @@ const syncTripHandler = async (c: any) => {
          let origin = '';
          let destination = '';
          
-         // 1. 關卡一：優先取用手動填寫的經緯度
          if (current.next_transport_auto_time && current.next_transport_auto_time.includes('|')) {
              const parts = current.next_transport_auto_time.split('|');
              if (parts[0]) origin = parts[0];
@@ -519,14 +418,12 @@ const syncTripHandler = async (c: any) => {
              debugLogs.push(`Loaded User Coordinates: Origin [${origin}], Dest [${destination}]`);
          }
          
-         // 2. 關卡二＆三：自動解析 Origin
          if (!origin) {
              let rawOrigin = getLocationString(current, 'origin');
              debugLogs.push(`Raw Origin Address: ${rawOrigin || 'EMPTY'}`);
              origin = await resolveLocationToCoords(rawOrigin, current.city_name, current.title, debugLogs);
          }
 
-         // 3. 關卡二＆三：自動解析 Destination
          if (!destination) {
              let rawDest = getLocationString(next, 'destination');
              debugLogs.push(`Raw Destination Address: ${rawDest || 'EMPTY'}`);
@@ -540,11 +437,12 @@ const syncTripHandler = async (c: any) => {
              continue;
          }
 
-         let mode = 'transit';
+         // 💡 1. 統一 Google Maps API 支援的四種交通模式
+         let mode = 'driving';
          if (current.next_transport_mode === 'WALKING') mode = 'walking';
-         if (current.next_transport_mode === 'DRIVING' || current.next_transport_mode === 'TAXI' || current.next_transport_mode === 'RENTAL') mode = 'driving';
+         else if (current.next_transport_mode === 'BICYCLING') mode = 'bicycling';
+         else if (current.next_transport_mode === 'TRANSIT') mode = 'transit';
 
-         // 4. 關卡四：將 100% 精準的座標餵給 Google Maps Distance Matrix
          debugLogs.push(`Sending to Google Maps => Origin: [${origin}], Dest: [${destination}], Mode: [${mode}]`);
          try {
            const url = `https://maps.googleapis.com/maps/api/distancematrix/json?origins=${encodeURIComponent(origin)}&destinations=${encodeURIComponent(destination)}&mode=${mode}&key=${c.env.GOOGLE_MAPS_API_KEY}`;
@@ -556,12 +454,11 @@ const syncTripHandler = async (c: any) => {
               const durationMins = Math.ceil(durationSecs / 60);
               debugLogs.push(`SUCCESS: Maps returned ${durationMins} minutes.`);
               
-              const originalAutoTime = (current.next_transport_auto_time && current.next_transport_auto_time.includes('|')) 
-                                       ? current.next_transport_auto_time 
-                                       : '';
+              // 💡 2. 反向快取 (Auto-Caching)：成功取得結果後，將精準的座標直接寫回 next_transport_auto_time
+              const savedAutoTime = `${origin}|${destination}`;
 
               await c.env.DB.prepare(`UPDATE Itineraries SET next_transport_time = ?, next_transport_auto_time = ? WHERE id = ?`)
-                .bind(`${durationMins} min`, originalAutoTime, current.id)
+                .bind(`${durationMins} min`, savedAutoTime, current.id)
                 .run();
                 
               mapsUpdated++;
@@ -598,9 +495,7 @@ const syncTripHandler = async (c: any) => {
 };
 
 
-// ============================================================================
-// 🔓 無身分驗證路由 (Login, Init, etc.)
-// ============================================================================
+// --- 無身分驗證路由 ---
 
 app.post('/api/init', async (c) => {
   try {
@@ -638,9 +533,6 @@ app.post('/api/auth/login', async (c) => {
   } catch (error: any) { return c.json({ error: error.message }, 500); }
 });
 
-// ============================================================================
-// 🔒 授權攔截器 (MIDDLEWARE) - 在此之後的所有路由都需要 Token
-// ============================================================================
 app.use('/api/*', decodeUserMiddleware);
 app.use('/api/users', requireAuthMiddleware);
 app.use('/api/users/*', requireAuthMiddleware);
@@ -651,8 +543,6 @@ app.post('/api/trips', requireAuthMiddleware);
 app.post('/api/trips/*', requireAuthMiddleware);
 app.put('/api/trips/*', requireAuthMiddleware);
 app.delete('/api/trips/*', requireAuthMiddleware);
-
-// --- 需身分驗證的路由 ---
 
 app.get('/api/trips/:id/weather', async (c) => {
   const tripId = c.req.param('id');
