@@ -426,7 +426,7 @@ function ItineraryCard({ item, canEdit, isConflicted, onEdit, selectedDate, show
                       {item.next_transport_mode === 'TRAIN' && <Train size={16} />}
                       {item.next_transport_mode === 'SHIP' && <Ship size={16} />}
                       {(item.next_transport_mode === 'DRIVING' || item.next_transport_mode === 'TAXI') && <Car size={16} />}
-                      {(item.next_transport_time || item.next_transport_auto_time) && <span className="text-[9px] font-mono font-bold leading-none mt-0.5">{item.next_transport_time ? item.next_transport_time.replace(' min', 'm') : 'Auto'}</span>}
+                      {(item.next_transport_time || item.next_transport_auto_time) && <span className="text-[9px] font-mono font-bold leading-none mt-0.5">{item.next_transport_time ? item.next_transport_time.replace(' min', 'm') : (item.next_transport_auto_time || 'Auto')}</span>}
                     </>
                   ) : <Plus size={18} />}
                 </button>
@@ -486,7 +486,6 @@ export function TripDetails() {
   const [isLoading, setIsLoading] = useState(false);
   const [bookingFilter, setBookingFilter] = useState<string>('ALL');
   
-  // 💡 高級一鍵展開切換控制
   const [isAllExpanded, setIsAllExpanded] = useState(false);
   const [expandSignal, setExpandSignal] = useState(0);
   const [collapseSignal, setCollapseSignal] = useState(0);
@@ -817,7 +816,7 @@ export function TripDetails() {
               >
                  {isAllExpanded ? <ChevronsDownUp size={18} strokeWidth={2.5} /> : <ChevronsUpDown size={18} strokeWidth={2.5} />}
                  <span className="text-[8px] font-black uppercase tracking-widest mt-1 opacity-80">
-                   {isAllExpanded ? 'Hide' : 'Expend'}
+                   {isAllExpanded ? 'Fold' : 'All'}
                  </span>
               </button>
             </div>
@@ -825,23 +824,6 @@ export function TripDetails() {
         )}
       </div>
 
-      <AnimatePresence>
-        {isNextTransportFormOpen && editingItinerary && (
-          <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
-            <NextTransportForm
-              isOpen={isNextTransportFormOpen} onClose={() => setIsNextTransportFormOpen(false)} itinerary={editingItinerary}
-              onSave={async (data) => {
-                await apiFetch(`/api/trips/${id}/itineraries/${editingItinerary.id}`, { method: 'PUT', body: JSON.stringify({ ...editingItinerary, ...data }) });
-                setIsNextTransportFormOpen(false);
-                const res = await apiFetch(`/api/trips/${id}/itineraries`);
-                const itinerariesData = await res.json() as Itinerary[];
-                await db.itineraries.bulkPut(itinerariesData);
-              }}
-            />
-          </motion.div>
-        )}
-      </AnimatePresence>
-      
       <div className="flex-1 overflow-y-auto p-4 pb-32 custom-scrollbar overscroll-none">
         {activeTab === 'itinerary' && (
           <div className="space-y-6">
@@ -1107,6 +1089,26 @@ export function TripDetails() {
               />
             </motion.div>
           </div>
+        )}
+      </AnimatePresence>
+
+      <AnimatePresence>
+        {isNextTransportFormOpen && editingItinerary && (
+          <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
+            <NextTransportForm
+              isOpen={isNextTransportFormOpen} 
+              onClose={() => setIsNextTransportFormOpen(false)} 
+              itinerary={editingItinerary}
+              nextItinerary={filteredItineraries[filteredItineraries.findIndex(i => i.id === editingItinerary.id) + 1]}
+              onSave={async (data) => {
+                await apiFetch(`/api/trips/${id}/itineraries/${editingItinerary.id}`, { method: 'PUT', body: JSON.stringify({ ...editingItinerary, ...data }) });
+                setIsNextTransportFormOpen(false);
+                const res = await apiFetch(`/api/trips/${id}/itineraries`);
+                const itinerariesData = await res.json() as Itinerary[];
+                await db.itineraries.bulkPut(itinerariesData);
+              }}
+            />
+          </motion.div>
         )}
       </AnimatePresence>
 

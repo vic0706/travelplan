@@ -22,7 +22,6 @@ export interface Env {
 type Variables = { user: { id: number; role: string; name: string } };
 export const app = new Hono<{ Bindings: Env; Variables: Variables }>();
 
-// CORS Middleware
 app.use('*', cors({
   origin: '*',
   allowMethods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
@@ -30,6 +29,22 @@ app.use('*', cors({
   exposeHeaders: ['Content-Length'],
   maxAge: 600,
 }));
+
+// 💡 新增的 Geocoding API (供前端自動轉換經緯度)
+app.get('/api/geocode', async (c) => {
+  const address = c.req.query('address');
+  if (!address) return c.json({ lat: '', lng: '' });
+  try {
+    const url = `https://maps.googleapis.com/maps/api/geocode/json?address=${encodeURIComponent(address)}&key=${c.env.GOOGLE_MAPS_API_KEY}`;
+    const res = await fetch(url);
+    const data = await res.json() as any;
+    if (data.status === 'OK' && data.results.length > 0) {
+      const location = data.results[0].geometry.location;
+      return c.json({ lat: location.lat, lng: location.lng });
+    }
+  } catch(e) { console.error("Geocode error", e); }
+  return c.json({ lat: '', lng: '' });
+});
 
 app.get('/api/images/search', async (c) => {
   const query = c.req.query('query');
@@ -119,7 +134,6 @@ async function checkTripAccess(c: any, tripId: number, level: 'view' | 'edit' | 
   return false;
 }
 
-// 💡 增加 forceRefresh 參數，強制重新抓取而不讀取快取
 async function getWeatherForDate(tripId: number, dateStr: string, env: Env, forceRefresh = false) {
   const cacheKey = `weather:trip:${tripId}:${dateStr}`;
   
@@ -197,11 +211,6 @@ async function searchUnsplash(query: string, env: Env): Promise<string | null> {
   } catch (e) { return null; }
 }
 
-async function syncWeatherForTrip(tripId: number, env: Env) {
-  const todayStr = new Date().toISOString().split('T')[0];
-  return getWeatherForDate(tripId, todayStr, env, false);
-}
-
 function generateDesiredAccommodationItems(b: any, accId: string | number, hotelImage: string) {
   const desiredItems = [];
   const startDate = new Date(b.check_in_date);
@@ -234,7 +243,6 @@ function generateDesiredAccommodationItems(b: any, accId: string | number, hotel
   return desiredItems;
 }
 
-// 💡 產生 Rental 子卡片 (加上 Buffer 計算)
 function generateDesiredRentalItems(b: any, rentalId: string | number, rentalImage: string) {
   const desiredItems = [];
   const titlePrefix = b.provider ? `${b.provider} ` : '';
@@ -247,7 +255,6 @@ function generateDesiredRentalItems(b: any, rentalId: string | number, rentalIma
   const arrBuffer = details.arr_buffer || 0;
   const pad = (n: number) => n.toString().padStart(2, '0');
 
-  // Pick-up
   const pickUpStart = new Date(`1970-01-01T${b.start_time || '10:00'}:00`);
   const pickUpEnd = new Date(pickUpStart.getTime() + (depBuffer * 60000));
 
@@ -261,7 +268,6 @@ function generateDesiredRentalItems(b: any, rentalId: string | number, rentalIma
     matchType: 'Pick-up'
   });
 
-  // Return
   const returnStart = new Date(`1970-01-01T${b.end_time || '10:00'}:00`);
   const returnEnd = new Date(returnStart.getTime() + (arrBuffer * 60000));
 
@@ -278,7 +284,7 @@ function generateDesiredRentalItems(b: any, rentalId: string | number, rentalIma
   return desiredItems;
 }
 
-// 💡 全域 Sync Handler (天氣 + Google Maps Auto 路線計算)
+// 💡 終極全域 Sync Handler (AI Trip Calculation)
 const syncTripHandler = async (c: any) => {
   const tripId = c.req.param('id');
   const targetDate = c.req.query('date'); 
@@ -291,18 +297,17 @@ const syncTripHandler = async (c: any) => {
     if (trips.length === 0) return c.json({ error: 'Trip not found' }, 404);
     const trip = trips[0] as any;
 
-    // 1. 強制同步整個 TRIP 的天氣 (遍歷 Trip 所有日期並覆蓋快取)
     const startDate = new Date(trip.start_date);
     const endDate = new Date(trip.end_date);
     let currentDate = new Date(startDate);
     
+    // 1. 全旅程強制重算天氣
     while (currentDate <= endDate) {
       const dStr = currentDate.toISOString().split('T')[0];
-      await getWeatherForDate(Number(tripId), dStr, c.env, true); // forceRefresh = true
+      await getWeatherForDate(Number(tripId), dStr, c.env, true);
       currentDate.setDate(currentDate.getDate() + 1);
     }
 
-    // 取得當前選擇日期的天氣回傳
     const returnDateStr = targetDate || trip.start_date;
     const weatherData = await getWeatherForDate(Number(tripId), returnDateStr, c.env, false);
 
@@ -315,39 +320,6 @@ const syncTripHandler = async (c: any) => {
       ORDER BY date, start_time
     `).bind(tripId).all();
 
-    const { results: bookings } = await c.env.DB.prepare(`SELECT * FROM Bookings WHERE trip_id = ?`).bind(tripId).all();
-
-    // 💡 精準判定 INFO 卡片的起終點邏輯
-    const getLocationString = (item: any, type: 'origin' | 'destination') => {
-      let loc = '';
-      if (item.related_id) {
-         const b = bookings.find((x: any) => x.id === item.related_id);
-         if (b) {
-            if (b.category === 'HOTEL') {
-               loc = b.start_location; // HOTEL只有一個地址
-            } else if (b.category === 'PRIVATE_TRANSFER') {
-               loc = type === 'origin' ? (b.end_location || b.start_location) : b.start_location;
-            } else if (b.category === 'RENTAL') {
-               loc = type === 'origin' ? (b.end_location || b.start_location) : b.start_location;
-            } else if (b.category === 'FERRY') {
-               loc = type === 'origin' ? (b.end_location || b.start_location) : b.start_location;
-            } else if (b.category === 'TRAIN') {
-               loc = type === 'origin' ? (b.end_location || b.start_location) : b.start_location;
-            } else if (b.category === 'FLIGHT') {
-               loc = type === 'origin' ? (b.end_location || b.start_location) : b.start_location;
-            } else {
-               loc = type === 'origin' ? (b.end_location || b.start_location) : b.start_location;
-            }
-         }
-      }
-      
-      // 如果沒有配地址，就用城市+卡片標題當作GOOGLE MAP位置
-      if (!loc) {
-         loc = item.address ? item.address : `${item.city_name || ''} ${item.title}`.trim();
-      }
-      return loc;
-    };
-
     let mapsProcessed = 0;
     let mapsUpdated = 0;
     let mapErrors: string[] = [];
@@ -356,13 +328,27 @@ const syncTripHandler = async (c: any) => {
       const current = items[i] as any;
       const next = items[i+1] as any;
 
-      // 💡 當使用者設定了 mode，且 next_transport_time 為空 或為 Auto 時才計算
-      if (current.date === next.date && current.next_transport_mode && (!current.next_transport_time || current.next_transport_time === 'Auto')) {
+      // 當我們前端選擇了 Auto 且有填入經緯度時，會儲存在 next_transport_auto_time 裡
+      // 只要 next_transport_time 沒有設定具體時間，我們就進行地圖運算
+      if (current.date === next.date && current.next_transport_mode && !current.next_transport_time) {
          mapsProcessed++;
          
-         const origin = getLocationString(current, 'origin');
-         const destination = getLocationString(next, 'destination');
+         let origin = '';
+         let destination = '';
          
+         // 💡 解析我們剛剛在前端透過 Geocode 或手動輸入的經緯度 (格式: lat,lng|lat,lng)
+         if (current.next_transport_auto_time && current.next_transport_auto_time.includes('|')) {
+             const parts = current.next_transport_auto_time.split('|');
+             origin = parts[0];
+             destination = parts[1];
+         }
+         
+         // 如果真的為空 (防呆)，則紀錄錯誤跳過，等待使用者補齊
+         if (!origin || !destination) {
+             mapErrors.push(`Skip for ${current.title}: Coordinates missing from auto_time.`);
+             continue;
+         }
+
          let mode = 'transit';
          if (current.next_transport_mode === 'WALKING') mode = 'walking';
          if (current.next_transport_mode === 'DRIVING' || current.next_transport_mode === 'TAXI' || current.next_transport_mode === 'RENTAL') mode = 'driving';
@@ -378,20 +364,20 @@ const syncTripHandler = async (c: any) => {
                  const durationSecs = mapData.rows[0].elements[0].duration.value;
                  const durationMins = Math.ceil(durationSecs / 60);
                  
-                 // 覆寫時間並清空 Auto
-                 await c.env.DB.prepare(`UPDATE Itineraries SET next_transport_time = ?, next_transport_auto_time = '' WHERE id = ?`)
+                 // 💡 將算好的時間寫入，同時「保留經緯度」在 next_transport_auto_time 中，
+                 // 這樣之後如果想重新拉成 Auto，經緯度就還會在！
+                 await c.env.DB.prepare(`UPDATE Itineraries SET next_transport_time = ? WHERE id = ?`)
                    .bind(`${durationMins} min`, current.id)
                    .run();
                    
                  mapsUpdated++;
               } else {
-                 mapErrors.push(`Failed for ${origin} -> ${destination}: ${mapData.rows?.[0]?.elements?.[0]?.status}`);
+                 const errStatus = mapData.rows?.[0]?.elements?.[0]?.status || 'UNKNOWN';
+                 mapErrors.push(`Failed for ${origin} -> ${destination}: ${errStatus}`);
               }
             } catch(e: any) { 
-              mapErrors.push(`Exception: ${e.message}`);
+              mapErrors.push(`Exception for ${origin} -> ${destination}: ${e.message}`);
             }
-         } else {
-             mapErrors.push(`Missing origin or destination for item ${current.title}`);
          }
       }
     }
@@ -442,9 +428,6 @@ app.post('/api/auth/login', async (c) => {
   } catch (error: any) { return c.json({ error: error.message }, 500); }
 });
 
-// ============================================================================
-// 🔒 授權攔截器
-// ============================================================================
 app.use('/api/*', decodeUserMiddleware);
 app.use('/api/users', requireAuthMiddleware);
 app.use('/api/users/*', requireAuthMiddleware);
@@ -455,10 +438,6 @@ app.post('/api/trips', requireAuthMiddleware);
 app.post('/api/trips/*', requireAuthMiddleware);
 app.put('/api/trips/*', requireAuthMiddleware);
 app.delete('/api/trips/*', requireAuthMiddleware);
-
-// --- 註冊 SYNC API ---
-app.post('/api/trips/:id/sync', syncTripHandler);
-app.post('/api/trips/:id/weather/sync', syncTripHandler); // 保留防快取
 
 app.post('/api/upload', async (c) => {
   try {
@@ -613,24 +592,10 @@ app.delete('/api/trips/:id', async (c) => {
   } catch (error: any) { return c.json({ error: error.message }, 500); }
 });
 
-app.get('/api/trips/:id/weather', async (c) => {
-  const tripId = c.req.param('id');
-  const date = c.req.query('date');
-  try {
-    if (date) {
-      const weatherData = await getWeatherForDate(Number(tripId), date, c.env);
-      if (!weatherData) return c.json({ message: 'No weather data available' }, 404);
-      return c.json(weatherData);
-    } else {
-      const todayStr = new Date().toISOString().split('T')[0];
-      const weatherData = await c.env.KV.get(`weather:trip:${tripId}:${todayStr}`, 'json');
-      if (!weatherData) return c.json({ message: 'Weather data will be updated soon' }, 202);
-      return c.json(weatherData);
-    }
-  } catch (error: any) { return c.json({ error: error.message }, 500); }
-});
+// --- 註冊核心 SYNC API ---
+app.post('/api/trips/:id/sync', syncTripHandler);
+app.post('/api/trips/:id/weather/sync', syncTripHandler);
 
-// --- Bookings (Unified) ---
 app.get('/api/trips/:id/bookings', async (c) => {
   const tripId = c.req.param('id');
   try {
@@ -810,7 +775,6 @@ app.delete('/api/trips/:id/bookings/:bookingId', async (c) => {
   } catch (error: any) { return c.json({ error: error.message }, 500); }
 });
 
-// --- Itineraries ---
 app.get('/api/trips/:id/itineraries', async (c) => {
   const tripId = c.req.param('id');
   try {

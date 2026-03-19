@@ -1,12 +1,14 @@
-import React, { useState } from 'react';
-import { X, Footprints, Bus, Train, Ship, Car, Clock, Loader2 } from 'lucide-react';
+import React, { useState, useEffect } from 'react';
+import { X, Footprints, Bus, Train, Ship, Car, Clock, Loader2, MapPin } from 'lucide-react';
 import { clsx } from 'clsx';
 import { Itinerary } from '../types';
+import { apiFetch } from '../utils/api';
 
 interface NextTransportFormProps {
   isOpen: boolean;
   onClose: () => void;
   itinerary: Itinerary;
+  nextItinerary?: Itinerary; // 💡 傳入下一站來取得預設地址
   onSave: (data: { next_transport_mode: string; next_transport_time: string; next_transport_auto_time: string }) => Promise<void>;
 }
 
@@ -19,24 +21,79 @@ const TRANSPORT_MODES = [
   { id: 'TAXI', label: 'Taxi', icon: Car },
 ];
 
-export function NextTransportForm({ isOpen, onClose, itinerary, onSave }: NextTransportFormProps) {
+export function NextTransportForm({ isOpen, onClose, itinerary, nextItinerary, onSave }: NextTransportFormProps) {
   const [mode, setMode] = useState(itinerary.next_transport_mode || '');
   
-  // 如果原本有手動設定時間，就解析出來；如果是 Auto 或空，預設為 0
   const initialMins = itinerary.next_transport_time ? parseInt(itinerary.next_transport_time.replace(/\D/g, '')) : 0;
   const [duration, setDuration] = useState<number>(initialMins);
   const [loading, setLoading] = useState(false);
+  
+  // 💡 經緯度專屬狀態
+  const [originCoords, setOriginCoords] = useState('');
+  const [destCoords, setDestCoords] = useState('');
+  const [fetchingCoords, setFetchingCoords] = useState(false);
+
+  // 如果原本資料庫裡有儲存經緯度，就載入它
+  useEffect(() => {
+    if (itinerary.next_transport_auto_time && itinerary.next_transport_auto_time.includes('|')) {
+       const [o, d] = itinerary.next_transport_auto_time.split('|');
+       setOriginCoords(o);
+       setDestCoords(d);
+    }
+  }, [itinerary]);
+
+  // 當切換到 Auto (0) 且還沒有經緯度時，自動打 API 換算
+  useEffect(() => {
+    if (duration === 0 && mode && (!originCoords || !destCoords)) {
+      const fetchGeocode = async () => {
+        setFetchingCoords(true);
+        try {
+          if (!originCoords) {
+             const oAddr = itinerary.address || `${itinerary.city_name || ''} ${itinerary.title}`;
+             const oRes = await apiFetch(`/api/geocode?address=${encodeURIComponent(oAddr)}`);
+             if (oRes.ok) {
+                const oData = await oRes.json() as any;
+                if (oData.lat) setOriginCoords(`${oData.lat},${oData.lng}`);
+             }
+          }
+          if (!destCoords && nextItinerary) {
+             const dAddr = nextItinerary.address || `${nextItinerary.city_name || ''} ${nextItinerary.title}`;
+             const dRes = await apiFetch(`/api/geocode?address=${encodeURIComponent(dAddr)}`);
+             if (dRes.ok) {
+                const dData = await dRes.json() as any;
+                if (dData.lat) setDestCoords(`${dData.lat},${dData.lng}`);
+             }
+          }
+        } catch (e) { console.error("Geocode failed"); }
+        setFetchingCoords(false);
+      };
+      fetchGeocode();
+    }
+  }, [duration, mode, originCoords, destCoords, itinerary, nextItinerary]);
 
   if (!isOpen) return null;
 
   const handleSave = async () => {
+    // 💡 若為 Auto 模式，強制驗證經緯度格式
+    if (duration === 0) {
+       const coordRegex = /^-?\d+(\.\d+)?,\s*-?\d+(\.\d+)?$/;
+       if (!originCoords || !destCoords) {
+           alert('【AI Trip Calculation 模式】\n起點與終點的經緯度不得為空，請輸入經緯度以便計算。');
+           return;
+       }
+       if (!coordRegex.test(originCoords) || !coordRegex.test(destCoords)) {
+           alert('經緯度格式錯誤！\n請輸入純數字格式，例如：25.0330, 121.5654');
+           return;
+       }
+    }
+
     setLoading(true);
     try {
       await onSave({
         next_transport_mode: mode,
-        // 💡 Duration 為 0 代表交給 Google Maps 自動計算
         next_transport_time: duration === 0 ? '' : `${duration} min`,
-        next_transport_auto_time: duration === 0 ? 'Auto' : ''
+        // 若為 Auto，將經緯度用 | 隔開儲存；否則清空
+        next_transport_auto_time: duration === 0 ? `${originCoords.replace(/\s/g,'')}|${destCoords.replace(/\s/g,'')}` : ''
       });
     } finally {
       setLoading(false);
@@ -46,6 +103,8 @@ export function NextTransportForm({ isOpen, onClose, itinerary, onSave }: NextTr
   const handleClear = async () => {
     setMode('');
     setDuration(0);
+    setOriginCoords('');
+    setDestCoords('');
     setLoading(true);
     try {
       await onSave({ next_transport_mode: '', next_transport_time: '', next_transport_auto_time: '' });
@@ -56,13 +115,13 @@ export function NextTransportForm({ isOpen, onClose, itinerary, onSave }: NextTr
 
   return (
     <div className="absolute inset-0 z-[100] flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm">
-      <div className="bg-zinc-900 border border-zinc-800 rounded-3xl w-full max-w-md shadow-2xl overflow-hidden flex flex-col">
-        <div className="p-6 border-b border-zinc-800 flex justify-between items-center bg-zinc-900/50">
+      <div className="bg-zinc-900 border border-zinc-800 rounded-3xl w-full max-w-md shadow-2xl overflow-hidden flex flex-col max-h-[90vh]">
+        <div className="p-6 border-b border-zinc-800 flex justify-between items-center bg-zinc-900/50 shrink-0">
           <h3 className="text-lg font-bold text-white">Next Transport</h3>
           <button onClick={onClose} className="text-zinc-400 hover:text-white p-1 rounded-full hover:bg-zinc-800 transition-colors"><X size={20} /></button>
         </div>
         
-        <div className="p-6 space-y-6">
+        <div className="p-6 space-y-6 overflow-y-auto custom-scrollbar">
           <div className="space-y-3">
             <label className="text-xs font-bold text-zinc-500 uppercase tracking-wider">Transport Mode</label>
             <div className="grid grid-cols-3 gap-3">
@@ -92,7 +151,7 @@ export function NextTransportForm({ isOpen, onClose, itinerary, onSave }: NextTr
                 <span className="flex items-center gap-1.5"><Clock size={14} className="text-orange-500" /> Travel Duration</span>
                 <div className="flex items-center gap-2">
                   {duration === 0 ? (
-                     <span className="text-orange-500 font-bold px-2 py-1">Auto</span>
+                     <span className="text-orange-500 font-bold px-2 py-1 bg-orange-500/10 rounded-md">AUTO (Maps)</span>
                   ) : (
                     <>
                       <input 
@@ -115,9 +174,43 @@ export function NextTransportForm({ isOpen, onClose, itinerary, onSave }: NextTr
               </div>
             </div>
           )}
+
+          {/* 💡 當 Duration 為 Auto 時，展開經緯度輸入框 */}
+          {mode && duration === 0 && (
+             <div className="space-y-4 bg-orange-500/5 p-5 rounded-2xl border border-orange-500/20">
+                <div className="flex items-center justify-between">
+                   <h4 className="text-xs font-bold text-orange-500 uppercase tracking-wider flex items-center gap-1.5">
+                     <MapPin size={14} /> Map Coordinates
+                   </h4>
+                   {fetchingCoords && <Loader2 size={14} className="animate-spin text-orange-500" />}
+                </div>
+                
+                <div className="space-y-3">
+                  <div>
+                    <label className="text-[10px] font-bold text-zinc-400 uppercase tracking-wider mb-1 block">Origin Coordinates (Lat, Lng)</label>
+                    <input 
+                      type="text" value={originCoords} onChange={e => setOriginCoords(e.target.value)}
+                      placeholder="e.g., 25.0330, 121.5654"
+                      className="w-full bg-zinc-900 border border-zinc-700 rounded-xl px-4 py-2.5 text-white focus:outline-none focus:border-orange-500 transition-colors font-mono text-sm"
+                    />
+                  </div>
+                  <div>
+                    <label className="text-[10px] font-bold text-zinc-400 uppercase tracking-wider mb-1 block">Destination Coordinates (Lat, Lng)</label>
+                    <input 
+                      type="text" value={destCoords} onChange={e => setDestCoords(e.target.value)}
+                      placeholder="e.g., 25.0430, 121.5554"
+                      className="w-full bg-zinc-900 border border-zinc-700 rounded-xl px-4 py-2.5 text-white focus:outline-none focus:border-orange-500 transition-colors font-mono text-sm"
+                    />
+                  </div>
+                  <p className="text-[10px] text-zinc-500 leading-relaxed italic">
+                    If fields are empty, please manually retrieve Coordinates (緯度,經度) from Google Maps. 
+                  </p>
+                </div>
+             </div>
+          )}
         </div>
 
-        <div className="p-6 border-t border-zinc-800 bg-zinc-900/50 flex gap-3">
+        <div className="p-6 border-t border-zinc-800 bg-zinc-900/50 flex gap-3 shrink-0">
           <button onClick={handleClear} disabled={loading || !itinerary.next_transport_mode} className="flex-1 py-4 bg-zinc-800 hover:bg-red-500/20 text-zinc-400 hover:text-red-500 font-bold rounded-xl transition-colors disabled:opacity-50">Clear</button>
           <button onClick={handleSave} disabled={loading || !mode} className="flex-[2] py-4 bg-orange-500 hover:bg-orange-600 text-white font-bold rounded-xl shadow-lg shadow-orange-500/20 transition-colors disabled:opacity-50 flex justify-center items-center gap-2">
             {loading ? <Loader2 className="animate-spin" size={20} /> : 'Save Transport'}
