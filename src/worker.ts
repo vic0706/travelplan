@@ -271,7 +271,7 @@ function generateDesiredRentalItems(b: any, rentalId: string | number, rentalIma
   return desiredItems;
 }
 
-// 💡 終極版全域同步：包含智慧地點推算系統 (加入 Bookings Join)
+// 💡 終極 Sync API：支援 Google Maps 自動計算與覆寫
 const syncTripHandler = async (c: any) => {
   const tripId = c.req.param('id');
   try {
@@ -281,47 +281,17 @@ const syncTripHandler = async (c: any) => {
     // 1. 同步天氣
     const weatherData = await syncWeatherForTrip(Number(tripId), c.env);
 
-    // 2. 同步 Google Maps Auto 時間 (智慧判斷起訖點)
-    const { results: items } = await c.env.DB.prepare(`
-      SELECT i.*, 
-             c.name as city_name,
-             b.start_location as b_start,
-             b.end_location as b_end
-      FROM Itineraries i 
-      LEFT JOIN Cities c ON i.city_id = c.id 
-      LEFT JOIN Bookings b ON i.related_id = b.id
-      WHERE i.trip_id = ? 
-      ORDER BY i.date, i.start_time
-    `).bind(tripId).all();
-
-    const mapSyncResults = [];
+    // 2. 同步 Google Maps Auto 時間
+    const { results: items } = await c.env.DB.prepare(`SELECT * FROM Itineraries WHERE trip_id = ? ORDER BY date, start_time`).bind(tripId).all();
 
     for (let i = 0; i < items.length - 1; i++) {
       const current = items[i] as any;
       const next = items[i+1] as any;
 
-      // 只要使用者設定了交通方式，且時間留空 (或設定為 Auto)，我們就啟動智慧計算
-      if (current.next_transport_mode && (!current.next_transport_time || current.next_transport_time === 'Auto' || current.next_transport_time === '')) {
-         
-         // --- 智慧推算起點 ---
-         // 優先順序：卡片有填地址 > 航班的降落機場 > 租車的取車點 > 標題加城市
-         const getOrigin = (item: any) => {
-            if (item.address) return item.address;
-            if (item.type === 'TRANSPORTATION' && item.b_end) return item.b_end;
-            if (item.b_start) return item.b_start; 
-            return `${item.title} ${item.city_name || ''}`.trim();
-         };
-
-         // --- 智慧推算終點 ---
-         const getDestination = (item: any) => {
-            if (item.address) return item.address;
-            if (item.type === 'TRANSPORTATION' && item.b_start) return item.b_start;
-            if (item.b_start) return item.b_start;
-            return `${item.title} ${item.city_name || ''}`.trim();
-         };
-
-         const origin = getOrigin(current);
-         const destination = getDestination(next);
+      // 當使用者設定了 mode 但時間為空值 (Auto) 時才進行計算
+      if (current.date === next.date && current.next_transport_mode && !current.next_transport_time) {
+         const origin = current.address || current.title;
+         const destination = next.address || next.title;
          
          let mode = 'transit';
          if (current.next_transport_mode === 'WALKING') mode = 'walking';
@@ -331,45 +301,252 @@ const syncTripHandler = async (c: any) => {
             try {
               const url = `https://maps.googleapis.com/maps/api/distancematrix/json?origins=${encodeURIComponent(origin)}&destinations=${encodeURIComponent(destination)}&mode=${mode}&key=${c.env.GOOGLE_MAPS_API_KEY}`;
               const mapRes = await fetch(url);
-              const mapData = await mapRes.json() as any;
+              const mapData = await mapRes.json();
               
-              if (mapData.status !== 'OK') {
-                  mapSyncResults.push({ id: current.id, origin, destination, error: mapData.error_message || mapData.status });
-                  continue;
-              }
-
-              const element = mapData.rows?.[0]?.elements?.[0];
-              if (element?.status === 'OK') {
-                 // 💡 將 Google 回傳的秒數轉換成分鐘
-                 const durationSecs = element.duration.value;
+              if (mapData.rows?.[0]?.elements?.[0]?.status === 'OK') {
+                 // 💡 將 Google 回傳的秒數轉換成精準的分鐘數
+                 const durationSecs = mapData.rows[0].elements[0].duration.value;
                  const durationMins = Math.ceil(durationSecs / 60);
                  
-                 // 💡 精準覆寫時間，存入資料庫，下次就不會再重算！
+                 // 💡 直接覆寫 next_transport_time！這樣時間就被永久鎖定，下次 Sync 不會再重算
                  await c.env.DB.prepare(`UPDATE Itineraries SET next_transport_time = ?, next_transport_auto_time = '' WHERE id = ?`)
                    .bind(`${durationMins} min`, current.id)
                    .run();
-                   
-                 mapSyncResults.push({ id: current.id, origin, destination, duration: `${durationMins} min`, status: 'OK' });
               } else {
-                 mapSyncResults.push({ id: current.id, origin, destination, error: element?.status || 'Route Not Found by Google' });
+                 console.error("Map API status not OK:", mapData.rows?.[0]?.elements?.[0]?.status);
               }
-            } catch(e: any) { 
-              mapSyncResults.push({ id: current.id, origin, destination, error: e.message });
+            } catch(e) { 
+              console.error("Map sync error", e); 
             }
-         } else {
-             mapSyncResults.push({ id: current.id, error: "Missing origin or destination" });
          }
       }
     }
 
-    return c.json({ success: true, weather: weatherData, map_sync: mapSyncResults });
+    return c.json({ success: true, weather: weatherData });
   } catch (error: any) { 
     return c.json({ error: error.message }, 500); 
   }
 };
 
+app.post('/api/init', async (c) => {
+  try {
+    const { results } = await c.env.DB.prepare('SELECT COUNT(*) as count FROM Users').all();
+    if ((results[0] as any).count === 0) {
+      const passwordHash = await generateHash('123456', c.env.PASSWORD_SALT || 'default_salt');
+      await c.env.DB.prepare(`INSERT INTO Users (role, name, avatar_url, password_hash, allow_login, created_at, updated_at) VALUES ('Admin', '超級管理員', 'https://api.dicebear.com/7.x/avataaars/svg?seed=Admin', ?, 1, ?, ?)`).bind(passwordHash, Date.now(), Date.now()).run();
+      return c.json({ success: true, message: 'Admin created.' });
+    }
+    return c.json({ success: false, message: 'Not empty.' });
+  } catch (error: any) { return c.json({ error: error.message }, 500); }
+});
+
+app.get('/api/users/login-list', async (c) => {
+  try {
+    const { results } = await c.env.DB.prepare('SELECT id, name, avatar_url, role FROM Users WHERE allow_login = 1').all();
+    return c.json(results);
+  } catch (error: any) { return c.json({ error: error.message }, 500); }
+});
+
+app.post('/api/auth/login', async (c) => {
+  try {
+    const { username, password } = await c.req.json();
+    if (!username || !password) return c.json({ error: 'Missing credentials' }, 400);
+    const { results } = await c.env.DB.prepare('SELECT * FROM Users WHERE id = ? AND allow_login = 1').bind(username).all();
+    const user = results[0] as any;
+    if (!user) return c.json({ error: 'User not found' }, 404);
+    const passwordHash = await generateHash(password, c.env.PASSWORD_SALT);
+    if (passwordHash !== user.password_hash) return c.json({ error: 'Invalid' }, 401);
+
+    const { password_hash, ...safeUser } = user;
+    const token = crypto.randomUUID();
+    await c.env.KV.put(`session:${token}`, JSON.stringify(safeUser), { expirationTtl: 604800 });
+    return c.json({ token, user: safeUser });
+  } catch (error: any) { return c.json({ error: error.message }, 500); }
+});
+
+app.use('/api/*', decodeUserMiddleware);
+app.use('/api/users', requireAuthMiddleware);
+app.use('/api/users/*', requireAuthMiddleware);
+app.use('/api/settings', requireAuthMiddleware);
+app.use('/api/sync', requireAuthMiddleware);
+app.use('/api/upload', requireAuthMiddleware);
+app.post('/api/trips', requireAuthMiddleware);
+app.post('/api/trips/*', requireAuthMiddleware);
+app.put('/api/trips/*', requireAuthMiddleware);
+app.delete('/api/trips/*', requireAuthMiddleware);
+
+app.post('/api/upload', async (c) => {
+  try {
+    const body = await c.req.parseBody();
+    const file = body['file']; 
+    const folder = body['folder'] || 'trips';
+    if (!file || !(file instanceof File)) return c.json({ error: 'No file uploaded' }, 400);
+
+    const supabaseUrl = c.env.VITE_SUPABASE_URL;
+    const supabaseKey = c.env.SUPABASE_SERVICE_ROLE_KEY || c.env.VITE_SUPABASE_ANON_KEY;
+    if (!supabaseUrl || !supabaseKey) return c.json({ error: 'Supabase not configured' }, 500);
+
+    const supabase = createClient(supabaseUrl, supabaseKey);
+    const fileName = `${folder}/${Date.now()}-${Math.random().toString(36).substring(7)}.jpg`;
+    
+    const arrayBuffer = await file.arrayBuffer();
+    const { error } = await supabase.storage.from('travelplan').upload(fileName, arrayBuffer, { contentType: file.type });
+    if (error) throw error;
+
+    const { data: { publicUrl } } = supabase.storage.from('travelplan').getPublicUrl(fileName);
+    return c.json({ publicUrl });
+  } catch (e: any) { return c.json({ error: e.message }, 500); }
+});
+
+app.get('/api/cities', async (c) => {
+  try {
+    const { results } = await c.env.DB.prepare('SELECT * FROM Cities ORDER BY country, name').all();
+    return c.json(results);
+  } catch (error: any) { return c.json({ error: error.message }, 500); }
+});
+
+app.get('/api/users', async (c) => {
+  try {
+    const { results } = await c.env.DB.prepare('SELECT id, name, avatar_url, role, allow_login FROM Users').all();
+    return c.json(results);
+  } catch (error: any) { return c.json({ error: error.message }, 500); }
+});
+
+app.post('/api/users', async (c) => {
+  try {
+    const { name, password, role, allow_login } = await c.req.json();
+    const passwordHash = await generateHash(password, c.env.PASSWORD_SALT || 'salt');
+    const avatar_url = `https://ui-avatars.com/api/?name=${encodeURIComponent(name)}&background=random`;
+    const info = await c.env.DB.prepare(`INSERT INTO Users (name, password_hash, role, avatar_url, allow_login, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)`).bind(name, passwordHash, role || 'user', avatar_url, allow_login ?? 1, Date.now(), Date.now()).run();
+    return c.json({ id: info.meta.last_row_id, name, role, avatar_url });
+  } catch (error: any) { return c.json({ error: error.message }, 500); }
+});
+
+app.put('/api/users/:id', async (c) => {
+  const id = c.req.param('id');
+  try {
+    const { name, role, allow_login, password, avatar_url, payment_info } = await c.req.json();
+    let query = 'UPDATE Users SET updated_at = ?';
+    const params: any[] = [Date.now()];
+
+    if (name !== undefined) { query += ', name = ?'; params.push(name); }
+    if (role !== undefined) { query += ', role = ?'; params.push(role); }
+    if (allow_login !== undefined) { query += ', allow_login = ?'; params.push(allow_login); }
+    if (avatar_url !== undefined) { query += ', avatar_url = ?'; params.push(avatar_url); }
+    if (payment_info !== undefined) { query += ', payment_info = ?'; params.push(typeof payment_info === 'string' ? payment_info : JSON.stringify(payment_info)); }
+    if (password) { query += ', password_hash = ?'; params.push(await generateHash(password, c.env.PASSWORD_SALT || 'salt')); }
+    
+    query += ' WHERE id = ?'; params.push(id);
+    
+    await c.env.DB.prepare(query).bind(...params).run();
+    return c.json({ success: true });
+  } catch (error: any) { return c.json({ error: error.message }, 500); }
+});
+
+app.get('/api/trips', async (c) => {
+  try {
+    const user = c.get('user');
+    let query = 'SELECT id, title, cover_image_url, start_date, end_date, default_city_id, is_public FROM Trips WHERE is_public = 1';
+    const params: any[] = [];
+
+    if (user) {
+      if (user.role === 'Admin') {
+        query = 'SELECT id, title, cover_image_url, start_date, end_date, default_city_id, is_public FROM Trips';
+      } else {
+        query += ' OR id IN (SELECT trip_id FROM TripMembers WHERE user_id = ?)';
+        params.push(user.id);
+      }
+    }
+    query += ' ORDER BY start_date DESC';
+
+    const { results: trips } = await c.env.DB.prepare(query).bind(...params).all();
+    if (trips.length === 0) return c.json([]);
+
+    const tripIds = trips.map((t: any) => t.id).join(',');
+    const { results: allMembers } = await c.env.DB.prepare(`SELECT trip_id, user_id, role FROM TripMembers WHERE trip_id IN (${tripIds})`).all();
+    const tripsWithMembers = trips.map((trip: any) => ({ ...trip, members: allMembers.filter((m: any) => m.trip_id === trip.id) }));
+
+    return c.json(tripsWithMembers);
+  } catch (error: any) { return c.json({ error: error.message }, 500); }
+});
+
+app.post('/api/trips', async (c) => {
+  try {
+    const user = c.get('user');
+    if (!user || user.role !== 'Admin') return c.json({ error: 'Only Admins can create trips' }, 403);
+    const { title, start_date, end_date, cover_image_url, default_city_id, is_public } = await c.req.json();
+    await c.env.DB.prepare(`INSERT INTO Trips (title, start_date, end_date, cover_image_url, default_city_id, created_at, updated_at, currencies, is_public) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`).bind(title, start_date, end_date, cover_image_url || '', default_city_id, Date.now(), Date.now(), JSON.stringify(['TWD']), is_public || 0).run();
+    const idResult = await c.env.DB.prepare('SELECT last_insert_rowid() as id').first();
+    const id = idResult ? (idResult as any).id : null;
+    if (!id) return c.json({ error: 'Failed to create trip.' }, 500);
+    const newTrip = await c.env.DB.prepare('SELECT * FROM Trips WHERE id = ?').bind(id).first();
+    return c.json(newTrip);
+  } catch (error: any) { return c.json({ error: error.message }, 500); }
+});
+
+app.get('/api/trips/:id', async (c) => {
+  const id = c.req.param('id');
+  const user = c.get('user');
+  try {
+    const { results } = await c.env.DB.prepare('SELECT * FROM Trips WHERE id = ?').bind(id).all();
+    if (results.length === 0) return c.json({ error: 'Trip not found' }, 404);
+    const trip = results[0] as any;
+    const { results: members } = await c.env.DB.prepare('SELECT user_id, role FROM TripMembers WHERE trip_id = ?').bind(id).all();
+    const isMember = user && members.some((m: any) => m.user_id === user.id);
+    const canView = trip.is_public === 1 || isMember || (user && user.role === 'Admin');
+    if (!canView) return c.json({ error: 'Unauthorized' }, 401);
+    if (trip.currencies) trip.currencies = JSON.parse(trip.currencies);
+    trip.members = members || [];
+    return c.json(trip);
+  } catch (error: any) { return c.json({ error: error.message }, 500); }
+});
+
+app.put('/api/trips/:id', async (c) => {
+  const id = c.req.param('id');
+  const user = c.get('user');
+  try {
+    const canEdit = await checkTripAccess(c, Number(id), 'edit');
+    if (!canEdit) return c.json({ error: 'Unauthorized' }, 403);
+    const { title, start_date, end_date, cover_image_url, default_city_id, currencies, is_public } = await c.req.json();
+    let finalIsPublic = is_public;
+    if (is_public !== undefined && user.role !== 'Admin') {
+       const existing = await c.env.DB.prepare('SELECT is_public FROM Trips WHERE id = ?').bind(id).first();
+       finalIsPublic = existing.is_public;
+    }
+    await c.env.DB.prepare(`UPDATE Trips SET title = ?, start_date = ?, end_date = ?, cover_image_url = ?, default_city_id = ?, currencies = ?, is_public = ?, updated_at = ? WHERE id = ?`).bind(title, start_date, end_date, cover_image_url, default_city_id, JSON.stringify(currencies || ['TWD']), finalIsPublic, Date.now(), id).run();
+    return c.json({ success: true });
+  } catch (error: any) { return c.json({ error: error.message }, 500); }
+});
+
+app.delete('/api/trips/:id', async (c) => {
+  const id = c.req.param('id');
+  try {
+    const canEdit = await checkTripAccess(c, Number(id), 'admin');
+    if (!canEdit) return c.json({ error: 'Unauthorized' }, 403);
+    await c.env.DB.prepare('DELETE FROM Trips WHERE id = ?').bind(id).run();
+    return c.json({ success: true });
+  } catch (error: any) { return c.json({ error: error.message }, 500); }
+});
+
+app.get('/api/trips/:id/weather', async (c) => {
+  const tripId = c.req.param('id');
+  const date = c.req.query('date');
+  try {
+    if (date) {
+      const weatherData = await getWeatherForDate(Number(tripId), date, c.env);
+      if (!weatherData) return c.json({ message: 'No weather data available' }, 404);
+      return c.json(weatherData);
+    } else {
+      const todayStr = new Date().toISOString().split('T')[0];
+      const weatherData = await c.env.KV.get(`weather:trip:${tripId}:${todayStr}`, 'json');
+      if (!weatherData) return c.json({ message: 'Weather data will be updated soon' }, 202);
+      return c.json(weatherData);
+    }
+  } catch (error: any) { return c.json({ error: error.message }, 500); }
+});
+
 app.post('/api/trips/:id/sync', syncTripHandler);
-app.post('/api/trips/:id/weather/sync', syncTripHandler); // 保留舊網址避免前端暫存出錯
+app.post('/api/trips/:id/weather/sync', syncTripHandler);
 
 // --- Bookings (Unified) ---
 app.get('/api/trips/:id/bookings', async (c) => {
