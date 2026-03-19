@@ -30,6 +30,8 @@ app.use('*', cors({
   maxAge: 600,
 }));
 
+// --- 公開與工具 API ---
+
 app.get('/api/geocode', async (c) => {
   const address = c.req.query('address');
   if (!address) return c.json({ lat: '', lng: '' });
@@ -210,7 +212,6 @@ async function searchUnsplash(query: string, env: Env): Promise<string | null> {
   } catch (e) { return null; }
 }
 
-// 💡 確保自動生成 Itinerary 卡片時，順便帶入地址 (address)
 function generateDesiredAccommodationItems(b: any, accId: string | number, hotelImage: string) {
   const desiredItems = [];
   const startDate = new Date(b.check_in_date);
@@ -362,7 +363,7 @@ async function extractCoordsFromUrl(url: string): Promise<{coords: string | null
        return { coords: `${searchMatch[1]},${searchMatch[2]}`, debug };
     }
 
-    if (finalHtml && (currentUrl.includes('google.com/maps') || currentUrl.includes('maps.app.goo.gl'))) {
+    if (finalHtml && (currentUrl.includes('google.com') || currentUrl.includes('goo.gl'))) {
        debug.push(`https://www.merriam-webster.com/dictionary/parse Scanning HTML for coords...`);
        const centerMatch = finalHtml.match(/center=(-?\d+\.\d+)%2C(-?\d+\.\d+)/) || finalHtml.match(/center=(-?\d+\.\d+),(-?\d+\.\d+)/);
        if (centerMatch) {
@@ -384,17 +385,22 @@ async function extractCoordsFromUrl(url: string): Promise<{coords: string | null
   }
 }
 
-async function geocodeTextToCoords(text: string, apiKey: string): Promise<{coords: string | null, debug: string}> {
+// 💡 強化版：將純文字轉換成經緯度的引擎，支援 Region Bias
+async function geocodeTextToCoords(text: string, apiKey: string, region: string = 'jp'): Promise<{coords: string | null, debug: string}> {
   try {
-    const url = `https://maps.googleapis.com/maps/api/geocode/json?address=${encodeURIComponent(text)}&key=${apiKey}`;
+    const url = `https://maps.googleapis.com/maps/api/geocode/json?address=${encodeURIComponent(text)}&key=${apiKey}&region=${region}`;
     const res = await fetch(url);
     const data = await res.json() as any;
     
     if (data.status === 'OK' && data.results && data.results.length > 0) {
       const location = data.results[0].geometry.location;
-      return { coords: `${location.lat},${location.lng}`, debug: `Geocoded [${text}] to [${location.lat},${location.lng}]` };
+      const formattedAddress = data.results[0].formatted_address;
+      return { 
+        coords: `${location.lat},${location.lng}`, 
+        debug: `Geocoded [${text}] in region [${region}] to [${formattedAddress}] at [${location.lat},${location.lng}]` 
+      };
     } else {
-      return { coords: null, debug: `Geocode failed for [${text}]: ${data.status}` };
+      return { coords: null, debug: `Geocode failed for [${text}] in region [${region}]: ${data.status}` };
     }
   } catch (e: any) {
     return { coords: null, debug: `Geocode exception for [${text}]: ${e.message}` };
@@ -410,9 +416,19 @@ const syncTripHandler = async (c: any) => {
     const canEdit = await checkTripAccess(c, Number(tripId), 'edit');
     if (!canEdit) return c.json({ error: 'Unauthorized' }, 403);
 
-    const { results: trips } = await c.env.DB.prepare('SELECT start_date, end_date FROM Trips WHERE id = ?').bind(tripId).all();
+    // 1. 抓出 Trip 資訊以及主城市所屬國家
+    const { results: trips } = await c.env.DB.prepare(`
+        SELECT t.*, c.name as primary_city_name, c.country as primary_country 
+        FROM Trips t 
+        LEFT JOIN Cities c ON t.default_city_id = c.id 
+        WHERE t.id = ?
+    `).bind(tripId).all();
+    
     if (trips.length === 0) return c.json({ error: 'Trip not found' }, 404);
     const trip = trips[0] as any;
+    
+    // 💡 自動決定 Region Code (預設為日本 jp，可擴充邏輯)
+    const primaryRegion = trip.primary_country === 'Taiwan' ? 'tw' : 'jp';
 
     const startDate = new Date(trip.start_date);
     const endDate = new Date(trip.end_date);
@@ -437,10 +453,10 @@ const syncTripHandler = async (c: any) => {
 
     const { results: bookings } = await c.env.DB.prepare(`SELECT * FROM Bookings WHERE trip_id = ?`).bind(tripId).all();
 
-    // 💡 智慧起終點判定與自動補綴後綴詞 (Airport / Station / Port)
     const getLocationString = (item: any, type: 'origin' | 'destination') => {
       let loc = '';
       let category = '';
+      let currentCityName = item.city_name || trip.primary_city_name || '';
 
       if (item.related_id) {
          const b = bookings.find((x: any) => x.id === item.related_id);
@@ -449,7 +465,6 @@ const syncTripHandler = async (c: any) => {
             if (b.category === 'HOTEL') {
                loc = b.start_location;
             } else if (['PRIVATE_TRANSFER', 'RENTAL', 'FERRY', 'TRAIN', 'FLIGHT', 'BUS'].includes(b.category)) {
-               // 判斷：若為 origin，代表剛抵達(完成該行程)，要用 end_location。若為 destination，代表要前往(開始)，用 start_location。
                loc = type === 'origin' ? (b.end_location || b.start_location) : b.start_location;
             } else {
                loc = type === 'origin' ? (b.end_location || b.start_location) : b.start_location;
@@ -457,17 +472,26 @@ const syncTripHandler = async (c: any) => {
          }
       }
       
-      // 使用者手動設定的地址擁有最高優先權
       if (item.address && item.address.trim() !== '') {
           loc = item.address;
       }
 
-      // 如果非網址，自動幫純文字補上重要後綴，讓 Google 更容易精準辨識
+      // 💡 強化字尾與城市前綴組合
       if (loc && !loc.startsWith('http')) {
           const lowerLoc = loc.toLowerCase();
-          if (category === 'FLIGHT' && !lowerLoc.includes('airport') && !lowerLoc.includes('機場')) loc += ' Airport';
-          if (category === 'TRAIN' && !lowerLoc.includes('station') && !lowerLoc.includes('車站') && !lowerLoc.includes('站')) loc += ' Station';
-          if (category === 'FERRY' && !lowerLoc.includes('port') && !lowerLoc.includes('pier') && !lowerLoc.includes('港')) loc += ' Port';
+          if (category === 'FLIGHT') {
+              if (!lowerLoc.includes('airport') && !lowerLoc.includes('機場')) {
+                  loc = `${currentCityName} ${loc} Airport`.trim();
+              }
+          } else if (category === 'TRAIN') {
+              if (!lowerLoc.includes('station') && !lowerLoc.includes('車站') && !lowerLoc.includes('站')) {
+                  loc = `${currentCityName} ${loc} Station`.trim();
+              }
+          } else if (category === 'FERRY') {
+              if (!lowerLoc.includes('port') && !lowerLoc.includes('pier') && !lowerLoc.includes('港')) {
+                  loc = `${currentCityName} ${loc} Port`.trim();
+              }
+          }
       }
 
       return loc || '';
@@ -479,7 +503,7 @@ const syncTripHandler = async (c: any) => {
     let allDebugLogs: any[] = [];
 
     const resolveLocationToCoords = async (rawStr: string, cityName: string, title: string, logs: string[]): Promise<string> => {
-        if (!rawStr) rawStr = `${cityName || ''} ${title}`.trim();
+        if (!rawStr) rawStr = `${cityName || trip.primary_city_name || ''} ${title}`.trim();
         
         const urlMatch = rawStr.match(/https?:\/\/[^\s]+/);
         if (urlMatch) {
@@ -487,15 +511,14 @@ const syncTripHandler = async (c: any) => {
             logs.push(...debug);
             if (coords) return coords; 
             
-            rawStr = rawStr.replace(/https?:\/\/[^\s]+/g, '').trim() || `${cityName || ''} ${title}`.trim();
+            rawStr = rawStr.replace(/https?:\/\/[^\s]+/g, '').trim() || `${cityName || trip.primary_city_name || ''} ${title}`.trim();
             logs.push(`[Geocode] URL parsing failed, falling back to text: ${rawStr}`);
         }
 
-        const geoResult = await geocodeTextToCoords(rawStr, c.env.GOOGLE_MAPS_API_KEY);
+        const geoResult = await geocodeTextToCoords(rawStr, c.env.GOOGLE_MAPS_API_KEY, primaryRegion);
         logs.push(geoResult.debug);
         
         if (geoResult.coords) return geoResult.coords; 
-        
         return rawStr;
     };
 
@@ -552,19 +575,15 @@ const syncTripHandler = async (c: any) => {
               const durationSecs = mapData.rows[0].elements[0].duration.value;
               const durationMins = Math.ceil(durationSecs / 60);
               debugLogs.push(`SUCCESS: Maps returned ${durationMins} minutes.`);
-              
               const savedAutoTime = `${origin}|${destination}`;
-
               await c.env.DB.prepare(`UPDATE Itineraries SET next_transport_time = ?, next_transport_auto_time = ? WHERE id = ?`)
                 .bind(`${durationMins} min`, savedAutoTime, current.id)
                 .run();
-                
               mapsUpdated++;
            } else {
               const rootStatus = mapData.status || 'UNKNOWN_ROOT';
               const elemStatus = mapData.rows?.[0]?.elements?.[0]?.status;
               const errStatus = elemStatus || rootStatus;
-              
               debugLogs.push(`MAPS API ERROR: Root=[${rootStatus}], Element=[${elemStatus || 'NONE'}]`);
               mapErrors.push(`Failed for [${origin}] -> [${destination}]: ${errStatus}`);
            }
@@ -572,7 +591,6 @@ const syncTripHandler = async (c: any) => {
            debugLogs.push(`EXCEPTION thrown during Google Maps call: ${e.message}`);
            mapErrors.push(`Exception for [${origin}] -> [${destination}]: ${e.message}`);
          }
-         
          allDebugLogs.push(debugLogs);
       }
     }
@@ -646,6 +664,8 @@ app.post('/api/trips', requireAuthMiddleware);
 app.post('/api/trips/*', requireAuthMiddleware);
 app.put('/api/trips/*', requireAuthMiddleware);
 app.delete('/api/trips/*', requireAuthMiddleware);
+
+// --- 需身分驗證的路由 ---
 
 app.get('/api/trips/:id/weather', async (c) => {
   const tripId = c.req.param('id');
@@ -820,7 +840,6 @@ app.delete('/api/trips/:id', async (c) => {
   } catch (error: any) { return c.json({ error: error.message }, 500); }
 });
 
-// 💡 BOOKINGS (新增 Itinerary 卡片時一併帶入 Address)
 app.get('/api/trips/:id/bookings', async (c) => {
   const tripId = c.req.param('id');
   try {
