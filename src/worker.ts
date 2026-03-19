@@ -203,15 +203,6 @@ async function getWeatherForDate(tripId: number, dateStr: string, env: Env, forc
   return finalJSON;
 }
 
-async function searchUnsplash(query: string, env: Env): Promise<string | null> {
-  try {
-    const response = await fetch(`https://api.unsplash.com/search/photos?query=${encodeURIComponent(query)}&per_page=1&orientation=landscape`, { headers: { 'Authorization': `Client-ID ${env.UNSPLASH_ACCESS_KEY}` } });
-    if (!response.ok) return null;
-    const data = await response.json() as any;
-    return data.results && data.results.length > 0 ? data.results[0].urls.regular : null;
-  } catch (e) { return null; }
-}
-
 function generateDesiredAccommodationItems(b: any, accId: string | number, hotelImage: string) {
   const desiredItems = [];
   const startDate = new Date(b.check_in_date);
@@ -285,65 +276,87 @@ function generateDesiredRentalItems(b: any, rentalId: string | number, rentalIma
   return desiredItems;
 }
 
-// 💡 暴力 URL 解析引擎：展開短網址並精準捕捉 Google Maps 座標 (不再抓 HTML 原始碼)
-async function extractCoordsFromUrl(url: string): Promise<string | null> {
+// 💡 暴力 URL 解析引擎：帶 Debug 陣列回傳
+async function extractCoordsFromUrl(url: string): Promise<{coords: string | null, debug: string[]}> {
+  const debug: string[] = [];
+  debug.push(`https://www.merriam-webster.com/dictionary/parse Start with URL: ${url}`);
+  
   try {
     let currentUrl = url;
     
-    // 1. 手動跟隨 Redirect，最多追蹤 5 次，避免被判定為機器人
+    // 跟隨 Redirect
     for (let i = 0; i < 5; i++) {
       const response = await fetch(currentUrl, { 
         method: 'GET', 
         redirect: 'manual',
-        headers: {
-          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
-        }
+        headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36' }
       });
       
       if (response.status >= 300 && response.status < 400) {
         const loc = response.headers.get('location');
         if (loc) {
           currentUrl = loc.startsWith('/') ? new URL(loc, currentUrl).toString() : loc;
+          debug.push(`https://www.merriam-webster.com/dictionary/parse Redirect ${i+1} -> ${currentUrl}`);
           continue;
         }
       }
       currentUrl = response.url || currentUrl;
+      debug.push(`https://www.merriam-webster.com/dictionary/parse Final URL resolved -> ${currentUrl}`);
       break;
     }
 
-    // 2. 穿越 Google 的 Cookie 同意頁面
+    // 穿越 Google Cookie 同意頁面
     if (currentUrl.includes('consent.google.com')) {
       try {
         const urlObj = new URL(currentUrl);
         const continueUrl = urlObj.searchParams.get('continue');
-        if (continueUrl) currentUrl = decodeURIComponent(continueUrl);
+        if (continueUrl) {
+           currentUrl = decodeURIComponent(continueUrl);
+           debug.push(`https://www.merriam-webster.com/dictionary/parse Bypassed consent.google.com -> ${currentUrl}`);
+        }
       } catch(e) {}
     }
     
-    // 3. 正規表達式雷達：捕捉所有常見的 Google Maps 經緯度格式
+    // 正規表達式掃描
     const atMatch = currentUrl.match(/@(-?\d+\.\d+),(-?\d+\.\d+)/);
-    if (atMatch) return `${atMatch[1]},${atMatch[2]}`;
+    if (atMatch) {
+       debug.push(`https://www.merriam-webster.com/dictionary/parse Matched @lat,lng -> ${atMatch[1]},${atMatch[2]}`);
+       return { coords: `${atMatch[1]},${atMatch[2]}`, debug };
+    }
 
     const bangMatch = currentUrl.match(/!3d(-?\d+\.\d+)!4d(-?\d+\.\d+)/);
-    if (bangMatch) return `${bangMatch[1]},${bangMatch[2]}`;
+    if (bangMatch) {
+       debug.push(`https://www.merriam-webster.com/dictionary/parse Matched !3d!4d -> ${bangMatch[1]},${bangMatch[2]}`);
+       return { coords: `${bangMatch[1]},${bangMatch[2]}`, debug };
+    }
     
     const queryMatch = currentUrl.match(/q=(-?\d+\.\d+),(-?\d+\.\d+)/);
-    if (queryMatch) return `${queryMatch[1]},${queryMatch[2]}`;
+    if (queryMatch) {
+       debug.push(`https://www.merriam-webster.com/dictionary/parse Matched q=lat,lng -> ${queryMatch[1]},${queryMatch[2]}`);
+       return { coords: `${queryMatch[1]},${queryMatch[2]}`, debug };
+    }
     
     const llMatch = currentUrl.match(/ll=(-?\d+\.\d+),(-?\d+\.\d+)/);
-    if (llMatch) return `${llMatch[1]},${llMatch[2]}`;
+    if (llMatch) {
+       debug.push(`https://www.merriam-webster.com/dictionary/parse Matched ll=lat,lng -> ${llMatch[1]},${llMatch[2]}`);
+       return { coords: `${llMatch[1]},${llMatch[2]}`, debug };
+    }
 
     const searchMatch = currentUrl.match(/search\/(-?\d+\.\d+),(-?\d+\.\d+)/);
-    if (searchMatch) return `${searchMatch[1]},${searchMatch[2]}`;
+    if (searchMatch) {
+       debug.push(`https://www.merriam-webster.com/dictionary/parse Matched search/lat,lng -> ${searchMatch[1]},${searchMatch[2]}`);
+       return { coords: `${searchMatch[1]},${searchMatch[2]}`, debug };
+    }
 
-    return null;
-  } catch (e) {
-    console.error("URL extraction failed:", e);
-    return null;
+    debug.push(`https://www.merriam-webster.com/dictionary/parse No coordinates found in URL via Regex.`);
+    return { coords: null, debug };
+  } catch (e: any) {
+    debug.push(`https://www.merriam-webster.com/dictionary/parse Exception -> ${e.message}`);
+    return { coords: null, debug };
   }
 }
 
-// 💡 終極全域 Sync Handler (AI Trip Calculation)
+// 💡 終極全域 Sync Handler
 const syncTripHandler = async (c: any) => {
   const tripId = c.req.param('id');
   const targetDate = c.req.query('date'); 
@@ -360,7 +373,6 @@ const syncTripHandler = async (c: any) => {
     const endDate = new Date(trip.end_date);
     let currentDate = new Date(startDate);
     
-    // 全旅程強制重算天氣
     while (currentDate <= endDate) {
       const dStr = currentDate.toISOString().split('T')[0];
       await getWeatherForDate(Number(tripId), dStr, c.env, true);
@@ -370,7 +382,6 @@ const syncTripHandler = async (c: any) => {
     const returnDateStr = targetDate || trip.start_date;
     const weatherData = await getWeatherForDate(Number(tripId), returnDateStr, c.env, false);
 
-    // 取得所有行程來進行 Map Sync
     const { results: items } = await c.env.DB.prepare(`
       SELECT i.*, c.name as city_name 
       FROM Itineraries i 
@@ -381,14 +392,7 @@ const syncTripHandler = async (c: any) => {
 
     const { results: bookings } = await c.env.DB.prepare(`SELECT * FROM Bookings WHERE trip_id = ?`).bind(tripId).all();
 
-    // 取得文字地址
     const getLocationString = (item: any, type: 'origin' | 'destination') => {
-      // 1. 如果使用者在行程卡片手動輸入了 Address，絕對是第一優先
-      if (item.address && item.address.trim() !== '') {
-          return item.address;
-      }
-      
-      // 2. 如果沒有自訂 Address，尋找是否有綁定 Booking
       let loc = '';
       if (item.related_id) {
          const b = bookings.find((x: any) => x.id === item.related_id);
@@ -402,29 +406,14 @@ const syncTripHandler = async (c: any) => {
             }
          }
       }
-      return loc || '';
-    };
-
-    // 💡 智慧清洗網址與取得位置
-    const getCleanLocation = async (rawLoc: string, city: string, title: string) => {
-        if (!rawLoc) return `${city || ''} ${title}`.trim();
-        
-        const urlMatch = rawLoc.match(/https?:\/\/[^\s]+/);
-        if (urlMatch) {
-            // 嘗試從網址提取座標
-            const coords = await extractCoordsFromUrl(urlMatch[0]);
-            if (coords) return coords;
-            
-            // 提取失敗（例如純圖片網址），剝除網址，留下純文字讓 Google 搜尋
-            const textOnly = rawLoc.replace(/https?:\/\/[^\s]+/g, '').trim();
-            return textOnly || `${city || ''} ${title}`.trim();
-        }
-        return rawLoc; 
+      if (!loc) loc = item.address;
+      return loc;
     };
 
     let mapsProcessed = 0;
     let mapsUpdated = 0;
     let mapErrors: string[] = [];
+    let allDebugLogs: any[] = []; // 💡 超級除錯日誌收集器
 
     for (let i = 0; i < items.length - 1; i++) {
       const current = items[i] as any;
@@ -432,28 +421,64 @@ const syncTripHandler = async (c: any) => {
 
       if (current.date === next.date && current.next_transport_mode && (!current.next_transport_time || current.next_transport_time === 'Auto')) {
          mapsProcessed++;
+         const debugLogs: string[] = [];
+         debugLogs.push(`--- Processing: [${current.title}] -> [${next.title}] ---`);
          
          let origin = '';
          let destination = '';
          
-         // 1. 優先解析手動輸入的經緯度 (lat,lng|lat,lng)
+         // 1. 優先取用手動填寫的經緯度
          if (current.next_transport_auto_time && current.next_transport_auto_time.includes('|')) {
              const parts = current.next_transport_auto_time.split('|');
-             origin = parts[0];
-             destination = parts[1];
+             if (parts[0]) origin = parts[0];
+             if (parts[1]) destination = parts[1];
+             debugLogs.push(`Loaded User Coordinates: Origin [${origin}], Dest [${destination}]`);
          }
          
-         // 2. 如果沒有手動經緯度，進行智慧抓取與清洗
-         if (!origin || !destination) {
-             let rawOrigin = origin || getLocationString(current, 'origin');
-             let rawDest = destination || getLocationString(next, 'destination');
+         // 2. 自動判斷 Origin
+         if (!origin) {
+             let rawOrigin = getLocationString(current, 'origin');
+             debugLogs.push(`Raw Origin Address: ${rawOrigin || 'EMPTY'}`);
              
-             origin = origin || await getCleanLocation(rawOrigin, current.city_name, current.title);
-             destination = destination || await getCleanLocation(rawDest, next.city_name, next.title);
+             const urlMatch = rawOrigin?.match(/https?:\/\/[^\s]+/);
+             if (urlMatch) {
+                 const { coords, debug } = await extractCoordsFromUrl(urlMatch[0]);
+                 debugLogs.push(...debug); // 記錄 URL 解析過程
+                 if (coords) {
+                     origin = coords;
+                 } else {
+                     origin = rawOrigin.replace(/https?:\/\/[^\s]+/g, '').trim() || `${current.city_name || ''} ${current.title}`.trim();
+                     debugLogs.push(`URL parse failed, fallback to Text: [${origin}]`);
+                 }
+             } else {
+                 origin = rawOrigin || `${current.city_name || ''} ${current.title}`.trim();
+             }
+         }
+
+         // 3. 自動判斷 Destination
+         if (!destination) {
+             let rawDest = getLocationString(next, 'destination');
+             debugLogs.push(`Raw Destination Address: ${rawDest || 'EMPTY'}`);
+             
+             const urlMatch = rawDest?.match(/https?:\/\/[^\s]+/);
+             if (urlMatch) {
+                 const { coords, debug } = await extractCoordsFromUrl(urlMatch[0]);
+                 debugLogs.push(...debug); 
+                 if (coords) {
+                     destination = coords;
+                 } else {
+                     destination = rawDest.replace(/https?:\/\/[^\s]+/g, '').trim() || `${next.city_name || ''} ${next.title}`.trim();
+                     debugLogs.push(`URL parse failed, fallback to Text: [${destination}]`);
+                 }
+             } else {
+                 destination = rawDest || `${next.city_name || ''} ${next.title}`.trim();
+             }
          }
 
          if (!origin || !destination) {
              mapErrors.push(`Skip for ${current.title}: Empty origin or destination.`);
+             debugLogs.push(`ABORT: Origin [${origin}], Destination [${destination}]`);
+             allDebugLogs.push(debugLogs);
              continue;
          }
 
@@ -461,42 +486,50 @@ const syncTripHandler = async (c: any) => {
          if (current.next_transport_mode === 'WALKING') mode = 'walking';
          if (current.next_transport_mode === 'DRIVING' || current.next_transport_mode === 'TAXI' || current.next_transport_mode === 'RENTAL') mode = 'driving';
 
-         // 3. 交由 Google Maps 運算
-         if (origin && destination) {
-            try {
-              const url = `https://maps.googleapis.com/maps/api/distancematrix/json?origins=${encodeURIComponent(origin)}&destinations=${encodeURIComponent(destination)}&mode=${mode}&key=${c.env.GOOGLE_MAPS_API_KEY}`;
-              const mapRes = await fetch(url);
-              const mapData = await mapRes.json() as any;
+         // 4. 打向 Google Maps
+         debugLogs.push(`Sending to Google Maps => Origin: [${origin}], Dest: [${destination}], Mode: [${mode}]`);
+         try {
+           const url = `https://maps.googleapis.com/maps/api/distancematrix/json?origins=${encodeURIComponent(origin)}&destinations=${encodeURIComponent(destination)}&mode=${mode}&key=${c.env.GOOGLE_MAPS_API_KEY}`;
+           const mapRes = await fetch(url);
+           const mapData = await mapRes.json() as any;
+           
+           if (mapData.rows?.[0]?.elements?.[0]?.status === 'OK') {
+              const durationSecs = mapData.rows[0].elements[0].duration.value;
+              const durationMins = Math.ceil(durationSecs / 60);
+              debugLogs.push(`SUCCESS: Maps returned ${durationMins} minutes.`);
               
-              if (mapData.rows?.[0]?.elements?.[0]?.status === 'OK') {
-                 const durationSecs = mapData.rows[0].elements[0].duration.value;
-                 const durationMins = Math.ceil(durationSecs / 60);
-                 
-                 // 保留原始使用者在前端輸入的經緯度 (如果有)
-                 const originalAutoTime = (current.next_transport_auto_time && current.next_transport_auto_time.includes('|')) 
-                                          ? current.next_transport_auto_time 
-                                          : '';
+              const originalAutoTime = (current.next_transport_auto_time && current.next_transport_auto_time.includes('|')) 
+                                       ? current.next_transport_auto_time 
+                                       : '';
 
-                 await c.env.DB.prepare(`UPDATE Itineraries SET next_transport_time = ?, next_transport_auto_time = ? WHERE id = ?`)
-                   .bind(`${durationMins} min`, originalAutoTime, current.id)
-                   .run();
-                   
-                 mapsUpdated++;
-              } else {
-                 const errStatus = mapData.rows?.[0]?.elements?.[0]?.status || 'UNKNOWN';
-                 mapErrors.push(`Failed for [${origin}] -> [${destination}]: ${errStatus}`);
-              }
-            } catch(e: any) { 
-              mapErrors.push(`Exception for [${origin}] -> [${destination}]: ${e.message}`);
-            }
+              await c.env.DB.prepare(`UPDATE Itineraries SET next_transport_time = ?, next_transport_auto_time = ? WHERE id = ?`)
+                .bind(`${durationMins} min`, originalAutoTime, current.id)
+                .run();
+                
+              mapsUpdated++;
+           } else {
+              const errStatus = mapData.rows?.[0]?.elements?.[0]?.status || 'UNKNOWN';
+              debugLogs.push(`MAPS API ERROR: Returned status [${errStatus}]`);
+              mapErrors.push(`Failed for [${origin}] -> [${destination}]: ${errStatus}`);
+           }
+         } catch(e: any) { 
+           debugLogs.push(`EXCEPTION thrown during Google Maps call: ${e.message}`);
+           mapErrors.push(`Exception for [${origin}] -> [${destination}]: ${e.message}`);
          }
+         
+         allDebugLogs.push(debugLogs);
       }
     }
 
     return c.json({ 
         success: true, 
         weather: weatherData, 
-        map_sync: { processed: mapsProcessed, updated: mapsUpdated, errors: mapErrors } 
+        map_sync: { 
+            processed: mapsProcessed, 
+            updated: mapsUpdated, 
+            errors: mapErrors,
+            debug: allDebugLogs  // 💡 將 Debug 資訊拋回前端
+        } 
     });
   } catch (error: any) { 
     return c.json({ error: error.message }, 500); 
@@ -560,7 +593,25 @@ app.delete('/api/trips/*', requireAuthMiddleware);
 
 // --- 需身分驗證的路由 ---
 
-// 💡 註冊 SYNC API
+// 💡 補回剛剛消失的天氣 API 路由！
+app.get('/api/trips/:id/weather', async (c) => {
+  const tripId = c.req.param('id');
+  const date = c.req.query('date');
+  try {
+    if (date) {
+      const weatherData = await getWeatherForDate(Number(tripId), date, c.env);
+      if (!weatherData) return c.json({ message: 'No weather data available' }, 404);
+      return c.json(weatherData);
+    } else {
+      const todayStr = new Date().toISOString().split('T')[0];
+      const weatherData = await c.env.KV.get(`weather:trip:${tripId}:${todayStr}`, 'json');
+      if (!weatherData) return c.json({ message: 'Weather data will be updated soon' }, 202);
+      return c.json(weatherData);
+    }
+  } catch (error: any) { return c.json({ error: error.message }, 500); }
+});
+
+// 💡 SYNC API
 app.post('/api/trips/:id/sync', syncTripHandler);
 app.post('/api/trips/:id/weather/sync', syncTripHandler);
 

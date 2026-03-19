@@ -8,7 +8,7 @@ interface NextTransportFormProps {
   isOpen: boolean;
   onClose: () => void;
   itinerary: Itinerary;
-  nextItinerary?: Itinerary; // 💡 傳入下一站來取得預設地址
+  nextItinerary?: Itinerary;
   onSave: (data: { next_transport_mode: string; next_transport_time: string; next_transport_auto_time: string }) => Promise<void>;
 }
 
@@ -28,12 +28,10 @@ export function NextTransportForm({ isOpen, onClose, itinerary, nextItinerary, o
   const [duration, setDuration] = useState<number>(initialMins);
   const [loading, setLoading] = useState(false);
   
-  // 💡 經緯度專屬狀態
   const [originCoords, setOriginCoords] = useState('');
   const [destCoords, setDestCoords] = useState('');
   const [fetchingCoords, setFetchingCoords] = useState(false);
 
-  // 如果原本資料庫裡有儲存經緯度，就載入它
   useEffect(() => {
     if (itinerary.next_transport_auto_time && itinerary.next_transport_auto_time.includes('|')) {
        const [o, d] = itinerary.next_transport_auto_time.split('|');
@@ -42,7 +40,6 @@ export function NextTransportForm({ isOpen, onClose, itinerary, nextItinerary, o
     }
   }, [itinerary]);
 
-  // 當切換到 Auto (0) 且還沒有經緯度時，自動打 API 換算
   useEffect(() => {
     if (duration === 0 && mode && (!originCoords || !destCoords)) {
       const fetchGeocode = async () => {
@@ -74,26 +71,29 @@ export function NextTransportForm({ isOpen, onClose, itinerary, nextItinerary, o
   if (!isOpen) return null;
 
   const handleSave = async () => {
-    // 💡 若為 Auto 模式，強制驗證經緯度格式
+    // 💡 放寬限制：允許空值。如果有填寫，才檢查格式。
     if (duration === 0) {
        const coordRegex = /^-?\d+(\.\d+)?,\s*-?\d+(\.\d+)?$/;
-       if (!originCoords || !destCoords) {
-           alert('【AI Trip Calculation 模式】\n起點與終點的經緯度不得為空，請輸入經緯度以便計算。');
+       if (originCoords && !coordRegex.test(originCoords.trim())) {
+           alert('起點經緯度格式錯誤！\n請輸入純數字格式，例如：25.0330, 121.5654');
            return;
        }
-       if (!coordRegex.test(originCoords) || !coordRegex.test(destCoords)) {
-           alert('經緯度格式錯誤！\n請輸入純數字格式，例如：25.0330, 121.5654');
+       if (destCoords && !coordRegex.test(destCoords.trim())) {
+           alert('終點經緯度格式錯誤！\n請輸入純數字格式，例如：25.0330, 121.5654');
            return;
        }
     }
 
     setLoading(true);
     try {
+      const safeOrigin = originCoords ? originCoords.replace(/\s/g,'') : '';
+      const safeDest = destCoords ? destCoords.replace(/\s/g,'') : '';
+      
       await onSave({
         next_transport_mode: mode,
         next_transport_time: duration === 0 ? '' : `${duration} min`,
-        // 若為 Auto，將經緯度用 | 隔開儲存；否則清空
-        next_transport_auto_time: duration === 0 ? `${originCoords.replace(/\s/g,'')}|${destCoords.replace(/\s/g,'')}` : ''
+        // 只有在 Auto 模式且至少有填寫其中一個時，才存入 auto_time
+        next_transport_auto_time: duration === 0 && (safeOrigin || safeDest) ? `${safeOrigin}|${safeDest}` : ''
       });
     } finally {
       setLoading(false);
@@ -175,12 +175,11 @@ export function NextTransportForm({ isOpen, onClose, itinerary, nextItinerary, o
             </div>
           )}
 
-          {/* 💡 當 Duration 為 Auto 時，展開經緯度輸入框 */}
           {mode && duration === 0 && (
              <div className="space-y-4 bg-orange-500/5 p-5 rounded-2xl border border-orange-500/20">
                 <div className="flex items-center justify-between">
                    <h4 className="text-xs font-bold text-orange-500 uppercase tracking-wider flex items-center gap-1.5">
-                     <MapPin size={14} /> Map Coordinates
+                     <MapPin size={14} /> Map Coordinates <span className="text-[9px] text-orange-400/70 ml-1">(Optional)</span>
                    </h4>
                    {fetchingCoords && <Loader2 size={14} className="animate-spin text-orange-500" />}
                 </div>
@@ -203,7 +202,7 @@ export function NextTransportForm({ isOpen, onClose, itinerary, nextItinerary, o
                     />
                   </div>
                   <p className="text-[10px] text-zinc-500 leading-relaxed italic">
-                    If fields are empty, please manually retrieve Coordinates (緯度,經度) from Google Maps. 
+                    If left empty, the system will automatically parse the address/URL.
                   </p>
                 </div>
              </div>
