@@ -242,6 +242,7 @@ function generateDesiredRentalItems(b: any, rentalId: string | number, rentalIma
   const arrBuffer = details.arr_buffer || 0;
   const pad = (n: number) => n.toString().padStart(2, '0');
 
+  // Pick-up
   const pickUpStart = new Date(`1970-01-01T${b.start_time || '10:00'}:00`);
   const pickUpEnd = new Date(pickUpStart.getTime() + (depBuffer * 60000));
 
@@ -255,6 +256,7 @@ function generateDesiredRentalItems(b: any, rentalId: string | number, rentalIma
     matchType: 'Pick-up'
   });
 
+  // Return
   const returnStart = new Date(`1970-01-01T${b.end_time || '10:00'}:00`);
   const returnEnd = new Date(returnStart.getTime() + (arrBuffer * 60000));
 
@@ -271,17 +273,17 @@ function generateDesiredRentalItems(b: any, rentalId: string | number, rentalIma
   return desiredItems;
 }
 
-// 💡 核心終極同步邏輯：天氣更新 + 智慧 Google Maps 計算
+// 💡 全域 Sync Handler (天氣 + Google Maps Auto 路線計算)
 const syncTripHandler = async (c: any) => {
   const tripId = c.req.param('id');
   try {
     const canEdit = await checkTripAccess(c, Number(tripId), 'edit');
     if (!canEdit) return c.json({ error: 'Unauthorized' }, 403);
 
-    // 1. 同步全天候天氣
+    // 1. 同步天氣
     const weatherData = await syncWeatherForTrip(Number(tripId), c.env);
 
-    // 2. 獲取所有行程與關聯 Bookings 來準備精準定位
+    // 2. 同步 Google Maps Auto 時間
     const { results: items } = await c.env.DB.prepare(`
       SELECT i.*, c.name as city_name 
       FROM Itineraries i 
@@ -292,34 +294,49 @@ const syncTripHandler = async (c: any) => {
 
     const { results: bookings } = await c.env.DB.prepare(`SELECT * FROM Bookings WHERE trip_id = ?`).bind(tripId).all();
 
-    // 💡 取得最高準確度的起終點位置邏輯
+    // 💡 精準判定 INFO 卡片的起終點邏輯
     const getLocationString = (item: any, type: 'origin' | 'destination') => {
       let loc = '';
       if (item.related_id) {
          const b = bookings.find((x: any) => x.id === item.related_id);
          if (b) {
-            if (type === 'origin') {
-               // HOTEL -> Address 就是起點；其他 -> 取 end_location(目的/還車) 當作他離開該點時的起點
-               loc = b.category === 'HOTEL' ? b.start_location : (b.end_location || b.start_location);
-            } else {
-               // 當作 destination 時，統一取 start_location(取車/登機/飯店) 當終點
+            if (b.category === 'HOTEL') {
+               // HOTEL: 取 Address 當作 下一站起點 和 下一張卡片的終點
                loc = b.start_location;
+            } else if (b.category === 'PRIVATE_TRANSFER') {
+               // Private Transfer: 下一站-> 取 Destination 當作起點，下一張卡片-> 取 Pickup Point 當作下一張卡片的終點
+               loc = type === 'origin' ? (b.end_location || b.start_location) : b.start_location;
+            } else if (b.category === 'RENTAL') {
+               // Rental: 下一站-> 取 Return location 當作起點，下一張卡片-> 取 Pick-up location 當作下一張卡片的終點
+               loc = type === 'origin' ? (b.end_location || b.start_location) : b.start_location;
+            } else if (b.category === 'FERRY') {
+               // Ferry: 下一站-> 取 Arrival Port 當作起點，下一張卡片-> 取 Departure Port 當作下一張卡片的終點
+               loc = type === 'origin' ? (b.end_location || b.start_location) : b.start_location;
+            } else if (b.category === 'TRAIN') {
+               // Train: 下一站-> 取 Arrival Station 當作起點，下一張卡片-> 取 Departure Station 當作下一張卡片的終點
+               loc = type === 'origin' ? (b.end_location || b.start_location) : b.start_location;
+            } else if (b.category === 'FLIGHT') {
+               // Flight: 下一站-> 取 Arrival Airport 當作起點，下一張卡片-> 取 Departure Airport 當作下一張卡片的終點
+               loc = type === 'origin' ? (b.end_location || b.start_location) : b.start_location;
+            } else {
+               loc = type === 'origin' ? (b.end_location || b.start_location) : b.start_location;
             }
          }
       }
+      
+      // 如果沒有配地址，就用城市+卡片標題當作GOOGLE MAP位置
       if (!loc) {
          loc = item.address || `${item.city_name || ''} ${item.title}`.trim();
       }
       return loc;
     };
 
-    // 3. 掃描所有卡片，尋找需要 Google Maps Auto 計算的路線
     for (let i = 0; i < items.length - 1; i++) {
       const current = items[i] as any;
       const next = items[i+1] as any;
 
-      // 💡 只要 duration 留白 (!next_transport_time) 就觸發計算
-      if (current.next_transport_mode && !current.next_transport_time) {
+      // 💡 當使用者設定了 mode 且 next_transport_time 為空 (表示為 Auto) 時才計算
+      if (current.date === next.date && current.next_transport_mode && !current.next_transport_time) {
          const origin = getLocationString(current, 'origin');
          const destination = getLocationString(next, 'destination');
          
@@ -334,11 +351,11 @@ const syncTripHandler = async (c: any) => {
               const mapData = await mapRes.json() as any;
               
               if (mapData.rows?.[0]?.elements?.[0]?.status === 'OK') {
-                 // 💡 將 Google 回傳的精準秒數轉換成捨入的分鐘數
+                 // 將秒數轉為分鐘數
                  const durationSecs = mapData.rows[0].elements[0].duration.value;
                  const durationMins = Math.ceil(durationSecs / 60);
                  
-                 // 將算出來的結果直接覆寫回 next_transport_time 欄位，這樣下次就會跳過不再重複計算！
+                 // 直接覆寫 next_transport_time！這樣時間被寫死後，下次 Sync 就會跳過不再計算
                  await c.env.DB.prepare(`UPDATE Itineraries SET next_transport_time = ?, next_transport_auto_time = '' WHERE id = ?`)
                    .bind(`${durationMins} min`, current.id)
                    .run();
@@ -360,6 +377,207 @@ const syncTripHandler = async (c: any) => {
 
 app.post('/api/trips/:id/sync', syncTripHandler);
 app.post('/api/trips/:id/weather/sync', syncTripHandler);
+
+
+app.post('/api/init', async (c) => {
+  try {
+    const { results } = await c.env.DB.prepare('SELECT COUNT(*) as count FROM Users').all();
+    if ((results[0] as any).count === 0) {
+      const passwordHash = await generateHash('123456', c.env.PASSWORD_SALT || 'default_salt');
+      await c.env.DB.prepare(`INSERT INTO Users (role, name, avatar_url, password_hash, allow_login, created_at, updated_at) VALUES ('Admin', '超級管理員', 'https://api.dicebear.com/7.x/avataaars/svg?seed=Admin', ?, 1, ?, ?)`).bind(passwordHash, Date.now(), Date.now()).run();
+      return c.json({ success: true, message: 'Admin created.' });
+    }
+    return c.json({ success: false, message: 'Not empty.' });
+  } catch (error: any) { return c.json({ error: error.message }, 500); }
+});
+
+app.get('/api/users/login-list', async (c) => {
+  try {
+    const { results } = await c.env.DB.prepare('SELECT id, name, avatar_url, role FROM Users WHERE allow_login = 1').all();
+    return c.json(results);
+  } catch (error: any) { return c.json({ error: error.message }, 500); }
+});
+
+app.post('/api/auth/login', async (c) => {
+  try {
+    const { username, password } = await c.req.json();
+    if (!username || !password) return c.json({ error: 'Missing credentials' }, 400);
+    const { results } = await c.env.DB.prepare('SELECT * FROM Users WHERE id = ? AND allow_login = 1').bind(username).all();
+    const user = results[0] as any;
+    if (!user) return c.json({ error: 'User not found' }, 404);
+    const passwordHash = await generateHash(password, c.env.PASSWORD_SALT);
+    if (passwordHash !== user.password_hash) return c.json({ error: 'Invalid' }, 401);
+
+    const { password_hash, ...safeUser } = user;
+    const token = crypto.randomUUID();
+    await c.env.KV.put(`session:${token}`, JSON.stringify(safeUser), { expirationTtl: 604800 });
+    return c.json({ token, user: safeUser });
+  } catch (error: any) { return c.json({ error: error.message }, 500); }
+});
+
+app.use('/api/*', decodeUserMiddleware);
+app.use('/api/users', requireAuthMiddleware);
+app.use('/api/users/*', requireAuthMiddleware);
+app.use('/api/settings', requireAuthMiddleware);
+app.use('/api/sync', requireAuthMiddleware);
+app.use('/api/upload', requireAuthMiddleware);
+app.post('/api/trips', requireAuthMiddleware);
+app.post('/api/trips/*', requireAuthMiddleware);
+app.put('/api/trips/*', requireAuthMiddleware);
+app.delete('/api/trips/*', requireAuthMiddleware);
+
+app.post('/api/upload', async (c) => {
+  try {
+    const body = await c.req.parseBody();
+    const file = body['file']; 
+    const folder = body['folder'] || 'trips';
+    if (!file || !(file instanceof File)) return c.json({ error: 'No file uploaded' }, 400);
+
+    const supabaseUrl = c.env.VITE_SUPABASE_URL;
+    const supabaseKey = c.env.SUPABASE_SERVICE_ROLE_KEY || c.env.VITE_SUPABASE_ANON_KEY;
+    if (!supabaseUrl || !supabaseKey) return c.json({ error: 'Supabase not configured' }, 500);
+
+    const supabase = createClient(supabaseUrl, supabaseKey);
+    const fileName = `${folder}/${Date.now()}-${Math.random().toString(36).substring(7)}.jpg`;
+    
+    const arrayBuffer = await file.arrayBuffer();
+    const { error } = await supabase.storage.from('travelplan').upload(fileName, arrayBuffer, { contentType: file.type });
+    if (error) throw error;
+
+    const { data: { publicUrl } } = supabase.storage.from('travelplan').getPublicUrl(fileName);
+    return c.json({ publicUrl });
+  } catch (e: any) { return c.json({ error: e.message }, 500); }
+});
+
+app.get('/api/cities', async (c) => {
+  try {
+    const { results } = await c.env.DB.prepare('SELECT * FROM Cities ORDER BY country, name').all();
+    return c.json(results);
+  } catch (error: any) { return c.json({ error: error.message }, 500); }
+});
+
+app.get('/api/users', async (c) => {
+  try {
+    const { results } = await c.env.DB.prepare('SELECT id, name, avatar_url, role, allow_login FROM Users').all();
+    return c.json(results);
+  } catch (error: any) { return c.json({ error: error.message }, 500); }
+});
+
+app.post('/api/users', async (c) => {
+  try {
+    const { name, password, role, allow_login } = await c.req.json();
+    const passwordHash = await generateHash(password, c.env.PASSWORD_SALT || 'salt');
+    const avatar_url = `https://ui-avatars.com/api/?name=${encodeURIComponent(name)}&background=random`;
+    const info = await c.env.DB.prepare(`INSERT INTO Users (name, password_hash, role, avatar_url, allow_login, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)`).bind(name, passwordHash, role || 'user', avatar_url, allow_login ?? 1, Date.now(), Date.now()).run();
+    return c.json({ id: info.meta.last_row_id, name, role, avatar_url });
+  } catch (error: any) { return c.json({ error: error.message }, 500); }
+});
+
+app.put('/api/users/:id', async (c) => {
+  const id = c.req.param('id');
+  try {
+    const { name, role, allow_login, password, avatar_url, payment_info } = await c.req.json();
+    let query = 'UPDATE Users SET updated_at = ?';
+    const params: any[] = [Date.now()];
+
+    if (name !== undefined) { query += ', name = ?'; params.push(name); }
+    if (role !== undefined) { query += ', role = ?'; params.push(role); }
+    if (allow_login !== undefined) { query += ', allow_login = ?'; params.push(allow_login); }
+    if (avatar_url !== undefined) { query += ', avatar_url = ?'; params.push(avatar_url); }
+    if (payment_info !== undefined) { query += ', payment_info = ?'; params.push(typeof payment_info === 'string' ? payment_info : JSON.stringify(payment_info)); }
+    if (password) { query += ', password_hash = ?'; params.push(await generateHash(password, c.env.PASSWORD_SALT || 'salt')); }
+    
+    query += ' WHERE id = ?'; params.push(id);
+    
+    await c.env.DB.prepare(query).bind(...params).run();
+    return c.json({ success: true });
+  } catch (error: any) { return c.json({ error: error.message }, 500); }
+});
+
+app.get('/api/trips', async (c) => {
+  try {
+    const user = c.get('user');
+    let query = 'SELECT id, title, cover_image_url, start_date, end_date, default_city_id, is_public FROM Trips WHERE is_public = 1';
+    const params: any[] = [];
+
+    if (user) {
+      if (user.role === 'Admin') {
+        query = 'SELECT id, title, cover_image_url, start_date, end_date, default_city_id, is_public FROM Trips';
+      } else {
+        query += ' OR id IN (SELECT trip_id FROM TripMembers WHERE user_id = ?)';
+        params.push(user.id);
+      }
+    }
+    query += ' ORDER BY start_date DESC';
+
+    const { results: trips } = await c.env.DB.prepare(query).bind(...params).all();
+    if (trips.length === 0) return c.json([]);
+
+    const tripIds = trips.map((t: any) => t.id).join(',');
+    const { results: allMembers } = await c.env.DB.prepare(`SELECT trip_id, user_id, role FROM TripMembers WHERE trip_id IN (${tripIds})`).all();
+    const tripsWithMembers = trips.map((trip: any) => ({ ...trip, members: allMembers.filter((m: any) => m.trip_id === trip.id) }));
+
+    return c.json(tripsWithMembers);
+  } catch (error: any) { return c.json({ error: error.message }, 500); }
+});
+
+app.post('/api/trips', async (c) => {
+  try {
+    const user = c.get('user');
+    if (!user || user.role !== 'Admin') return c.json({ error: 'Only Admins can create trips' }, 403);
+    const { title, start_date, end_date, cover_image_url, default_city_id, is_public } = await c.req.json();
+    await c.env.DB.prepare(`INSERT INTO Trips (title, start_date, end_date, cover_image_url, default_city_id, created_at, updated_at, currencies, is_public) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`).bind(title, start_date, end_date, cover_image_url || '', default_city_id, Date.now(), Date.now(), JSON.stringify(['TWD']), is_public || 0).run();
+    const idResult = await c.env.DB.prepare('SELECT last_insert_rowid() as id').first();
+    const id = idResult ? (idResult as any).id : null;
+    if (!id) return c.json({ error: 'Failed to create trip.' }, 500);
+    const newTrip = await c.env.DB.prepare('SELECT * FROM Trips WHERE id = ?').bind(id).first();
+    return c.json(newTrip);
+  } catch (error: any) { return c.json({ error: error.message }, 500); }
+});
+
+app.get('/api/trips/:id', async (c) => {
+  const id = c.req.param('id');
+  const user = c.get('user');
+  try {
+    const { results } = await c.env.DB.prepare('SELECT * FROM Trips WHERE id = ?').bind(id).all();
+    if (results.length === 0) return c.json({ error: 'Trip not found' }, 404);
+    const trip = results[0] as any;
+    const { results: members } = await c.env.DB.prepare('SELECT user_id, role FROM TripMembers WHERE trip_id = ?').bind(id).all();
+    const isMember = user && members.some((m: any) => m.user_id === user.id);
+    const canView = trip.is_public === 1 || isMember || (user && user.role === 'Admin');
+    if (!canView) return c.json({ error: 'Unauthorized' }, 401);
+    if (trip.currencies) trip.currencies = JSON.parse(trip.currencies);
+    trip.members = members || [];
+    return c.json(trip);
+  } catch (error: any) { return c.json({ error: error.message }, 500); }
+});
+
+app.put('/api/trips/:id', async (c) => {
+  const id = c.req.param('id');
+  const user = c.get('user');
+  try {
+    const canEdit = await checkTripAccess(c, Number(id), 'edit');
+    if (!canEdit) return c.json({ error: 'Unauthorized' }, 403);
+    const { title, start_date, end_date, cover_image_url, default_city_id, currencies, is_public } = await c.req.json();
+    let finalIsPublic = is_public;
+    if (is_public !== undefined && user.role !== 'Admin') {
+       const existing = await c.env.DB.prepare('SELECT is_public FROM Trips WHERE id = ?').bind(id).first();
+       finalIsPublic = existing.is_public;
+    }
+    await c.env.DB.prepare(`UPDATE Trips SET title = ?, start_date = ?, end_date = ?, cover_image_url = ?, default_city_id = ?, currencies = ?, is_public = ?, updated_at = ? WHERE id = ?`).bind(title, start_date, end_date, cover_image_url, default_city_id, JSON.stringify(currencies || ['TWD']), finalIsPublic, Date.now(), id).run();
+    return c.json({ success: true });
+  } catch (error: any) { return c.json({ error: error.message }, 500); }
+});
+
+app.delete('/api/trips/:id', async (c) => {
+  const id = c.req.param('id');
+  try {
+    const canEdit = await checkTripAccess(c, Number(id), 'admin');
+    if (!canEdit) return c.json({ error: 'Unauthorized' }, 403);
+    await c.env.DB.prepare('DELETE FROM Trips WHERE id = ?').bind(id).run();
+    return c.json({ success: true });
+  } catch (error: any) { return c.json({ error: error.message }, 500); }
+});
 
 // --- Bookings (Unified) ---
 app.get('/api/trips/:id/bookings', async (c) => {
