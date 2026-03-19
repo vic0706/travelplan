@@ -285,6 +285,7 @@ function generateDesiredRentalItems(b: any, rentalId: string | number, rentalIma
 }
 
 // 💡 終極全域 Sync Handler (AI Trip Calculation)
+// 💡 終極全域 Sync Handler (AI Trip Calculation)
 const syncTripHandler = async (c: any) => {
   const tripId = c.req.param('id');
   const targetDate = c.req.query('date'); 
@@ -320,6 +321,35 @@ const syncTripHandler = async (c: any) => {
       ORDER BY date, start_time
     `).bind(tripId).all();
 
+    const { results: bookings } = await c.env.DB.prepare(`SELECT * FROM Bookings WHERE trip_id = ?`).bind(tripId).all();
+
+    // 💡 智慧定位與清洗：自動捨棄網址，改用「城市+標題」
+    const getLocationString = (item: any, type: 'origin' | 'destination') => {
+      let loc = '';
+      if (item.related_id) {
+         const b = bookings.find((x: any) => x.id === item.related_id);
+         if (b) {
+            if (b.category === 'HOTEL') {
+               loc = b.start_location;
+            } else if (b.category === 'PRIVATE_TRANSFER' || b.category === 'RENTAL' || b.category === 'FERRY' || b.category === 'TRAIN' || b.category === 'FLIGHT') {
+               loc = type === 'origin' ? (b.end_location || b.start_location) : b.start_location;
+            } else {
+               loc = type === 'origin' ? (b.end_location || b.start_location) : b.start_location;
+            }
+         }
+      }
+      
+      if (!loc) {
+         loc = item.address;
+      }
+
+      // 🚨 智慧清洗：如果抓到的是網址，直接丟棄，改用「城市 + 卡片標題」
+      if (!loc || loc.includes('http')) {
+         loc = `${item.city_name || ''} ${item.title}`.trim();
+      }
+      return loc;
+    };
+
     let mapsProcessed = 0;
     let mapsUpdated = 0;
     let mapErrors: string[] = [];
@@ -328,24 +358,27 @@ const syncTripHandler = async (c: any) => {
       const current = items[i] as any;
       const next = items[i+1] as any;
 
-      // 當我們前端選擇了 Auto 且有填入經緯度時，會儲存在 next_transport_auto_time 裡
-      // 只要 next_transport_time 沒有設定具體時間，我們就進行地圖運算
-      if (current.date === next.date && current.next_transport_mode && !current.next_transport_time) {
+      if (current.date === next.date && current.next_transport_mode && (!current.next_transport_time || current.next_transport_time === 'Auto')) {
          mapsProcessed++;
          
          let origin = '';
          let destination = '';
          
-         // 💡 解析我們剛剛在前端透過 Geocode 或手動輸入的經緯度 (格式: lat,lng|lat,lng)
+         // 💡 優先解析我們手動輸入的經緯度 (格式: lat,lng|lat,lng)
          if (current.next_transport_auto_time && current.next_transport_auto_time.includes('|')) {
              const parts = current.next_transport_auto_time.split('|');
              origin = parts[0];
              destination = parts[1];
          }
          
-         // 如果真的為空 (防呆)，則紀錄錯誤跳過，等待使用者補齊
+         // 💡 如果沒有經緯度，自動退回使用地址/城市標題 (完美防呆！)
          if (!origin || !destination) {
-             mapErrors.push(`Skip for ${current.title}: Coordinates missing from auto_time.`);
+             origin = getLocationString(current, 'origin');
+             destination = getLocationString(next, 'destination');
+         }
+
+         if (!origin || !destination) {
+             mapErrors.push(`Skip for ${current.title}: No Coordinates and No Address found.`);
              continue;
          }
 
@@ -364,10 +397,13 @@ const syncTripHandler = async (c: any) => {
                  const durationSecs = mapData.rows[0].elements[0].duration.value;
                  const durationMins = Math.ceil(durationSecs / 60);
                  
-                 // 💡 將算好的時間寫入，同時「保留經緯度」在 next_transport_auto_time 中，
-                 // 這樣之後如果想重新拉成 Auto，經緯度就還會在！
-                 await c.env.DB.prepare(`UPDATE Itineraries SET next_transport_time = ? WHERE id = ?`)
-                   .bind(`${durationMins} min`, current.id)
+                 // 💡 將算好的時間寫入，同時「保留原本的經緯度紀錄」在 auto_time 中
+                 const originalAutoTime = (current.next_transport_auto_time && current.next_transport_auto_time.includes('|')) 
+                                          ? current.next_transport_auto_time 
+                                          : '';
+
+                 await c.env.DB.prepare(`UPDATE Itineraries SET next_transport_time = ?, next_transport_auto_time = ? WHERE id = ?`)
+                   .bind(`${durationMins} min`, originalAutoTime, current.id)
                    .run();
                    
                  mapsUpdated++;
