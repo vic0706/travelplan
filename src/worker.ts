@@ -31,50 +31,7 @@ app.use('*', cors({
   maxAge: 600,
 }));
 
-app.get('/api/images/search', async (c) => {
-  const query = c.req.query('query');
-  const type = c.req.query('type') || 'trip';
-  if (!query) return c.json({ error: 'Missing query' }, 400);
-
-  const searchQuery = type === 'trip' ? `${query} Landmark Travel Cityscape` : query;
-  
-  try {
-    const response = await fetch(
-      `https://api.unsplash.com/search/photos?query=${encodeURIComponent(searchQuery)}&per_page=12&orientation=landscape`,
-      { headers: { 'Authorization': `Client-ID ${c.env.UNSPLASH_ACCESS_KEY}` } }
-    );
-    if (!response.ok) return c.json({ error: 'Failed to fetch images' }, response.status as any);
-    const data = await response.json() as any;
-    const photos = (data.results || []).map((p: any) => ({
-      id: p.id, url: p.urls.regular, thumb: p.urls.thumb, attribution: p.user.name, attribution_url: p.user.links.html
-    }));
-    return c.json(photos);
-  } catch (error) { return c.json({ error: 'Internal server error' }, 500); }
-});
-
-app.get('/api/flights/lookup', async (c) => {
-  const inputCode = c.req.query('code') || '';
-  const code = inputCode.replace(/[\u4e00-\u9fa5a-zA-Z\s]+(?=[A-Z]{2}\d+)/g, '').trim().replace(/\s+/g, '');
-  if (!code) return c.json({ error: '請輸入正確的航班編號' }, 400);
-
-  const response = await fetch(`http://api.aviationstack.com/v1/flights?access_key=${c.env.FLIGHT_API_KEY}&flight_iata=${code}`);
-  const data = await response.json() as any;
-  if (!data.data || data.data.length === 0) return c.json({ error: '找不到該航班資訊' }, 404);
-
-  const f = data.data[0];
-  return c.json({
-    airline: f.airline.name, flight_number: f.flight.iata,
-    departure_airport: f.departure.iata, departure_terminal: f.departure.terminal,
-    departure_date: f.departure.scheduled.split('T')[0], departure_time: f.departure.scheduled.split('T')[1].substring(0, 5),
-    arrival_airport: f.arrival.iata, arrival_terminal: f.arrival.terminal,
-    arrival_date: f.arrival.scheduled.split('T')[0], arrival_time: f.arrival.scheduled.split('T')[1].substring(0, 5),
-  });
-});
-
-app.get('/', (c) => c.text('Worker is running!'));
-app.get('/health-check', (c) => c.text('Worker is running!'));
-app.get('/api/health', (c) => c.json({ status: 'ok', timestamp: new Date().toISOString() }));
-app.notFound((c) => c.json({ error: 'API route not found' }, 404));
+// --- 工具函數區塊 (Utility Functions) ---
 
 async function generateHash(password: string, salt: string): Promise<string> {
   const encoder = new TextEncoder();
@@ -273,111 +230,53 @@ function generateDesiredRentalItems(b: any, rentalId: string | number, rentalIma
   return desiredItems;
 }
 
-// 💡 全域 Sync Handler (天氣 + Google Maps Auto 路線計算)
-const syncTripHandler = async (c: any) => {
-  const tripId = c.req.param('id');
+
+// --- 公開路由 (無須驗證) ---
+
+app.get('/api/images/search', async (c) => {
+  const query = c.req.query('query');
+  const type = c.req.query('type') || 'trip';
+  if (!query) return c.json({ error: 'Missing query' }, 400);
+
+  const searchQuery = type === 'trip' ? `${query} Landmark Travel Cityscape` : query;
+  
   try {
-    const canEdit = await checkTripAccess(c, Number(tripId), 'edit');
-    if (!canEdit) return c.json({ error: 'Unauthorized' }, 403);
+    const response = await fetch(
+      `https://api.unsplash.com/search/photos?query=${encodeURIComponent(searchQuery)}&per_page=12&orientation=landscape`,
+      { headers: { 'Authorization': `Client-ID ${c.env.UNSPLASH_ACCESS_KEY}` } }
+    );
+    if (!response.ok) return c.json({ error: 'Failed to fetch images' }, response.status as any);
+    const data = await response.json() as any;
+    const photos = (data.results || []).map((p: any) => ({
+      id: p.id, url: p.urls.regular, thumb: p.urls.thumb, attribution: p.user.name, attribution_url: p.user.links.html
+    }));
+    return c.json(photos);
+  } catch (error) { return c.json({ error: 'Internal server error' }, 500); }
+});
 
-    // 1. 同步天氣
-    const weatherData = await syncWeatherForTrip(Number(tripId), c.env);
+app.get('/api/flights/lookup', async (c) => {
+  const inputCode = c.req.query('code') || '';
+  const code = inputCode.replace(/[\u4e00-\u9fa5a-zA-Z\s]+(?=[A-Z]{2}\d+)/g, '').trim().replace(/\s+/g, '');
+  if (!code) return c.json({ error: '請輸入正確的航班編號' }, 400);
 
-    // 2. 同步 Google Maps Auto 時間
-    const { results: items } = await c.env.DB.prepare(`
-      SELECT i.*, c.name as city_name 
-      FROM Itineraries i 
-      LEFT JOIN Cities c ON i.city_id = c.id 
-      WHERE i.trip_id = ? 
-      ORDER BY date, start_time
-    `).bind(tripId).all();
+  const response = await fetch(`http://api.aviationstack.com/v1/flights?access_key=${c.env.FLIGHT_API_KEY}&flight_iata=${code}`);
+  const data = await response.json() as any;
+  if (!data.data || data.data.length === 0) return c.json({ error: '找不到該航班資訊' }, 404);
 
-    const { results: bookings } = await c.env.DB.prepare(`SELECT * FROM Bookings WHERE trip_id = ?`).bind(tripId).all();
+  const f = data.data[0];
+  return c.json({
+    airline: f.airline.name, flight_number: f.flight.iata,
+    departure_airport: f.departure.iata, departure_terminal: f.departure.terminal,
+    departure_date: f.departure.scheduled.split('T')[0], departure_time: f.departure.scheduled.split('T')[1].substring(0, 5),
+    arrival_airport: f.arrival.iata, arrival_terminal: f.arrival.terminal,
+    arrival_date: f.arrival.scheduled.split('T')[0], arrival_time: f.arrival.scheduled.split('T')[1].substring(0, 5),
+  });
+});
 
-    // 💡 精準判定 INFO 卡片的起終點邏輯
-    const getLocationString = (item: any, type: 'origin' | 'destination') => {
-      let loc = '';
-      if (item.related_id) {
-         const b = bookings.find((x: any) => x.id === item.related_id);
-         if (b) {
-            if (b.category === 'HOTEL') {
-               // HOTEL: 取 Address 當作 下一站起點 和 下一張卡片的終點
-               loc = b.start_location;
-            } else if (b.category === 'PRIVATE_TRANSFER') {
-               // Private Transfer: 下一站-> 取 Destination 當作起點，下一張卡片-> 取 Pickup Point 當作下一張卡片的終點
-               loc = type === 'origin' ? (b.end_location || b.start_location) : b.start_location;
-            } else if (b.category === 'RENTAL') {
-               // Rental: 下一站-> 取 Return location 當作起點，下一張卡片-> 取 Pick-up location 當作下一張卡片的終點
-               loc = type === 'origin' ? (b.end_location || b.start_location) : b.start_location;
-            } else if (b.category === 'FERRY') {
-               // Ferry: 下一站-> 取 Arrival Port 當作起點，下一張卡片-> 取 Departure Port 當作下一張卡片的終點
-               loc = type === 'origin' ? (b.end_location || b.start_location) : b.start_location;
-            } else if (b.category === 'TRAIN') {
-               // Train: 下一站-> 取 Arrival Station 當作起點，下一張卡片-> 取 Departure Station 當作下一張卡片的終點
-               loc = type === 'origin' ? (b.end_location || b.start_location) : b.start_location;
-            } else if (b.category === 'FLIGHT') {
-               // Flight: 下一站-> 取 Arrival Airport 當作起點，下一張卡片-> 取 Departure Airport 當作下一張卡片的終點
-               loc = type === 'origin' ? (b.end_location || b.start_location) : b.start_location;
-            } else {
-               loc = type === 'origin' ? (b.end_location || b.start_location) : b.start_location;
-            }
-         }
-      }
-      
-      // 如果沒有配地址，就用城市+卡片標題當作GOOGLE MAP位置
-      if (!loc) {
-         loc = item.address || `${item.city_name || ''} ${item.title}`.trim();
-      }
-      return loc;
-    };
-
-    for (let i = 0; i < items.length - 1; i++) {
-      const current = items[i] as any;
-      const next = items[i+1] as any;
-
-      // 💡 當使用者設定了 mode 且 next_transport_time 為空 (表示為 Auto) 時才計算
-      if (current.date === next.date && current.next_transport_mode && !current.next_transport_time) {
-         const origin = getLocationString(current, 'origin');
-         const destination = getLocationString(next, 'destination');
-         
-         let mode = 'transit';
-         if (current.next_transport_mode === 'WALKING') mode = 'walking';
-         if (current.next_transport_mode === 'DRIVING' || current.next_transport_mode === 'TAXI' || current.next_transport_mode === 'RENTAL') mode = 'driving';
-
-         if (origin && destination) {
-            try {
-              const url = `https://maps.googleapis.com/maps/api/distancematrix/json?origins=${encodeURIComponent(origin)}&destinations=${encodeURIComponent(destination)}&mode=${mode}&key=${c.env.GOOGLE_MAPS_API_KEY}`;
-              const mapRes = await fetch(url);
-              const mapData = await mapRes.json() as any;
-              
-              if (mapData.rows?.[0]?.elements?.[0]?.status === 'OK') {
-                 // 將秒數轉為分鐘數
-                 const durationSecs = mapData.rows[0].elements[0].duration.value;
-                 const durationMins = Math.ceil(durationSecs / 60);
-                 
-                 // 直接覆寫 next_transport_time！這樣時間被寫死後，下次 Sync 就會跳過不再計算
-                 await c.env.DB.prepare(`UPDATE Itineraries SET next_transport_time = ?, next_transport_auto_time = '' WHERE id = ?`)
-                   .bind(`${durationMins} min`, current.id)
-                   .run();
-              } else {
-                 console.error("Map API status not OK:", mapData.rows?.[0]?.elements?.[0]?.status);
-              }
-            } catch(e) { 
-              console.error("Map sync error", e); 
-            }
-         }
-      }
-    }
-
-    return c.json({ success: true, weather: weatherData });
-  } catch (error: any) { 
-    return c.json({ error: error.message }, 500); 
-  }
-};
-
-app.post('/api/trips/:id/sync', syncTripHandler);
-app.post('/api/trips/:id/weather/sync', syncTripHandler);
-
+app.get('/', (c) => c.text('Worker is running!'));
+app.get('/health-check', (c) => c.text('Worker is running!'));
+app.get('/api/health', (c) => c.json({ status: 'ok', timestamp: new Date().toISOString() }));
+app.notFound((c) => c.json({ error: 'API route not found' }, 404));
 
 app.post('/api/init', async (c) => {
   try {
@@ -415,6 +314,10 @@ app.post('/api/auth/login', async (c) => {
   } catch (error: any) { return c.json({ error: error.message }, 500); }
 });
 
+
+// ============================================================================
+// 🔒 授權攔截器 (MIDDLEWARES) - 以下所有 API 必須具備 Auth Token 才能通過
+// ============================================================================
 app.use('/api/*', decodeUserMiddleware);
 app.use('/api/users', requireAuthMiddleware);
 app.use('/api/users/*', requireAuthMiddleware);
@@ -425,6 +328,9 @@ app.post('/api/trips', requireAuthMiddleware);
 app.post('/api/trips/*', requireAuthMiddleware);
 app.put('/api/trips/*', requireAuthMiddleware);
 app.delete('/api/trips/*', requireAuthMiddleware);
+
+
+// --- 需驗證路由區 ---
 
 app.post('/api/upload', async (c) => {
   try {
@@ -578,6 +484,118 @@ app.delete('/api/trips/:id', async (c) => {
     return c.json({ success: true });
   } catch (error: any) { return c.json({ error: error.message }, 500); }
 });
+
+app.get('/api/trips/:id/weather', async (c) => {
+  const tripId = c.req.param('id');
+  const date = c.req.query('date');
+  try {
+    if (date) {
+      const weatherData = await getWeatherForDate(Number(tripId), date, c.env);
+      if (!weatherData) return c.json({ message: 'No weather data available' }, 404);
+      return c.json(weatherData);
+    } else {
+      const todayStr = new Date().toISOString().split('T')[0];
+      const weatherData = await c.env.KV.get(`weather:trip:${tripId}:${todayStr}`, 'json');
+      if (!weatherData) return c.json({ message: 'Weather data will be updated soon' }, 202);
+      return c.json(weatherData);
+    }
+  } catch (error: any) { return c.json({ error: error.message }, 500); }
+});
+
+// 💡 終極全域 Sync Handler (放置在 middleware 之後，解決 403 / 404 問題)
+const syncTripHandler = async (c: any) => {
+  const tripId = c.req.param('id');
+  try {
+    const canEdit = await checkTripAccess(c, Number(tripId), 'edit');
+    if (!canEdit) return c.json({ error: 'Unauthorized' }, 403);
+
+    // 1. 同步天氣
+    const weatherData = await syncWeatherForTrip(Number(tripId), c.env);
+
+    // 2. 同步 Google Maps Auto 時間
+    const { results: items } = await c.env.DB.prepare(`
+      SELECT i.*, c.name as city_name 
+      FROM Itineraries i 
+      LEFT JOIN Cities c ON i.city_id = c.id 
+      WHERE i.trip_id = ? 
+      ORDER BY date, start_time
+    `).bind(tripId).all();
+
+    const { results: bookings } = await c.env.DB.prepare(`SELECT * FROM Bookings WHERE trip_id = ?`).bind(tripId).all();
+
+    // 精準定位邏輯
+    const getLocationString = (item: any, type: 'origin' | 'destination') => {
+      let loc = '';
+      if (item.related_id) {
+         const b = bookings.find((x: any) => x.id === item.related_id);
+         if (b) {
+            if (b.category === 'HOTEL') {
+               loc = b.start_location;
+            } else if (b.category === 'PRIVATE_TRANSFER') {
+               loc = type === 'origin' ? (b.end_location || b.start_location) : b.start_location;
+            } else if (b.category === 'RENTAL') {
+               loc = type === 'origin' ? (b.end_location || b.start_location) : b.start_location;
+            } else if (b.category === 'FERRY') {
+               loc = type === 'origin' ? (b.end_location || b.start_location) : b.start_location;
+            } else if (b.category === 'TRAIN') {
+               loc = type === 'origin' ? (b.end_location || b.start_location) : b.start_location;
+            } else if (b.category === 'FLIGHT') {
+               loc = type === 'origin' ? (b.end_location || b.start_location) : b.start_location;
+            } else {
+               loc = type === 'origin' ? (b.end_location || b.start_location) : b.start_location;
+            }
+         }
+      }
+      if (!loc) {
+         loc = item.address || `${item.city_name || ''} ${item.title}`.trim();
+      }
+      return loc;
+    };
+
+    for (let i = 0; i < items.length - 1; i++) {
+      const current = items[i] as any;
+      const next = items[i+1] as any;
+
+      if (current.date === next.date && current.next_transport_mode && !current.next_transport_time) {
+         const origin = getLocationString(current, 'origin');
+         const destination = getLocationString(next, 'destination');
+         
+         let mode = 'transit';
+         if (current.next_transport_mode === 'WALKING') mode = 'walking';
+         if (current.next_transport_mode === 'DRIVING' || current.next_transport_mode === 'TAXI' || current.next_transport_mode === 'RENTAL') mode = 'driving';
+
+         if (origin && destination) {
+            try {
+              const url = `https://maps.googleapis.com/maps/api/distancematrix/json?origins=${encodeURIComponent(origin)}&destinations=${encodeURIComponent(destination)}&mode=${mode}&key=${c.env.GOOGLE_MAPS_API_KEY}`;
+              const mapRes = await fetch(url);
+              const mapData = await mapRes.json() as any;
+              
+              if (mapData.rows?.[0]?.elements?.[0]?.status === 'OK') {
+                 const durationSecs = mapData.rows[0].elements[0].duration.value;
+                 const durationMins = Math.ceil(durationSecs / 60);
+                 
+                 await c.env.DB.prepare(`UPDATE Itineraries SET next_transport_time = ?, next_transport_auto_time = '' WHERE id = ?`)
+                   .bind(`${durationMins} min`, current.id)
+                   .run();
+              } else {
+                 console.error("Map API status not OK:", mapData.rows?.[0]?.elements?.[0]?.status);
+              }
+            } catch(e) { 
+              console.error("Map sync error", e); 
+            }
+         }
+      }
+    }
+
+    return c.json({ success: true, weather: weatherData });
+  } catch (error: any) { 
+    return c.json({ error: error.message }, 500); 
+  }
+};
+
+// 確保掛載在正確且已驗證的區域
+app.post('/api/trips/:id/sync', syncTripHandler);
+app.post('/api/trips/:id/weather/sync', syncTripHandler);
 
 // --- Bookings (Unified) ---
 app.get('/api/trips/:id/bookings', async (c) => {
