@@ -30,7 +30,6 @@ app.use('*', cors({
   maxAge: 600,
 }));
 
-// 💡 新增的 Geocoding API (供前端自動轉換經緯度)
 app.get('/api/geocode', async (c) => {
   const address = c.req.query('address');
   if (!address) return c.json({ lat: '', lng: '' });
@@ -284,8 +283,34 @@ function generateDesiredRentalItems(b: any, rentalId: string | number, rentalIma
   return desiredItems;
 }
 
-// 💡 終極全域 Sync Handler (AI Trip Calculation)
-// 💡 終極全域 Sync Handler (AI Trip Calculation)
+// 💡 全新：智慧展開 Google Maps 網址並擷取經緯度的強大工具
+async function extractCoordsFromUrl(url: string): Promise<string | null> {
+  try {
+    // 讓 Cloudflare fetch 自動跟隨轉址 (例如短網址 -> 長網址)
+    const response = await fetch(url, { method: 'GET', redirect: 'follow' });
+    const finalUrl = response.url;
+    
+    // 嘗試用正規表達式從展開後的網址中捕捉座標
+    const atMatch = finalUrl.match(/@(-?\d+\.\d+),(-?\d+\.\d+)/);
+    if (atMatch) return `${atMatch[1]},${atMatch[2]}`;
+
+    const bangMatch = finalUrl.match(/!3d(-?\d+\.\d+)!4d(-?\d+\.\d+)/);
+    if (bangMatch) return `${bangMatch[1]},${bangMatch[2]}`;
+    
+    const queryMatch = finalUrl.match(/query=(-?\d+\.\d+),(-?\d+\.\d+)/);
+    if (queryMatch) return `${queryMatch[1]},${queryMatch[2]}`;
+    
+    const llMatch = finalUrl.match(/ll=(-?\d+\.\d+),(-?\d+\.\d+)/);
+    if (llMatch) return `${llMatch[1]},${llMatch[2]}`;
+
+    return null;
+  } catch (e) {
+    console.error("URL extraction failed:", e);
+    return null;
+  }
+}
+
+// 💡 終極全域 Sync Handler (整合 URL 解析魔法！)
 const syncTripHandler = async (c: any) => {
   const tripId = c.req.param('id');
   const targetDate = c.req.query('date'); 
@@ -323,7 +348,6 @@ const syncTripHandler = async (c: any) => {
 
     const { results: bookings } = await c.env.DB.prepare(`SELECT * FROM Bookings WHERE trip_id = ?`).bind(tripId).all();
 
-    // 💡 智慧定位與清洗：自動捨棄網址，改用「城市+標題」
     const getLocationString = (item: any, type: 'origin' | 'destination') => {
       let loc = '';
       if (item.related_id) {
@@ -338,15 +362,7 @@ const syncTripHandler = async (c: any) => {
             }
          }
       }
-      
-      if (!loc) {
-         loc = item.address;
-      }
-
-      // 🚨 智慧清洗：如果抓到的是網址，直接丟棄，改用「城市 + 卡片標題」
-      if (!loc || loc.includes('http')) {
-         loc = `${item.city_name || ''} ${item.title}`.trim();
-      }
+      if (!loc) loc = item.address;
       return loc;
     };
 
@@ -364,17 +380,33 @@ const syncTripHandler = async (c: any) => {
          let origin = '';
          let destination = '';
          
-         // 💡 優先解析我們手動輸入的經緯度 (格式: lat,lng|lat,lng)
+         // A. 優先解析我們手動輸入的經緯度
          if (current.next_transport_auto_time && current.next_transport_auto_time.includes('|')) {
              const parts = current.next_transport_auto_time.split('|');
              origin = parts[0];
              destination = parts[1];
          }
          
-         // 💡 如果沒有經緯度，自動退回使用地址/城市標題 (完美防呆！)
+         // B. 網址解析魔法與防呆退回機制
          if (!origin || !destination) {
-             origin = getLocationString(current, 'origin');
-             destination = getLocationString(next, 'destination');
+             let rawOrigin = getLocationString(current, 'origin');
+             let rawDest = getLocationString(next, 'destination');
+             
+             // 如果 origin 是網址，嘗試解析
+             if (rawOrigin && rawOrigin.includes('http')) {
+                 const extracted = await extractCoordsFromUrl(rawOrigin);
+                 origin = extracted || `${current.city_name || ''} ${current.title}`.trim();
+             } else {
+                 origin = rawOrigin || `${current.city_name || ''} ${current.title}`.trim();
+             }
+
+             // 如果 destination 是網址，嘗試解析
+             if (rawDest && rawDest.includes('http')) {
+                 const extracted = await extractCoordsFromUrl(rawDest);
+                 destination = extracted || `${next.city_name || ''} ${next.title}`.trim();
+             } else {
+                 destination = rawDest || `${next.city_name || ''} ${next.title}`.trim();
+             }
          }
 
          if (!origin || !destination) {
@@ -393,11 +425,10 @@ const syncTripHandler = async (c: any) => {
               const mapData = await mapRes.json() as any;
               
               if (mapData.rows?.[0]?.elements?.[0]?.status === 'OK') {
-                 // 將秒數轉為分鐘數
                  const durationSecs = mapData.rows[0].elements[0].duration.value;
                  const durationMins = Math.ceil(durationSecs / 60);
                  
-                 // 💡 將算好的時間寫入，同時「保留原本的經緯度紀錄」在 auto_time 中
+                 // 覆寫時間，並保留使用者在前端手動輸入的經緯度 (如果有)
                  const originalAutoTime = (current.next_transport_auto_time && current.next_transport_auto_time.includes('|')) 
                                           ? current.next_transport_auto_time 
                                           : '';
@@ -427,6 +458,9 @@ const syncTripHandler = async (c: any) => {
     return c.json({ error: error.message }, 500); 
   }
 };
+
+app.post('/api/trips/:id/sync', syncTripHandler);
+app.post('/api/trips/:id/weather/sync', syncTripHandler);
 
 app.post('/api/init', async (c) => {
   try {
@@ -627,10 +661,6 @@ app.delete('/api/trips/:id', async (c) => {
     return c.json({ success: true });
   } catch (error: any) { return c.json({ error: error.message }, 500); }
 });
-
-// --- 註冊核心 SYNC API ---
-app.post('/api/trips/:id/sync', syncTripHandler);
-app.post('/api/trips/:id/weather/sync', syncTripHandler);
 
 app.get('/api/trips/:id/bookings', async (c) => {
   const tripId = c.req.param('id');
