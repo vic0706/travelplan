@@ -31,7 +31,50 @@ app.use('*', cors({
   maxAge: 600,
 }));
 
-// --- 工具函數區塊 (Utility Functions) ---
+app.get('/api/images/search', async (c) => {
+  const query = c.req.query('query');
+  const type = c.req.query('type') || 'trip';
+  if (!query) return c.json({ error: 'Missing query' }, 400);
+
+  const searchQuery = type === 'trip' ? `${query} Landmark Travel Cityscape` : query;
+  
+  try {
+    const response = await fetch(
+      `https://api.unsplash.com/search/photos?query=${encodeURIComponent(searchQuery)}&per_page=12&orientation=landscape`,
+      { headers: { 'Authorization': `Client-ID ${c.env.UNSPLASH_ACCESS_KEY}` } }
+    );
+    if (!response.ok) return c.json({ error: 'Failed to fetch images' }, response.status as any);
+    const data = await response.json() as any;
+    const photos = (data.results || []).map((p: any) => ({
+      id: p.id, url: p.urls.regular, thumb: p.urls.thumb, attribution: p.user.name, attribution_url: p.user.links.html
+    }));
+    return c.json(photos);
+  } catch (error) { return c.json({ error: 'Internal server error' }, 500); }
+});
+
+app.get('/api/flights/lookup', async (c) => {
+  const inputCode = c.req.query('code') || '';
+  const code = inputCode.replace(/[\u4e00-\u9fa5a-zA-Z\s]+(?=[A-Z]{2}\d+)/g, '').trim().replace(/\s+/g, '');
+  if (!code) return c.json({ error: '請輸入正確的航班編號' }, 400);
+
+  const response = await fetch(`http://api.aviationstack.com/v1/flights?access_key=${c.env.FLIGHT_API_KEY}&flight_iata=${code}`);
+  const data = await response.json() as any;
+  if (!data.data || data.data.length === 0) return c.json({ error: '找不到該航班資訊' }, 404);
+
+  const f = data.data[0];
+  return c.json({
+    airline: f.airline.name, flight_number: f.flight.iata,
+    departure_airport: f.departure.iata, departure_terminal: f.departure.terminal,
+    departure_date: f.departure.scheduled.split('T')[0], departure_time: f.departure.scheduled.split('T')[1].substring(0, 5),
+    arrival_airport: f.arrival.iata, arrival_terminal: f.arrival.terminal,
+    arrival_date: f.arrival.scheduled.split('T')[0], arrival_time: f.arrival.scheduled.split('T')[1].substring(0, 5),
+  });
+});
+
+app.get('/', (c) => c.text('Worker is running!'));
+app.get('/health-check', (c) => c.text('Worker is running!'));
+app.get('/api/health', (c) => c.json({ status: 'ok', timestamp: new Date().toISOString() }));
+app.notFound((c) => c.json({ error: 'API route not found' }, 404));
 
 async function generateHash(password: string, salt: string): Promise<string> {
   const encoder = new TextEncoder();
@@ -76,10 +119,14 @@ async function checkTripAccess(c: any, tripId: number, level: 'view' | 'edit' | 
   return false;
 }
 
-async function getWeatherForDate(tripId: number, dateStr: string, env: Env) {
+// 💡 增加 forceRefresh 參數，強制重新抓取而不讀取快取
+async function getWeatherForDate(tripId: number, dateStr: string, env: Env, forceRefresh = false) {
   const cacheKey = `weather:trip:${tripId}:${dateStr}`;
-  const cached = await env.KV.get(cacheKey, 'json');
-  if (cached) return cached;
+  
+  if (!forceRefresh) {
+    const cached = await env.KV.get(cacheKey, 'json');
+    if (cached) return cached;
+  }
 
   const { results: tripResults } = await env.DB.prepare(`SELECT t.id, c.name as default_city, c.lat as default_lat, c.lng as default_lng FROM Trips t JOIN Cities c ON t.default_city_id = c.id WHERE t.id = ?`).bind(tripId).all();
   if (tripResults.length === 0) return null;
@@ -152,7 +199,7 @@ async function searchUnsplash(query: string, env: Env): Promise<string | null> {
 
 async function syncWeatherForTrip(tripId: number, env: Env) {
   const todayStr = new Date().toISOString().split('T')[0];
-  return getWeatherForDate(tripId, todayStr, env);
+  return getWeatherForDate(tripId, todayStr, env, false);
 }
 
 function generateDesiredAccommodationItems(b: any, accId: string | number, hotelImage: string) {
@@ -187,6 +234,7 @@ function generateDesiredAccommodationItems(b: any, accId: string | number, hotel
   return desiredItems;
 }
 
+// 💡 產生 Rental 子卡片 (加上 Buffer 計算)
 function generateDesiredRentalItems(b: any, rentalId: string | number, rentalImage: string) {
   const desiredItems = [];
   const titlePrefix = b.provider ? `${b.provider} ` : '';
@@ -230,53 +278,133 @@ function generateDesiredRentalItems(b: any, rentalId: string | number, rentalIma
   return desiredItems;
 }
 
-
-// --- 公開路由 (無須驗證) ---
-
-app.get('/api/images/search', async (c) => {
-  const query = c.req.query('query');
-  const type = c.req.query('type') || 'trip';
-  if (!query) return c.json({ error: 'Missing query' }, 400);
-
-  const searchQuery = type === 'trip' ? `${query} Landmark Travel Cityscape` : query;
+// 💡 全域 Sync Handler (天氣 + Google Maps Auto 路線計算)
+const syncTripHandler = async (c: any) => {
+  const tripId = c.req.param('id');
+  const targetDate = c.req.query('date'); 
   
   try {
-    const response = await fetch(
-      `https://api.unsplash.com/search/photos?query=${encodeURIComponent(searchQuery)}&per_page=12&orientation=landscape`,
-      { headers: { 'Authorization': `Client-ID ${c.env.UNSPLASH_ACCESS_KEY}` } }
-    );
-    if (!response.ok) return c.json({ error: 'Failed to fetch images' }, response.status as any);
-    const data = await response.json() as any;
-    const photos = (data.results || []).map((p: any) => ({
-      id: p.id, url: p.urls.regular, thumb: p.urls.thumb, attribution: p.user.name, attribution_url: p.user.links.html
-    }));
-    return c.json(photos);
-  } catch (error) { return c.json({ error: 'Internal server error' }, 500); }
-});
+    const canEdit = await checkTripAccess(c, Number(tripId), 'edit');
+    if (!canEdit) return c.json({ error: 'Unauthorized' }, 403);
 
-app.get('/api/flights/lookup', async (c) => {
-  const inputCode = c.req.query('code') || '';
-  const code = inputCode.replace(/[\u4e00-\u9fa5a-zA-Z\s]+(?=[A-Z]{2}\d+)/g, '').trim().replace(/\s+/g, '');
-  if (!code) return c.json({ error: '請輸入正確的航班編號' }, 400);
+    const { results: trips } = await c.env.DB.prepare('SELECT start_date, end_date FROM Trips WHERE id = ?').bind(tripId).all();
+    if (trips.length === 0) return c.json({ error: 'Trip not found' }, 404);
+    const trip = trips[0] as any;
 
-  const response = await fetch(`http://api.aviationstack.com/v1/flights?access_key=${c.env.FLIGHT_API_KEY}&flight_iata=${code}`);
-  const data = await response.json() as any;
-  if (!data.data || data.data.length === 0) return c.json({ error: '找不到該航班資訊' }, 404);
+    // 1. 強制同步整個 TRIP 的天氣 (遍歷 Trip 所有日期並覆蓋快取)
+    const startDate = new Date(trip.start_date);
+    const endDate = new Date(trip.end_date);
+    let currentDate = new Date(startDate);
+    
+    while (currentDate <= endDate) {
+      const dStr = currentDate.toISOString().split('T')[0];
+      await getWeatherForDate(Number(tripId), dStr, c.env, true); // forceRefresh = true
+      currentDate.setDate(currentDate.getDate() + 1);
+    }
 
-  const f = data.data[0];
-  return c.json({
-    airline: f.airline.name, flight_number: f.flight.iata,
-    departure_airport: f.departure.iata, departure_terminal: f.departure.terminal,
-    departure_date: f.departure.scheduled.split('T')[0], departure_time: f.departure.scheduled.split('T')[1].substring(0, 5),
-    arrival_airport: f.arrival.iata, arrival_terminal: f.arrival.terminal,
-    arrival_date: f.arrival.scheduled.split('T')[0], arrival_time: f.arrival.scheduled.split('T')[1].substring(0, 5),
-  });
-});
+    // 取得當前選擇日期的天氣回傳
+    const returnDateStr = targetDate || trip.start_date;
+    const weatherData = await getWeatherForDate(Number(tripId), returnDateStr, c.env, false);
 
-app.get('/', (c) => c.text('Worker is running!'));
-app.get('/health-check', (c) => c.text('Worker is running!'));
-app.get('/api/health', (c) => c.json({ status: 'ok', timestamp: new Date().toISOString() }));
-app.notFound((c) => c.json({ error: 'API route not found' }, 404));
+    // 2. 同步 Google Maps Auto 時間
+    const { results: items } = await c.env.DB.prepare(`
+      SELECT i.*, c.name as city_name 
+      FROM Itineraries i 
+      LEFT JOIN Cities c ON i.city_id = c.id 
+      WHERE i.trip_id = ? 
+      ORDER BY date, start_time
+    `).bind(tripId).all();
+
+    const { results: bookings } = await c.env.DB.prepare(`SELECT * FROM Bookings WHERE trip_id = ?`).bind(tripId).all();
+
+    // 💡 精準判定 INFO 卡片的起終點邏輯
+    const getLocationString = (item: any, type: 'origin' | 'destination') => {
+      let loc = '';
+      if (item.related_id) {
+         const b = bookings.find((x: any) => x.id === item.related_id);
+         if (b) {
+            if (b.category === 'HOTEL') {
+               loc = b.start_location; // HOTEL只有一個地址
+            } else if (b.category === 'PRIVATE_TRANSFER') {
+               loc = type === 'origin' ? (b.end_location || b.start_location) : b.start_location;
+            } else if (b.category === 'RENTAL') {
+               loc = type === 'origin' ? (b.end_location || b.start_location) : b.start_location;
+            } else if (b.category === 'FERRY') {
+               loc = type === 'origin' ? (b.end_location || b.start_location) : b.start_location;
+            } else if (b.category === 'TRAIN') {
+               loc = type === 'origin' ? (b.end_location || b.start_location) : b.start_location;
+            } else if (b.category === 'FLIGHT') {
+               loc = type === 'origin' ? (b.end_location || b.start_location) : b.start_location;
+            } else {
+               loc = type === 'origin' ? (b.end_location || b.start_location) : b.start_location;
+            }
+         }
+      }
+      
+      // 如果沒有配地址，就用城市+卡片標題當作GOOGLE MAP位置
+      if (!loc) {
+         loc = item.address ? item.address : `${item.city_name || ''} ${item.title}`.trim();
+      }
+      return loc;
+    };
+
+    let mapsProcessed = 0;
+    let mapsUpdated = 0;
+    let mapErrors: string[] = [];
+
+    for (let i = 0; i < items.length - 1; i++) {
+      const current = items[i] as any;
+      const next = items[i+1] as any;
+
+      // 💡 當使用者設定了 mode，且 next_transport_time 為空 或為 Auto 時才計算
+      if (current.date === next.date && current.next_transport_mode && (!current.next_transport_time || current.next_transport_time === 'Auto')) {
+         mapsProcessed++;
+         
+         const origin = getLocationString(current, 'origin');
+         const destination = getLocationString(next, 'destination');
+         
+         let mode = 'transit';
+         if (current.next_transport_mode === 'WALKING') mode = 'walking';
+         if (current.next_transport_mode === 'DRIVING' || current.next_transport_mode === 'TAXI' || current.next_transport_mode === 'RENTAL') mode = 'driving';
+
+         if (origin && destination) {
+            try {
+              const url = `https://maps.googleapis.com/maps/api/distancematrix/json?origins=${encodeURIComponent(origin)}&destinations=${encodeURIComponent(destination)}&mode=${mode}&key=${c.env.GOOGLE_MAPS_API_KEY}`;
+              const mapRes = await fetch(url);
+              const mapData = await mapRes.json() as any;
+              
+              if (mapData.rows?.[0]?.elements?.[0]?.status === 'OK') {
+                 // 將秒數轉為分鐘數
+                 const durationSecs = mapData.rows[0].elements[0].duration.value;
+                 const durationMins = Math.ceil(durationSecs / 60);
+                 
+                 // 覆寫時間並清空 Auto
+                 await c.env.DB.prepare(`UPDATE Itineraries SET next_transport_time = ?, next_transport_auto_time = '' WHERE id = ?`)
+                   .bind(`${durationMins} min`, current.id)
+                   .run();
+                   
+                 mapsUpdated++;
+              } else {
+                 mapErrors.push(`Failed for ${origin} -> ${destination}: ${mapData.rows?.[0]?.elements?.[0]?.status}`);
+              }
+            } catch(e: any) { 
+              mapErrors.push(`Exception: ${e.message}`);
+            }
+         } else {
+             mapErrors.push(`Missing origin or destination for item ${current.title}`);
+         }
+      }
+    }
+
+    return c.json({ 
+        success: true, 
+        weather: weatherData, 
+        map_sync: { processed: mapsProcessed, updated: mapsUpdated, errors: mapErrors } 
+    });
+  } catch (error: any) { 
+    return c.json({ error: error.message }, 500); 
+  }
+};
 
 app.post('/api/init', async (c) => {
   try {
@@ -314,9 +442,8 @@ app.post('/api/auth/login', async (c) => {
   } catch (error: any) { return c.json({ error: error.message }, 500); }
 });
 
-
 // ============================================================================
-// 🔒 授權攔截器 (MIDDLEWARES) - 以下所有 API 必須具備 Auth Token 才能通過
+// 🔒 授權攔截器
 // ============================================================================
 app.use('/api/*', decodeUserMiddleware);
 app.use('/api/users', requireAuthMiddleware);
@@ -329,8 +456,9 @@ app.post('/api/trips/*', requireAuthMiddleware);
 app.put('/api/trips/*', requireAuthMiddleware);
 app.delete('/api/trips/*', requireAuthMiddleware);
 
-
-// --- 需驗證路由區 ---
+// --- 註冊 SYNC API ---
+app.post('/api/trips/:id/sync', syncTripHandler);
+app.post('/api/trips/:id/weather/sync', syncTripHandler); // 保留防快取
 
 app.post('/api/upload', async (c) => {
   try {
@@ -501,101 +629,6 @@ app.get('/api/trips/:id/weather', async (c) => {
     }
   } catch (error: any) { return c.json({ error: error.message }, 500); }
 });
-
-// 💡 終極全域 Sync Handler (放置在 middleware 之後，解決 403 / 404 問題)
-const syncTripHandler = async (c: any) => {
-  const tripId = c.req.param('id');
-  try {
-    const canEdit = await checkTripAccess(c, Number(tripId), 'edit');
-    if (!canEdit) return c.json({ error: 'Unauthorized' }, 403);
-
-    // 1. 同步天氣
-    const weatherData = await syncWeatherForTrip(Number(tripId), c.env);
-
-    // 2. 同步 Google Maps Auto 時間
-    const { results: items } = await c.env.DB.prepare(`
-      SELECT i.*, c.name as city_name 
-      FROM Itineraries i 
-      LEFT JOIN Cities c ON i.city_id = c.id 
-      WHERE i.trip_id = ? 
-      ORDER BY date, start_time
-    `).bind(tripId).all();
-
-    const { results: bookings } = await c.env.DB.prepare(`SELECT * FROM Bookings WHERE trip_id = ?`).bind(tripId).all();
-
-    // 精準定位邏輯
-    const getLocationString = (item: any, type: 'origin' | 'destination') => {
-      let loc = '';
-      if (item.related_id) {
-         const b = bookings.find((x: any) => x.id === item.related_id);
-         if (b) {
-            if (b.category === 'HOTEL') {
-               loc = b.start_location;
-            } else if (b.category === 'PRIVATE_TRANSFER') {
-               loc = type === 'origin' ? (b.end_location || b.start_location) : b.start_location;
-            } else if (b.category === 'RENTAL') {
-               loc = type === 'origin' ? (b.end_location || b.start_location) : b.start_location;
-            } else if (b.category === 'FERRY') {
-               loc = type === 'origin' ? (b.end_location || b.start_location) : b.start_location;
-            } else if (b.category === 'TRAIN') {
-               loc = type === 'origin' ? (b.end_location || b.start_location) : b.start_location;
-            } else if (b.category === 'FLIGHT') {
-               loc = type === 'origin' ? (b.end_location || b.start_location) : b.start_location;
-            } else {
-               loc = type === 'origin' ? (b.end_location || b.start_location) : b.start_location;
-            }
-         }
-      }
-      if (!loc) {
-         loc = item.address || `${item.city_name || ''} ${item.title}`.trim();
-      }
-      return loc;
-    };
-
-    for (let i = 0; i < items.length - 1; i++) {
-      const current = items[i] as any;
-      const next = items[i+1] as any;
-
-      if (current.date === next.date && current.next_transport_mode && !current.next_transport_time) {
-         const origin = getLocationString(current, 'origin');
-         const destination = getLocationString(next, 'destination');
-         
-         let mode = 'transit';
-         if (current.next_transport_mode === 'WALKING') mode = 'walking';
-         if (current.next_transport_mode === 'DRIVING' || current.next_transport_mode === 'TAXI' || current.next_transport_mode === 'RENTAL') mode = 'driving';
-
-         if (origin && destination) {
-            try {
-              const url = `https://maps.googleapis.com/maps/api/distancematrix/json?origins=${encodeURIComponent(origin)}&destinations=${encodeURIComponent(destination)}&mode=${mode}&key=${c.env.GOOGLE_MAPS_API_KEY}`;
-              const mapRes = await fetch(url);
-              const mapData = await mapRes.json() as any;
-              
-              if (mapData.rows?.[0]?.elements?.[0]?.status === 'OK') {
-                 const durationSecs = mapData.rows[0].elements[0].duration.value;
-                 const durationMins = Math.ceil(durationSecs / 60);
-                 
-                 await c.env.DB.prepare(`UPDATE Itineraries SET next_transport_time = ?, next_transport_auto_time = '' WHERE id = ?`)
-                   .bind(`${durationMins} min`, current.id)
-                   .run();
-              } else {
-                 console.error("Map API status not OK:", mapData.rows?.[0]?.elements?.[0]?.status);
-              }
-            } catch(e) { 
-              console.error("Map sync error", e); 
-            }
-         }
-      }
-    }
-
-    return c.json({ success: true, weather: weatherData });
-  } catch (error: any) { 
-    return c.json({ error: error.message }, 500); 
-  }
-};
-
-// 確保掛載在正確且已驗證的區域
-app.post('/api/trips/:id/sync', syncTripHandler);
-app.post('/api/trips/:id/weather/sync', syncTripHandler);
 
 // --- Bookings (Unified) ---
 app.get('/api/trips/:id/bookings', async (c) => {
@@ -1026,7 +1059,7 @@ export default {
         const todayStr = new Date().toISOString().split('T')[0];
         const { results: activeTrips } = await env.DB.prepare(`SELECT id FROM Trips WHERE end_date >= date('now')`).all();
         if (activeTrips.length === 0) return;
-        for (const trip of activeTrips as any[]) await getWeatherForDate(trip.id, todayStr, env);
+        for (const trip of activeTrips as any[]) await getWeatherForDate(trip.id, todayStr, env, true);
       } catch (error) { console.error("Cron job failed:", error); }
     })());
   }

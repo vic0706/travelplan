@@ -63,8 +63,13 @@ export function WeatherWidget({ tripId, date }: WeatherWidgetProps) {
     e.stopPropagation();
     setSyncing(true);
     try {
-      const res = await apiFetch(`/api/trips/${tripId}/sync`, { method: 'POST' });
+      // 將現在正在看的日期傳給後端，確保後端算完後回傳「這一天」的結果給我們
+      const dateStr = date ? format(date, 'yyyy-MM-dd') : '';
+      const res = await apiFetch(`/api/trips/${tripId}/sync${dateStr ? `?date=${dateStr}` : ''}`, { method: 'POST' });
+      
       if (res.ok) {
+        const json = await res.json();
+        console.log('🤖 AI Trip Sync Results:', json.map_sync); // 印出地圖同步的統計與潛在錯誤
         window.location.reload(); 
       }
     } catch (err) {
