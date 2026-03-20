@@ -59,7 +59,7 @@ trips.post('/', async (c) => {
   }
 });
 
-// 獲取特定 ID 行程資料 (含 JSON 解析)
+// 獲取特定 ID 行程資料 (含幣別 JSON 解析)
 trips.get('/:id', async (c) => {
   const id = c.req.param('id');
   try {
@@ -72,7 +72,6 @@ trips.get('/:id', async (c) => {
     const trip = results[0] as any;
     const { results: members } = await c.env.DB.prepare('SELECT user_id, role FROM TripMembers WHERE trip_id = ?').bind(id).all();
     
-    // 💡 修正：解析幣別 JSON
     return c.json({ 
       ...trip, 
       currencies: trip.currencies ? JSON.parse(trip.currencies) : [],
@@ -124,7 +123,25 @@ trips.delete('/:id', async (c) => {
   }
 });
 
-// AI 同步與天氣計算
+// 💡 天氣查詢路由 (之前漏掉的部分)
+trips.get('/:id/weather', async (c) => {
+  const id = c.req.param('id');
+  const date = c.req.query('date');
+  try {
+    if (date) {
+      const weatherData = await getWeatherForDate(Number(id), date, c.env);
+      if (!weatherData) return c.json({ message: 'No weather data', data: null }, 404);
+      return c.json(typeof weatherData === 'string' ? JSON.parse(weatherData) : weatherData);
+    }
+    const todayStr = new Date().toISOString().split('T')[0];
+    const cached = await c.env.KV.get(`weather:trip:${id}:${todayStr}`, 'json');
+    return cached ? c.json(cached) : c.json({ message: 'Weather not synced yet' }, 202);
+  } catch (error: any) {
+    return c.json({ error: 'Failed to fetch weather', details: error.message }, 500);
+  }
+});
+
+// AI 同步與地點更新
 trips.post('/:id/sync', async (c) => {
   const tripId = c.req.param('id');
   try {
@@ -152,11 +169,10 @@ trips.post('/:id/sync', async (c) => {
 // 2. Itineraries (行程活動項目 CRUD)
 // ==========================================
 
-// 取得行程列表 (含安全檢查與多重 JSON 解析)
+// 取得行程列表 (含 tags 與 sub_items 解析)
 trips.get('/:id/itineraries', async (c) => {
   const tripId = c.req.param('id');
   try {
-    // 💡 修正：補上安全性檢查
     const canView = await checkTripAccess(c, Number(tripId), 'view');
     if (!canView) return c.json({ error: 'Unauthorized' }, 403);
 
@@ -164,7 +180,6 @@ trips.get('/:id/itineraries', async (c) => {
       SELECT * FROM Itineraries WHERE trip_id = ? ORDER BY date ASC, start_time ASC
     `).bind(tripId).all();
 
-    // 💡 修正：同時解析 tags 與 sub_items
     return c.json(results.map((item: any) => ({ 
       ...item, 
       tags: item.tags ? JSON.parse(item.tags) : [],
@@ -175,7 +190,7 @@ trips.get('/:id/itineraries', async (c) => {
   }
 });
 
-// 建立新項目
+// 建立新項目 (包含 image_url)
 trips.post('/:id/itineraries', async (c) => {
   try {
     const tripId = c.req.param('id');
@@ -199,7 +214,7 @@ trips.post('/:id/itineraries', async (c) => {
   }
 });
 
-// 更新項目
+// 更新項目 (包含交通欄位與照片)
 trips.put('/:id/itineraries/:itemId', async (c) => {
   try {
     const itemId = c.req.param('itemId');
@@ -228,6 +243,7 @@ trips.put('/:id/itineraries/:itemId', async (c) => {
   }
 });
 
+// 刪除行程項目
 trips.delete('/:id/itineraries/:itemId', async (c) => {
   try {
     const itemId = c.req.param('itemId');
