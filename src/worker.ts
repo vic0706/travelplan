@@ -46,6 +46,7 @@ app.route('/api/users', userRoutes);
 app.route('/api/trips/:id/bookings', bookingRoutes);
 app.route('/api/trips/:id/expenses', expenseRoutes);
 app.route('/api/places', placeRoutes);
+app.route('/api/media', mediaRoutes);
 
 // 3. 基礎城市查詢
 app.get('/api/cities', async (c) => {

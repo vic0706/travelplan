@@ -22,59 +22,59 @@ export function ItineraryCard({
   item, canEdit, isConflicted, onEdit, showNextTransport, onEditNextTransport, expandSignal, collapseSignal, isDragOverlay 
 }: ItineraryCardProps) {
   const { categories } = useAppStore();
-  const category = categories?.find(c => c.icon === item.icon) || { color: '#808080' };
+  const category = (categories || []).find(c => c.icon === item.icon) || { color: '#808080' };
   const subItems = item.sub_items ? JSON.parse(item.sub_items) : [];
 
   const endTimeStr = item.end_time || item.start_time || '23:59';
   const itemDateTime = new Date(`${item.date}T${endTimeStr}`);
   const isPast = Date.now() > itemDateTime.getTime();
   
-  const [isCardExpanded, setIsCardExpanded] = useState(!isPast);
+  const [isCardExpanded, setIsCardExpanded] = useState(false);
   const [isDetailsExpanded, setIsDetailsExpanded] = useState(false);
 
-  useEffect(() => { if (expandSignal && expandSignal > 0) setIsCardExpanded(true); }, [expandSignal]);
-  useEffect(() => { if (collapseSignal && collapseSignal > 0) setIsCardExpanded(false); }, [collapseSignal]);
+  // 💡 只有當有照片時，才根據全域信號自動展開
+  const displayImage = item.image_url || null;
+
+  useEffect(() => { 
+    if (expandSignal && expandSignal > 0 && displayImage) setIsCardExpanded(true); 
+  }, [expandSignal, displayImage]);
+  
+  useEffect(() => { 
+    if (collapseSignal && collapseSignal > 0) setIsCardExpanded(false); 
+  }, [collapseSignal]);
 
   const handleMainClick = () => {
     if (canEdit) onEdit();
-    else setIsCardExpanded(!isCardExpanded);
-  };
-
-  const toggleDetails = (e: React.MouseEvent) => {
-    e.stopPropagation();
-    setIsDetailsExpanded(!isDetailsExpanded);
+    else if (displayImage) setIsCardExpanded(!isCardExpanded);
   };
 
   const getGoogleMapsLink = () => {
-    if (item.google_place_id) return `https://www.google.com/maps/place/?q=place_id:${item.google_place_id}`;
+    if (item.google_place_id) return `https://www.google.com/maps/search/?api=1&query_place_id=${item.google_place_id}`;
     return `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(item.address || item.title)}`;
   };
 
   const getTransportIcon = () => {
     switch (item.next_transport_mode?.toLowerCase()) {
       case 'train': case 'subway': return <Train size={14} />;
-      case 'bus': return <Bus size={12} />;
-      case 'walking': return <Footprints size={12} />;
-      case 'bicycling': return <Bike size={12} />;
-      default: return <Car size={12} />;
+      case 'bus': return <Bus size={14} />;
+      case 'walking': return <Footprints size={14} />;
+      case 'bicycling': return <Bike size={14} />;
+      default: return <Car size={14} />;
     }
   };
 
-  const displayImage = item.image_url || 'https://images.unsplash.com/photo-1469854523086-cc02fe5d8800?w=800&q=80';
-  const hasConflict = isConflicted || !!item.sync_conflict_warning;
-
   return (
-    <div className="flex flex-col w-full mb-3">
+    <div className="flex flex-col w-full mb-3 px-1">
       <div 
         onClick={handleMainClick} 
         className={clsx(
           "relative group bg-[#1c1c1e] rounded-[32px] transition-all cursor-pointer border flex flex-col overflow-hidden",
-          canEdit && !hasConflict ? "hover:border-orange-500/50 bg-[#242426]" : "border-transparent hover:border-zinc-800",
-          hasConflict ? "border-red-500 ring-2 ring-red-500/50" : "",
+          canEdit && !isConflicted ? "hover:border-orange-500/50 bg-[#242426]" : "border-transparent hover:border-zinc-800",
+          isConflicted ? "border-red-500 ring-2 ring-red-500/50" : "",
           isDragOverlay && "opacity-90 scale-105 shadow-2xl z-50"
         )}
       >
-        {/* 卡片上半部 (內容) */}
+        {/* 卡片上半部內容 */}
         <div className="p-5 pb-4">
           <div className="flex items-center justify-between mb-3">
             <div className="flex items-center gap-3">
@@ -106,9 +106,7 @@ export function ItineraryCard({
             </button>
           </div>
           <div>
-            <h4 className="text-[22px] font-black text-white leading-tight truncate">
-              {item.title}
-            </h4>
+            <h4 className="text-[20px] font-black text-white leading-tight truncate">{item.title}</h4>
             {item.sync_conflict_warning && (
               <div className="mt-2 inline-flex items-center gap-1.5 text-[11px] font-bold text-red-400 bg-red-400/10 px-2.5 py-0.5 rounded-lg">
                 <AlertTriangle size={12} /> {item.sync_conflict_warning}
@@ -117,9 +115,9 @@ export function ItineraryCard({
           </div>
         </div>
 
-        {/* 卡片下半部 (照片/展開內容) */}
+        {/* 照片區塊 (僅在有照片時顯示) */}
         <AnimatePresence>
-          {isCardExpanded && (
+          {isCardExpanded && displayImage && (
             <motion.div 
               initial={{ height: 0, opacity: 0 }} animate={{ height: 'auto', opacity: 1 }} exit={{ height: 0, opacity: 0 }}
               transition={{ duration: 0.35, ease: "circOut" }}
@@ -127,39 +125,30 @@ export function ItineraryCard({
               <div className="relative w-full aspect-[4/3] bg-zinc-800 group/photo">
                 <img src={displayImage} alt={item.title} className="absolute inset-0 w-full h-full object-cover" />
                 <button 
-                  onClick={toggleDetails}
+                  onClick={(e) => { e.stopPropagation(); setIsDetailsExpanded(!isDetailsExpanded); }}
                   className="absolute top-4 right-4 z-30 p-2.5 bg-black/40 hover:bg-black/60 backdrop-blur-md rounded-full text-white transition-colors border border-white/10"
                 >
                   {isDetailsExpanded ? <Minimize2 size={18} /> : <Maximize2 size={18} />}
                 </button>
 
-                {/* 💡 滿版子項目遮罩優化 */}
+                {/* 黑色毛玻璃遮罩 (子項目) */}
                 <AnimatePresence>
                   {isDetailsExpanded && (
                     <motion.div 
                       initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
-                      // 調整 Padding: px-4 增加左右延展度，py-6 維持垂直層次
                       className="absolute inset-0 bg-black/80 backdrop-blur-md z-20 px-4 py-6 flex flex-col"
                       onClick={(e) => e.stopPropagation()} 
                     >
                       <div className="flex-1 overflow-y-auto custom-scrollbar space-y-3">
-                        <span className="text-[11px] font-black text-zinc-500 uppercase tracking-[0.2em] block px-1 mb-2">
-                          Schedule Details
-                        </span>
+                        <span className="text-[11px] font-black text-zinc-500 uppercase tracking-[0.2em] block px-1">Schedule Details</span>
                         {subItems.length > 0 ? subItems.map((sub: any, idx: number) => (
                           <div key={idx} className="w-full flex items-center justify-between bg-white/5 p-4 rounded-2xl border border-white/10">
-                            <span className="text-[15px] font-bold text-zinc-100">{sub.title}</span>
-                            <span className="text-xs text-zinc-400 font-mono">{sub.start_time} - {sub.end_time}</span>
+                            <span className="text-[14px] font-bold text-zinc-100">{sub.title}</span>
+                            <span className="text-[10px] text-zinc-400 font-mono">{sub.start_time} - {sub.end_time}</span>
                           </div>
-                        )) : (
-                          <div className="text-sm text-zinc-600 italic px-1 mt-4">No sub-items scheduled.</div>
-                        )}
+                        )) : <div className="text-sm text-zinc-600 italic px-1 mt-4">No sub-items scheduled.</div>}
                       </div>
-                      {item.notes && (
-                        <div className="mt-4 pt-4 border-t border-white/10 text-[14px] text-zinc-300 leading-relaxed italic line-clamp-6 px-1">
-                          {item.notes}
-                        </div>
-                      )}
+                      {item.notes && <div className="mt-4 pt-4 border-t border-white/10 text-[13px] text-zinc-300 leading-relaxed italic line-clamp-6 px-1">{item.notes}</div>}
                     </motion.div>
                   )}
                 </AnimatePresence>

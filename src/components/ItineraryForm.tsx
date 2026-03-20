@@ -1,9 +1,10 @@
 import React, { useState, useEffect } from 'react';
 import { useAppStore } from '../store';
-import { X, MapPin, Loader2, Plus, Trash2, Lock, Unlock, Tag as TagIcon } from 'lucide-react';
+import { X, MapPin, Loader2, Plus, Trash2, Lock, Unlock, Camera, Image as ImageIcon, Upload, Tag as TagIcon } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { apiFetch } from '../utils/api';
 import { DynamicIcon } from './DynamicIcon';
+import { uploadImageToSupabase } from './ImageCropper';
 import { clsx } from 'clsx';
 import { format, parseISO } from 'date-fns';
 
@@ -18,27 +19,17 @@ interface ItineraryFormProps {
 export function ItineraryForm({ tripId, date, onSuccess, onCancel, initialData }: ItineraryFormProps) {
   const { categories: storeCategories = [], setCategories } = useAppStore();
   const [loading, setLoading] = useState(false);
+  const [uploading, setUploading] = useState(false);
   const [error, setError] = useState('');
   const [tagInput, setTagInput] = useState('');
 
-  // UI 狀態
+  // UI 狀態控制
   const [isIconPickerOpen, setIsIconPickerOpen] = useState(false);
+  const [isPhotoModalOpen, setIsPhotoModalOpen] = useState(false);
   const [isSubItemModalOpen, setIsSubItemModalOpen] = useState(false);
   const [editingSubItem, setEditingSubItem] = useState<any>(null);
 
-  // 💡 確認分類 API 被正確呼叫
-  useEffect(() => {
-    if (storeCategories.length === 0) {
-      const fetchCats = async () => {
-        try {
-          const res = await apiFetch('/api/settings/categories');
-          if (res.ok) setCategories(await res.json());
-        } catch(e) { console.error(e); }
-      };
-      fetchCats();
-    }
-  }, [storeCategories, setCategories]);
-
+  // 初始化資料
   const [subItems, setSubItems] = useState<any[]>(
     initialData?.sub_items ? JSON.parse(initialData.sub_items) : []
   );
@@ -52,40 +43,48 @@ export function ItineraryForm({ tripId, date, onSuccess, onCancel, initialData }
     icon: initialData?.icon || 'MapPin',
     tags: initialData?.tags ? (Array.isArray(initialData.tags) ? initialData.tags.join(', ') : initialData.tags) : '',
     is_time_fixed: initialData?.is_time_fixed || 0,
+    image_url: initialData?.image_url || '',
     google_place_id: initialData?.google_place_id || ''
   });
 
+  // 智慧同步邏輯
+  const [isLocationManuallyEdited, setIsLocationManuallyEdited] = useState(!!initialData?.address);
   const selectedCategory = storeCategories.find(c => c.icon === formData.icon) || { color: '#808080', icon: 'MapPin' };
 
-  // 💡 核心修復：即時同步機制
-  const [isLocationManuallyEdited, setIsLocationManuallyEdited] = useState(!!initialData?.address);
+  // 💡 分類 API 調用
+  useEffect(() => {
+    if (storeCategories.length === 0) {
+      const fetchCats = async () => {
+        try {
+          const res = await apiFetch('/api/settings/categories');
+          if (res.ok) setCategories(await res.json());
+        } catch(e) { console.error(e); }
+      };
+      fetchCats();
+    }
+  }, [storeCategories, setCategories]);
 
+  // 💡 標題與地點即時同步
   const handleTitleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const newTitle = e.target.value;
     setFormData(prev => ({
       ...prev,
       title: newTitle,
-      // 如果使用者還沒手動改過地址，地址就無縫跟著標題走
       address: isLocationManuallyEdited ? prev.address : newTitle
     }));
   };
 
-  // 背景優化機制：停止打字後，去 Google 找精準座標
-  useEffect(() => {
-    if (isLocationManuallyEdited || !formData.title.trim() || initialData) return;
-    const delayDebounceFn = setTimeout(async () => {
-      try {
-        const res = await apiFetch(`/api/places/search?query=${encodeURIComponent(formData.title)}`);
-        if (res.ok) {
-          const place = await res.json();
-          if (place.address && !isLocationManuallyEdited) {
-            setFormData(prev => ({ ...prev, address: place.address, google_place_id: place.google_place_id }));
-          }
-        }
-      } catch (err) {}
-    }, 1500);
-    return () => clearTimeout(delayDebounceFn);
-  }, [formData.title, isLocationManuallyEdited, initialData]);
+  // 💡 照片上傳
+  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setUploading(true);
+    try {
+      const url = await uploadImageToSupabase(file, 'itineraries');
+      setFormData({ ...formData, image_url: url });
+    } catch (err) { alert('Upload failed'); }
+    finally { setUploading(false); }
+  };
 
   const handleTagKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === 'Enter') {
@@ -103,13 +102,18 @@ export function ItineraryForm({ tripId, date, onSuccess, onCancel, initialData }
     e.preventDefault();
     setLoading(true);
     try {
-      const payload = { ...formData, trip_id: tripId, date, tags: formData.tags.split(',').map(t => t.trim()).filter(Boolean), sub_items: JSON.stringify(subItems) };
+      const payload = { 
+        ...formData, 
+        trip_id: tripId, 
+        date, 
+        tags: formData.tags.split(',').map(t => t.trim()).filter(Boolean), 
+        sub_items: JSON.stringify(subItems) 
+      };
       const res = await apiFetch(initialData ? `/api/trips/${tripId}/itineraries/${initialData.id}` : `/api/trips/${tripId}/itineraries`, {
         method: initialData ? 'PUT' : 'POST',
         body: JSON.stringify(payload)
       });
       if (res.ok) onSuccess();
-      else throw new Error('Save failed API Response');
     } catch (err) { setError('Failed to save activity'); }
     finally { setLoading(false); }
   };
@@ -117,68 +121,72 @@ export function ItineraryForm({ tripId, date, onSuccess, onCancel, initialData }
   return (
     <div className="bg-[#1c1c1e] border border-zinc-800 rounded-[32px] overflow-hidden flex flex-col w-full max-w-md mx-auto shadow-2xl relative max-h-[90vh]">
       
-      {/* Header */}
-      <div className="px-6 py-4 border-b border-zinc-800 flex items-center justify-between bg-[#1c1c1e]/90 backdrop-blur-md z-10">
+      {/* 固定 Header */}
+      <div className="px-6 py-4 border-b border-zinc-800 flex items-center justify-between bg-[#1c1c1e]/90 backdrop-blur-md z-20 sticky top-0">
         <h2 className="text-lg font-bold text-white">{initialData ? 'Edit' : 'Add'} Activity</h2>
         <button onClick={onCancel} className="p-1.5 bg-zinc-800/50 rounded-full text-zinc-400"><X size={18} /></button>
       </div>
 
-      <div className="overflow-y-auto px-5 py-6 space-y-5 pb-32 custom-scrollbar">
+      <div className="overflow-y-auto px-5 py-6 space-y-6 pb-32 custom-scrollbar">
         {error && <div className="text-red-400 text-xs font-bold bg-red-500/10 p-2 rounded-lg">{error}</div>}
         
-        {/* ICON & TITLE */}
-        <div className="flex gap-3 items-end">
-          <div className="shrink-0">
-            <label className="block text-[10px] font-bold text-zinc-500 uppercase tracking-widest mb-1.5">Icon</label>
-            <button type="button" onClick={() => setIsIconPickerOpen(true)} className="w-12 h-12 rounded-xl flex items-center justify-center border border-white/5 shadow-lg transition-all active:scale-95" style={{ backgroundColor: `${selectedCategory.color}15`, color: selectedCategory.color }}>
+        {/* 💡 第一行: ICON | LOCK | PHOTO */}
+        <div className="grid grid-cols-3 gap-3">
+          <div className="flex flex-col gap-1.5">
+            <label className="text-[10px] font-bold text-zinc-500 uppercase tracking-widest ml-1">Icon</label>
+            <button type="button" onClick={() => setIsIconPickerOpen(true)} className="h-12 bg-[#242426] border border-zinc-800 rounded-2xl flex items-center justify-center transition-all" style={{ color: selectedCategory.color }}>
               <DynamicIcon name={selectedCategory.icon} size={22} />
             </button>
           </div>
-          <div className="flex-1">
-            <label className="block text-[10px] font-bold text-zinc-500 uppercase tracking-widest mb-1.5">Activity Title</label>
-            <input 
-              type="text" required value={formData.title} 
-              onChange={handleTitleChange} // 💡 改用這支即時同步函式
-              className="w-full bg-[#242426] border border-zinc-800 rounded-xl px-4 py-2.5 text-white font-bold text-base focus:border-orange-500 outline-none" 
-              placeholder="Activity name..." 
-            />
-          </div>
-        </div>
 
-        {/* TIME GRID & AI LOCK */}
-        <div className="space-y-1.5">
-          <label className="block text-[10px] font-bold text-zinc-500 uppercase tracking-widest ml-1">Schedule & AI Lock</label>
-          <div className="flex items-center gap-2">
-            <div className="flex-1 grid grid-cols-2 gap-2 bg-[#242426] border border-zinc-800 p-1.5 rounded-xl">
-              <input type="time" value={formData.start_time} onChange={e => setFormData({ ...formData, start_time: e.target.value })} className="bg-transparent text-white font-mono font-bold text-sm text-center outline-none [color-scheme:dark]" />
-              <input type="time" value={formData.end_time} onChange={e => setFormData({ ...formData, end_time: e.target.value })} className="bg-transparent text-white font-mono font-bold text-sm text-center border-l border-zinc-700 outline-none [color-scheme:dark]" />
-            </div>
-            <button type="button" onClick={() => setFormData({ ...formData, is_time_fixed: formData.is_time_fixed ? 0 : 1 })} className={clsx("p-2.5 rounded-xl border transition-all shrink-0", formData.is_time_fixed ? "bg-orange-500 border-orange-400 text-white" : "bg-zinc-800 border-zinc-700 text-zinc-500")}>
-              {formData.is_time_fixed ? <Lock size={16} /> : <Unlock size={16} />}
+          <div className="flex flex-col gap-1.5">
+            <label className="text-[10px] font-bold text-zinc-500 uppercase tracking-widest ml-1">AI Lock</label>
+            <button type="button" onClick={() => setFormData({ ...formData, is_time_fixed: formData.is_time_fixed ? 0 : 1 })} className={clsx("h-12 border rounded-2xl flex items-center justify-center transition-all", formData.is_time_fixed ? "bg-orange-500 border-orange-400 text-white shadow-lg" : "bg-zinc-800 border-zinc-700 text-zinc-500")}>
+              {formData.is_time_fixed ? <Lock size={18} /> : <Unlock size={18} />}
+            </button>
+          </div>
+
+          <div className="flex flex-col gap-1.5">
+            <label className="text-[10px] font-bold text-zinc-500 uppercase tracking-widest ml-1">Photo</label>
+            <button type="button" onClick={() => setIsPhotoModalOpen(true)} className={clsx("h-12 border rounded-2xl flex items-center justify-center overflow-hidden transition-all", formData.image_url ? "border-orange-500/50" : "bg-zinc-800 border-zinc-700 text-zinc-500")}>
+              {formData.image_url ? <img src={formData.image_url} className="w-full h-full object-cover" /> : <Camera size={20} />}
             </button>
           </div>
         </div>
 
-        {/* LOCATION */}
-        <div>
-          <label className="block text-[10px] font-bold text-zinc-500 uppercase tracking-widest mb-1.5">Location</label>
-          <div className="relative">
-            <MapPin size={16} className="absolute left-3.5 top-3 text-zinc-500" />
-            <input 
-              type="text" value={formData.address} 
-              onChange={e => {
-                setFormData({ ...formData, address: e.target.value });
-                setIsLocationManuallyEdited(true); // 💡 手動改過後，自動同步功能就會斷開
-              }} 
-              className="w-full bg-[#242426] border border-zinc-800 rounded-xl pl-10 pr-4 py-2.5 text-white text-xs focus:border-orange-500 outline-none" 
-              placeholder="Search address..." 
-            />
+        {/* 💡 第二行: Activity Title */}
+        <div className="space-y-1.5">
+          <label className="text-[10px] font-bold text-zinc-500 uppercase tracking-widest ml-1">Activity Title</label>
+          <input type="text" required value={formData.title} onChange={handleTitleChange} className="w-full bg-[#242426] border border-zinc-800 rounded-2xl px-4 py-3 text-white font-bold text-base focus:border-orange-500 outline-none transition-all" placeholder="e.g. Tokyo Tower" />
+        </div>
+
+        {/* 💡 第三行: Schedule */}
+        <div className="space-y-1.5">
+          <label className="text-[10px] font-bold text-zinc-500 uppercase tracking-widest ml-1">Schedule</label>
+          <div className="grid grid-cols-2 gap-3 bg-[#242426] border border-zinc-800 p-2 rounded-2xl">
+            <div className="flex flex-col items-center">
+              <span className="text-[9px] text-zinc-500 mb-0.5 font-bold uppercase">Start</span>
+              <input type="time" value={formData.start_time} onChange={e => setFormData({...formData, start_time: e.target.value})} className="bg-transparent text-white font-mono font-bold outline-none [color-scheme:dark]" />
+            </div>
+            <div className="flex flex-col items-center border-l border-zinc-800">
+              <span className="text-[9px] text-zinc-500 mb-0.5 font-bold uppercase">End</span>
+              <input type="time" value={formData.end_time} onChange={e => setFormData({...formData, end_time: e.target.value})} className="bg-transparent text-white font-mono font-bold outline-none [color-scheme:dark]" />
+            </div>
           </div>
         </div>
 
-        {/* TAGS */}
+        {/* Location */}
         <div>
-          <label className="block text-[10px] font-bold text-zinc-500 uppercase tracking-widest mb-1.5">Tags</label>
+          <label className="block text-[10px] font-bold text-zinc-500 uppercase tracking-widest mb-1.5 ml-1">Location</label>
+          <div className="relative">
+            <MapPin size={16} className="absolute left-3.5 top-3.5 text-zinc-500" />
+            <input type="text" value={formData.address} onChange={e => { setFormData({ ...formData, address: e.target.value }); setIsLocationManuallyEdited(true); }} className="w-full bg-[#242426] border border-zinc-800 rounded-xl pl-10 pr-4 py-3 text-white text-xs focus:border-orange-500 outline-none" placeholder="Search address..." />
+          </div>
+        </div>
+
+        {/* Tags */}
+        <div>
+          <label className="block text-[10px] font-bold text-zinc-500 uppercase tracking-widest mb-1.5 ml-1">Tags</label>
           <div className="bg-[#242426] border border-zinc-800 rounded-xl p-1.5 flex flex-wrap gap-1.5 items-center">
             {formData.tags.split(',').map(t => t.trim()).filter(Boolean).map(tag => (
               <span key={tag} className="bg-orange-500/10 text-orange-500 border border-orange-500/10 px-2 py-1 rounded-lg text-[10px] font-bold flex items-center gap-1">
@@ -186,15 +194,15 @@ export function ItineraryForm({ tripId, date, onSuccess, onCancel, initialData }
                 <button type="button" onClick={() => setFormData({ ...formData, tags: formData.tags.split(',').map(t=>t.trim()).filter(t=>t!==tag).join(', ') })}><X size={10} /></button>
               </span>
             ))}
-            <input type="text" value={tagInput} onChange={e => setTagInput(e.target.value)} onKeyDown={handleTagKeyDown} className="flex-1 bg-transparent border-none outline-none text-white text-xs px-1 min-w-[80px]" placeholder="+ tag" />
+            <input type="text" value={tagInput} onChange={e => setTagInput(e.target.value)} onKeyDown={handleTagKeyDown} className="flex-1 bg-transparent border-none outline-none text-white text-xs px-1 min-w-[80px]" placeholder="+ add tag" />
           </div>
         </div>
 
-        {/* SUB-ACTIVITY */}
+        {/* Sub-Activities */}
         <div>
           <div className="flex items-center justify-between mb-2">
-            <label className="block text-[10px] font-bold text-zinc-500 uppercase tracking-widest">Sub-Activities</label>
-            <button type="button" onClick={() => { setEditingSubItem(null); setIsSubItemModalOpen(true); }} className="text-[10px] text-orange-500 font-bold px-2 py-1 bg-orange-500/10 rounded-lg">+ Add</button>
+            <label className="block text-[10px] font-bold text-zinc-500 uppercase tracking-widest ml-1">Sub-Activities</label>
+            <button type="button" onClick={() => { setEditingSubItem(null); setIsSubItemModalOpen(true); }} className="text-[10px] text-orange-500 font-bold px-2 py-1 bg-orange-500/10 rounded-lg hover:bg-orange-500/20 transition-colors">+ Add New</button>
           </div>
           <div className="space-y-2">
             {subItems.length > 0 ? subItems.map((item, idx) => (
@@ -214,30 +222,73 @@ export function ItineraryForm({ tripId, date, onSuccess, onCancel, initialData }
           </div>
         </div>
 
-        {/* NOTES */}
+        {/* Notes */}
         <div>
-          <label className="block text-[10px] font-bold text-zinc-500 uppercase tracking-widest mb-1.5">Notes</label>
+          <label className="block text-[10px] font-bold text-zinc-500 uppercase tracking-widest mb-1.5 ml-1">Notes</label>
           <textarea value={formData.notes} onChange={e => setFormData({ ...formData, notes: e.target.value })} className="w-full bg-[#242426] border border-zinc-800 rounded-xl px-4 py-2.5 text-white text-xs focus:border-orange-500 outline-none min-h-[80px] resize-none" placeholder="Details..." />
         </div>
       </div>
 
-      {/* Footer */}
-      <div className="absolute bottom-0 left-0 right-0 p-4 bg-[#1c1c1e] border-t border-zinc-800 z-10 flex gap-3">
-        <button type="button" onClick={onCancel} className="flex-1 py-3 rounded-xl font-bold text-zinc-500 hover:bg-zinc-800 text-sm">Cancel</button>
-        <button type="submit" disabled={loading} onClick={handleSubmit} className="flex-[2] py-3 bg-orange-500 hover:bg-orange-600 text-white rounded-xl font-black text-sm uppercase tracking-widest shadow-lg shadow-orange-500/20 flex items-center justify-center gap-2">
+      {/* 固定 Footer 按鈕 */}
+      <div className="absolute bottom-0 left-0 right-0 p-5 bg-[#1c1c1e] border-t border-zinc-800 flex gap-3 z-20">
+        <button type="button" onClick={onCancel} className="flex-1 py-3.5 rounded-xl font-bold text-zinc-500 text-sm">Cancel</button>
+        <button type="submit" disabled={loading} onClick={handleSubmit} className="flex-[2] py-3.5 bg-orange-500 text-white rounded-xl font-black text-sm uppercase tracking-widest shadow-lg shadow-orange-500/20 flex items-center justify-center gap-2">
           {loading ? <Loader2 size={16} className="animate-spin" /> : (initialData ? 'Update' : 'Create')}
         </button>
       </div>
 
-      {/* Category Picker Modal */}
+      {/* 💡 照片管理彈窗 (自製彈窗) */}
+      <AnimatePresence>
+        {isPhotoModalOpen && (
+          <div className="absolute inset-0 z-[100] flex items-center justify-center bg-black/90 backdrop-blur-xl p-6">
+            <motion.div initial={{ scale: 0.9, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0.9, opacity: 0 }} className="bg-[#1c1c1e] border border-zinc-800 rounded-[40px] w-full max-w-sm overflow-hidden flex flex-col shadow-2xl">
+              <div className="p-4 border-b border-zinc-800 flex justify-between items-center bg-zinc-900/50">
+                <span className="text-xs font-black text-white uppercase tracking-widest">Photo Manager</span>
+                <button onClick={() => setIsPhotoModalOpen(false)}><X size={20} className="text-zinc-500" /></button>
+              </div>
+              
+              <div className="p-6 flex flex-col items-center gap-6">
+                <div className="w-full aspect-[4/3] rounded-3xl bg-zinc-950 border border-zinc-800 overflow-hidden relative shadow-inner">
+                  {formData.image_url ? (
+                    <img src={formData.image_url} className="w-full h-full object-cover" alt="Full" />
+                  ) : (
+                    <div className="absolute inset-0 flex flex-col items-center justify-center text-zinc-700 gap-2">
+                      <ImageIcon size={48} />
+                      <span className="text-[10px] font-bold">No Photo Uploaded</span>
+                    </div>
+                  )}
+                  {uploading && (
+                    <div className="absolute inset-0 bg-black/60 flex items-center justify-center text-orange-500 backdrop-blur-sm">
+                      <Loader2 className="animate-spin" size={32} />
+                    </div>
+                  )}
+                </div>
+
+                <div className="flex w-full gap-3">
+                  <label className="flex-1 flex items-center justify-center gap-2 py-3.5 bg-white text-black rounded-2xl font-black text-xs uppercase cursor-pointer hover:bg-zinc-200 transition-colors">
+                    <Upload size={16} /> Upload <input type="file" className="hidden" accept="image/*" onChange={handleFileUpload} />
+                  </label>
+                  {formData.image_url && (
+                    <button onClick={() => setFormData({...formData, image_url: ''})} className="w-14 flex items-center justify-center bg-red-500/10 text-red-500 rounded-2xl hover:bg-red-500/20 transition-colors">
+                      <Trash2 size={20} />
+                    </button>
+                  )}
+                </div>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      {/* 💡 ICON Picker Modal */}
       <AnimatePresence>
         {isIconPickerOpen && (
           <div className="absolute inset-0 z-50 flex items-end justify-center bg-black/60 backdrop-blur-sm p-4">
             <motion.div initial={{ y: '100%' }} animate={{ y: 0 }} exit={{ y: '100%' }} className="bg-[#1c1c1e] border border-zinc-800 rounded-[32px] w-full p-6 shadow-2xl flex flex-col max-h-[60vh]">
-              <div className="flex justify-between items-center mb-5"><h3 className="font-black text-white text-base">Categories</h3><button onClick={() => setIsIconPickerOpen(false)} className="text-zinc-500 p-1.5 bg-zinc-800 rounded-full"><X size={16} /></button></div>
-              <div className="overflow-y-auto grid grid-cols-4 gap-2.5 pb-6">
+              <div className="flex justify-between items-center mb-5"><h3 className="font-black text-white text-base uppercase tracking-widest">Categories</h3><button onClick={() => setIsIconPickerOpen(false)} className="text-zinc-500 p-1.5 bg-zinc-800 rounded-full"><X size={16} /></button></div>
+              <div className="overflow-y-auto grid grid-cols-4 gap-2.5 pb-6 custom-scrollbar">
                 {storeCategories.map(cat => (
-                  <button key={cat.id} onClick={() => { setFormData({ ...formData, icon: cat.icon }); setIsIconPickerOpen(false); }} className={clsx("flex flex-col items-center justify-center p-3 rounded-2xl transition-all border", formData.icon === cat.icon ? "border-white/20 bg-white/5" : "border-transparent")} style={{ color: cat.color }}>
+                  <button key={cat.id} onClick={() => { setFormData({ ...formData, icon: cat.icon }); setIsIconPickerOpen(false); }} className={clsx("flex flex-col items-center justify-center p-3 rounded-2xl transition-all border", formData.icon === cat.icon ? "border-white/20 bg-white/5" : "border-transparent hover:bg-white/5")} style={{ color: cat.color }}>
                     <DynamicIcon name={cat.icon} size={24} /><span className="text-[9px] font-bold mt-1.5 text-zinc-400 truncate w-full text-center">{cat.name}</span>
                   </button>
                 ))}
@@ -247,20 +298,27 @@ export function ItineraryForm({ tripId, date, onSuccess, onCancel, initialData }
         )}
       </AnimatePresence>
 
-      {/* Sub-Item Modal */}
+      {/* 💡 Sub-Item Editor Modal */}
       <AnimatePresence>
         {isSubItemModalOpen && (
-          <div className="absolute inset-0 z-[60] flex items-center justify-center bg-black/80 backdrop-blur-md p-4">
+          <div className="absolute inset-0 z-[110] flex items-center justify-center bg-black/80 backdrop-blur-md p-4">
             <motion.div initial={{ scale: 0.95, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0.95, opacity: 0 }} className="bg-[#1c1c1e] border border-zinc-800 rounded-[24px] w-full max-w-[300px] p-5 shadow-2xl">
-              <div className="flex justify-between items-center mb-4"><h3 className="font-bold text-white text-sm">Sub-Activity</h3><button onClick={() => setIsSubItemModalOpen(false)}><X size={16} className="text-zinc-500" /></button></div>
-              <form onSubmit={(e:any) => { e.preventDefault(); const f = e.target; const newItem = { id: editingSubItem?.id || Date.now().toString(), title: f.title.value, start_time: f.start_time.value, end_time: f.end_time.value, notes: f.notes.value }; if (editingSubItem) setSubItems(subItems.map(i => i.id === editingSubItem.id ? newItem : i)); else setSubItems([...subItems, newItem].sort((a,b)=>a.start_time.localeCompare(b.start_time))); setIsSubItemModalOpen(false); }} className="space-y-3">
-                <input type="text" name="title" required defaultValue={editingSubItem?.title} placeholder="Sub-title" className="w-full bg-[#242426] border border-zinc-800 rounded-xl px-3 py-2 text-white text-xs outline-none" />
+              <div className="flex justify-between items-center mb-4"><h3 className="font-bold text-white text-sm uppercase">Sub-Activity</h3><button onClick={() => setIsSubItemModalOpen(false)}><X size={16} className="text-zinc-500" /></button></div>
+              <form onSubmit={(e:any) => { 
+                e.preventDefault(); 
+                const f = e.target; 
+                const newItem = { id: editingSubItem?.id || Date.now().toString(), title: f.title.value, start_time: f.start_time.value, end_time: f.end_time.value, notes: f.notes.value }; 
+                if (editingSubItem) setSubItems(subItems.map(i => i.id === editingSubItem.id ? newItem : i)); 
+                else setSubItems([...subItems, newItem].sort((a,b)=>a.start_time.localeCompare(b.start_time))); 
+                setIsSubItemModalOpen(false); 
+              }} className="space-y-3">
+                <input type="text" name="title" required defaultValue={editingSubItem?.title} placeholder="Sub-title" className="w-full bg-[#242426] border border-zinc-800 rounded-xl px-3 py-2 text-white text-xs outline-none focus:border-orange-500" />
                 <div className="grid grid-cols-2 gap-2">
                   <input type="time" name="start_time" required defaultValue={editingSubItem?.start_time || formData.start_time} className="bg-[#242426] border border-zinc-800 rounded-lg px-2 py-1.5 text-white font-mono text-[10px] [color-scheme:dark]" />
                   <input type="time" name="end_time" required defaultValue={editingSubItem?.end_time || formData.end_time} className="bg-[#242426] border border-zinc-800 rounded-lg px-2 py-1.5 text-white font-mono text-[10px] [color-scheme:dark]" />
                 </div>
-                <textarea name="notes" defaultValue={editingSubItem?.notes} placeholder="Sub-notes" className="w-full bg-[#242426] border border-zinc-800 rounded-xl px-3 py-2 text-white text-xs outline-none min-h-[60px]" />
-                <button type="submit" className="w-full py-2.5 bg-orange-500 text-white rounded-xl font-bold text-xs">Save Sub</button>
+                <textarea name="notes" defaultValue={editingSubItem?.notes} placeholder="Notes..." className="w-full bg-[#242426] border border-zinc-800 rounded-xl px-3 py-2 text-white text-xs outline-none min-h-[60px] focus:border-orange-500" />
+                <button type="submit" className="w-full py-2.5 bg-orange-500 text-white rounded-xl font-bold text-xs uppercase">Save Sub</button>
               </form>
             </motion.div>
           </div>
