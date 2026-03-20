@@ -111,68 +111,6 @@ CREATE TABLE Expenses (
     FOREIGN KEY (payer_id) REFERENCES Users(id)
 );
 
-CREATE TABLE Transportations (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    trip_id INTEGER NOT NULL,
-    type TEXT NOT NULL,           -- 'FLIGHT', 'TRAIN', 'BUS', 'FERRY', 'DRIVING'
-    provider TEXT,                -- 航空公司/鐵路公司 (例如：長榮航空, 台灣高鐵)
-    code TEXT,                    -- 班次編號 (例如：BR192, 0648)
-    
-    -- 出發資訊
-    dep_station TEXT NOT NULL,    -- 出發站/機場 (如: TPE)
-    dep_date TEXT NOT NULL,       -- 出發日期 (YYYY-MM-DD)
-    dep_time TEXT NOT NULL,       -- 出發時間 (HH:mm)
-    dep_terminal TEXT,            -- 出發航廈/月台
-    dep_checkin_buffer INTEGER DEFAULT 120, -- 🛫 報到預留分鐘數
-    
-    -- 抵達資訊
-    arr_station TEXT NOT NULL,    -- 抵達站/機場 (如: NRT)
-    arr_date TEXT NOT NULL,       -- 抵達日期 (YYYY-MM-DD)
-    arr_time TEXT NOT NULL,       -- 抵達時間 (HH:mm)
-    arr_terminal TEXT,            -- 抵達航廈/月台
-    arr_exit_buffer INTEGER DEFAULT 60,   -- 🛬 出關/接駁預留分鐘數
-    
-    -- 其他資訊
-    order_id TEXT,                -- 訂購代號/預約編號
-    notes TEXT,                   -- 備註 (可在此自行輸入座位、行李限制等)
-    
-    -- 關聯
-    FOREIGN KEY (trip_id) REFERENCES Trips(id) ON DELETE CASCADE
-);
-
-CREATE TABLE Accommodations (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    trip_id INTEGER NOT NULL,
-    hotel_name TEXT NOT NULL,
-    address TEXT,
-    check_in_date TEXT NOT NULL,
-    check_out_date TEXT NOT NULL,
-    order_id TEXT,
-    notes TEXT,
-    created_at INTEGER DEFAULT (strftime('%s', 'now') * 1000),
-    check_in_time TEXT DEFAULT '15:00',
-    check_out_time TEXT DEFAULT '11:00',
-    daily_start_time TEXT DEFAULT '08:00',
-    daily_end_time TEXT DEFAULT '22:00',
-    image_url TEXT,
-    FOREIGN KEY (trip_id) REFERENCES Trips(id) ON DELETE CASCADE
-);
-
-CREATE TABLE Rentals (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    trip_id INTEGER NOT NULL,
-    name TEXT NOT NULL,
-    address TEXT,
-    check_in_date TEXT NOT NULL,
-    check_out_date TEXT NOT NULL,
-    check_in_time TEXT DEFAULT '10:00',
-    check_out_time TEXT DEFAULT '10:00',
-    notes TEXT,
-    image_url TEXT,
-    created_at INTEGER DEFAULT (strftime('%s', 'now') * 1000),
-    FOREIGN KEY (trip_id) REFERENCES Trips(id) ON DELETE CASCADE
-);
-
 CREATE TABLE Bookings (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     trip_id INTEGER NOT NULL,

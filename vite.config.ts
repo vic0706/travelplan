@@ -58,7 +58,14 @@ export default defineConfig(({mode}) => {
       },
     },
     server: {
-
+      proxy: {
+        // 當前端打 /api 開頭的網址時，Vite 會自動幫忙轉發給 Worker
+        '/api': {
+          target: env.VITE_WORKER_URL || 'https://travelplan.vic070680.workers.dev',
+          changeOrigin: true,
+          secure: false,
+        }
+      }
     },
   };
 });

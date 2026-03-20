@@ -1,8 +1,8 @@
-import React, { useState, useEffect, useMemo, useCallback } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useAppStore } from '../store';
 import { format, parseISO, addDays, differenceInDays, isSameDay, isPast, addMinutes } from 'date-fns';
-import { MapPin, Clock, Plus, Navigation, DollarSign, Plane, Bed, Map, Info, Wallet, ArrowLeft, Calendar, X, Settings, Edit3, ChevronDown, ChevronUp, ChevronsUpDown, ChevronsDownUp, Lock, Unlock, Trash2, Train, Ship, Bus, Car, Footprints, Bike } from 'lucide-react';
+import { Map, Info, Wallet, ArrowLeft, Calendar, Settings, Edit3, ChevronsUpDown, ChevronsDownUp, Unlock, Plus, DollarSign } from 'lucide-react';
 import { Trip, Itinerary, Expense, User, Booking } from '../types';
 import { clsx } from 'clsx';
 import { db } from '../db';
@@ -17,8 +17,14 @@ import { BookingForm } from '../components/BookingForm';
 import { FinanceOverview } from '../components/FinanceOverview';
 import { ConfirmDialog } from '../components/ConfirmDialog';
 import { motion, AnimatePresence } from 'framer-motion';
-import { DynamicIcon } from '../components/DynamicIcon';
 
+// 💡 載入拆分出去的卡片元件與 Custom Hook
+import { BookingCard } from '../components/BookingCard';
+import { TransportationCard } from '../components/TransportationCard';
+import { ItineraryCard } from '../components/ItineraryCard';
+import { useTripData } from '../hooks/useTripData';
+
+// 輔助函式：處理時間與衝突計算
 const parseTime = (timeStr: string, baseDate: Date) => {
   if (!timeStr) return baseDate;
   const [hours, minutes] = timeStr.split(':').map(Number);
@@ -42,442 +48,20 @@ const getEffectiveTimes = (item: any, baseDate: Date) => {
   return { start, end };
 };
 
-const renderLocation = (loc: string, terminal?: string) => {
-  if (!loc) return null;
-  if (loc.startsWith('http')) {
-      return (
-          <a href={loc} target="_blank" rel="noopener noreferrer" className="text-orange-500 hover:text-orange-400 hover:underline transition-colors" onClick={e => e.stopPropagation()}>
-              [ Map Link ]
-          </a>
-      );
-  }
-  return <span>{loc}{terminal ? ` (T${terminal})` : ''}</span>;
+const safeParse = (dateStr: any) => {
+  if (!dateStr || typeof dateStr !== 'string') return null;
+  try { const parsed = parseISO(dateStr); return isNaN(parsed.getTime()) ? null : parsed; } catch (e) { return null; }
 };
-
-function BookingCard({ booking, canEdit, onEdit }: { booking: Booking; canEdit: boolean; onEdit: () => void; }) {
-  const startDate = parseISO(`${booking.start_date}T${booking.start_time}`);
-  const endDate = parseISO(`${booking.end_date}T${booking.end_time}`);
-  const isValidStart = !isNaN(startDate.getTime());
-  const isValidEnd = !isNaN(endDate.getTime());
-  const isToday = isValidStart && isSameDay(startDate, new Date());
-  const isPastItem = isValidStart && isPast(startDate) && !isToday;
-
-  const getIcon = () => {
-    switch (booking.category) {
-      case 'FLIGHT': return Plane;
-      case 'TRAIN': return Train;
-      case 'FERRY': return Ship;
-      case 'RENTAL': return Car;
-      case 'PRIVATE_TRANSFER': return Car;
-      case 'HOTEL': return Bed;
-      default: return Info;
-    }
-  };
-
-  const Icon = getIcon();
-
-  return (
-    <div 
-      onClick={() => canEdit && onEdit()}
-      className={clsx(
-        "bg-zinc-900 border border-zinc-800 rounded-3xl p-5 transition-all group relative overflow-hidden",
-        canEdit && "hover:border-orange-500/50 cursor-pointer active:scale-[0.98]",
-        isPastItem && "opacity-60 grayscale-[0.5]"
-      )}
-    >
-      <div className="flex gap-4">
-        <div className="flex-1 min-w-0">
-          <div className="flex items-center gap-2 mb-1">
-            <div className="p-1.5 rounded-lg bg-zinc-800 text-orange-500"><Icon size={14} /></div>
-            <h4 className="font-bold text-white truncate">{booking.category === 'RENTAL' ? `${booking.provider || ''} ${booking.title}` : booking.title}</h4>
-          </div>
-          
-          <div className="space-y-1">
-            <div className="flex items-center gap-1.5 text-zinc-400 text-xs">
-              <Calendar size={12} />
-              <span>{isValidStart ? format(startDate, 'MMM d') : booking.start_date} {booking.start_time}</span>
-              {isValidEnd && <><span className="mx-1">→</span><span>{format(endDate, 'MMM d')} {booking.end_time}</span></>}
-            </div>
-            {booking.start_location && (
-              <div className="flex items-center gap-1.5 text-zinc-500 text-xs truncate">
-                <MapPin size={12} className="shrink-0" />
-                <div className="truncate">
-                  {renderLocation(booking.start_location, (() => { try { return JSON.parse(booking.details as string).dep_terminal; } catch(e) { return (booking.details as any)?.dep_terminal; } })())}
-                  {booking.end_location && (
-                    <>
-                      <span className="mx-1">→</span>
-                      {renderLocation(booking.end_location, (() => { try { return JSON.parse(booking.details as string).arr_terminal; } catch(e) { return (booking.details as any)?.arr_terminal; } })())}
-                    </>
-                  )}
-                </div>
-              </div>
-            )}
-            {booking.provider && booking.category !== 'RENTAL' && (
-              <div className="text-[10px] text-zinc-600 font-medium uppercase tracking-wider">{booking.provider} {booking.order_id && `• ${booking.order_id}`}</div>
-            )}
-            {booking.notes && <div className="text-xs text-zinc-500 italic mt-1 line-clamp-2">{booking.notes}</div>}
-          </div>
-        </div>
-        {canEdit && <div className="p-2 text-zinc-600 group-hover:text-orange-500 transition-colors"><Edit3 size={16} /></div>}
-      </div>
-    </div>
-  );
-}
-
-function TransportationCard({ item, booking, canEdit, isConflicted, onEdit, showNextTransport, onEditNextTransport, selectedDate, expandSignal, collapseSignal }: { 
-  item?: Itinerary; booking?: Booking; canEdit: boolean; isConflicted?: boolean; onEdit: () => void; showNextTransport?: boolean; onEditNextTransport?: () => void; selectedDate: Date; expandSignal: number; collapseSignal: number;
-}) {
-  const data = booking;
-  if (!data || !item) return null;
-
-  const dep_time = data.start_time;
-  const arr_time = data.end_time;
-  const type = data.category;
-  const provider = data.provider;
-  const title = data.title;
-  const dep_station = data.start_location;
-  const arr_station = data.end_location;
-  const detailsObj = typeof data.details === 'string' ? (() => { try { return JSON.parse(data.details); } catch (e) { return {}; } })() : data.details || {};
-  const dep_terminal = detailsObj.dep_terminal;
-  const arr_terminal = detailsObj.arr_terminal;
-  const dep_buffer = detailsObj.dep_buffer;
-  const arr_buffer = detailsObj.arr_buffer;
-
-  const itemDateTime = parseISO(`${format(selectedDate, 'yyyy-MM-dd')}T${item.start_time || '00:00'}`);
-  const isToday = isSameDay(selectedDate, new Date());
-  const isPastItem = !isNaN(itemDateTime.getTime()) && isPast(itemDateTime) && !isToday;
-  const isCrossDay = data.start_date !== data.end_date;
-  
-  const [isExpanded, setIsExpanded] = useState(!isPastItem);
-  const [showDetails, setShowDetails] = useState(false);
-
-  useEffect(() => { setIsExpanded(!isPastItem); }, [isPastItem]);
-  useEffect(() => { if (expandSignal > 0) setIsExpanded(true); }, [expandSignal]);
-  useEffect(() => { if (collapseSignal > 0) setIsExpanded(false); }, [collapseSignal]);
-
-  const getIcon = () => {
-    switch (type) {
-      case 'TRAIN': return Train;
-      case 'FERRY': return Ship;
-      case 'RENTAL': return Car;
-      case 'PRIVATE_TRANSFER': return Car;
-      default: return Plane;
-    }
-  };
-  const Icon = getIcon();
-
-  const getLabels = () => {
-    switch (type) {
-      case 'FLIGHT': return { station: 'Airport', terminal: 'Terminal' };
-      case 'TRAIN': return { station: 'Station', terminal: 'Platform' };
-      case 'FERRY': return { station: 'Port', terminal: 'Pier' };
-      case 'RENTAL': return { station: 'Location', terminal: 'Counter' };
-      case 'PRIVATE_TRANSFER': return { station: 'Location', terminal: 'Point' };
-      default: return { station: 'Location', terminal: 'Point' };
-    }
-  };
-  const labels = getLabels();
-
-  if (item) {
-    const depDateTime = parseISO(`${data.start_date}T${dep_time}`);
-    const checkinBuffer = dep_buffer || -120;
-    const checkinDate = new Date(depDateTime.getTime() + checkinBuffer * 60000); 
-    const checkinTimeStr = format(checkinDate, 'HH:mm');
-
-    const arrDateTime = parseISO(`${data.end_date || data.start_date}T${arr_time}`);
-    const exitBuffer = arr_buffer || 60;
-    const exitDate = new Date(arrDateTime.getTime() + exitBuffer * 60000);
-    const exitTimeStr = format(exitDate, 'HH:mm');
-
-    return (
-      <div 
-        className={clsx(
-          "bg-zinc-900 rounded-3xl overflow-hidden shadow-lg group relative transition-all",
-          isConflicted ? "border-red-500 ring-2 ring-red-500" : "border border-zinc-800",
-          canEdit && !isConflicted ? "cursor-pointer hover:border-orange-500/50" : canEdit && isConflicted ? "cursor-pointer" : "cursor-pointer hover:border-zinc-700",
-          isPastItem && !isExpanded && "opacity-50 grayscale hover:opacity-100 hover:grayscale-0",
-          isExpanded ? "h-auto min-h-[180px]" : "h-auto"
-        )}
-        onClick={() => canEdit ? onEdit() : setIsExpanded(!isExpanded)}
-      >
-        <div className="p-5 flex items-start justify-between gap-4 bg-zinc-900 relative z-20">
-          <div className="flex flex-col gap-1.5 flex-1">
-            <div className="flex items-center gap-2 text-zinc-400">
-              <div className={clsx("w-1.5 h-1.5 rounded-full", isPastItem ? "bg-zinc-600" : "bg-orange-500")} />
-              <span className="font-mono text-sm font-medium tracking-wide">{item.start_time} - {item.end_time}</span>
-            </div>
-            <h3 className="text-xl font-bold text-white leading-tight flex items-center gap-2">
-              <Icon size={20} className={isPastItem ? "text-zinc-500" : "text-orange-500"} />
-              <span>{provider} {title}</span>
-            </h3>
-          </div>
-          
-          <div className="flex flex-col items-end gap-2">
-            <div className="flex flex-col items-center bg-zinc-800/50 rounded-2xl border border-zinc-700/50 overflow-hidden shadow-sm backdrop-blur-sm">
-              <a 
-                href={dep_station && dep_station.startsWith('http') ? dep_station : `http://maps.google.com/?q=${encodeURIComponent(dep_station || title)}`}
-                target="_blank" rel="noopener noreferrer"
-                className="p-2.5 text-zinc-400 hover:text-orange-500 hover:bg-zinc-700/50 transition-colors flex items-center justify-center w-10 h-10"
-                onClick={(e) => e.stopPropagation()} title="View on Map"
-              >
-                 <Map size={18} />
-              </a>
-
-              {showNextTransport && (canEdit || !!item.next_transport_mode) && (
-                <>
-                  <div className="w-6 h-px bg-zinc-700/50" />
-                  <button
-                    onClick={(e) => { e.stopPropagation(); if (canEdit) onEditNextTransport?.(); }}
-                    disabled={!canEdit}
-                    className={clsx(
-                      "p-2 flex flex-col items-center justify-center gap-0.5 w-10 transition-colors",
-                      canEdit ? "hover:bg-zinc-700/50 cursor-pointer" : "cursor-default",
-                      item.next_transport_mode ? "text-orange-500" : "text-zinc-500 hover:text-zinc-300"
-                    )}
-                  >
-                    {item.next_transport_mode ? (
-                      <>
-                        {item.next_transport_mode === 'WALKING' && <Footprints size={16} />}
-                        {item.next_transport_mode === 'BICYCLING' && <Bike size={16} />}
-                        {item.next_transport_mode === 'TRANSIT' && <Bus size={16} />}
-                        {item.next_transport_mode === 'DRIVING' && <Car size={16} />}
-                        {(item.next_transport_time || item.next_transport_auto_time) && (
-                          <span className="text-[9px] font-mono font-bold leading-none mt-0.5">{item.next_transport_time ? item.next_transport_time.replace(' min', 'm') : 'Auto'}</span>
-                        )}
-                      </>
-                    ) : <Plus size={18} />}
-                  </button>
-                </>
-              )}
-            </div>
-          </div>
-        </div>
-
-        <div className={clsx("relative transition-all duration-300 ease-in-out overflow-hidden", isExpanded ? "h-auto opacity-100" : "h-0 opacity-0")}>
-           <div className="px-5 pb-5 relative">
-              <div className="relative"> 
-                  {!showDetails ? (
-                    <div className="relative">
-                        <div className="grid grid-cols-[1fr_auto_1fr] gap-4 items-center">
-                            <div className="flex flex-col">
-                                <div className="text-[10px] text-zinc-500 uppercase tracking-wider mb-0.5">Dep</div>
-                                <div className="text-2xl font-bold text-white leading-none tracking-tight">{dep_time}</div>
-                                <div className="text-sm font-medium text-zinc-300 mt-1 truncate">
-                                    {renderLocation(dep_station)}
-                                </div>
-                                {dep_terminal && <div className="text-[10px] text-orange-500 mt-0.5">{labels.terminal} {dep_terminal}</div>}
-                            </div>
-                            <div className="flex flex-col items-center justify-center pt-2">
-                                <div className="w-8 h-px bg-zinc-700 relative"><div className="absolute right-0 top-1/2 -translate-y-1/2 w-1 h-1 bg-zinc-500 rounded-full"></div></div>
-                                {isCrossDay && <span className="text-[9px] text-orange-500 mt-1">+1d</span>}
-                            </div>
-                            <div className="flex flex-col text-right">
-                                <div className="text-[10px] text-zinc-500 uppercase tracking-wider mb-0.5">Arr</div>
-                                <div className="text-2xl font-bold text-white leading-none tracking-tight">{arr_time}</div>
-                                <div className="text-sm font-medium text-zinc-300 mt-1 truncate">
-                                    {renderLocation(arr_station)}
-                                </div>
-                                {arr_terminal && <div className="text-[10px] text-orange-500 mt-0.5">{labels.terminal} {arr_terminal}</div>}
-                            </div>
-                        </div>
-                    </div>
-                  ) : (
-                     <div className="relative bg-zinc-950 rounded-2xl p-4 border border-zinc-800 shadow-xl mt-2">
-                         <div className="relative pt-2 pb-4 mt-2 px-2">
-                           <div className="absolute top-[22px] left-2 right-2 h-0.5 bg-zinc-800"></div>
-                           <div className="flex justify-between relative">
-                             <div className="flex flex-col items-center gap-1 relative z-10 group/point">
-                               <div className="text-[10px] font-mono text-zinc-400 mb-1">{checkinTimeStr}</div>
-                               <div className="w-2.5 h-2.5 rounded-full bg-zinc-800 border-2 border-zinc-600 group-hover/point:border-orange-500 transition-colors"></div>
-                               <div className="text-[9px] font-mono text-zinc-500 font-medium mt-1">Check-in</div>
-                             </div>
-                             <div className="flex flex-col items-center gap-1 relative z-10 group/point">
-                               <div className="text-[10px] font-mono text-white font-bold mb-1">{dep_time}</div>
-                               <div className="w-2.5 h-2.5 rounded-full bg-zinc-600 border-2 border-zinc-500 group-hover/point:border-orange-500 transition-colors"></div>
-                               <div className="text-[9px] font-mono text-zinc-300 font-medium mt-1">Dep</div>
-                             </div>
-                             <div className="flex flex-col items-center gap-1 relative z-10 group/point">
-                               <div className="text-[10px] font-mono text-white font-bold mb-1">{arr_time}</div>
-                               <div className="w-2.5 h-2.5 rounded-full bg-zinc-600 border-2 border-zinc-500 group-hover/point:border-orange-500 transition-colors"></div>
-                               <div className="text-[9px] font-mono text-zinc-300 font-medium mt-1">Arr</div>
-                             </div>
-                             <div className="flex flex-col items-center gap-1 relative z-10 group/point">
-                               <div className="text-[10px] font-mono text-zinc-400 mb-1">{exitTimeStr}</div>
-                               <div className="w-2.5 h-2.5 rounded-full bg-zinc-800 border-2 border-zinc-600 group-hover/point:border-orange-500 transition-colors"></div>
-                               <div className="text-[9px] font-mono text-zinc-500 font-medium mt-1">Exit</div>
-                             </div>
-                           </div>
-                         </div>
-                         {data.notes && <div className="mt-3 pt-3 border-t border-zinc-800 text-xs text-zinc-400 italic text-center leading-relaxed">{data.notes}</div>}
-                     </div>
-                  )}
-                  <div className="flex justify-center mt-4">
-                      <div className="flex items-center justify-center w-10 h-6 rounded-full bg-zinc-800/80 hover:bg-zinc-700 text-zinc-400 hover:text-white cursor-pointer transition-colors border border-zinc-700/50" onClick={(e) => { e.stopPropagation(); setShowDetails(!showDetails); }}>
-                         {showDetails ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
-                      </div>
-                  </div>
-              </div>
-           </div>
-        </div>
-      </div>
-    );
-  }
-  return null;
-}
-
-function SubItemRow({ sub, itineraryImageUrl, isLast, hasMore }: { sub: any; itineraryImageUrl: string | null; isLast: boolean; hasMore: boolean }) {
-  const [showNotes, setShowNotes] = useState(false);
-  const rowRef = React.useRef<HTMLDivElement>(null);
-
-  const handleToggle = (e: React.MouseEvent) => {
-    e.stopPropagation();
-    setShowNotes(!showNotes);
-    if (!showNotes && rowRef.current) setTimeout(() => rowRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 100);
-  };
-
-  return (
-    <div ref={rowRef} className={clsx("flex flex-col gap-1 text-sm p-3 rounded-2xl border relative overflow-hidden group/sub transition-all", itineraryImageUrl ? "text-white/90 bg-black/40 border-white/10" : "text-zinc-400 bg-zinc-900/50 border-zinc-800/50")}>
-      <div className="absolute left-0 top-0 bottom-0 w-1 bg-zinc-700 group-hover/sub:bg-orange-500 transition-colors"></div>
-      <div className="flex items-center justify-between gap-3 pl-2">
-        <div className="text-xs font-mono text-zinc-400 whitespace-nowrap min-w-[80px]">{sub.start_time} - {sub.end_time}</div>
-        <div className={clsx("font-semibold flex-1 truncate", itineraryImageUrl ? "text-white" : "text-zinc-100")}>{sub.title || sub.text}</div>
-        <div className="flex items-center gap-2 shrink-0">
-          {sub.address && <a href={sub.address.startsWith('http') ? sub.address : `http://maps.google.com/?q=${encodeURIComponent(sub.address)}`} target="_blank" rel="noopener noreferrer" onClick={(e) => e.stopPropagation()} className={clsx("p-1.5 rounded-full transition-colors", itineraryImageUrl ? "text-white/70 hover:text-white hover:bg-white/10" : "text-zinc-500 hover:text-orange-500 hover:bg-zinc-800")}><Map size={14} /></a>}
-          {(sub.notes || (sub.tags && sub.tags.length > 0)) && <button onClick={handleToggle} className={clsx("p-1.5 rounded-full transition-colors", itineraryImageUrl ? "text-white/70 hover:text-white hover:bg-white/10" : "text-zinc-500 hover:text-white hover:bg-zinc-800")}><ChevronDown size={14} className={clsx("transition-transform", showNotes ? "rotate-180" : "")} /></button>}
-        </div>
-      </div>
-      <AnimatePresence>
-        {showNotes && (
-          <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: 'auto' }} exit={{ opacity: 0, height: 0 }} className="overflow-hidden pl-2">
-            {sub.tags && Array.isArray(sub.tags) && sub.tags.length > 0 && <div className="flex flex-wrap gap-1 mt-2 mb-1">{sub.tags.map((tag: string, idx: number) => <span key={idx} className={clsx("text-[10px] px-1.5 py-0.5 rounded border", itineraryImageUrl ? "text-white/80 border-white/20 bg-white/5" : "text-zinc-400 border-zinc-700 bg-zinc-800")}>{tag}</span>)}</div>}
-            {sub.notes && <div className={clsx("text-xs mt-1 italic leading-relaxed p-2 rounded-lg", itineraryImageUrl ? "bg-white/10 text-white/80" : "bg-zinc-800/50 text-zinc-400")}>{sub.notes}</div>}
-            {hasMore && <div className="text-[9px] text-zinc-500 text-center mt-2 pb-1 animate-pulse">▼ More sub-activities below</div>}
-          </motion.div>
-        )}
-      </AnimatePresence>
-    </div>
-  );
-}
-
-function ItineraryCard({ item, canEdit, isConflicted, onEdit, selectedDate, showNextTransport, onEditNextTransport, booking, expandSignal, collapseSignal }: { 
-  item: Itinerary; canEdit: boolean; isConflicted?: boolean; onEdit: () => void; selectedDate: Date; showNextTransport?: boolean; onEditNextTransport?: () => void; booking?: Booking; expandSignal: number; collapseSignal: number;
-}) {
-  const dateStr = format(selectedDate, 'yyyy-MM-dd');
-  const itemDateTime = parseISO(`${dateStr}T${item.start_time || '00:00'}`);
-  const isToday = isSameDay(selectedDate, new Date());
-  const isPastItem = !isNaN(itemDateTime.getTime()) && isPast(itemDateTime) && !isToday;
-
-  const subItems = item.sub_items ? JSON.parse(item.sub_items) : [];
-  const hasNotes = !!item.notes;
-  const hasTags = Array.isArray(item.tags) && item.tags.length > 0;
-  const hasSubItems = subItems.length > 0;
-  const itineraryImageUrl = item.image_url && typeof item.image_url === 'string' && item.image_url.startsWith('http') ? item.image_url : null;
-
-  const hasExpandableContent = hasNotes || hasTags || hasSubItems || !!itineraryImageUrl;
-  const [isExpanded, setIsExpanded] = useState(!isPastItem && hasExpandableContent);
-  const [showDetails, setShowDetails] = useState(false);
-  
-  useEffect(() => { setIsExpanded(!isPastItem && hasExpandableContent); }, [isPastItem, hasExpandableContent]);
-  useEffect(() => { if (expandSignal > 0 && hasExpandableContent) setIsExpanded(true); }, [expandSignal, hasExpandableContent]);
-  useEffect(() => { if (collapseSignal > 0 && hasExpandableContent) setIsExpanded(false); }, [collapseSignal, hasExpandableContent]);
-
-  return (
-    <div 
-      className={clsx(
-        "bg-zinc-900 rounded-3xl overflow-hidden shadow-lg group relative transition-all",
-        isConflicted ? "border-red-500 ring-2 ring-red-500" : "border border-zinc-800",
-        canEdit && !isConflicted ? "cursor-pointer hover:border-orange-500/50" : canEdit && isConflicted ? "cursor-pointer" : "cursor-pointer hover:border-zinc-700",
-        isPastItem && !isExpanded && "opacity-50 grayscale-[0.5] hover:opacity-100 hover:grayscale-0"
-      )}
-      onClick={() => canEdit ? onEdit() : (hasExpandableContent && setIsExpanded(!isExpanded))}
-    >
-      <div className="p-5 flex items-start justify-between gap-4 bg-zinc-900 relative z-20">
-        <div className="flex flex-col gap-1.5 flex-1">
-          <div className="flex items-center gap-2 text-zinc-400">
-            <div className={clsx("w-1.5 h-1.5 rounded-full", isPastItem ? "bg-zinc-600" : "bg-orange-500")} />
-            <span className="font-mono text-sm font-medium tracking-wide">{item.start_time} - {item.start_time === item.end_time ? 'Auto' : item.end_time}</span>
-          </div>
-          <h3 className="text-xl font-bold text-white leading-tight flex items-center">
-            {item.type === 'ACCOMMODATION' && <Bed className={clsx("mr-2 shrink-0", isPastItem ? "text-zinc-500" : "text-orange-500")} size={20} />}
-            {item.type === 'RENTAL' && <Car className={clsx("mr-2 shrink-0", isPastItem ? "text-zinc-500" : "text-orange-500")} size={20} />}
-            {item.icon && <DynamicIcon name={item.icon} className={clsx("mr-2 shrink-0", isPastItem ? "text-zinc-500" : "text-orange-500")} size={20} />}
-            {item.title}
-          </h3>
-        </div>
-        
-        <div className="flex flex-col items-end gap-2">
-          <div className="flex flex-col items-center bg-zinc-800/50 rounded-2xl border border-zinc-700/50 overflow-hidden shadow-sm backdrop-blur-sm">
-            <a 
-              href={item.address && item.address.startsWith('http') ? item.address : `http://maps.google.com/?q=${encodeURIComponent(item.address || item.title)}`}
-              target="_blank" rel="noopener noreferrer" onClick={(e) => e.stopPropagation()}
-              className="p-2.5 text-zinc-400 hover:text-orange-500 hover:bg-zinc-700/50 transition-colors flex items-center justify-center w-10 h-10" title="View on Map"
-            >
-              <Map size={18} />
-            </a>
-
-            {showNextTransport && (canEdit || item.next_transport_mode) && (
-              <>
-                <div className="w-6 h-px bg-zinc-700/50" />
-                <button
-                  onClick={(e) => { e.stopPropagation(); if (canEdit) onEditNextTransport?.(); }}
-                  disabled={!canEdit}
-                  className={clsx("p-2 flex flex-col items-center justify-center gap-0.5 w-10 transition-colors", canEdit ? "hover:bg-zinc-700/50 cursor-pointer" : "cursor-default", item.next_transport_mode ? "text-orange-500" : "text-zinc-500 hover:text-zinc-300")}
-                >
-                  {item.next_transport_mode ? (
-                    <>
-                      {item.next_transport_mode === 'WALKING' && <Footprints size={16} />}
-                      {item.next_transport_mode === 'BICYCLING' && <Bike size={16} />}
-                      {item.next_transport_mode === 'TRANSIT' && <Bus size={16} />}
-                      {item.next_transport_mode === 'DRIVING' && <Car size={16} />}
-                      {(item.next_transport_time || item.next_transport_auto_time) && <span className="text-[9px] font-mono font-bold leading-none mt-0.5">{item.next_transport_time ? item.next_transport_time.replace(' min', 'm') : 'Auto'}</span>}
-                    </>
-                  ) : <Plus size={18} />}
-                </button>
-              </>
-            )}
-          </div>
-        </div>
-      </div>
-
-      <div className={clsx("relative transition-all duration-300 ease-in-out overflow-hidden", isExpanded ? "h-[200px]" : "h-0")}>
-        {itineraryImageUrl ? <img src={itineraryImageUrl} alt={item.title} className="absolute inset-0 w-full h-full object-cover" referrerPolicy="no-referrer" /> : <div className="absolute inset-0 bg-gradient-to-br from-orange-900/30 via-zinc-900 to-zinc-900 border-t border-orange-500/10" />}
-        <div className={clsx("absolute inset-0 transition-colors duration-300", itineraryImageUrl ? (showDetails ? "bg-black/80 backdrop-blur-sm" : "bg-gradient-to-b from-zinc-900/40 via-transparent to-black/60") : "bg-gradient-to-br from-orange-900/10 via-transparent to-black/30")} />
-        <div className="absolute inset-0 p-5 flex flex-col z-10">
-          <div className="flex items-start justify-between gap-4 shrink-0">
-            <div className="flex flex-wrap gap-2 flex-1">
-              {Array.isArray(item.tags) && item.tags.map((tag: string) => (
-                <span key={tag} className={clsx("text-[10px] font-bold uppercase tracking-wider px-2.5 py-1 rounded-full border shadow-sm backdrop-blur-md", itineraryImageUrl ? "text-white bg-black/40 border-white/20" : "text-zinc-300 bg-zinc-900/50 border-zinc-700/50")}>{tag}</span>
-              ))}
-            </div>
-          </div>
-          <AnimatePresence>
-            {showDetails && (
-              <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: 10 }} className="flex-1 overflow-y-auto custom-scrollbar mt-4 pr-2" onClick={(e) => e.stopPropagation()}>
-                <div className="space-y-4 pb-2">
-                  {item.notes && <p className={clsx("text-sm leading-relaxed p-4 rounded-2xl border", itineraryImageUrl ? "text-white/90 bg-black/40 border-white/10" : "text-zinc-300 bg-zinc-900/50 border-zinc-700/30")}>{item.notes}</p>}
-                  {subItems.length > 0 && <div className="space-y-3">{subItems.map((sub: any, idx: number) => <SubItemRow key={sub.id || idx} sub={sub} itineraryImageUrl={itineraryImageUrl} isLast={idx === subItems.length - 1} hasMore={idx < subItems.length - 1} />)}</div>}
-                </div>
-              </motion.div>
-            )}
-          </AnimatePresence>
-          {(hasNotes || hasSubItems) && !canEdit && (
-            <div className="flex justify-center mt-auto pt-2 shrink-0">
-              <div className={clsx("flex items-center justify-center w-10 h-6 rounded-full border backdrop-blur-md transition-colors duration-300 cursor-pointer hover:bg-white/10", itineraryImageUrl ? "bg-black/40 border-white/20 text-white" : "bg-zinc-800/80 border-zinc-700/50 text-zinc-400 hover:text-white")} onClick={(e) => { e.stopPropagation(); setShowDetails(!showDetails); }}>
-                {showDetails ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
-              </div>
-            </div>
-          )}
-        </div>
-      </div>
-    </div>
-  );
-}
 
 export function TripDetails() {
   const { id } = useParams();
   const navigate = useNavigate();
-  const { user, _hasHydrated, token } = useAppStore();
+  const { user } = useAppStore();
   
+  // 💡 呼叫剛做好的自訂 Hook，取得資料刷新功能
+  const { refreshTripData } = useTripData(id);
+
+  // 監聽本地 Dexie 資料庫
   const trip = useLiveQuery(() => db.trips.get(Number(id) || 0), [id]);
   const itineraries = useLiveQuery(() => db.itineraries.where('trip_id').equals(Number(id) || 0).toArray(), [id]) || [];
   const expenses = useLiveQuery(() => db.expenses.where('trip_id').equals(Number(id) || 0).toArray(), [id]) || [];
@@ -486,7 +70,6 @@ export function TripDetails() {
 
   const [activeTab, setActiveTab] = useState<'itinerary' | 'info' | 'finance' | 'settings'>('itinerary');
   const [selectedDate, setSelectedDate] = useState<Date | null>(null);
-  const [isLoading, setIsLoading] = useState(false);
   const [bookingFilter, setBookingFilter] = useState<string>('ALL');
   
   const [isAllExpanded, setIsAllExpanded] = useState(false);
@@ -502,6 +85,16 @@ export function TripDetails() {
   
   useEffect(() => { setSelectedDate(new Date()); }, []);
   
+  // 進入頁面或返回時觸發同步
+  useEffect(() => { refreshTripData(); }, [refreshTripData]);
+
+  useEffect(() => {
+    if (trip?.start_date) {
+      const parsedStart = safeParse(trip.start_date);
+      if (parsedStart) setSelectedDate(parsedStart);
+    }
+  }, [trip?.start_date]);
+
   const [isFinanceFormOpen, setIsFinanceFormOpen] = useState(false);
   const [isItineraryFormOpen, setIsItineraryFormOpen] = useState(false);
   const [isNextTransportFormOpen, setIsNextTransportFormOpen] = useState(false);
@@ -516,98 +109,16 @@ export function TripDetails() {
     isOpen: false, title: '', message: '', confirmText: 'Confirm', onConfirm: () => {} 
   });
 
-  const safeParse = (dateStr: any) => {
-    if (!dateStr || typeof dateStr !== 'string') return null;
-    try { const parsed = parseISO(dateStr); return isNaN(parsed.getTime()) ? null : parsed; } catch (e) { return null; }
-  };
-
-  const refreshTripData = useCallback(async () => {
-    if (!id || !navigator.onLine || !_hasHydrated) return;
-    setIsLoading(true);
-    try {
-      const tripRes = await apiFetch(`/api/trips/${id}`);
-      if (!tripRes.ok) throw new Error('Trip fetch failed');
-      const tripData = await tripRes.json() as Trip;
-      
-      const tripEndDate = safeParse(tripData.end_date);
-      const isPastTrip = tripEndDate && isPast(tripEndDate) && !isSameDay(tripEndDate, new Date());
-      const shouldDeepCache = user?.role !== 'Guest' && !isPastTrip;
-
-      await db.trips.put({ ...tripData, last_accessed: Date.now(), is_fully_synced: shouldDeepCache });
-
-      const [itinerariesRes, expensesRes, membersRes, bookingsRes] = await Promise.all([
-        apiFetch(`/api/trips/${id}/itineraries`),
-        apiFetch(`/api/trips/${id}/expenses`),
-        apiFetch(`/api/trips/${id}/members`),
-        apiFetch(`/api/trips/${id}/bookings`)
-      ]);
-
-      if (itinerariesRes.ok) {
-        const data = await itinerariesRes.json() as Itinerary[];
-        const existingIds = await db.itineraries.where('trip_id').equals(Number(id)).primaryKeys();
-        const incomingIds = data.map(i => i.id);
-        const idsToDelete = existingIds.filter(eid => !incomingIds.includes(eid as number));
-        await db.transaction('rw', db.itineraries, async () => {
-          if (idsToDelete.length > 0) await db.itineraries.bulkDelete(idsToDelete as number[]);
-          await db.itineraries.bulkPut(data);
-        });
-      }
-
-      if (expensesRes.ok) {
-        const data = await expensesRes.json() as Expense[];
-        const existingIds = await db.expenses.where('trip_id').equals(Number(id)).primaryKeys();
-        const incomingIds = data.map(e => e.id);
-        const idsToDelete = existingIds.filter(eid => !incomingIds.includes(eid as number));
-        await db.transaction('rw', db.expenses, async () => {
-          if (idsToDelete.length > 0) await db.expenses.bulkDelete(idsToDelete as number[]);
-          await db.expenses.bulkPut(data);
-        });
-      }
-
-      if (membersRes.ok) {
-        const data = await membersRes.json() as User[];
-        await db.users.bulkPut(data.map((m) => ({ id: m.id, name: m.name, role: m.role, avatar_url: m.avatar_url || '', allow_login: 1 })));
-        const existingMembers = await db.tripMembers.where('trip_id').equals(Number(id)).toArray();
-        const incomingMemberIds = data.map(m => m.id);
-        const membersToDelete = existingMembers.filter(m => !incomingMemberIds.includes(m.user_id));
-        await db.transaction('rw', db.tripMembers, async () => {
-          for (const m of membersToDelete) await db.tripMembers.where({ trip_id: Number(id), user_id: m.user_id }).delete();
-          await db.tripMembers.bulkPut(data.map((m) => ({ trip_id: Number(id) || 0, user_id: m.id, role: 'Member' })));
-        });
-      }
-
-      if (bookingsRes.ok) {
-        const data = await bookingsRes.json();
-        const existingIds = await db.bookings.where('trip_id').equals(Number(id)).primaryKeys();
-        const incomingIds = data.map((b: any) => b.id);
-        const idsToDelete = existingIds.filter(eid => !incomingIds.includes(eid as number));
-        await db.transaction('rw', db.bookings, async () => {
-          if (idsToDelete.length > 0) await db.bookings.bulkDelete(idsToDelete as number[]);
-          await db.bookings.bulkPut(data);
-        });
-      }
-    } catch (err) { console.error('Failed to sync trip details:', err); } finally { setIsLoading(false); }
-  }, [id, user, _hasHydrated]);
-
-  useEffect(() => { refreshTripData(); }, [refreshTripData]);
-
-  useEffect(() => {
-    if (trip?.start_date) {
-      const parsedStart = safeParse(trip.start_date);
-      if (parsedStart) setSelectedDate(parsedStart);
-    }
-  }, [trip?.start_date]);
-
   const tripUsers = useLiveQuery(async () => {
     if (!id) return [];
-    const members = await db.tripMembers.where('trip_id').equals(Number(id)).toArray();
-    const userIds = members.map(m => m.user_id);
+    const tripMembers = await db.tripMembers.where('trip_id').equals(Number(id)).toArray();
+    const userIds = tripMembers.map(m => m.user_id);
     return db.users.where('id').anyOf(userIds).toArray();
   }, [id]);
 
   const handleDeleteItinerary = async (itineraryId: number) => {
     setConfirmConfig({
-      isOpen: true, title: '刪除活動', message: '您確定要刪除此活動嗎？此操作無法復原。', confirmText: 'Deleting activity...',
+      isOpen: true, title: '刪除活動', message: '您確定要刪除此活動嗎？此操作無法復原。', confirmText: '刪除活動',
       onConfirm: async () => {
         if (!id) return;
         try {
@@ -624,7 +135,7 @@ export function TripDetails() {
 
   const handleDeleteBooking = async (bookingId: number) => {
     setConfirmConfig({
-      isOpen: true, title: '刪除預訂', message: '您確定要刪除此預訂資訊嗎？相關的行程項目也會一併刪除。', confirmText: 'Deleting booking...',
+      isOpen: true, title: '刪除預訂', message: '您確定要刪除此預訂資訊嗎？相關的行程項目也會一併刪除。', confirmText: '刪除預訂',
       onConfirm: async () => {
         if (!id) return;
         try {
@@ -657,7 +168,7 @@ export function TripDetails() {
 
   const filteredItineraries = itineraries.filter(i => {
     const parsed = safeParse(i.date);
-    return parsed ? isSameDay(parsed, selectedDate) : false;
+    return parsed ? isSameDay(parsed, selectedDate || new Date()) : false;
   }).sort((a, b) => a.start_time.localeCompare(b.start_time));
 
   const conflictedIdsInView = useMemo(() => {
@@ -738,7 +249,7 @@ export function TripDetails() {
 
   const filteredExpenses = expenses.filter(e => {
     const parsed = safeParse(e.date);
-    return parsed ? isSameDay(parsed, selectedDate) : false;
+    return parsed ? isSameDay(parsed, selectedDate || new Date()) : false;
   });
 
   const getUserNameById = (userId: number) => {
@@ -791,7 +302,7 @@ export function TripDetails() {
             <div className="flex items-center gap-2">
               <div className="flex overflow-x-auto gap-3 no-scrollbar pb-1 flex-1">
                 {dates.map((date, index) => {
-                  const isActive = isSameDay(date, selectedDate);
+                  const isActive = isSameDay(date, selectedDate || new Date());
                   return (
                     <button
                       key={index} onClick={() => setSelectedDate(date)}
@@ -832,6 +343,7 @@ export function TripDetails() {
             <div className="space-y-4">
               {filteredItineraries.length > 0 ? (
                 filteredItineraries.map((item, index) => {
+                  
                   if (item.type === 'TRANSPORTATION' && item.related_id) {
                     const booking = bookings.find(b => b.id === item.related_id);
                     if (booking) {
@@ -843,13 +355,14 @@ export function TripDetails() {
                           onEdit={() => { setEditingBooking(booking); setIsBookingFormOpen(true); }}
                           showNextTransport={index < filteredItineraries.length - 1}
                           onEditNextTransport={() => { setEditingItinerary(item); setIsNextTransportFormOpen(true); }}
-                          selectedDate={selectedDate!}
+                          selectedDate={selectedDate || new Date()}
                           expandSignal={expandSignal}
                           collapseSignal={collapseSignal}
                         />
                       );
                     }
                   }
+
                   const booking = (item.type === 'ACCOMMODATION' || item.type === 'RENTAL') && item.related_id ? bookings.find(b => b.id === item.related_id) : undefined;
                   return (
                     <div key={`itinerary-${item.id}`} className="space-y-2">
@@ -860,7 +373,7 @@ export function TripDetails() {
                           setEditingItinerary(item); 
                           setIsItineraryFormOpen(true); 
                         }}
-                        selectedDate={selectedDate!} showNextTransport={index < filteredItineraries.length - 1}
+                        selectedDate={selectedDate || new Date()} showNextTransport={index < filteredItineraries.length - 1}
                         onEditNextTransport={() => { setEditingItinerary(item); setIsNextTransportFormOpen(true); }}
                         booking={booking}
                         expandSignal={expandSignal}
@@ -872,6 +385,7 @@ export function TripDetails() {
               ) : (
                 <div className="text-center py-12 text-zinc-500 border border-dashed border-zinc-800 rounded-3xl"><p>No activities for this day.</p></div>
               )}
+
               {canEdit && (
                 <button onClick={() => setIsItineraryFormOpen(true)} className="w-full mt-6 py-4 border-2 border-dashed border-zinc-800 rounded-3xl flex items-center justify-center gap-2 text-zinc-500 hover:text-orange-500 hover:border-orange-500/50 hover:bg-orange-500/5 transition-all">
                   <Plus size={20} /><span className="font-medium">Add Activity</span>
@@ -887,6 +401,7 @@ export function TripDetails() {
               <h3 className="text-lg font-semibold text-white mb-6">Expenses Overview</h3>
               <FinanceOverview expenses={expenses} members={tripUsers || []} currency={trip.currencies?.[0] || 'TWD'} />
             </div>
+
             <div className="space-y-4">
               <div className="flex items-center justify-between px-2">
                  <h4 className="text-zinc-500 text-xs font-bold uppercase tracking-widest">Bookings</h4>
@@ -896,6 +411,7 @@ export function TripDetails() {
                    </button>
                  )}
               </div>
+
               {bookings.length > 0 ? (
                 <>
                   {availableBookingCategories.length > 2 && (
@@ -916,6 +432,7 @@ export function TripDetails() {
                       ))}
                     </div>
                   )}
+
                   <div className="grid grid-cols-1 gap-4">
                     {bookings
                       .filter(b => bookingFilter === 'ALL' || b.category === bookingFilter)
@@ -925,6 +442,7 @@ export function TripDetails() {
                         const dateB = parseISO(`${b.start_date}T${b.start_time}`);
                         const aPast = isPast(dateA) && !isSameDay(dateA, now);
                         const bPast = isPast(dateB) && !isSameDay(dateB, now);
+
                         if (aPast && !bPast) return 1;
                         if (!aPast && bPast) return -1;
                         return dateA.getTime() - dateB.getTime();
@@ -970,6 +488,7 @@ export function TripDetails() {
                 </div>
               ))
             ) : <div className="text-center py-12 text-zinc-500 border border-dashed border-zinc-800 rounded-3xl"><p>No expenses recorded for this day.</p></div>}
+
             {canEdit && (
               <button onClick={() => { setEditingExpense(null); setIsFinanceFormOpen(true); }} className="w-full mt-6 py-4 border-2 border-dashed border-zinc-800 rounded-3xl flex items-center justify-center gap-2 text-zinc-500 hover:text-orange-500 hover:border-orange-500/50 hover:bg-orange-500/5 transition-all">
                 <Plus size={20} /><span className="font-medium">Add Expense</span>
