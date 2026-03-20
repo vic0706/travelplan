@@ -61,6 +61,8 @@ export interface Itinerary {
   next_transport_mode?: string;
   next_transport_time?: string;
   next_transport_auto_time?: string;
+  lat?: number;
+  lng?: number;
   
   // 💡 新增的智慧同步欄位
   google_place_id?: string;
