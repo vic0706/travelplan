@@ -1,14 +1,13 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useAppStore } from '../store';
 import { format, parseISO, addDays, differenceInDays, isSameDay, isPast, addMinutes } from 'date-fns';
 import { MapPin, Clock, Plus, Navigation, DollarSign, Plane, Bed, Map, Info, Wallet, ArrowLeft, Calendar, X, Settings, Edit3, ChevronDown, ChevronUp, ChevronsUpDown, ChevronsDownUp, Lock, Unlock, Trash2, Train, Ship, Bus, Car, Footprints, Bike } from 'lucide-react';
-import { Trip, Itinerary, Expense, User, Booking, BookingCategory } from '../types';
-import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip } from 'recharts';
+import { Trip, Itinerary, Expense, User, Booking } from '../types';
 import { clsx } from 'clsx';
 import { db } from '../db';
 import { useLiveQuery } from 'dexie-react-hooks';
-import { getApiUrl, apiFetch } from '../utils/api';
+import { apiFetch } from '../utils/api';
 import { FinanceForm } from '../components/FinanceForm';
 import { NextTransportForm } from '../components/NextTransportForm';
 import { ItineraryForm } from '../components/ItineraryForm';
@@ -43,7 +42,6 @@ const getEffectiveTimes = (item: any, baseDate: Date) => {
   return { start, end };
 };
 
-// 💡 輔助函數：如果地址是網址，優雅地顯示為 [ Map Link ]
 const renderLocation = (loc: string, terminal?: string) => {
   if (!loc) return null;
   if (loc.startsWith('http')) {
@@ -265,7 +263,7 @@ function TransportationCard({ item, booking, canEdit, isConflicted, onEdit, show
                                 <div className="text-[10px] text-zinc-500 uppercase tracking-wider mb-0.5">Dep</div>
                                 <div className="text-2xl font-bold text-white leading-none tracking-tight">{dep_time}</div>
                                 <div className="text-sm font-medium text-zinc-300 mt-1 truncate">
-                                    {dep_station?.startsWith('http') ? <a href={dep_station} target="_blank" rel="noopener noreferrer" className="text-orange-500 hover:underline text-xs" onClick={e=>e.stopPropagation()}>[ Map Link ]</a> : dep_station}
+                                    {renderLocation(dep_station)}
                                 </div>
                                 {dep_terminal && <div className="text-[10px] text-orange-500 mt-0.5">{labels.terminal} {dep_terminal}</div>}
                             </div>
@@ -277,7 +275,7 @@ function TransportationCard({ item, booking, canEdit, isConflicted, onEdit, show
                                 <div className="text-[10px] text-zinc-500 uppercase tracking-wider mb-0.5">Arr</div>
                                 <div className="text-2xl font-bold text-white leading-none tracking-tight">{arr_time}</div>
                                 <div className="text-sm font-medium text-zinc-300 mt-1 truncate">
-                                    {arr_station?.startsWith('http') ? <a href={arr_station} target="_blank" rel="noopener noreferrer" className="text-orange-500 hover:underline text-xs" onClick={e=>e.stopPropagation()}>[ Map Link ]</a> : arr_station}
+                                    {renderLocation(arr_station)}
                                 </div>
                                 {arr_terminal && <div className="text-[10px] text-orange-500 mt-0.5">{labels.terminal} {arr_terminal}</div>}
                             </div>
@@ -364,7 +362,6 @@ function SubItemRow({ sub, itineraryImageUrl, isLast, hasMore }: { sub: any; iti
 function ItineraryCard({ item, canEdit, isConflicted, onEdit, selectedDate, showNextTransport, onEditNextTransport, booking, expandSignal, collapseSignal }: { 
   item: Itinerary; canEdit: boolean; isConflicted?: boolean; onEdit: () => void; selectedDate: Date; showNextTransport?: boolean; onEditNextTransport?: () => void; booking?: Booking; expandSignal: number; collapseSignal: number;
 }) {
-  const timeString = item.end_time || item.start_time || '23:59';
   const dateStr = format(selectedDate, 'yyyy-MM-dd');
   const itemDateTime = parseISO(`${dateStr}T${item.start_time || '00:00'}`);
   const isToday = isSameDay(selectedDate, new Date());
@@ -432,7 +429,7 @@ function ItineraryCard({ item, canEdit, isConflicted, onEdit, selectedDate, show
                       {item.next_transport_mode === 'BICYCLING' && <Bike size={16} />}
                       {item.next_transport_mode === 'TRANSIT' && <Bus size={16} />}
                       {item.next_transport_mode === 'DRIVING' && <Car size={16} />}
-                      {(item.next_transport_time || item.next_transport_auto_time) && <span className="text-[9px] font-mono font-bold leading-none mt-0.5">{item.next_transport_time ? item.next_transport_time.replace(' min', 'm') : (item.next_transport_auto_time || 'Auto')}</span>}
+                      {(item.next_transport_time || item.next_transport_auto_time) && <span className="text-[9px] font-mono font-bold leading-none mt-0.5">{item.next_transport_time ? item.next_transport_time.replace(' min', 'm') : 'Auto'}</span>}
                     </>
                   ) : <Plus size={18} />}
                 </button>
@@ -444,7 +441,7 @@ function ItineraryCard({ item, canEdit, isConflicted, onEdit, selectedDate, show
 
       <div className={clsx("relative transition-all duration-300 ease-in-out overflow-hidden", isExpanded ? "h-[200px]" : "h-0")}>
         {itineraryImageUrl ? <img src={itineraryImageUrl} alt={item.title} className="absolute inset-0 w-full h-full object-cover" referrerPolicy="no-referrer" /> : <div className="absolute inset-0 bg-gradient-to-br from-orange-900/30 via-zinc-900 to-zinc-900 border-t border-orange-500/10" />}
-        <div className={clsx("absolute inset-0 transition-colors duration-300", itineraryImageUrl ? (showDetails ? "bg-black/80 backdrop-blur-sm" : "bg-gradient-to-b from-zinc-900/40 via-transparent to-black/60") : "bg-transparent")} />
+        <div className={clsx("absolute inset-0 transition-colors duration-300", itineraryImageUrl ? (showDetails ? "bg-black/80 backdrop-blur-sm" : "bg-gradient-to-b from-zinc-900/40 via-transparent to-black/60") : "bg-gradient-to-br from-orange-900/10 via-transparent to-black/30")} />
         <div className="absolute inset-0 p-5 flex flex-col z-10">
           <div className="flex items-start justify-between gap-4 shrink-0">
             <div className="flex flex-wrap gap-2 flex-1">
@@ -524,77 +521,75 @@ export function TripDetails() {
     try { const parsed = parseISO(dateStr); return isNaN(parsed.getTime()) ? null : parsed; } catch (e) { return null; }
   };
 
-  useEffect(() => {
+  const refreshTripData = useCallback(async () => {
     if (!id || !navigator.onLine || !_hasHydrated) return;
+    setIsLoading(true);
+    try {
+      const tripRes = await apiFetch(`/api/trips/${id}`);
+      if (!tripRes.ok) throw new Error('Trip fetch failed');
+      const tripData = await tripRes.json() as Trip;
+      
+      const tripEndDate = safeParse(tripData.end_date);
+      const isPastTrip = tripEndDate && isPast(tripEndDate) && !isSameDay(tripEndDate, new Date());
+      const shouldDeepCache = user?.role !== 'Guest' && !isPastTrip;
 
-    const fetchTripDetails = async () => {
-      setIsLoading(true);
-      try {
-        const tripRes = await apiFetch(`/api/trips/${id}`);
-        if (!tripRes.ok) throw new Error('Trip fetch failed');
-        const tripData = await tripRes.json() as Trip;
-        
-        const tripEndDate = safeParse(tripData.end_date);
-        const isPastTrip = tripEndDate && isPast(tripEndDate) && !isSameDay(tripEndDate, new Date());
-        const shouldDeepCache = user?.role !== 'Guest' && !isPastTrip;
+      await db.trips.put({ ...tripData, last_accessed: Date.now(), is_fully_synced: shouldDeepCache });
 
-        await db.trips.put({ ...tripData, last_accessed: Date.now(), is_fully_synced: shouldDeepCache });
+      const [itinerariesRes, expensesRes, membersRes, bookingsRes] = await Promise.all([
+        apiFetch(`/api/trips/${id}/itineraries`),
+        apiFetch(`/api/trips/${id}/expenses`),
+        apiFetch(`/api/trips/${id}/members`),
+        apiFetch(`/api/trips/${id}/bookings`)
+      ]);
 
-        const [itinerariesRes, expensesRes, membersRes, bookingsRes] = await Promise.all([
-          apiFetch(`/api/trips/${id}/itineraries`),
-          apiFetch(`/api/trips/${id}/expenses`),
-          apiFetch(`/api/trips/${id}/members`),
-          apiFetch(`/api/trips/${id}/bookings`)
-        ]);
+      if (itinerariesRes.ok) {
+        const data = await itinerariesRes.json() as Itinerary[];
+        const existingIds = await db.itineraries.where('trip_id').equals(Number(id)).primaryKeys();
+        const incomingIds = data.map(i => i.id);
+        const idsToDelete = existingIds.filter(eid => !incomingIds.includes(eid as number));
+        await db.transaction('rw', db.itineraries, async () => {
+          if (idsToDelete.length > 0) await db.itineraries.bulkDelete(idsToDelete as number[]);
+          await db.itineraries.bulkPut(data);
+        });
+      }
 
-        if (itinerariesRes.ok) {
-          const data = await itinerariesRes.json() as Itinerary[];
-          const existingIds = await db.itineraries.where('trip_id').equals(Number(id)).primaryKeys();
-          const incomingIds = data.map(i => i.id);
-          const idsToDelete = existingIds.filter(eid => !incomingIds.includes(eid as number));
-          await db.transaction('rw', db.itineraries, async () => {
-            if (idsToDelete.length > 0) await db.itineraries.bulkDelete(idsToDelete as number[]);
-            await db.itineraries.bulkPut(data);
-          });
-        }
+      if (expensesRes.ok) {
+        const data = await expensesRes.json() as Expense[];
+        const existingIds = await db.expenses.where('trip_id').equals(Number(id)).primaryKeys();
+        const incomingIds = data.map(e => e.id);
+        const idsToDelete = existingIds.filter(eid => !incomingIds.includes(eid as number));
+        await db.transaction('rw', db.expenses, async () => {
+          if (idsToDelete.length > 0) await db.expenses.bulkDelete(idsToDelete as number[]);
+          await db.expenses.bulkPut(data);
+        });
+      }
 
-        if (expensesRes.ok) {
-          const data = await expensesRes.json() as Expense[];
-          const existingIds = await db.expenses.where('trip_id').equals(Number(id)).primaryKeys();
-          const incomingIds = data.map(e => e.id);
-          const idsToDelete = existingIds.filter(eid => !incomingIds.includes(eid as number));
-          await db.transaction('rw', db.expenses, async () => {
-            if (idsToDelete.length > 0) await db.expenses.bulkDelete(idsToDelete as number[]);
-            await db.expenses.bulkPut(data);
-          });
-        }
+      if (membersRes.ok) {
+        const data = await membersRes.json() as User[];
+        await db.users.bulkPut(data.map((m) => ({ id: m.id, name: m.name, role: m.role, avatar_url: m.avatar_url || '', allow_login: 1 })));
+        const existingMembers = await db.tripMembers.where('trip_id').equals(Number(id)).toArray();
+        const incomingMemberIds = data.map(m => m.id);
+        const membersToDelete = existingMembers.filter(m => !incomingMemberIds.includes(m.user_id));
+        await db.transaction('rw', db.tripMembers, async () => {
+          for (const m of membersToDelete) await db.tripMembers.where({ trip_id: Number(id), user_id: m.user_id }).delete();
+          await db.tripMembers.bulkPut(data.map((m) => ({ trip_id: Number(id) || 0, user_id: m.id, role: 'Member' })));
+        });
+      }
 
-        if (membersRes.ok) {
-          const data = await membersRes.json() as User[];
-          await db.users.bulkPut(data.map((m) => ({ id: m.id, name: m.name, role: m.role, avatar_url: m.avatar_url || '', allow_login: 1 })));
-          const existingMembers = await db.tripMembers.where('trip_id').equals(Number(id)).toArray();
-          const incomingMemberIds = data.map(m => m.id);
-          const membersToDelete = existingMembers.filter(m => !incomingMemberIds.includes(m.user_id));
-          await db.transaction('rw', db.tripMembers, async () => {
-            for (const m of membersToDelete) await db.tripMembers.where({ trip_id: Number(id), user_id: m.user_id }).delete();
-            await db.tripMembers.bulkPut(data.map((m) => ({ trip_id: Number(id) || 0, user_id: m.id, role: 'Member' })));
-          });
-        }
+      if (bookingsRes.ok) {
+        const data = await bookingsRes.json();
+        const existingIds = await db.bookings.where('trip_id').equals(Number(id)).primaryKeys();
+        const incomingIds = data.map((b: any) => b.id);
+        const idsToDelete = existingIds.filter(eid => !incomingIds.includes(eid as number));
+        await db.transaction('rw', db.bookings, async () => {
+          if (idsToDelete.length > 0) await db.bookings.bulkDelete(idsToDelete as number[]);
+          await db.bookings.bulkPut(data);
+        });
+      }
+    } catch (err) { console.error('Failed to sync trip details:', err); } finally { setIsLoading(false); }
+  }, [id, user, _hasHydrated]);
 
-        if (bookingsRes.ok) {
-          const data = await bookingsRes.json();
-          const existingIds = await db.bookings.where('trip_id').equals(Number(id)).primaryKeys();
-          const incomingIds = data.map((b: any) => b.id);
-          const idsToDelete = existingIds.filter(eid => !incomingIds.includes(eid as number));
-          await db.transaction('rw', db.bookings, async () => {
-            if (idsToDelete.length > 0) await db.bookings.bulkDelete(idsToDelete as number[]);
-            await db.bookings.bulkPut(data);
-          });
-        }
-      } catch (err) { console.error('Failed to sync trip details:', err); } finally { setIsLoading(false); }
-    };
-    fetchTripDetails();
-  }, [id, user?.role, _hasHydrated, token]);
+  useEffect(() => { refreshTripData(); }, [refreshTripData]);
 
   useEffect(() => {
     if (trip?.start_date) {
@@ -837,7 +832,6 @@ export function TripDetails() {
             <div className="space-y-4">
               {filteredItineraries.length > 0 ? (
                 filteredItineraries.map((item, index) => {
-                  
                   if (item.type === 'TRANSPORTATION' && item.related_id) {
                     const booking = bookings.find(b => b.id === item.related_id);
                     if (booking) {
@@ -856,7 +850,6 @@ export function TripDetails() {
                       );
                     }
                   }
-
                   const booking = (item.type === 'ACCOMMODATION' || item.type === 'RENTAL') && item.related_id ? bookings.find(b => b.id === item.related_id) : undefined;
                   return (
                     <div key={`itinerary-${item.id}`} className="space-y-2">
@@ -879,7 +872,6 @@ export function TripDetails() {
               ) : (
                 <div className="text-center py-12 text-zinc-500 border border-dashed border-zinc-800 rounded-3xl"><p>No activities for this day.</p></div>
               )}
-
               {canEdit && (
                 <button onClick={() => setIsItineraryFormOpen(true)} className="w-full mt-6 py-4 border-2 border-dashed border-zinc-800 rounded-3xl flex items-center justify-center gap-2 text-zinc-500 hover:text-orange-500 hover:border-orange-500/50 hover:bg-orange-500/5 transition-all">
                   <Plus size={20} /><span className="font-medium">Add Activity</span>
@@ -895,7 +887,6 @@ export function TripDetails() {
               <h3 className="text-lg font-semibold text-white mb-6">Expenses Overview</h3>
               <FinanceOverview expenses={expenses} members={tripUsers || []} currency={trip.currencies?.[0] || 'TWD'} />
             </div>
-
             <div className="space-y-4">
               <div className="flex items-center justify-between px-2">
                  <h4 className="text-zinc-500 text-xs font-bold uppercase tracking-widest">Bookings</h4>
@@ -905,7 +896,6 @@ export function TripDetails() {
                    </button>
                  )}
               </div>
-
               {bookings.length > 0 ? (
                 <>
                   {availableBookingCategories.length > 2 && (
@@ -926,7 +916,6 @@ export function TripDetails() {
                       ))}
                     </div>
                   )}
-
                   <div className="grid grid-cols-1 gap-4">
                     {bookings
                       .filter(b => bookingFilter === 'ALL' || b.category === bookingFilter)
@@ -936,7 +925,6 @@ export function TripDetails() {
                         const dateB = parseISO(`${b.start_date}T${b.start_time}`);
                         const aPast = isPast(dateA) && !isSameDay(dateA, now);
                         const bPast = isPast(dateB) && !isSameDay(dateB, now);
-
                         if (aPast && !bPast) return 1;
                         if (!aPast && bPast) return -1;
                         return dateA.getTime() - dateB.getTime();
@@ -982,7 +970,6 @@ export function TripDetails() {
                 </div>
               ))
             ) : <div className="text-center py-12 text-zinc-500 border border-dashed border-zinc-800 rounded-3xl"><p>No expenses recorded for this day.</p></div>}
-
             {canEdit && (
               <button onClick={() => { setEditingExpense(null); setIsFinanceFormOpen(true); }} className="w-full mt-6 py-4 border-2 border-dashed border-zinc-800 rounded-3xl flex items-center justify-center gap-2 text-zinc-500 hover:text-orange-500 hover:border-orange-500/50 hover:bg-orange-500/5 transition-all">
                 <Plus size={20} /><span className="font-medium">Add Expense</span>
@@ -995,7 +982,7 @@ export function TripDetails() {
           <div className="space-y-6">
             <div className="bg-zinc-900 border border-zinc-800 rounded-3xl p-6 shadow-lg">
               <h3 className="text-lg font-semibold text-white mb-6">Trip Settings</h3>
-              <TripSettingsForm trip={trip} onSuccess={() => { apiFetch(`/api/trips/${id}`).then(res => res.json() as Promise<Trip>).then(data => db.trips.put(data)); }} />
+              <TripSettingsForm trip={trip} onSuccess={() => { refreshTripData(); }} />
             </div>
           </div>
         )}
@@ -1024,8 +1011,8 @@ export function TripDetails() {
             <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={() => setIsFinanceFormOpen(false)} className="absolute inset-0 bg-black/80 backdrop-blur-sm" />
             <motion.div initial={{ scale: 0.95, opacity: 0, y: 20 }} animate={{ scale: 1, opacity: 1, y: 0 }} exit={{ scale: 0.95, opacity: 0, y: 20 }} className="relative w-full max-w-md z-10">
               <FinanceForm 
-                tripId={id} defaultDate={format(selectedDate, 'yyyy-MM-dd')} currencies={trip.currencies || ['TWD']} initialData={editingExpense}
-                onSuccess={() => { setIsFinanceFormOpen(false); apiFetch(`/api/trips/${id}/expenses`).then(res => res.json() as Promise<Expense[]>).then(data => db.expenses.bulkPut(data)); }} 
+                tripId={id} defaultDate={format(selectedDate || new Date(), 'yyyy-MM-dd')} currencies={trip.currencies || ['TWD']} initialData={editingExpense}
+                onSuccess={() => { setIsFinanceFormOpen(false); refreshTripData(); }} 
                 onCancel={() => setIsFinanceFormOpen(false)} 
               />
             </motion.div>
@@ -1039,13 +1026,11 @@ export function TripDetails() {
             <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={() => setIsItineraryFormOpen(false)} className="absolute inset-0 bg-black/80 backdrop-blur-sm" />
             <motion.div initial={{ scale: 0.95, opacity: 0, y: 20 }} animate={{ scale: 1, opacity: 1, y: 0 }} exit={{ scale: 0.95, opacity: 0, y: 20 }} className="relative w-full max-w-md z-10">
               <ItineraryForm 
-                tripId={Number(id)} defaultCityId={trip.default_city_id} date={format(selectedDate, 'yyyy-MM-dd')} initialData={editingItinerary} onDelete={handleDeleteItinerary}
+                tripId={Number(id)} defaultCityId={trip.default_city_id} date={format(selectedDate || new Date(), 'yyyy-MM-dd')} initialData={editingItinerary} onDelete={handleDeleteItinerary}
                 onSuccess={async () => { 
                   setIsItineraryFormOpen(false); 
                   setEditingItinerary(null); 
-                  const [bRes, iRes] = await Promise.all([apiFetch(`/api/trips/${id}/bookings`), apiFetch(`/api/trips/${id}/itineraries`)]);
-                  if (bRes.ok) await db.bookings.bulkPut(await bRes.json() as any[]);
-                  if (iRes.ok) await db.itineraries.bulkPut(await iRes.json() as any[]);
+                  await refreshTripData(); 
                 }} 
                 onCancel={() => { setIsItineraryFormOpen(false); setEditingItinerary(null); }} 
               />
@@ -1064,31 +1049,7 @@ export function TripDetails() {
                 onSuccess={async () => {
                   setIsBookingFormOpen(false);
                   setEditingBooking(null);
-                  try {
-                    const [bookingsRes, itinerariesRes] = await Promise.all([
-                      apiFetch(`/api/trips/${id}/bookings`), apiFetch(`/api/trips/${id}/itineraries`)
-                    ]);
-                    if (bookingsRes.ok) {
-                      const data = await bookingsRes.json() as any[];
-                      const existingIds = await db.bookings.where('trip_id').equals(Number(id)).primaryKeys();
-                      const incomingIds = data.map((b: any) => b.id);
-                      const idsToDelete = existingIds.filter(eid => !incomingIds.includes(eid as number));
-                      await db.transaction('rw', db.bookings, async () => {
-                        if (idsToDelete.length > 0) await db.bookings.bulkDelete(idsToDelete as number[]);
-                        await db.bookings.bulkPut(data);
-                      });
-                    }
-                    if (itinerariesRes.ok) {
-                      const data = await itinerariesRes.json() as any[];
-                      const existingIds = await db.itineraries.where('trip_id').equals(Number(id)).primaryKeys();
-                      const incomingIds = data.map((i: any) => i.id);
-                      const idsToDelete = existingIds.filter(eid => !incomingIds.includes(eid as number));
-                      await db.transaction('rw', db.itineraries, async () => {
-                        if (idsToDelete.length > 0) await db.itineraries.bulkDelete(idsToDelete as number[]);
-                        await db.itineraries.bulkPut(data);
-                      });
-                    }
-                  } catch (e) { console.error('Failed to refresh data:', e); }
+                  await refreshTripData(); 
                 }}
                 onCancel={() => { setIsBookingFormOpen(false); setEditingBooking(null); }}
                 onDelete={handleDeleteBooking}
@@ -1100,7 +1061,7 @@ export function TripDetails() {
 
       <AnimatePresence>
         {isNextTransportFormOpen && editingItinerary && (
-          <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
+          <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="z-[300] relative">
             <NextTransportForm
               isOpen={isNextTransportFormOpen} 
               onClose={() => setIsNextTransportFormOpen(false)} 
@@ -1109,9 +1070,7 @@ export function TripDetails() {
               onSave={async (data) => {
                 await apiFetch(`/api/trips/${id}/itineraries/${editingItinerary.id}`, { method: 'PUT', body: JSON.stringify({ ...editingItinerary, ...data }) });
                 setIsNextTransportFormOpen(false);
-                const res = await apiFetch(`/api/trips/${id}/itineraries`);
-                const itinerariesData = await res.json() as Itinerary[];
-                await db.itineraries.bulkPut(itinerariesData);
+                await refreshTripData(); 
               }}
             />
           </motion.div>

@@ -3,6 +3,7 @@ import { X, Footprints, Bus, Car, Bike, Clock, Loader2, MapPin } from 'lucide-re
 import { clsx } from 'clsx';
 import { Itinerary } from '../types';
 import { apiFetch } from '../utils/api';
+import { motion, AnimatePresence } from 'framer-motion';
 
 interface NextTransportFormProps {
   isOpen: boolean;
@@ -12,7 +13,6 @@ interface NextTransportFormProps {
   onSave: (data: { next_transport_mode: string; next_transport_time: string; next_transport_auto_time: string }) => Promise<void>;
 }
 
-// 💡 1. 統一為 Google Maps 支援的四種模式
 const TRANSPORT_MODES = [
   { id: 'DRIVING', label: 'Drive', icon: Car },
   { id: 'TRANSIT', label: 'Transit', icon: Bus },
@@ -31,7 +31,6 @@ export function NextTransportForm({ isOpen, onClose, itinerary, nextItinerary, o
   const [destCoords, setDestCoords] = useState('');
   const [fetchingCoords, setFetchingCoords] = useState(false);
 
-  // 載入資料庫裡儲存的座標或網址 (可能是上次 Auto-Cache 留下來的精準座標)
   useEffect(() => {
     if (itinerary.next_transport_auto_time && itinerary.next_transport_auto_time.includes('|')) {
        const [o, d] = itinerary.next_transport_auto_time.split('|');
@@ -41,7 +40,7 @@ export function NextTransportForm({ isOpen, onClose, itinerary, nextItinerary, o
   }, [itinerary]);
 
   useEffect(() => {
-    if (duration === 0 && mode && (!originCoords || !destCoords)) {
+    if (isOpen && duration === 0 && mode && (!originCoords || !destCoords)) {
       const fetchGeocode = async () => {
         setFetchingCoords(true);
         try {
@@ -66,7 +65,7 @@ export function NextTransportForm({ isOpen, onClose, itinerary, nextItinerary, o
       };
       fetchGeocode();
     }
-  }, [duration, mode, originCoords, destCoords, itinerary, nextItinerary]);
+  }, [isOpen, duration, mode, originCoords, destCoords, itinerary, nextItinerary]);
 
   if (!isOpen) return null;
 
@@ -79,8 +78,6 @@ export function NextTransportForm({ isOpen, onClose, itinerary, nextItinerary, o
       await onSave({
         next_transport_mode: mode,
         next_transport_time: duration === 0 ? '' : `${duration} min`,
-        // 💡 2. 放寬限制，無論手動設定幾分鐘，永遠保留這些座標！
-        // 這樣下次只要使用者拉回 0 (Auto)，就能立刻無縫重算
         next_transport_auto_time: (safeOrigin || safeDest) ? `${safeOrigin}|${safeDest}` : ''
       });
     } finally {
@@ -102,11 +99,18 @@ export function NextTransportForm({ isOpen, onClose, itinerary, nextItinerary, o
   };
 
   return (
-    <div className="absolute inset-0 z-[100] flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm">
-      <div className="bg-zinc-900 border border-zinc-800 rounded-3xl w-full max-w-md shadow-2xl overflow-hidden flex flex-col max-h-[90vh]">
+    // 💡 修正關鍵：改為 fixed inset-0 並提高 z-index
+    <div className="fixed inset-0 z-[400] flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm">
+      <motion.div 
+        initial={{ scale: 0.9, opacity: 0 }}
+        animate={{ scale: 1, opacity: 1 }}
+        className="bg-zinc-900 border border-zinc-800 rounded-3xl w-full max-w-md shadow-2xl overflow-hidden flex flex-col max-h-[90vh]"
+      >
         <div className="p-6 border-b border-zinc-800 flex justify-between items-center bg-zinc-900/50 shrink-0">
           <h3 className="text-lg font-bold text-white">Next Transport</h3>
-          <button onClick={onClose} className="text-zinc-400 hover:text-white p-1 rounded-full hover:bg-zinc-800 transition-colors"><X size={20} /></button>
+          <button onClick={onClose} className="text-zinc-400 hover:text-white p-1 rounded-full hover:bg-zinc-800 transition-colors">
+            <X size={20} />
+          </button>
         </div>
         
         <div className="p-6 space-y-6 overflow-y-auto custom-scrollbar">
@@ -144,7 +148,7 @@ export function NextTransportForm({ isOpen, onClose, itinerary, nextItinerary, o
                     <>
                       <input 
                         type="number" value={duration} onChange={e => setDuration(Math.max(0, parseInt(e.target.value) || 0))}
-                        className="w-16 bg-zinc-900 border border-zinc-700 rounded-lg px-2 py-1.5 text-right text-orange-500 font-bold focus:outline-none focus:border-orange-500 transition-colors"
+                        className="w-16 bg-zinc-900 border border-zinc-700 rounded-lg px-2 py-1.5 text-right text-orange-500 font-bold focus:outline-none"
                       />
                       <span className="text-zinc-500 text-[10px] font-bold">MIN</span>
                     </>
@@ -154,7 +158,7 @@ export function NextTransportForm({ isOpen, onClose, itinerary, nextItinerary, o
               <div className="pt-2">
                 <input 
                   type="range" min="0" max="240" step="5" value={Math.min(duration, 240)} onChange={e => setDuration(parseInt(e.target.value))}
-                  className="w-full h-1.5 bg-zinc-800 rounded-lg appearance-none cursor-pointer accent-orange-500 hover:accent-orange-400 transition-all"
+                  className="w-full h-1.5 bg-zinc-800 rounded-lg appearance-none cursor-pointer accent-orange-500"
                 />
                 <div className="flex justify-between text-[10px] text-zinc-600 font-mono mt-2 px-1">
                   <span>Auto</span><span>1h</span><span>2h</span><span>3h</span><span>4h+</span>
@@ -163,16 +167,11 @@ export function NextTransportForm({ isOpen, onClose, itinerary, nextItinerary, o
             </div>
           )}
 
-          {/* 💡 讓座標/網址欄位永遠可見，讓使用者知道這次 Sync 用了什麼資料 */}
           {mode && (
              <div className="space-y-4 bg-orange-500/5 p-5 rounded-2xl border border-orange-500/20">
                 <div className="flex items-center justify-between">
                    <h4 className="text-xs font-bold text-orange-500 uppercase tracking-wider flex items-center gap-1.5">
                      <MapPin size={14} /> Waypoints
-                     {duration === 0 
-                        ? <span className="text-[9px] text-orange-400/70 ml-1">(Used for Auto Sync)</span> 
-                        : <span className="text-[9px] text-orange-400/70 ml-1">(Saved in cache)</span>
-                     }
                    </h4>
                    {fetchingCoords && <Loader2 size={14} className="animate-spin text-orange-500" />}
                 </div>
@@ -183,7 +182,7 @@ export function NextTransportForm({ isOpen, onClose, itinerary, nextItinerary, o
                     <input 
                       type="text" value={originCoords} onChange={e => setOriginCoords(e.target.value)}
                       placeholder="e.g., 25.0330, 121.5654 or TPE"
-                      className="w-full bg-zinc-900 border border-zinc-700 rounded-xl px-4 py-2.5 text-white focus:outline-none focus:border-orange-500 transition-colors font-mono text-sm"
+                      className="w-full bg-zinc-900 border border-zinc-700 rounded-xl px-4 py-2.5 text-white focus:outline-none focus:border-orange-500 font-mono text-sm"
                     />
                   </div>
                   <div>
@@ -191,24 +190,21 @@ export function NextTransportForm({ isOpen, onClose, itinerary, nextItinerary, o
                     <input 
                       type="text" value={destCoords} onChange={e => setDestCoords(e.target.value)}
                       placeholder="e.g., 25.0430, 121.5554 or Tokyo Tower"
-                      className="w-full bg-zinc-900 border border-zinc-700 rounded-xl px-4 py-2.5 text-white focus:outline-none focus:border-orange-500 transition-colors font-mono text-sm"
+                      className="w-full bg-zinc-900 border border-zinc-700 rounded-xl px-4 py-2.5 text-white focus:outline-none focus:border-orange-500 font-mono text-sm"
                     />
                   </div>
-                  <p className="text-[10px] text-zinc-500 leading-relaxed italic">
-                    You can paste Google Maps URLs here. Auto Sync will resolve them to precise coordinates and cache them.
-                  </p>
                 </div>
              </div>
           )}
         </div>
 
         <div className="p-6 border-t border-zinc-800 bg-zinc-900/50 flex gap-3 shrink-0">
-          <button onClick={handleClear} disabled={loading || !itinerary.next_transport_mode} className="flex-1 py-4 bg-zinc-800 hover:bg-red-500/20 text-zinc-400 hover:text-red-500 font-bold rounded-xl transition-colors disabled:opacity-50">Clear</button>
-          <button onClick={handleSave} disabled={loading || !mode} className="flex-[2] py-4 bg-orange-500 hover:bg-orange-600 text-white font-bold rounded-xl shadow-lg shadow-orange-500/20 transition-colors disabled:opacity-50 flex justify-center items-center gap-2">
+          <button onClick={handleClear} disabled={loading || !itinerary.next_transport_mode} className="flex-1 py-4 bg-zinc-800 hover:bg-red-500/20 text-zinc-400 hover:text-red-500 font-bold rounded-xl transition-colors">Clear</button>
+          <button onClick={handleSave} disabled={loading || !mode} className="flex-[2] py-4 bg-orange-500 hover:bg-orange-600 text-white font-bold rounded-xl shadow-lg transition-colors flex justify-center items-center gap-2">
             {loading ? <Loader2 className="animate-spin" size={20} /> : 'Save Transport'}
           </button>
         </div>
-      </div>
+      </motion.div>
     </div>
   );
 }

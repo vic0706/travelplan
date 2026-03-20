@@ -1,6 +1,6 @@
 import React, { useState, useMemo, useEffect } from 'react';
 import { useAppStore } from '../store';
-import { X, MapPin, Loader2, Image as ImageIcon, Plus, Trash2, Clock, Check, AlertCircle, ChevronRight, ChevronDown } from 'lucide-react';
+import { X, MapPin, Loader2, Image as ImageIcon, Plus, Trash2, Clock, Check, AlertCircle, ChevronRight, ChevronDown, Layers, Trash } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { apiFetch } from '../utils/api';
 import { TimeRangePicker } from './TimeRangePicker';
@@ -19,6 +19,7 @@ interface ItineraryFormProps {
   onSuccess: () => void;
   onCancel: () => void;
   onDelete?: (id: number) => void;
+  onDeleteBooking?: (bookingId: number) => void; // 💡 新增處理整個預訂刪除的 Prop
   initialData?: any;
 }
 
@@ -86,7 +87,7 @@ const getEffectiveTimes = (item: any, baseDate: Date) => {
   return { start, end };
 };
 
-export function ItineraryForm({ tripId, defaultCityId, date, onSuccess, onCancel, onDelete, initialData }: ItineraryFormProps) {
+export function ItineraryForm({ tripId, defaultCityId, date, onSuccess, onCancel, onDelete, onDeleteBooking, initialData }: ItineraryFormProps) {
   const { cities } = useAppStore();
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
@@ -99,9 +100,10 @@ export function ItineraryForm({ tripId, defaultCityId, date, onSuccess, onCancel
   
   const [categories, setCategories] = useState<any[]>([]);
 
-  // 💡 自製彈窗 State
+  // 💡 自製彈窗與刪除選擇狀態
   const [alertMessage, setAlertMessage] = useState('');
   const [confirmMessage, setConfirmMessage] = useState<{title: string, msg: string, onConfirm: () => void} | null>(null);
+  const [showDeleteModal, setShowDeleteModal] = useState(false);
 
   useEffect(() => {
     const fetchCategories = async () => {
@@ -247,7 +249,6 @@ export function ItineraryForm({ tripId, defaultCityId, date, onSuccess, onCancel
     }
   };
 
-  // 💡 將實際執行的儲存邏輯抽離出來，讓 Confirm 彈窗按確定後可以呼叫
   const executeSave = async () => {
     setLoading(true);
     try {
@@ -318,7 +319,6 @@ export function ItineraryForm({ tripId, defaultCityId, date, onSuccess, onCancel
   const handleSubmit = async (e: React.MouseEvent | React.FormEvent) => {
     e.preventDefault();
     
-    // 基本防呆檢查
     if (!formData.title.trim()) {
        setAlertMessage('請輸入活動標題！(Title is required)');
        return;
@@ -331,23 +331,37 @@ export function ItineraryForm({ tripId, defaultCityId, date, onSuccess, onCancel
       return;
     }
 
-    // 檢查是否有行程衝突
     const overlappingBooking = checkOverlapWithBooking(formData.start_time, formData.end_time);
     if (overlappingBooking) {
-      // 🚨 觸發自製 Confirm 彈窗，代替原本的 window.confirm
       setConfirmMessage({
          title: '時間衝突警告',
          msg: `此時間段與已建立的預訂行程「${overlappingBooking}」衝突（包含緩衝/交通時間）。\n\nBooking 享有最高優先權。您確定要繼續建立嗎？`,
          onConfirm: () => {
             setConfirmMessage(null);
-            executeSave(); // 使用者按下確定後才執行儲存
+            executeSave();
          }
       });
-      return; // 暫停執行，等待彈窗結果
+      return;
     }
 
-    // 若無衝突，直接儲存
     await executeSave();
+  };
+
+  // 💡 點擊刪除按鈕後的智慧邏輯
+  const handleDeleteClick = () => {
+    if (initialData?.related_id) {
+      setShowDeleteModal(true); // 如果是有關聯預訂的活動，顯示特殊彈窗
+    } else {
+      // 一般活動，顯示普通確認
+      setConfirmMessage({
+        title: '刪除活動',
+        msg: '您確定要刪除此活動嗎？此操作無法復原。',
+        onConfirm: () => {
+          setConfirmMessage(null);
+          if (onDelete && initialData) onDelete(initialData.id);
+        }
+      });
+    }
   };
 
   const isLockedTitle = (initialData?.type === 'ACCOMMODATION' && initialData?.title.match(/^(Check-in|Check-out|Back to|Leave)/)) ||
@@ -512,20 +526,72 @@ export function ItineraryForm({ tripId, defaultCityId, date, onSuccess, onCancel
 
       <div className="absolute bottom-0 left-0 right-0 p-6 bg-zinc-900 border-t border-zinc-800 z-20 flex flex-col gap-3">
          <div className="flex gap-3">
+             {/* 💡 整合刪除按鈕 */}
+             {initialData && (
+                <button 
+                  type="button" 
+                  onClick={handleDeleteClick}
+                  className="p-4 bg-zinc-800 hover:bg-red-500/20 text-zinc-400 hover:text-red-500 rounded-xl transition-all active:scale-95"
+                  title="Delete"
+                >
+                  <Trash2 size={20} />
+                </button>
+             )}
              <button type="button" onClick={onCancel} className="flex-1 py-4 rounded-xl font-semibold text-zinc-400 hover:bg-zinc-800 transition-colors">Cancel</button>
              <button 
                type="button" 
                disabled={loading} 
                onClick={handleSubmit} 
-               className="flex-1 py-4 bg-orange-500 hover:bg-orange-600 text-white rounded-xl font-bold shadow-lg shadow-orange-500/20 transition-all disabled:opacity-50 flex items-center justify-center gap-2"
+               className="flex-[2] py-4 bg-orange-500 hover:bg-orange-600 text-white rounded-xl font-bold shadow-lg shadow-orange-500/20 transition-all disabled:opacity-50 flex items-center justify-center gap-2"
              >
                {loading ? <span className="flex items-center justify-center gap-2"><Loader2 size={18} className="animate-spin" /> {initialData ? 'Updating...' : 'Adding...'}</span> : (initialData ? 'Update Activity' : 'Add Activity')}
              </button>
          </div>
       </div>
 
-      {/* --- Inner Modals --- */}
-      
+      {/* --- 💡 自製智慧刪除選項彈窗 (Hotel/Rental 專用) --- */}
+      <AnimatePresence>
+        {showDeleteModal && (
+          <div className="absolute inset-0 z-[300] flex items-center justify-center p-6 bg-black/60 backdrop-blur-sm">
+            <motion.div 
+              initial={{ scale: 0.9, opacity: 0, y: 10 }} 
+              animate={{ scale: 1, opacity: 1, y: 0 }} 
+              exit={{ scale: 0.9, opacity: 0, y: 10 }} 
+              className="bg-zinc-900 border border-orange-500/30 rounded-3xl p-6 w-full max-w-[320px] shadow-2xl flex flex-col items-center text-center"
+            >
+              <div className="w-14 h-14 rounded-full bg-orange-500/10 flex items-center justify-center text-orange-500 mb-4 shadow-[0_0_15px_rgba(249,115,22,0.2)]">
+                <Trash2 size={28} />
+              </div>
+              <h3 className="font-bold text-white text-lg mb-2">Delete Activity</h3>
+              <p className="text-zinc-400 text-sm mb-6 leading-relaxed">
+                此行程項目由預訂（Booking）自動生成。您想如何處理？
+              </p>
+              
+              <div className="w-full space-y-3">
+                <button 
+                  onClick={() => { setShowDeleteModal(false); if (onDelete && initialData) onDelete(initialData.id); }} 
+                  className="w-full py-3.5 bg-zinc-800 hover:bg-zinc-700 text-white rounded-xl font-bold transition-all flex items-center justify-center gap-2"
+                >
+                  <Layers size={16} /> 僅刪除此項活動
+                </button>
+                <button 
+                  onClick={() => { setShowDeleteModal(false); if (onDeleteBooking) onDeleteBooking(initialData.related_id); }} 
+                  className="w-full py-3.5 bg-red-500 hover:bg-red-600 text-white rounded-xl font-bold transition-all flex items-center justify-center gap-2 shadow-lg shadow-red-500/20"
+                >
+                  <Trash size={16} /> 刪除整個預訂紀錄
+                </button>
+                <button 
+                  onClick={() => setShowDeleteModal(false)} 
+                  className="w-full py-3 text-zinc-500 hover:text-white font-medium transition-colors"
+                >
+                  取消
+                </button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
       <AnimatePresence>
         {isTimePickerOpen && (
           <div className="absolute inset-0 z-[60] flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm">
@@ -540,7 +606,6 @@ export function ItineraryForm({ tripId, defaultCityId, date, onSuccess, onCancel
                 <button onClick={() => setIsTimePickerOpen(false)} className="text-zinc-400 hover:text-white"><X size={20} /></button>
               </div>
               <div className="p-6 space-y-6 overflow-y-visible custom-scrollbar min-h-[350px] pb-12">
-                
                 <div className="space-y-4">
                   <div className="grid grid-cols-2 gap-4">
                     <div className="space-y-2">
@@ -571,7 +636,6 @@ export function ItineraryForm({ tripId, defaultCityId, date, onSuccess, onCancel
                       />
                     </div>
                   </div>
-
                   <div className="space-y-3 pt-6">
                     <label className="text-xs font-bold text-zinc-500 uppercase tracking-wider flex justify-between items-center">
                       <span className="flex items-center gap-1.5"><Clock size={12} className="text-orange-500" />Duration</span>
@@ -596,7 +660,6 @@ export function ItineraryForm({ tripId, defaultCityId, date, onSuccess, onCancel
                     </div>
                   </div>
                 </div>
-
               </div>
               <div className="p-5 border-t border-zinc-800 shrink-0">
                 <button onClick={() => setIsTimePickerOpen(false)} className="w-full bg-orange-500 hover:bg-orange-600 text-white font-bold py-3 rounded-xl transition-colors">Confirm</button>
@@ -752,7 +815,7 @@ function SubItemModal({ onClose, onSave, parentStartTime, parentEndTime, initial
               <input type="text" value={data.address} onChange={e => setData({ ...data, address: e.target.value })} className="w-full bg-zinc-800 border border-zinc-700 rounded-lg pl-9 pr-3 py-2 text-white text-sm focus:outline-none focus:ring-2 focus:ring-orange-500" placeholder="Location..." />
             </div>
           </div>
-          <div><label className="block text-[10px] font-bold text-zinc-500 uppercase tracking-wider mb-1">Tags</label><TagsInput value={data.tags} onChange={val => setData({ ...data, tags: val })} placeholder="Type and press Enter..." /></div>
+          <div><label className="block text-[10px] font-bold text-zinc-500 uppercase tracking-wider mb-1">Tags</label><TagsInput value={data.tags} onChange={val => setData({ ...data, tags: val })} placeholder="Type and press Enter to add tags..." /></div>
           <div><label className="block text-[10px] font-bold text-zinc-500 uppercase tracking-wider mb-1">Notes</label><textarea value={data.notes} onChange={e => setData({ ...data, notes: e.target.value })} className="w-full bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 text-white text-sm min-h-[60px] focus:outline-none focus:ring-2 focus:ring-orange-500" placeholder="Details..." /></div>
           <button type="submit" className="w-full bg-orange-500 hover:bg-orange-600 text-white font-bold rounded-lg px-4 py-2 text-sm transition-colors">{initialData ? 'Save Changes' : 'Add Sub-item'}</button>
         </form>
