@@ -26,11 +26,14 @@ export function ItineraryForm({ tripId, date, onSuccess, onCancel, initialData }
   const [isSubItemModalOpen, setIsSubItemModalOpen] = useState(false);
   const [editingSubItem, setEditingSubItem] = useState<any>(null);
 
+  // 💡 確認分類 API 被正確呼叫
   useEffect(() => {
     if (storeCategories.length === 0) {
       const fetchCats = async () => {
-        const res = await apiFetch('/api/settings/categories');
-        if (res.ok) setCategories(await res.json());
+        try {
+          const res = await apiFetch('/api/settings/categories');
+          if (res.ok) setCategories(await res.json());
+        } catch(e) { console.error(e); }
       };
       fetchCats();
     }
@@ -54,6 +57,36 @@ export function ItineraryForm({ tripId, date, onSuccess, onCancel, initialData }
 
   const selectedCategory = storeCategories.find(c => c.icon === formData.icon) || { color: '#808080', icon: 'MapPin' };
 
+  // 💡 核心修復：即時同步機制
+  const [isLocationManuallyEdited, setIsLocationManuallyEdited] = useState(!!initialData?.address);
+
+  const handleTitleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const newTitle = e.target.value;
+    setFormData(prev => ({
+      ...prev,
+      title: newTitle,
+      // 如果使用者還沒手動改過地址，地址就無縫跟著標題走
+      address: isLocationManuallyEdited ? prev.address : newTitle
+    }));
+  };
+
+  // 背景優化機制：停止打字後，去 Google 找精準座標
+  useEffect(() => {
+    if (isLocationManuallyEdited || !formData.title.trim() || initialData) return;
+    const delayDebounceFn = setTimeout(async () => {
+      try {
+        const res = await apiFetch(`/api/places/search?query=${encodeURIComponent(formData.title)}`);
+        if (res.ok) {
+          const place = await res.json();
+          if (place.address && !isLocationManuallyEdited) {
+            setFormData(prev => ({ ...prev, address: place.address, google_place_id: place.google_place_id }));
+          }
+        }
+      } catch (err) {}
+    }, 1500);
+    return () => clearTimeout(delayDebounceFn);
+  }, [formData.title, isLocationManuallyEdited, initialData]);
+
   const handleTagKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === 'Enter') {
       e.preventDefault();
@@ -76,22 +109,24 @@ export function ItineraryForm({ tripId, date, onSuccess, onCancel, initialData }
         body: JSON.stringify(payload)
       });
       if (res.ok) onSuccess();
-    } catch (err) { setError('Save failed'); }
+      else throw new Error('Save failed API Response');
+    } catch (err) { setError('Failed to save activity'); }
     finally { setLoading(false); }
   };
 
   return (
     <div className="bg-[#1c1c1e] border border-zinc-800 rounded-[32px] overflow-hidden flex flex-col w-full max-w-md mx-auto shadow-2xl relative max-h-[90vh]">
       
-      {/* Header - 縮小 Padding */}
+      {/* Header */}
       <div className="px-6 py-4 border-b border-zinc-800 flex items-center justify-between bg-[#1c1c1e]/90 backdrop-blur-md z-10">
         <h2 className="text-lg font-bold text-white">{initialData ? 'Edit' : 'Add'} Activity</h2>
         <button onClick={onCancel} className="p-1.5 bg-zinc-800/50 rounded-full text-zinc-400"><X size={18} /></button>
       </div>
 
       <div className="overflow-y-auto px-5 py-6 space-y-5 pb-32 custom-scrollbar">
+        {error && <div className="text-red-400 text-xs font-bold bg-red-500/10 p-2 rounded-lg">{error}</div>}
         
-        {/* ICON & TITLE - 縮小元件尺寸 */}
+        {/* ICON & TITLE */}
         <div className="flex gap-3 items-end">
           <div className="shrink-0">
             <label className="block text-[10px] font-bold text-zinc-500 uppercase tracking-widest mb-1.5">Icon</label>
@@ -101,11 +136,16 @@ export function ItineraryForm({ tripId, date, onSuccess, onCancel, initialData }
           </div>
           <div className="flex-1">
             <label className="block text-[10px] font-bold text-zinc-500 uppercase tracking-widest mb-1.5">Activity Title</label>
-            <input type="text" required value={formData.title} onChange={e => setFormData({ ...formData, title: e.target.value })} className="w-full bg-[#242426] border border-zinc-800 rounded-xl px-4 py-2.5 text-white font-bold text-base focus:border-orange-500 outline-none" placeholder="Activity name..." />
+            <input 
+              type="text" required value={formData.title} 
+              onChange={handleTitleChange} // 💡 改用這支即時同步函式
+              className="w-full bg-[#242426] border border-zinc-800 rounded-xl px-4 py-2.5 text-white font-bold text-base focus:border-orange-500 outline-none" 
+              placeholder="Activity name..." 
+            />
           </div>
         </div>
 
-        {/* TIME GRID - 重新排版解決擠壓問題 */}
+        {/* TIME GRID & AI LOCK */}
         <div className="space-y-1.5">
           <label className="block text-[10px] font-bold text-zinc-500 uppercase tracking-widest ml-1">Schedule & AI Lock</label>
           <div className="flex items-center gap-2">
@@ -113,23 +153,30 @@ export function ItineraryForm({ tripId, date, onSuccess, onCancel, initialData }
               <input type="time" value={formData.start_time} onChange={e => setFormData({ ...formData, start_time: e.target.value })} className="bg-transparent text-white font-mono font-bold text-sm text-center outline-none [color-scheme:dark]" />
               <input type="time" value={formData.end_time} onChange={e => setFormData({ ...formData, end_time: e.target.value })} className="bg-transparent text-white font-mono font-bold text-sm text-center border-l border-zinc-700 outline-none [color-scheme:dark]" />
             </div>
-            
             <button type="button" onClick={() => setFormData({ ...formData, is_time_fixed: formData.is_time_fixed ? 0 : 1 })} className={clsx("p-2.5 rounded-xl border transition-all shrink-0", formData.is_time_fixed ? "bg-orange-500 border-orange-400 text-white" : "bg-zinc-800 border-zinc-700 text-zinc-500")}>
               {formData.is_time_fixed ? <Lock size={16} /> : <Unlock size={16} />}
             </button>
           </div>
         </div>
 
-        {/* LOCATION - 縮減高度 */}
+        {/* LOCATION */}
         <div>
           <label className="block text-[10px] font-bold text-zinc-500 uppercase tracking-widest mb-1.5">Location</label>
           <div className="relative">
             <MapPin size={16} className="absolute left-3.5 top-3 text-zinc-500" />
-            <input type="text" value={formData.address} onChange={e => setFormData({ ...formData, address: e.target.value })} className="w-full bg-[#242426] border border-zinc-800 rounded-xl pl-10 pr-4 py-2.5 text-white text-xs focus:border-orange-500 outline-none" placeholder="Search address..." />
+            <input 
+              type="text" value={formData.address} 
+              onChange={e => {
+                setFormData({ ...formData, address: e.target.value });
+                setIsLocationManuallyEdited(true); // 💡 手動改過後，自動同步功能就會斷開
+              }} 
+              className="w-full bg-[#242426] border border-zinc-800 rounded-xl pl-10 pr-4 py-2.5 text-white text-xs focus:border-orange-500 outline-none" 
+              placeholder="Search address..." 
+            />
           </div>
         </div>
 
-        {/* TAGS - 精簡 Chip 尺寸 */}
+        {/* TAGS */}
         <div>
           <label className="block text-[10px] font-bold text-zinc-500 uppercase tracking-widest mb-1.5">Tags</label>
           <div className="bg-[#242426] border border-zinc-800 rounded-xl p-1.5 flex flex-wrap gap-1.5 items-center">
@@ -143,7 +190,7 @@ export function ItineraryForm({ tripId, date, onSuccess, onCancel, initialData }
           </div>
         </div>
 
-        {/* SUB-ACTIVITY - 縮小清單間距 */}
+        {/* SUB-ACTIVITY */}
         <div>
           <div className="flex items-center justify-between mb-2">
             <label className="block text-[10px] font-bold text-zinc-500 uppercase tracking-widest">Sub-Activities</label>
@@ -167,14 +214,14 @@ export function ItineraryForm({ tripId, date, onSuccess, onCancel, initialData }
           </div>
         </div>
 
-        {/* NOTES - 縮小字體 */}
+        {/* NOTES */}
         <div>
           <label className="block text-[10px] font-bold text-zinc-500 uppercase tracking-widest mb-1.5">Notes</label>
           <textarea value={formData.notes} onChange={e => setFormData({ ...formData, notes: e.target.value })} className="w-full bg-[#242426] border border-zinc-800 rounded-xl px-4 py-2.5 text-white text-xs focus:border-orange-500 outline-none min-h-[80px] resize-none" placeholder="Details..." />
         </div>
       </div>
 
-      {/* Footer - 縮小高度 */}
+      {/* Footer */}
       <div className="absolute bottom-0 left-0 right-0 p-4 bg-[#1c1c1e] border-t border-zinc-800 z-10 flex gap-3">
         <button type="button" onClick={onCancel} className="flex-1 py-3 rounded-xl font-bold text-zinc-500 hover:bg-zinc-800 text-sm">Cancel</button>
         <button type="submit" disabled={loading} onClick={handleSubmit} className="flex-[2] py-3 bg-orange-500 hover:bg-orange-600 text-white rounded-xl font-black text-sm uppercase tracking-widest shadow-lg shadow-orange-500/20 flex items-center justify-center gap-2">
@@ -182,7 +229,7 @@ export function ItineraryForm({ tripId, date, onSuccess, onCancel, initialData }
         </button>
       </div>
 
-      {/* Category Picker */}
+      {/* Category Picker Modal */}
       <AnimatePresence>
         {isIconPickerOpen && (
           <div className="absolute inset-0 z-50 flex items-end justify-center bg-black/60 backdrop-blur-sm p-4">
@@ -200,7 +247,7 @@ export function ItineraryForm({ tripId, date, onSuccess, onCancel, initialData }
         )}
       </AnimatePresence>
 
-      {/* Sub-Item Modal - 關鍵修復排版 */}
+      {/* Sub-Item Modal */}
       <AnimatePresence>
         {isSubItemModalOpen && (
           <div className="absolute inset-0 z-[60] flex items-center justify-center bg-black/80 backdrop-blur-md p-4">
