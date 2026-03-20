@@ -10,6 +10,7 @@ import userRoutes from './routes/users';
 import bookingRoutes from './routes/bookings';
 import expenseRoutes from './routes/expenses';
 import placeRoutes from './routes/places';
+import mediaRoutes from './routes/media';
 
 export interface Env {
   DB: D1Database;
