@@ -1,114 +1,114 @@
 import React, { useState } from 'react';
-import { useNavigate } from 'react-router-dom';
-import { db } from '../db';
-import { Trash2 } from 'lucide-react';
+import { TripBaseForm } from './TripBaseForm';
 import { apiFetch } from '../utils/api';
+import { Sparkles, Loader2, Trash2 } from 'lucide-react';
 import { Trip } from '../types';
-import { ConfirmDialog } from './ConfirmDialog';
-import { TripBaseForm, TripFormData } from './TripBaseForm';
 
 interface TripSettingsFormProps {
   trip: Trip;
-  onSuccess: () => void;
+  onUpdate: () => void;
+  onDelete: () => void;
 }
 
-export function TripSettingsForm({ trip, onSuccess }: TripSettingsFormProps) {
-  const navigate = useNavigate();
+export function TripSettingsForm({ trip, onUpdate, onDelete }: TripSettingsFormProps) {
   const [loading, setLoading] = useState(false);
-  const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false);
+  const [isSyncing, setIsSyncing] = useState(false);
 
-  // 將原本 trip.members 的結構轉換為單純的 userId 陣列
-  const initialMembers = Array.isArray(trip.members) 
-    ? trip.members.map((m: any) => m.user_id) 
-    : [];
-
-  const handleSubmit = async (data: TripFormData) => {
+  // 1. 處理基本設定更新 (名稱、日期、城市等)
+  const handleSubmit = async (data: any) => {
     setLoading(true);
     try {
-      // 1. 更新 Trip 內容
       const res = await apiFetch(`/api/trips/${trip.id}`, {
         method: 'PUT',
-        body: JSON.stringify({
-          title: data.title,
-          start_date: data.start_date,
-          end_date: data.end_date,
-          default_city_id: data.default_city_id,
-          cover_image_url: data.cover_image_url,
-          currencies: data.currencies
-        })
+        body: JSON.stringify(data)
       });
-      if (!res.ok) throw new Error('Failed to update settings');
-
-      // 2. 更新 Trip 成員
-      await apiFetch(`/api/trips/${trip.id}/members`, {
-        method: 'PUT',
-        body: JSON.stringify({ user_ids: data.members })
-      });
-
-      onSuccess();
-    } catch (err: any) {
-      alert(err.message);
-    } finally {
-      setLoading(false);
+      if (res.ok) {
+        onUpdate();
+        alert('Settings saved successfully!');
+      } else {
+        alert('Failed to update trip');
+      }
+    } catch (err: any) { 
+      alert(err.message); 
+    } finally { 
+      setLoading(false); 
     }
   };
 
-  const handleDeleteTrip = async () => {
-    setLoading(true);
+  // 2. 💡 找回並強化：處理 AI 同步計算
+  const handleSync = async () => {
+    setIsSyncing(true);
     try {
-      const res = await apiFetch(`/api/trips/${trip.id}`, { method: 'DELETE' });
-      if (!res.ok) throw new Error('Failed to delete trip');
+      const res = await apiFetch(`/api/trips/${trip.id}/sync`, {
+        method: 'POST'
+      });
       
-      await db.trips.delete(trip.id);
-      await db.itineraries.where('trip_id').equals(trip.id).delete();
-      await db.expenses.where('trip_id').equals(trip.id).delete();
-      await db.tripMembers.where('trip_id').equals(trip.id).delete();
-      await db.bookings.where('trip_id').equals(trip.id).delete();
-      
-      setIsDeleteDialogOpen(false);
-      navigate('/', { replace: true });
+      if (res.ok) {
+        onUpdate(); // 同步完畢後重新抓取資料
+        alert('AI Sync completed: Weather and place details updated!');
+      } else {
+        const error = await res.json() as { error?: string };
+        alert(`Sync failed: ${error.error || 'Unknown error'}`);
+      }
     } catch (err: any) {
-      alert('Failed to delete trip: ' + err.message);
-      setLoading(false);
+      alert(`Sync error: ${err.message}`);
+    } finally {
+      setIsSyncing(false);
     }
   };
 
   return (
-    <>
+    <div className="space-y-6">
       <TripBaseForm 
-        initialData={{
-          title: trip.title,
-          start_date: trip.start_date,
-          end_date: trip.end_date,
-          default_city_id: trip.default_city_id,
-          cover_image_url: trip.cover_image_url,
-          currencies: trip.currencies,
-          members: initialMembers
-        }}
+        initialData={trip}
         onSubmit={handleSubmit}
         submitText="Save Settings"
         loading={loading}
+        // 💡 透過 extraButtons 注入自定義功能按鈕
         extraButtons={
-          <button 
-            type="button" 
-            onClick={() => setIsDeleteDialogOpen(true)}
-            className="px-4 py-3.5 bg-red-500/10 hover:bg-red-500/20 text-red-500 border border-red-500/20 rounded-xl transition-all"
-            title="Delete Trip"
-          >
-            <Trash2 size={20} />
-          </button>
+          <div className="flex flex-1 gap-2">
+            {/* AI 同步按鈕 */}
+            <button
+              type="button"
+              disabled={isSyncing || loading}
+              onClick={handleSync}
+              className="flex-1 bg-orange-500/10 hover:bg-orange-500/20 text-orange-500 font-bold rounded-xl px-4 py-3.5 transition-all border border-orange-500/20 flex items-center justify-center gap-2 group disabled:opacity-50"
+            >
+              {isSyncing ? (
+                <Loader2 size={18} className="animate-spin" />
+              ) : (
+                <Sparkles size={18} className="group-hover:rotate-12 transition-transform" />
+              )}
+              <span className="whitespace-nowrap">AI Sync</span>
+            </button>
+
+            {/* 刪除按鈕 */}
+            <button
+              type="button"
+              onClick={() => {
+                if (window.confirm('Are you sure you want to delete this trip? This action cannot be undone.')) {
+                  onDelete();
+                }
+              }}
+              className="bg-red-500/10 hover:bg-red-500/20 text-red-500 font-bold rounded-xl px-4 py-3.5 transition-colors border border-red-500/20 flex items-center justify-center"
+              title="Delete Trip"
+            >
+              <Trash2 size={18} />
+            </button>
+          </div>
         }
       />
-
-      <ConfirmDialog
-        isOpen={isDeleteDialogOpen}
-        title="Delete Trip"
-        message="Are you sure you want to delete this entire trip? This action cannot be undone and all data associated with this trip will be permanently removed."
-        confirmText={loading ? "Deleting..." : "Delete Trip"}
-        cancelText="Keep Trip"
-        onConfirm={handleDeleteTrip}
-        onCancel={() => setIsDeleteDialogOpen(false)}
-      />
-    </>
+      
+      {/* 提示訊息 */}
+      <div className="bg-zinc-800/50 border border-zinc-700/50 rounded-2xl p-4 flex gap-3 items-start">
+        <div className="p-2 bg-orange-500/10 rounded-lg shrink-0">
+          <Sparkles size={16} className="text-orange-500" />
+        </div>
+        <div className="text-xs text-zinc-400 leading-relaxed">
+          <p className="font-bold text-zinc-200 mb-1">About AI Sync</p>
+          Calculates dynamic weather for each location, synchronizes Google Places business hours, and optimizes your itinerary flow.
+        </div>
+      </div>
+    </div>
   );
 }
