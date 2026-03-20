@@ -169,7 +169,7 @@ export async function uploadImageToSupabase(blob: Blob, folder: string = 'trips'
     headers['Authorization'] = `Bearer ${token}`;
   }
 
-  const res = await fetch(getApiUrl('/api/upload'), {
+  const res = await fetch(getApiUrl('/api/media/upload'), {
     method: 'POST',
     headers,
     body: formData

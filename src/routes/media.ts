@@ -1,67 +1,53 @@
 import { Hono } from 'hono';
-import { Env } from '../worker'; // 引入全域的 Binding 定義 [cite: 115]
+import { Env } from '../worker';
 
 const media = new Hono<{ Bindings: Env }>();
 
-/**
- * POST /api/media/upload
- * 處理圖片上傳至 Supabase Storage
- */
 media.post('/upload', async (c) => {
   try {
     const formData = await c.req.formData();
     const file = formData.get('file') as File;
+    
+    // 💡 將根 Bucket 鎖定為 travelplan
+    const bucket = 'travelplan';
+    // 💡 這裡的 folder 會變成 Bucket 內部的子目錄（例如 travelplan/itineraries/xxx.jpg）
     const folder = (formData.get('folder') as string) || 'itineraries';
 
-    if (!file) {
-      return c.json({ error: '找不到上傳的檔案' }, 400);
-    }
+    if (!file) return c.json({ error: '未偵測到檔案' }, 400);
 
-    // 💡 產生唯一的檔名，避免覆蓋舊圖
     const fileExt = file.name.split('.').pop();
-    const fileName = `${folder}/${Date.now()}-${Math.random().toString(36).substring(7)}.${fileExt}`;
+    const fileName = `${Date.now()}-${Math.random().toString(36).substring(7)}.${fileExt}`;
+    
+    // 💡 組合完整路徑：travelplan/itineraries/檔名.jpg
+    const fullPath = `${bucket}/${folder}/${fileName}`;
 
-    // 💡 代理請求至 Supabase Storage API
-    const supabaseUrl = c.env.VITE_SUPABASE_URL;
-    const supabaseKey = c.env.VITE_SUPABASE_ANON_KEY;
-
-    const response = await fetch(
-      `${supabaseUrl}/storage/v1/object/${fileName}`,
+    const res = await fetch(
+      `${c.env.VITE_SUPABASE_URL}/storage/v1/object/${fullPath}`,
       {
         method: 'POST',
         headers: {
-          'Authorization': `Bearer ${supabaseKey}`,
+          'Authorization': `Bearer ${c.env.VITE_SUPABASE_ANON_KEY}`,
           'Content-Type': file.type,
-          'x-upsert': 'true' // 如果檔案已存在則覆蓋
+          'x-upsert': 'true'
         },
         body: await file.arrayBuffer()
       }
     );
 
-    if (!response.ok) {
-      const errorText = await response.text();
-      console.error('Supabase 上傳失敗:', errorText);
-      throw new Error('無法將檔案上傳至雲端儲存空間');
+    if (!res.ok) {
+      const errorDetail = await res.text();
+      console.error('Supabase 詳細錯誤:', errorDetail);
+      throw new Error(`Supabase 上傳失敗: ${errorDetail}`);
     }
 
-    // 💡 回傳 Supabase 公開存取網址
-    const publicUrl = `${supabaseUrl}/storage/v1/object/public/${fileName}`;
-    return c.json({ 
-      success: true, 
-      publicUrl,
-      fileName: file.name
-    });
+    // 💡 回傳公開網址，路徑同樣要包含 travelplan
+    const publicUrl = `${c.env.VITE_SUPABASE_URL}/storage/v1/object/public/${fullPath}`;
+    return c.json({ success: true, publicUrl });
 
   } catch (error: any) {
-    console.error('Upload Route Error:', error);
+    console.error('Upload Error:', error);
     return c.json({ error: error.message }, 500);
   }
 });
-
-/**
- * 未來可以在這裡擴充其他媒體功能，例如：
- * DELETE /:fileName - 刪除檔案
- * GET /list - 列出特定資料夾的檔案
- */
 
 export default media;
