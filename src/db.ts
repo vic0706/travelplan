@@ -18,14 +18,14 @@ export class TravelPlanDB extends Dexie {
   constructor() {
     super('TravelPlanDB');
     // Version 9: Removed transportations, accommodations, rentals
-    this.version(9).stores({
+    this.version(10).stores({
       users: 'id, role, allow_login',
       trips: 'id, title, start_date, end_date, visible_status, is_public, last_accessed',
       tripMembers: '[trip_id+user_id], trip_id, user_id',
-      itineraries: 'id, trip_id, date, start_time',
+      itineraries: 'id, trip_id, date, start_time, google_place_id',
       subItineraries: 'id, itinerary_id, start_time',
       expenses: 'id, trip_id, date, payer_id',
-      bookings: 'id, trip_id, start_date, category',
+      bookings: 'id, trip_id, start_date, category, google_place_id',
       cities: 'id, name, country',
       appSettings: 'id, key_name'
     });

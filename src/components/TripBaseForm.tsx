@@ -142,13 +142,12 @@ export function TripBaseForm({ initialData, onSubmit, onCancel, submitText, load
 
       {/* Dates & Location */}
       <div className="grid grid-cols-2 gap-4">
-        {/* 🚨 這裡直接使用進化後的 DateRangePicker (它會自己處理 Label 跟按鈕) 🚨 */}
         <DateRangePicker 
           label="Dates *"
           value={{ 
             start_date: formData.start_date ? parseISO(formData.start_date) : null, 
             end_date: formData.end_date ? parseISO(formData.end_date) : null,
-            start_time: '10:00', // 雖然建立行程不需要時間，但為了滿足元件格式給個預設值
+            start_time: '10:00',
             end_time: '10:00'
           }}
           onChange={range => setFormData({ 
@@ -204,7 +203,6 @@ export function TripBaseForm({ initialData, onSubmit, onCancel, submitText, load
         </div>
       </div>
 
-      {/* Action Buttons */}
       <div className="flex gap-3 pt-4 border-t border-zinc-800">
         {extraButtons}
         {onCancel && (
@@ -217,8 +215,12 @@ export function TripBaseForm({ initialData, onSubmit, onCancel, submitText, load
         </button>
       </div>
 
-      {/* Pickers & Modals (注意這裡已經沒有舊的 DateRangePicker 了！) */}
-      <LocationPicker isOpen={isLocationPickerOpen} onClose={() => setIsLocationPickerOpen(false)} onSelect={(id) => setFormData({ ...formData, default_city_id: id })} groupedCities={groupedCities} />
+      <LocationPicker 
+        isOpen={isLocationPickerOpen} 
+        onClose={() => setIsLocationPickerOpen(false)} 
+        onSelect={(res) => setFormData({ ...formData, default_city_id: res.id || null })} 
+        groupedCities={groupedCities} 
+      />
       {croppingImage && <ImageCropper imageSrc={croppingImage} aspect={16 / 9} onCropComplete={handleCropComplete} onCancel={() => setCroppingImage(null)} />}
     </form>
   );
