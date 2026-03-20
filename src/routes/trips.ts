@@ -4,7 +4,7 @@ import { checkTripAccess, getWeatherForDate, extractCoordsFromUrl, geocodeTextTo
 
 const trips = new Hono<{ Bindings: Env; Variables: { user: any } }>();
 
-// 獲取行程列表 [cite: 272-274]
+// 1. 獲取行程列表
 trips.get('/', async (c) => {
   try {
     const user = c.get('user');
@@ -23,7 +23,25 @@ trips.get('/', async (c) => {
   } catch (error: any) { return c.json({ error: error.message }, 500); }
 });
 
-// 行程天氣 [cite: 262-263]
+// 2. 🚨 補回：獲取特定 ID 行程資料
+trips.get('/:id', async (c) => {
+  const id = c.req.param('id');
+  try {
+    const canView = await checkTripAccess(c, Number(id), 'view');
+    if (!canView) return c.json({ error: 'Unauthorized' }, 403);
+
+    const { results } = await c.env.DB.prepare('SELECT * FROM Trips WHERE id = ?').bind(id).all();
+    if (results.length === 0) return c.json({ error: 'Trip not found' }, 404);
+    
+    // 同時抓取成員資訊
+    const { results: members } = await c.env.DB.prepare('SELECT user_id, role FROM TripMembers WHERE trip_id = ?').bind(id).all();
+    return c.json({ ...results[0], members });
+  } catch (error: any) {
+    return c.json({ error: error.message }, 500);
+  }
+});
+
+// 3. 行程天氣
 trips.get('/:id/weather', async (c) => {
   const id = c.req.param('id');
   const date = c.req.query('date');
@@ -38,40 +56,69 @@ trips.get('/:id/weather', async (c) => {
   } catch (error: any) { return c.json({ error: error.message }, 500); }
 });
 
-// 核心同步邏輯 [cite: 205-256]
-trips.post('/:id/sync', async (c) => {
-  const tripId = c.req.param('id');
+// 4. 更新行程設定 (用於 TripSettingsForm)
+trips.put('/:id', async (c) => {
+  const id = c.req.param('id');
+  const user = c.get('user');
+  if (!user || user.role !== 'Admin') return c.json({ error: 'Unauthorized' }, 403);
+  
+  const body = await c.req.json();
+  const { title, start_date, end_date, default_city_id, cover_image_url, currencies, is_public } = body;
+  
   try {
-    const canEdit = await checkTripAccess(c, Number(tripId), 'edit');
-    if (!canEdit) return c.json({ error: 'Unauthorized' }, 403);
-
-    const { results: tripsInfo } = await c.env.DB.prepare(`SELECT t.*, c.name as primary_city_name, c.country as primary_country FROM Trips t LEFT JOIN Cities c ON t.default_city_id = c.id WHERE t.id = ?`).bind(tripId).all();
-    if (tripsInfo.length === 0) return c.json({ error: 'Trip not found' }, 404);
-    const trip = tripsInfo[0] as any;
-    const primaryRegion = trip.primary_country === 'Taiwan' ? 'tw' : 'jp';
-
-    // 更新天氣與距離矩陣... (此處邏輯過長，建議保持原樣放入 trips.ts 檔案中)
-    // 這裡調用 Google Maps Matrix API 並更新 D1 資料庫 [cite: 245-250]
+    await c.env.DB.prepare(`
+      UPDATE Trips 
+      SET title = ?, start_date = ?, end_date = ?, default_city_id = ?, 
+          cover_image_url = ?, currencies = ?, is_public = ?, updated_at = ?
+      WHERE id = ?
+    `).bind(
+      title, start_date, end_date, default_city_id, 
+      cover_image_url, JSON.stringify(currencies), is_public ? 1 : 0, Date.now(), 
+      id
+    ).run();
     return c.json({ success: true });
   } catch (error: any) { return c.json({ error: error.message }, 500); }
 });
 
-// 活動項目 (Itineraries) [cite: 325-343]
+// 5. 刪除行程
+trips.delete('/:id', async (c) => {
+  const id = c.req.param('id');
+  const user = c.get('user');
+  if (!user || user.role !== 'Admin') return c.json({ error: 'Unauthorized' }, 403);
+  
+  try {
+    await c.env.DB.batch([
+      c.env.DB.prepare('DELETE FROM Itineraries WHERE trip_id = ?').bind(id),
+      c.env.DB.prepare('DELETE FROM Expenses WHERE trip_id = ?').bind(id),
+      c.env.DB.prepare('DELETE FROM TripMembers WHERE trip_id = ?').bind(id),
+      c.env.DB.prepare('DELETE FROM Bookings WHERE trip_id = ?').bind(id),
+      c.env.DB.prepare('DELETE FROM Trips WHERE id = ?').bind(id)
+    ]);
+    return c.json({ success: true });
+  } catch (error: any) { return c.json({ error: error.message }, 500); }
+});
+
+// 6. 活動項目 (Itineraries)
 trips.get('/:id/itineraries', async (c) => {
   const tripId = c.req.param('id');
   const { results } = await c.env.DB.prepare(`SELECT i.*, c.name as city_name FROM Itineraries i LEFT JOIN Cities c ON i.city_id = c.id WHERE i.trip_id = ? ORDER BY date, start_time`).bind(tripId).all();
   return c.json(results.map((item: any) => ({ ...item, tags: item.tags ? JSON.parse(item.tags) : [] })));
 });
 
-// 成員管理 [cite: 344-346]
-trips.post('/:id/members', async (c) => {
+// 7. 成員管理
+trips.put('/:id/members', async (c) => {
   const tripId = c.req.param('id');
-  const isAdmin = await checkTripAccess(c, Number(tripId), 'admin');
-  if (!isAdmin) return c.json({ error: 'Admins only' }, 403);
-  const { userIds } = await c.req.json();
-  await c.env.DB.prepare('DELETE FROM TripMembers WHERE trip_id = ?').bind(tripId).run();
-  for (const userId of userIds) await c.env.DB.prepare('INSERT INTO TripMembers (trip_id, user_id) VALUES (?, ?)').bind(tripId, userId).run();
-  return c.json({ success: true });
+  const user = c.get('user');
+  if (!user || user.role !== 'Admin') return c.json({ error: 'Admins only' }, 403);
+  const { user_ids } = await c.req.json();
+  
+  try {
+    await c.env.DB.batch([
+      c.env.DB.prepare('DELETE FROM TripMembers WHERE trip_id = ?').bind(tripId),
+      ...user_ids.map((uid: number) => c.env.DB.prepare('INSERT INTO TripMembers (trip_id, user_id, role) VALUES (?, ?, ?)').bind(tripId, uid, 'Member'))
+    ]);
+    return c.json({ success: true });
+  } catch (error: any) { return c.json({ error: error.message }, 500); }
 });
 
 export default trips;
