@@ -1,131 +1,185 @@
-import React, { useState, useEffect } from 'react';
-import { Bed, Car, Map, Plus, ChevronDown, ChevronUp, Footprints, Bus, Bike } from 'lucide-react';
-import { clsx } from 'clsx';
-import { format, parseISO, isSameDay, isPast } from 'date-fns';
+import React from 'react';
+import { Clock, MapPin, Navigation, MoreVertical, Trash2, Edit3, AlertTriangle, Star, ExternalLink } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Itinerary, Booking } from '../types';
-import { DynamicIcon } from './DynamicIcon';
-import { SubItemRow } from './SubItemRow';
+import { Itinerary } from '../types';
+import { clsx } from 'clsx';
 
 interface ItineraryCardProps {
   item: Itinerary;
-  canEdit: boolean;
-  isConflicted?: boolean;
   onEdit: () => void;
-  selectedDate: Date;
-  showNextTransport?: boolean;
-  onEditNextTransport?: () => void;
-  booking?: Booking;
-  expandSignal: number;
-  collapseSignal: number;
+  onDelete: () => void;
+  isFirst: boolean;
+  isLast: boolean;
+  isDragOverlay?: boolean;
 }
 
-export function ItineraryCard({ item, canEdit, isConflicted, onEdit, selectedDate, showNextTransport, onEditNextTransport, booking, expandSignal, collapseSignal }: ItineraryCardProps) {
-  const dateStr = format(selectedDate, 'yyyy-MM-dd');
-  const itemDateTime = parseISO(`${dateStr}T${item.start_time || '00:00'}`);
-  const isToday = isSameDay(selectedDate, new Date());
-  const isPastItem = !isNaN(itemDateTime.getTime()) && isPast(itemDateTime) && !isToday;
+export function ItineraryCard({ item, onEdit, onDelete, isFirst, isLast, isDragOverlay }: ItineraryCardProps) {
+  const [showMenu, setShowMenu] = React.useState(false);
 
-  const subItems = item.sub_items ? JSON.parse(item.sub_items) : [];
-  const hasNotes = !!item.notes;
-  const hasTags = Array.isArray(item.tags) && item.tags.length > 0;
-  const hasSubItems = subItems.length > 0;
-  const itineraryImageUrl = item.image_url && typeof item.image_url === 'string' && item.image_url.startsWith('http') ? item.image_url : null;
+  // 計算持續時間 (例如: 2h 30m)
+  const getDuration = () => {
+    try {
+      const start = new Date(`2000-01-01T${item.start_time}`);
+      const end = new Date(`2000-01-01T${item.end_time}`);
+      let diffMs = end.getTime() - start.getTime();
+      if (diffMs < 0) diffMs += 24 * 60 * 60 * 1000;
+      const hrs = Math.floor(diffMs / 3600000);
+      const mins = Math.floor((diffMs % 3600000) / 60000);
+      if (hrs === 0) return `${mins}m`;
+      if (mins === 0) return `${hrs}h`;
+      return `${hrs}h ${mins}m`;
+    } catch {
+      return '';
+    }
+  };
 
-  const hasExpandableContent = hasNotes || hasTags || hasSubItems || !!itineraryImageUrl;
-  const [isExpanded, setIsExpanded] = useState(!isPastItem && hasExpandableContent);
-  const [showDetails, setShowDetails] = useState(false);
-  
-  useEffect(() => { setIsExpanded(!isPastItem && hasExpandableContent); }, [isPastItem, hasExpandableContent]);
-  useEffect(() => { if (expandSignal > 0 && hasExpandableContent) setIsExpanded(true); }, [expandSignal, hasExpandableContent]);
-  useEffect(() => { if (collapseSignal > 0 && hasExpandableContent) setIsExpanded(false); }, [collapseSignal, hasExpandableContent]);
+  // 生成 Google Maps 連結
+  const getGoogleMapsLink = () => {
+    if (item.google_place_id) {
+      return `https://www.google.com/maps/place/?q=place_id:${item.google_place_id}`;
+    }
+    if (item.lat && item.lng) {
+      return `https://www.google.com/maps/search/?api=1&query=${item.lat},${item.lng}`;
+    }
+    if (item.address) {
+      return `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(item.address)}`;
+    }
+    return `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(item.title)}`;
+  };
 
   return (
-    <div 
-      className={clsx(
-        "bg-zinc-900 rounded-3xl overflow-hidden shadow-lg group relative transition-all",
-        isConflicted ? "border-red-500 ring-2 ring-red-500" : "border border-zinc-800",
-        canEdit && !isConflicted ? "cursor-pointer hover:border-orange-500/50" : canEdit && isConflicted ? "cursor-pointer" : "cursor-pointer hover:border-zinc-700",
-        isPastItem && !isExpanded && "opacity-50 grayscale-[0.5] hover:opacity-100 hover:grayscale-0"
-      )}
-      onClick={() => canEdit ? onEdit() : (hasExpandableContent && setIsExpanded(!isExpanded))}
-    >
-      <div className="p-5 flex items-start justify-between gap-4 bg-zinc-900 relative z-20">
-        <div className="flex flex-col gap-1.5 flex-1">
-          <div className="flex items-center gap-2 text-zinc-400">
-            <div className={clsx("w-1.5 h-1.5 rounded-full", isPastItem ? "bg-zinc-600" : "bg-orange-500")} />
-            <span className="font-mono text-sm font-medium tracking-wide">{item.start_time} - {item.start_time === item.end_time ? 'Auto' : item.end_time}</span>
-          </div>
-          <h3 className="text-xl font-bold text-white leading-tight flex items-center">
-            {item.type === 'ACCOMMODATION' && <Bed className={clsx("mr-2 shrink-0", isPastItem ? "text-zinc-500" : "text-orange-500")} size={20} />}
-            {item.type === 'RENTAL' && <Car className={clsx("mr-2 shrink-0", isPastItem ? "text-zinc-500" : "text-orange-500")} size={20} />}
-            {item.icon && <DynamicIcon name={item.icon} className={clsx("mr-2 shrink-0", isPastItem ? "text-zinc-500" : "text-orange-500")} size={20} />}
-            {item.title}
-          </h3>
-        </div>
-        
-        <div className="flex flex-col items-end gap-2">
-          <div className="flex flex-col items-center bg-zinc-800/50 rounded-2xl border border-zinc-700/50 overflow-hidden shadow-sm backdrop-blur-sm">
-            <a 
-              href={item.address && item.address.startsWith('http') ? item.address : `http://maps.google.com/?q=${encodeURIComponent(item.address || item.title)}`}
-              target="_blank" rel="noopener noreferrer" onClick={(e) => e.stopPropagation()}
-              className="p-2.5 text-zinc-400 hover:text-orange-500 hover:bg-zinc-700/50 transition-colors flex items-center justify-center w-10 h-10" title="View on Map"
-            >
-              <Map size={18} />
-            </a>
-
-            {showNextTransport && (canEdit || item.next_transport_mode) && (
-              <>
-                <div className="w-6 h-px bg-zinc-700/50" />
-                <button
-                  onClick={(e) => { e.stopPropagation(); if (canEdit) onEditNextTransport?.(); }}
-                  disabled={!canEdit}
-                  className={clsx("p-2 flex flex-col items-center justify-center gap-0.5 w-10 transition-colors", canEdit ? "hover:bg-zinc-700/50 cursor-pointer" : "cursor-default", item.next_transport_mode ? "text-orange-500" : "text-zinc-500 hover:text-zinc-300")}
-                >
-                  {item.next_transport_mode ? (
-                    <>
-                      {item.next_transport_mode === 'WALKING' && <Footprints size={16} />}
-                      {item.next_transport_mode === 'BICYCLING' && <Bike size={16} />}
-                      {item.next_transport_mode === 'TRANSIT' && <Bus size={16} />}
-                      {item.next_transport_mode === 'DRIVING' && <Car size={16} />}
-                      {(item.next_transport_time || item.next_transport_auto_time) && <span className="text-[9px] font-mono font-bold leading-none mt-0.5">{item.next_transport_time ? item.next_transport_time.replace(' min', 'm') : 'Auto'}</span>}
-                    </>
-                  ) : <Plus size={18} />}
-                </button>
-              </>
-            )}
-          </div>
-        </div>
+    <div className={clsx(
+      "relative group flex gap-4",
+      isDragOverlay ? "opacity-90 scale-105" : "hover:-translate-y-0.5 transition-transform"
+    )}>
+      {/* 1. 左側時間軸 */}
+      <div className="flex flex-col items-center min-w-[60px] shrink-0 mt-1">
+        <div className="text-sm font-bold text-white">{item.start_time}</div>
+        <div className="text-xs font-medium text-zinc-500 mt-1">{getDuration()}</div>
+        {!isLast && (
+          <div className="w-px h-full bg-zinc-800 my-2 group-hover:bg-orange-500/30 transition-colors" />
+        )}
       </div>
 
-      <div className={clsx("relative transition-all duration-300 ease-in-out overflow-hidden", isExpanded ? "h-[200px]" : "h-0")}>
-        {itineraryImageUrl ? <img src={itineraryImageUrl} alt={item.title} className="absolute inset-0 w-full h-full object-cover" referrerPolicy="no-referrer" /> : <div className="absolute inset-0 bg-gradient-to-br from-orange-900/30 via-zinc-900 to-zinc-900 border-t border-orange-500/10" />}
-        <div className={clsx("absolute inset-0 transition-colors duration-300", itineraryImageUrl ? (showDetails ? "bg-black/80 backdrop-blur-sm" : "bg-gradient-to-b from-zinc-900/40 via-transparent to-black/60") : "bg-gradient-to-br from-orange-900/10 via-transparent to-black/30")} />
-        <div className="absolute inset-0 p-5 flex flex-col z-10">
-          <div className="flex items-start justify-between gap-4 shrink-0">
-            <div className="flex flex-wrap gap-2 flex-1">
-              {Array.isArray(item.tags) && item.tags.map((tag: string) => (
-                <span key={tag} className={clsx("text-[10px] font-bold uppercase tracking-wider px-2.5 py-1 rounded-full border shadow-sm backdrop-blur-md", itineraryImageUrl ? "text-white bg-black/40 border-white/20" : "text-zinc-300 bg-zinc-900/50 border-zinc-700/50")}>{tag}</span>
-              ))}
-            </div>
-          </div>
-          <AnimatePresence>
-            {showDetails && (
-              <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: 10 }} className="flex-1 overflow-y-auto custom-scrollbar mt-4 pr-2" onClick={(e) => e.stopPropagation()}>
-                <div className="space-y-4 pb-2">
-                  {item.notes && <p className={clsx("text-sm leading-relaxed p-4 rounded-2xl border", itineraryImageUrl ? "text-white/90 bg-black/40 border-white/10" : "text-zinc-300 bg-zinc-900/50 border-zinc-700/30")}>{item.notes}</p>}
-                  {subItems.length > 0 && <div className="space-y-3">{subItems.map((sub: any, idx: number) => <SubItemRow key={sub.id || idx} sub={sub} itineraryImageUrl={itineraryImageUrl} isLast={idx === subItems.length - 1} hasMore={idx < subItems.length - 1} />)}</div>}
-                </div>
-              </motion.div>
+      {/* 2. 主卡片內容 */}
+      <div className={clsx(
+        "flex-1 bg-zinc-900 border rounded-3xl overflow-hidden shadow-xl transition-all",
+        item.sync_conflict_warning ? "border-red-500/50" : "border-zinc-800 hover:border-zinc-700"
+      )}>
+        <div className="flex flex-col sm:flex-row h-full">
+          
+          {/* 圖片區塊 */}
+          <div className="w-full sm:w-32 h-32 sm:h-auto shrink-0 relative bg-zinc-800 overflow-hidden">
+            <img 
+              src={item.image_url} 
+              alt={item.title}
+              className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-110"
+              onError={(e) => {
+                (e.target as HTMLImageElement).src = 'https://images.unsplash.com/photo-1469854523086-cc02fe5d8800?w=400&q=80';
+              }}
+            />
+            {item.icon && (
+              <div className="absolute top-2 left-2 w-8 h-8 bg-black/50 backdrop-blur-md rounded-xl flex items-center justify-center text-lg shadow-lg border border-white/10">
+                {item.icon}
+              </div>
             )}
-          </AnimatePresence>
-          {(hasNotes || hasSubItems) && !canEdit && (
-            <div className="flex justify-center mt-auto pt-2 shrink-0">
-              <div className={clsx("flex items-center justify-center w-10 h-6 rounded-full border backdrop-blur-md transition-colors duration-300 cursor-pointer hover:bg-white/10", itineraryImageUrl ? "bg-black/40 border-white/20 text-white" : "bg-zinc-800/80 border-zinc-700/50 text-zinc-400 hover:text-white")} onClick={(e) => { e.stopPropagation(); setShowDetails(!showDetails); }}>
-                {showDetails ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
+          </div>
+
+          {/* 資訊區塊 */}
+          <div className="flex-1 p-4 flex flex-col justify-center min-w-0 relative">
+            
+            {/* 💡 智慧防呆警告 (AI Sync Warning) */}
+            {item.sync_conflict_warning && (
+              <div className="flex items-center gap-1.5 text-xs font-bold text-red-500 bg-red-500/10 px-2.5 py-1 rounded-lg w-fit mb-2">
+                <AlertTriangle size={14} />
+                {item.sync_conflict_warning}
+              </div>
+            )}
+
+            <div className="flex items-start justify-between gap-4 mb-1">
+              <h4 className="text-lg font-bold text-white leading-tight line-clamp-2">
+                {item.title}
+              </h4>
+              
+              {/* 選單按鈕 */}
+              <div className="relative shrink-0">
+                <button 
+                  onClick={() => setShowMenu(!showMenu)}
+                  className="p-1.5 hover:bg-zinc-800 rounded-xl text-zinc-500 hover:text-white transition-colors"
+                >
+                  <MoreVertical size={18} />
+                </button>
+
+                <AnimatePresence>
+                  {showMenu && (
+                    <>
+                      <div className="fixed inset-0 z-40" onClick={() => setShowMenu(false)} />
+                      <motion.div 
+                        initial={{ opacity: 0, scale: 0.95, y: -10 }}
+                        animate={{ opacity: 1, scale: 1, y: 0 }}
+                        exit={{ opacity: 0, scale: 0.95, y: -10 }}
+                        className="absolute right-0 top-full mt-1 w-36 bg-zinc-800 border border-zinc-700 rounded-xl shadow-xl z-50 overflow-hidden"
+                      >
+                        <button onClick={() => { setShowMenu(false); onEdit(); }} className="w-full flex items-center gap-2 px-4 py-3 text-sm font-medium text-white hover:bg-zinc-700 transition-colors text-left">
+                          <Edit3 size={16} /> Edit
+                        </button>
+                        <button onClick={() => { setShowMenu(false); onDelete(); }} className="w-full flex items-center gap-2 px-4 py-3 text-sm font-medium text-red-500 hover:bg-red-500/10 transition-colors text-left border-t border-zinc-700">
+                          <Trash2 size={16} /> Delete
+                        </button>
+                      </motion.div>
+                    </>
+                  )}
+                </AnimatePresence>
               </div>
             </div>
-          )}
+
+            {/* 💡 Google Places 評分與評價數 */}
+            {item.rating && (
+              <div className="flex items-center gap-1 mb-2">
+                <div className="flex items-center text-yellow-500">
+                  <Star size={14} className="fill-current" />
+                  <span className="text-xs font-bold ml-1">{item.rating.toFixed(1)}</span>
+                </div>
+                {item.reviews_count && (
+                  <span className="text-xs text-zinc-500">({item.reviews_count.toLocaleString()})</span>
+                )}
+              </div>
+            )}
+
+            <div className="space-y-1.5 mt-auto">
+              {item.address && (
+                <div className="flex items-center gap-1.5 text-sm text-zinc-400">
+                  <MapPin size={14} className="shrink-0 text-zinc-500" />
+                  <span className="line-clamp-1 flex-1">{item.address}</span>
+                  {/* Google Maps 捷徑 */}
+                  <a 
+                    href={getGoogleMapsLink()} 
+                    target="_blank" 
+                    rel="noopener noreferrer"
+                    className="p-1 hover:bg-zinc-800 rounded-md text-zinc-500 hover:text-orange-500 transition-colors shrink-0"
+                    title="Open in Google Maps"
+                  >
+                    <ExternalLink size={14} />
+                  </a>
+                </div>
+              )}
+
+              {item.notes && (
+                <p className="text-sm text-zinc-500 line-clamp-2 mt-2">{item.notes}</p>
+              )}
+            </div>
+
+            {/* Tags */}
+            {item.tags && item.tags.length > 0 && (
+              <div className="flex flex-wrap gap-2 mt-3">
+                {item.tags.map(tag => (
+                  <span key={tag} className="px-2 py-0.5 bg-zinc-800 border border-zinc-700 rounded-lg text-[10px] font-bold text-zinc-400 uppercase tracking-wider">
+                    {tag}
+                  </span>
+                ))}
+              </div>
+            )}
+          </div>
         </div>
       </div>
     </div>
