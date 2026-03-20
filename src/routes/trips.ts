@@ -50,7 +50,8 @@ trips.post('/', async (c) => {
       INSERT INTO Trips (title, start_date, end_date, default_city_id, cover_image_url, currencies, is_public, created_at, updated_at)
       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).bind(
-      title, start_date, end_date, default_city_id, cover_image_url, JSON.stringify(currencies), 0, Date.now(), Date.now()
+      title, start_date, end_date, default_city_id, cover_image_url, 
+      JSON.stringify(currencies || []), 0, Date.now(), Date.now()
     ).run();
     return c.json({ id: meta.last_row_id });
   } catch (error: any) {
@@ -58,7 +59,7 @@ trips.post('/', async (c) => {
   }
 });
 
-// 獲取特定 ID 行程資料
+// 獲取特定 ID 行程資料 (含 JSON 解析)
 trips.get('/:id', async (c) => {
   const id = c.req.param('id');
   try {
@@ -68,8 +69,15 @@ trips.get('/:id', async (c) => {
     const { results } = await c.env.DB.prepare('SELECT * FROM Trips WHERE id = ?').bind(id).all();
     if (results.length === 0) return c.json({ error: 'Trip not found' }, 404);
     
+    const trip = results[0] as any;
     const { results: members } = await c.env.DB.prepare('SELECT user_id, role FROM TripMembers WHERE trip_id = ?').bind(id).all();
-    return c.json({ ...results[0], members });
+    
+    // 💡 修正：解析幣別 JSON
+    return c.json({ 
+      ...trip, 
+      currencies: trip.currencies ? JSON.parse(trip.currencies) : [],
+      members 
+    });
   } catch (error: any) {
     return c.json({ error: error.message }, 500);
   }
@@ -88,7 +96,7 @@ trips.put('/:id', async (c) => {
       WHERE id = ?
     `).bind(
       body.title, body.start_date, body.end_date, body.default_city_id, body.cover_image_url, 
-      JSON.stringify(body.currencies), body.is_public ? 1 : 0, Date.now(), id
+      JSON.stringify(body.currencies || []), body.is_public ? 1 : 0, Date.now(), id
     ).run();
     return c.json({ success: true });
   } catch (error: any) {
@@ -116,19 +124,14 @@ trips.delete('/:id', async (c) => {
   }
 });
 
-// AI 同步計算路由 (處理天氣與智慧地點防呆)
+// AI 同步與天氣計算
 trips.post('/:id/sync', async (c) => {
   const tripId = c.req.param('id');
   try {
     const canEdit = await checkTripAccess(c, Number(tripId), 'edit');
     if (!canEdit) return c.json({ error: 'Unauthorized' }, 403);
     
-    const { results: tripsInfo } = await c.env.DB.prepare(`
-      SELECT t.*, c.name as city_name, c.country as country_name
-      FROM Trips t LEFT JOIN Cities c ON t.default_city_id = c.id
-      WHERE t.id = ?
-    `).bind(tripId).all();
-    
+    const { results: tripsInfo } = await c.env.DB.prepare(`SELECT * FROM Trips WHERE id = ?`).bind(tripId).all();
     if (tripsInfo.length === 0) return c.json({ error: 'Trip not found' }, 404);
     const trip = tripsInfo[0] as any;
     
@@ -139,63 +142,45 @@ trips.post('/:id/sync', async (c) => {
       await getWeatherForDate(Number(tripId), dateStr, c.env, true);
     }
     await syncPlaceDetails(c.env, Number(tripId));
-    return c.json({ success: true, message: 'Sync completed', timestamp: Date.now() });
-  } catch (error: any) {
-    return c.json({ error: error.message }, 500);
-  }
-});
-
-// 行程天氣查詢
-trips.get('/:id/weather', async (c) => {
-  const id = c.req.param('id');
-  const date = c.req.query('date');
-  try {
-    if (date) {
-      const weatherData = await getWeatherForDate(Number(id), date, c.env);
-      return weatherData ? c.json(weatherData) : c.json({ message: 'No weather data' }, 404);
-    }
-    const todayStr = new Date().toISOString().split('T')[0];
-    const cached = await c.env.KV.get(`weather:trip:${id}:${todayStr}`, 'json');
-    return cached ? c.json(cached) : c.json({ message: 'Update soon' }, 202);
+    return c.json({ success: true, message: 'Sync completed' });
   } catch (error: any) {
     return c.json({ error: error.message }, 500);
   }
 });
 
 // ==========================================
-// 💡 2. Itineraries (行程活動項目 CRUD)
+// 2. Itineraries (行程活動項目 CRUD)
 // ==========================================
 
-// 取得行程列表
+// 取得行程列表 (含安全檢查與多重 JSON 解析)
 trips.get('/:id/itineraries', async (c) => {
   const tripId = c.req.param('id');
   try {
+    // 💡 修正：補上安全性檢查
+    const canView = await checkTripAccess(c, Number(tripId), 'view');
+    if (!canView) return c.json({ error: 'Unauthorized' }, 403);
+
     const { results } = await c.env.DB.prepare(`
-      SELECT i.*, c.name as city_name 
-      FROM Itineraries i 
-      LEFT JOIN Cities c ON i.city_id = c.id 
-      WHERE i.trip_id = ? 
-      ORDER BY date ASC, start_time ASC
+      SELECT * FROM Itineraries WHERE trip_id = ? ORDER BY date ASC, start_time ASC
     `).bind(tripId).all();
+
+    // 💡 修正：同時解析 tags 與 sub_items
     return c.json(results.map((item: any) => ({ 
       ...item, 
-      tags: item.tags ? JSON.parse(item.tags) : [] 
+      tags: item.tags ? JSON.parse(item.tags) : [],
+      sub_items: item.sub_items ? JSON.parse(item.sub_items) : []
     })));
   } catch (error: any) {
     return c.json({ error: error.message }, 500);
   }
 });
 
-// 建立新行程項目 (補齊 image_url)
+// 建立新項目
 trips.post('/:id/itineraries', async (c) => {
   try {
     const tripId = c.req.param('id');
     const body = await c.req.json();
-    
-    // 防呆處理 Tags
-    const tagsStr = Array.isArray(body.tags) 
-      ? JSON.stringify(body.tags) 
-      : JSON.stringify(body.tags ? body.tags.split(',').map((t: string) => t.trim()) : []);
+    const tagsStr = Array.isArray(body.tags) ? JSON.stringify(body.tags) : '[]';
 
     await c.env.DB.prepare(
       `INSERT INTO Itineraries 
@@ -210,20 +195,16 @@ trips.post('/:id/itineraries', async (c) => {
 
     return c.json({ success: true });
   } catch (error: any) {
-    console.error("Insert Itinerary Error:", error);
     return c.json({ error: error.message }, 500);
   }
 });
 
-// 更新行程項目 (補齊 image_url 及 交通欄位)
+// 更新項目
 trips.put('/:id/itineraries/:itemId', async (c) => {
   try {
     const itemId = c.req.param('itemId');
     const body = await c.req.json();
-    
-    const tagsStr = Array.isArray(body.tags) 
-      ? JSON.stringify(body.tags) 
-      : JSON.stringify(body.tags ? body.tags.split(',').map((t: string) => t.trim()) : []);
+    const tagsStr = Array.isArray(body.tags) ? JSON.stringify(body.tags) : '[]';
 
     await c.env.DB.prepare(
       `UPDATE Itineraries SET 
@@ -243,12 +224,10 @@ trips.put('/:id/itineraries/:itemId', async (c) => {
 
     return c.json({ success: true });
   } catch (error: any) {
-    console.error("Update Itinerary Error:", error);
     return c.json({ error: error.message }, 500);
   }
 });
 
-// 刪除行程項目
 trips.delete('/:id/itineraries/:itemId', async (c) => {
   try {
     const itemId = c.req.param('itemId');
@@ -263,20 +242,33 @@ trips.delete('/:id/itineraries/:itemId', async (c) => {
 // 3. Trip Members (成員管理)
 // ==========================================
 
+trips.get('/:id/members', async (c) => {
+  const tripId = c.req.param('id');
+  try {
+    const canView = await checkTripAccess(c, Number(tripId), 'view');
+    if (!canView) return c.json({ error: 'Unauthorized' }, 403);
+
+    const { results } = await c.env.DB.prepare(`
+      SELECT tm.user_id, tm.role, u.name, u.avatar_url 
+      FROM TripMembers tm JOIN Users u ON tm.user_id = u.id WHERE tm.trip_id = ?
+    `).bind(tripId).all();
+    return c.json(results);
+  } catch (error: any) {
+    return c.json({ error: error.message }, 500);
+  }
+});
+
 trips.put('/:id/members', async (c) => {
   const tripId = c.req.param('id');
   const user = c.get('user');
   if (!user || user.role !== 'Admin') return c.json({ error: 'Admins only' }, 403);
-  
   const { user_ids } = await c.req.json();
   try {
-    await c.env.DB.batch([
-      c.env.DB.prepare('DELETE FROM TripMembers WHERE trip_id = ?').bind(tripId),
-      ...user_ids.map((uid: number) => 
-        c.env.DB.prepare('INSERT INTO TripMembers (trip_id, user_id, role) VALUES (?, ?, ?)')
-          .bind(tripId, uid, 'Member')
-      )
-    ]);
+    const statements = [c.env.DB.prepare('DELETE FROM TripMembers WHERE trip_id = ?').bind(tripId)];
+    user_ids.forEach((uid: number) => {
+      statements.push(c.env.DB.prepare('INSERT INTO TripMembers (trip_id, user_id, role) VALUES (?, ?, ?)').bind(tripId, uid, 'Member'));
+    });
+    await c.env.DB.batch(statements);
     return c.json({ success: true });
   } catch (error: any) {
     return c.json({ error: error.message }, 500);
