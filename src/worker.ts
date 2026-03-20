@@ -3,7 +3,7 @@ import { cors } from 'hono/cors';
 import { getAssetFromKV } from '@cloudflare/kv-asset-handler';
 import manifestJSON from '__STATIC_CONTENT_MANIFEST';
 
-// 引入所有模組
+// 引入所有路由模組
 import authRoutes from './routes/auth';
 import tripRoutes from './routes/trips';
 import userRoutes from './routes/users';
@@ -60,35 +60,44 @@ app.get('/api/cities', async (c) => {
 // 4. 健康檢查
 app.get('/health-check', (c) => c.json({ status: 'ok', time: Date.now() }));
 
-// 5. Cloudflare Worker 進入點 (處理靜態資源與 API 分流)
+// 5. Cloudflare Worker 進入點
 export default {
   async fetch(request: Request, env: Env, ctx: ExecutionContext) {
     const url = new URL(request.url);
 
+    // API 與健康檢查路由直接由 Hono 處理
     if (url.pathname.startsWith('/api') || url.pathname === '/health-check') {
       return app.fetch(request, env, ctx);
     }
 
     try {
-      const page = await getAssetFromKV(
+      return await getAssetFromKV(
         { request, waitUntil: ctx.waitUntil.bind(ctx) } as any,
         {
           ASSET_NAMESPACE: env.__STATIC_CONTENT,
           ASSET_MANIFEST: manifestJSON,
           mapRequestToAsset: (req) => {
-            const url = new URL(req.url);
-            if (url.pathname !== '/' && !url.pathname.includes('.')) {
-              return new Request(`${url.origin}/index.html`, req);
+            const u = new URL(req.url);
+            // 💡 修正邏輯：如果路徑不包含 "." (代表不是 .js, .css, .png 等靜態檔案)，
+            // 則一律導向 index.html 以支援 SPA 路由，包含根路徑 "/"。
+            if (!u.pathname.includes('.')) {
+              return new Request(`${u.origin}/index.html`, req);
             }
             return req;
           },
         }
       );
-      const response = new Response(page.body, page);
-      response.headers.set('X-Content-Type-Options', 'nosniff');
-      return response;
     } catch (e) {
-      return new Response('Resource not found', { status: 404 });
+      // 如果真的找不到（例如不存在的圖片路徑），則回傳 index.html 讓前端 Router 處理 404
+      try {
+        const notFoundRequest = new Request(`${url.origin}/index.html`, request);
+        return await getAssetFromKV(
+          { request: notFoundRequest, waitUntil: ctx.waitUntil.bind(ctx) } as any,
+          { ASSET_NAMESPACE: env.__STATIC_CONTENT, ASSET_MANIFEST: manifestJSON }
+        );
+      } catch (e2) {
+        return new Response('Resource not found', { status: 404 });
+      }
     }
   },
 };
