@@ -1,5 +1,5 @@
 import React, { useEffect } from 'react';
-import { BrowserRouter as Router, Routes, Route, useLocation } from 'react-router-dom';
+import { BrowserRouter as Router, Routes, Route, useLocation, useNavigate } from 'react-router-dom';
 import { TopAppBar } from './components/TopAppBar';
 import { OfflineStatusBar } from './components/OfflineStatusBar';
 import { LoginModal } from './components/LoginModal';
@@ -15,8 +15,14 @@ import { City } from './types';
 import { clsx } from 'clsx';
 
 function AppContent() {
-  const { isLoginModalOpen, setLoginModalOpen, isCreateTripModalOpen, setCreateTripModalOpen, setCities, _hasHydrated, token } = useAppStore();
+  const { 
+    isLoginModalOpen, setLoginModalOpen, 
+    isCreateTripModalOpen, setCreateTripModalOpen, 
+    setCities, _hasHydrated, token 
+  } = useAppStore();
+  
   const location = useLocation();
+  const navigate = useNavigate();
   const isTripDetails = location.pathname.startsWith('/trip/');
 
   useEffect(() => {
@@ -44,7 +50,6 @@ function AppContent() {
         const res = await apiFetch('/api/cities');
         if (res.ok) {
           const data = await res.json() as City[];
-          console.log(`Fetched ${data.length} cities:`, data.slice(0, 5));
           setCities(data);
         }
       } catch (err) {
@@ -67,13 +72,24 @@ function AppContent() {
           <Route path="/trip/:id" element={<TripDetails />} />
           <Route path="/admin/members" element={<AdminMembers />} />
           <Route path="/admin/settings" element={<AdminSettings />} />
-
         </Routes>
       </main>
       
-      {/* Global Modals */}
-      {isLoginModalOpen && <LoginModal onClose={() => setLoginModalOpen(false)} />}
-      {isCreateTripModalOpen && <CreateTripModal />}
+      {/* 全域彈窗控制 */}
+      {isLoginModalOpen && (
+        <LoginModal onClose={() => setLoginModalOpen(false)} />
+      )}
+      
+      {isCreateTripModalOpen && (
+        <CreateTripModal 
+          isOpen={isCreateTripModalOpen} 
+          onClose={() => setCreateTripModalOpen(false)} 
+          onSuccess={(tripId) => {
+            setCreateTripModalOpen(false);
+            navigate(`/trip/${tripId}`);
+          }} 
+        />
+      )}
     </div>
   );
 }

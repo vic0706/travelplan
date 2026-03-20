@@ -1,25 +1,22 @@
 import React, { useEffect, useState } from 'react';
 import { useAppStore } from '../store';
 import { useNavigate } from 'react-router-dom';
-import { Plus, Calendar, MapPin, Loader2 } from 'lucide-react';
+import { Plus, Calendar, Loader2 } from 'lucide-react';
 import { format, differenceInDays, parseISO } from 'date-fns';
 import { db } from '../db';
 import { useLiveQuery } from 'dexie-react-hooks';
-import { getApiUrl, apiFetch } from '../utils/api';
+import { apiFetch } from '../utils/api';
 
 export function Home() {
-  // 1. Live Query from IndexedDB (Offline-First)
   const trips = useLiveQuery(() => db.trips.orderBy('start_date').reverse().toArray());
-  
-  const { user, _hasHydrated, token } = useAppStore();
+  const { user, _hasHydrated, token, setCreateTripModalOpen } = useAppStore();
   const navigate = useNavigate();
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  // 2. Fetch from API and update IndexedDB (Network-First Strategy for freshness)
   useEffect(() => {
     if (!_hasHydrated) {
-      if (_hasHydrated) setIsLoading(false);
+      setIsLoading(false);
       return;
     }
     const fetchTrips = async () => {
@@ -27,42 +24,16 @@ export function Home() {
         setIsLoading(false);
         return;
       }
-
       try {
-        const res = await apiFetch('/api/trips', token ? { headers: { Authorization: `Bearer ${token}` } } : {});
+        const res = await apiFetch('/api/trips');
         if (!res.ok) throw new Error(`HTTP error! status: ${res.status}`);
-        
-        const text = await res.text();
-        let data;
-        try {
-          data = JSON.parse(text);
-        } catch (e) {
-          console.error('API returned non-JSON:', text.substring(0, 200));
-          throw new Error(`API returned non-JSON response (status: ${res.status}). Expected JSON but got: ${text.substring(0, 50)}...`);
-        }
-
+        const data = await res.json();
         if (Array.isArray(data)) {
           const serverTripIds = new Set(data.map(t => t.id));
           const localTrips = await db.trips.toArray();
           const tripsToDelete = localTrips.filter(t => !serverTripIds.has(t.id));
-          if (tripsToDelete.length > 0) {
-            await db.trips.bulkDelete(tripsToDelete.map(t => t.id as number));
-          }
-
-          const existingTrips = await db.trips.toArray();
-          const existingMap = new Map(existingTrips.map(t => [t.id, t]));
-          
-          const tripsToSave = data.map(apiTrip => {
-            const localTrip = existingMap.get(apiTrip.id);
-            return {
-              ...apiTrip,
-              is_fully_synced: localTrip?.is_fully_synced, // Preserve sync status
-              last_accessed: localTrip?.last_accessed // Preserve access time
-            };
-          });
-          
-          const validTripsToSave = tripsToSave.filter(trip => trip.id !== null && trip.id !== undefined);
-          await db.trips.bulkPut(validTripsToSave);
+          if (tripsToDelete.length > 0) await db.trips.bulkDelete(tripsToDelete.map(t => t.id as number));
+          await db.trips.bulkPut(data);
         }
       } catch (err: any) {
         console.error('Failed to fetch trips:', err);
@@ -71,7 +42,6 @@ export function Home() {
         setIsLoading(false);
       }
     };
-
     fetchTrips();
   }, [_hasHydrated, token]);
 
@@ -94,67 +64,31 @@ export function Home() {
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
         {Array.isArray(trips) && trips.length > 0 ? (
           trips.map(trip => {
-            // Determine if the trip is viewable by the current user
             const isMember = user && trip.members?.some(member => member.user_id === user.id);
             const canView = trip.is_public || isMember || user?.role === 'Admin';
+            if (!canView) return null;
 
-            // Determine if the trip is editable by the current user
-            const canEdit = isMember || user?.role === 'Admin';
-
-            if (!canView) return null; // Don't render if user cannot view
-
-            let validStartDate: Date | null = null;
-            let validEndDate: Date | null = null;
-            
-            try {
-              if (trip.start_date) validStartDate = parseISO(trip.start_date);
-              if (trip.end_date) validEndDate = parseISO(trip.end_date);
-            } catch (e) {
-              console.warn('Invalid date format for trip:', trip.id);
-            }
-            
-            const days = (validStartDate && validEndDate && !isNaN(validStartDate.getTime()) && !isNaN(validEndDate.getTime())) 
-              ? differenceInDays(validEndDate, validStartDate) + 1 
-              : 0;
-              
-            const displayStartDate = (validStartDate && !isNaN(validStartDate.getTime())) 
-              ? format(validStartDate, 'MMM d, yyyy') 
-              : 'Date TBD';
-
-            const imageUrl = trip.cover_image_url && trip.cover_image_url.startsWith('http')
-              ? trip.cover_image_url
-              : `https://picsum.photos/seed/${trip.id}/800/600`;
+            const validStartDate = trip.start_date ? parseISO(trip.start_date) : null;
+            const validEndDate = trip.end_date ? parseISO(trip.end_date) : null;
+            const days = (validStartDate && validEndDate) ? differenceInDays(validEndDate, validStartDate) + 1 : 0;
+            const displayStartDate = validStartDate ? format(validStartDate, 'MMM d, yyyy') : 'Date TBD';
+            const imageUrl = trip.cover_image_url || `https://picsum.photos/seed/${trip.id}/800/600`;
             
             return (
               <div
                 key={trip.id}
-                onClick={() => canView && navigate(`/trip/${trip.id}`)}
-                className={`group relative overflow-hidden rounded-3xl bg-zinc-900 border border-white/5 shadow-xl transition-all duration-300 ${canView ? 'cursor-pointer hover:border-orange-500/50' : 'cursor-not-allowed opacity-70'}`}
+                onClick={() => navigate(`/trip/${trip.id}`)}
+                className="group relative overflow-hidden rounded-3xl bg-zinc-900 border border-white/5 shadow-xl transition-all duration-300 cursor-pointer hover:border-orange-500/50"
               >
                 <div className="aspect-[4/3] w-full relative overflow-hidden">
-                  <img
-                    src={imageUrl}
-                    alt={trip.title}
-                    className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-700"
-                    referrerPolicy="no-referrer"
-                    onError={(e) => {
-                      (e.target as HTMLImageElement).src = 'https://picsum.photos/seed/fallback/800/600';
-                    }}
-                  />
+                  <img src={imageUrl} alt={trip.title} className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-700" referrerPolicy="no-referrer" />
                   <div className="absolute inset-0 bg-gradient-to-t from-zinc-950 via-zinc-950/40 to-transparent"></div>
-                  
-                  <div className="absolute top-4 right-4 bg-black/60 backdrop-blur-md px-3 py-1 rounded-full text-xs font-medium text-white border border-white/10">
-                    {days} Days
-                  </div>
+                  <div className="absolute top-4 right-4 bg-black/60 backdrop-blur-md px-3 py-1 rounded-full text-xs font-medium text-white border border-white/10">{days} Days</div>
                 </div>
-                
                 <div className="absolute bottom-0 left-0 right-0 p-6">
                   <h3 className="text-2xl font-bold text-white mb-3 leading-tight drop-shadow-lg">{trip.title}</h3>
                   <div className="flex items-center gap-4 text-zinc-300 text-sm font-medium">
-                    <div className="flex items-center gap-1.5">
-                      <Calendar size={16} className="text-zinc-400" />
-                      <span>{displayStartDate}</span>
-                    </div>
+                    <div className="flex items-center gap-1.5"><Calendar size={16} className="text-zinc-400" /><span>{displayStartDate}</span></div>
                   </div>
                 </div>
               </div>
@@ -168,6 +102,16 @@ export function Home() {
           )
         )}
       </div>
+
+      {/* 💡 首頁懸浮按鈕：開啟全域 Modal */}
+      {user?.role === 'Admin' && (
+        <button
+          onClick={() => setCreateTripModalOpen(true)}
+          className="fixed bottom-24 right-6 w-14 h-14 bg-orange-500 text-white rounded-full shadow-2xl flex items-center justify-center hover:bg-orange-600 transition-all active:scale-95 z-40 border-4 border-black"
+        >
+          <Plus size={32} />
+        </button>
+      )}
     </div>
   );
 }

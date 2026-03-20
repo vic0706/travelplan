@@ -1,16 +1,16 @@
 import React, { useState } from 'react';
 import { X } from 'lucide-react';
-import { motion } from 'framer-motion';
+import { motion, AnimatePresence } from 'framer-motion';
 import { apiFetch } from '../utils/api';
 import { TripBaseForm, TripFormData } from './TripBaseForm';
 
 interface CreateTripModalProps {
-  isOpen: boolean;
+  isOpen?: boolean;
   onClose: () => void;
   onSuccess: (tripId: number) => void;
 }
 
-export function CreateTripModal({ isOpen, onClose, onSuccess }: CreateTripModalProps) {
+export function CreateTripModal({ isOpen = true, onClose, onSuccess }: CreateTripModalProps) {
   const [loading, setLoading] = useState(false);
 
   if (!isOpen) return null;
@@ -18,7 +18,6 @@ export function CreateTripModal({ isOpen, onClose, onSuccess }: CreateTripModalP
   const handleSubmit = async (data: TripFormData) => {
     setLoading(true);
     try {
-      // 1. 建立 Trip
       const res = await apiFetch('/api/trips', {
         method: 'POST',
         body: JSON.stringify({
@@ -33,7 +32,6 @@ export function CreateTripModal({ isOpen, onClose, onSuccess }: CreateTripModalP
       if (!res.ok) throw new Error('Failed to create trip');
       const trip = await res.json() as { id: number };
 
-      // 2. 更新成員名單
       if (data.members.length > 0) {
         await apiFetch(`/api/trips/${trip.id}/members`, {
           method: 'PUT',
@@ -50,25 +48,57 @@ export function CreateTripModal({ isOpen, onClose, onSuccess }: CreateTripModalP
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm">
-      <motion.div 
-        initial={{ scale: 0.95, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0.95, opacity: 0 }}
-        className="bg-zinc-900 border border-zinc-800 rounded-3xl w-full max-w-md shadow-2xl overflow-hidden flex flex-col max-h-[90vh]"
-      >
-        <div className="p-6 border-b border-zinc-800 flex justify-between items-center bg-zinc-900/50 shrink-0">
-          <h2 className="text-xl font-bold text-white">Create New Trip</h2>
-          <button onClick={onClose} className="text-zinc-400 hover:text-white transition-colors p-1 hover:bg-zinc-800 rounded-full"><X size={20} /></button>
-        </div>
+    <AnimatePresence>
+      <div className="fixed inset-0 z-[200] flex items-center justify-center p-4">
+        {/* 1. 獨立的背景遮罩 (點擊背景也能關閉) */}
+        <motion.div 
+          initial={{ opacity: 0 }} 
+          animate={{ opacity: 1 }} 
+          exit={{ opacity: 0 }} 
+          onClick={(e) => {
+            e.stopPropagation();
+            onClose();
+          }} 
+          className="absolute inset-0 bg-black/80 backdrop-blur-sm cursor-pointer" 
+        />
         
-        <div className="p-6 overflow-y-auto custom-scrollbar">
-          <TripBaseForm 
-            onSubmit={handleSubmit}
-            onCancel={onClose}
-            submitText="Create Trip"
-            loading={loading}
-          />
-        </div>
-      </motion.div>
-    </div>
+        {/* 2. 彈窗主體 (設定 relative z-10 確保在遮罩之上) */}
+        <motion.div 
+          initial={{ scale: 0.95, opacity: 0, y: 20 }} 
+          animate={{ scale: 1, opacity: 1, y: 0 }} 
+          exit={{ scale: 0.95, opacity: 0, y: 20 }}
+          className="relative z-10 bg-zinc-900 border border-zinc-800 rounded-3xl w-full max-w-md shadow-2xl overflow-hidden flex flex-col max-h-[90vh]"
+          onClick={(e) => e.stopPropagation()} // 防止點擊彈窗內部時觸發到背景的關閉
+        >
+          <div className="p-6 border-b border-zinc-800 flex justify-between items-center bg-zinc-900/50 shrink-0">
+            <h2 className="text-xl font-bold text-white">Create New Trip</h2>
+            {/* 3. 強化版 X 關閉按鈕 */}
+            <button 
+              type="button"
+              onClick={(e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                onClose();
+              }} 
+              className="text-zinc-400 hover:text-white transition-colors p-1.5 hover:bg-zinc-800 rounded-full cursor-pointer"
+            >
+              <X size={20} />
+            </button>
+          </div>
+          
+          <div className="p-6 overflow-y-auto custom-scrollbar">
+            <TripBaseForm 
+              onSubmit={handleSubmit}
+              onCancel={onClose}
+              submitText="Create Trip"
+              loading={loading}
+            />
+          </div>
+        </motion.div>
+      </div>
+    </AnimatePresence>
   );
 }
+
+// 保留 default export 確保 Home.tsx 若使用 import CreateTripModal 也能正常運作
+export default CreateTripModal;

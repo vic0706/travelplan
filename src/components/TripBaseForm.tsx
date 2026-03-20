@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useAppStore, User } from '../store';
-import { Image as ImageIcon, MapPin, Calendar, Users, Loader2, Check } from 'lucide-react';
+import { Image as ImageIcon, MapPin, Users, Loader2, Check } from 'lucide-react';
 import { ImageCropper, uploadImageToSupabase } from './ImageCropper';
 import { LocationPicker } from './LocationPicker';
 import { DateRangePicker } from './DateRangePicker';
@@ -32,7 +32,6 @@ const COMMON_CURRENCIES = ['TWD', 'USD', 'JPY', 'EUR', 'GBP', 'AUD', 'CAD', 'CNY
 export function TripBaseForm({ initialData, onSubmit, onCancel, submitText, loading = false, extraButtons }: TripBaseFormProps) {
   const { cities, user } = useAppStore();
   
-  // 表單狀態
   const [formData, setFormData] = useState<TripFormData>({
     title: initialData?.title || '',
     start_date: initialData?.start_date || '',
@@ -43,14 +42,11 @@ export function TripBaseForm({ initialData, onSubmit, onCancel, submitText, load
     members: initialData?.members || (user?.id ? [user.id] : []),
   });
 
-  // UI 控制狀態
   const [uploading, setUploading] = useState(false);
   const [croppingImage, setCroppingImage] = useState<string | null>(null);
   const [isLocationPickerOpen, setIsLocationPickerOpen] = useState(false);
-  const [isDatePickerOpen, setIsDatePickerOpen] = useState(false);
   const [availableUsers, setAvailableUsers] = useState<User[]>([]);
 
-  // 抓取可用的使用者列表 (用於邀請旅伴)
   useEffect(() => {
     const fetchUsers = async () => {
       try {
@@ -108,7 +104,7 @@ export function TripBaseForm({ initialData, onSubmit, onCancel, submitText, load
     <form onSubmit={handleSubmit} className="space-y-6">
       {/* Cover Image */}
       <div>
-        <label className="block text-[10px] font-bold text-zinc-500 uppercase tracking-wider mb-2">Cover Image</label>
+        <label className="block text-xs font-bold text-zinc-500 uppercase tracking-wider mb-2">Cover Image</label>
         <div className="relative h-48 bg-zinc-800 rounded-2xl overflow-hidden border border-zinc-700 group">
           {formData.cover_image_url ? (
             <>
@@ -135,29 +131,36 @@ export function TripBaseForm({ initialData, onSubmit, onCancel, submitText, load
 
       {/* Title */}
       <div>
-        <label className="block text-[10px] font-bold text-zinc-500 uppercase tracking-wider mb-2">Trip Title *</label>
+        <label className="block text-xs font-bold text-zinc-500 uppercase tracking-wider mb-2">Trip Title *</label>
         <input 
           type="text" required value={formData.title} 
           onChange={e => setFormData({ ...formData, title: e.target.value })}
-          className="w-full bg-zinc-800 border border-zinc-700 rounded-xl px-4 py-3.5 text-white focus:outline-none focus:border-orange-500 transition-colors"
+          className="w-full bg-zinc-800 border border-zinc-700 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-orange-500 transition-colors"
           placeholder="e.g., Summer in Tokyo" 
         />
       </div>
 
       {/* Dates & Location */}
       <div className="grid grid-cols-2 gap-4">
-        <div>
-          <label className="block text-[10px] font-bold text-zinc-500 uppercase tracking-wider mb-2">Dates *</label>
-          <button type="button" onClick={() => setIsDatePickerOpen(true)} className="w-full bg-zinc-800 border border-zinc-700 rounded-xl px-4 py-3.5 flex items-center gap-3 text-left hover:border-zinc-500 transition-colors">
-            <Calendar size={18} className="text-orange-500 shrink-0" />
-            <span className={clsx("truncate text-sm font-medium", formData.start_date ? "text-white" : "text-zinc-500")}>
-              {formData.start_date ? `${format(parseISO(formData.start_date), 'MMM d')} - ${format(parseISO(formData.end_date), 'MMM d, yyyy')}` : 'Select dates...'}
-            </span>
-          </button>
-        </div>
-        <div>
-          <label className="block text-[10px] font-bold text-zinc-500 uppercase tracking-wider mb-2">Default City</label>
-          <button type="button" onClick={() => setIsLocationPickerOpen(true)} className="w-full bg-zinc-800 border border-zinc-700 rounded-xl px-4 py-3.5 flex items-center gap-3 text-left hover:border-zinc-500 transition-colors">
+        {/* 🚨 這裡直接使用進化後的 DateRangePicker (它會自己處理 Label 跟按鈕) 🚨 */}
+        <DateRangePicker 
+          label="Dates *"
+          value={{ 
+            start_date: formData.start_date ? parseISO(formData.start_date) : null, 
+            end_date: formData.end_date ? parseISO(formData.end_date) : null,
+            start_time: '10:00', // 雖然建立行程不需要時間，但為了滿足元件格式給個預設值
+            end_time: '10:00'
+          }}
+          onChange={range => setFormData({ 
+            ...formData, 
+            start_date: range.start_date ? format(range.start_date, 'yyyy-MM-dd') : '',
+            end_date: range.end_date ? format(range.end_date, 'yyyy-MM-dd') : ''
+          })}
+        />
+
+        <div className="relative w-full">
+          <label className="block text-xs font-bold text-zinc-500 uppercase tracking-wider mb-1">Default City</label>
+          <button type="button" onClick={() => setIsLocationPickerOpen(true)} className="w-full bg-zinc-800 border border-zinc-700 rounded-xl px-4 py-3 flex items-center gap-3 text-left hover:border-zinc-500 transition-colors">
             <MapPin size={18} className="text-orange-500 shrink-0" />
             <span className={clsx("truncate text-sm font-medium", formData.default_city_id ? "text-white" : "text-zinc-500")}>
               {formData.default_city_id ? cities.find(c => c.id === formData.default_city_id)?.name : 'Select city...'}
@@ -168,11 +171,11 @@ export function TripBaseForm({ initialData, onSubmit, onCancel, submitText, load
 
       {/* Currency */}
       <div>
-        <label className="block text-[10px] font-bold text-zinc-500 uppercase tracking-wider mb-2">Default Currency</label>
+        <label className="block text-xs font-bold text-zinc-500 uppercase tracking-wider mb-2">Default Currency</label>
         <select 
           value={formData.currencies[0] || 'TWD'}
           onChange={e => setFormData({ ...formData, currencies: [e.target.value] })}
-          className="w-full bg-zinc-800 border border-zinc-700 rounded-xl px-4 py-3.5 text-white focus:outline-none focus:border-orange-500 transition-colors appearance-none"
+          className="w-full bg-zinc-800 border border-zinc-700 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-orange-500 transition-colors appearance-none"
         >
           {COMMON_CURRENCIES.map(curr => <option key={curr} value={curr}>{curr}</option>)}
         </select>
@@ -180,7 +183,7 @@ export function TripBaseForm({ initialData, onSubmit, onCancel, submitText, load
 
       {/* Members */}
       <div>
-        <label className="block text-[10px] font-bold text-zinc-500 uppercase tracking-wider mb-2 flex items-center gap-1.5"><Users size={14}/> Trip Members</label>
+        <label className="block text-xs font-bold text-zinc-500 uppercase tracking-wider mb-2 flex items-center gap-1.5"><Users size={14}/> Trip Members</label>
         <div className="bg-zinc-800 border border-zinc-700 rounded-xl p-2 max-h-[160px] overflow-y-auto custom-scrollbar">
           {availableUsers.map(u => {
             const isSelected = formData.members.includes(u.id);
@@ -194,7 +197,6 @@ export function TripBaseForm({ initialData, onSubmit, onCancel, submitText, load
                 <div className={clsx("w-5 h-5 rounded flex items-center justify-center border transition-colors", isSelected ? "bg-orange-500 border-orange-500 text-white" : "border-zinc-600")}>
                   {isSelected && <Check size={14} strokeWidth={3} />}
                 </div>
-                {/* 隱藏的 Checkbox */}
                 <input type="checkbox" className="hidden" checked={isSelected} onChange={() => !isSelf && toggleMember(u.id)} disabled={isSelf} />
               </label>
             );
@@ -206,26 +208,17 @@ export function TripBaseForm({ initialData, onSubmit, onCancel, submitText, load
       <div className="flex gap-3 pt-4 border-t border-zinc-800">
         {extraButtons}
         {onCancel && (
-          <button type="button" onClick={onCancel} className="flex-1 bg-zinc-800 hover:bg-zinc-700 text-white font-bold rounded-xl px-4 py-3.5 transition-colors">
+          <button type="button" onClick={onCancel} className="flex-1 bg-zinc-800 hover:bg-zinc-700 text-white font-bold rounded-xl px-4 py-3 transition-colors">
             Cancel
           </button>
         )}
-        <button type="submit" disabled={loading || uploading} className="flex-[2] bg-orange-500 hover:bg-orange-600 disabled:opacity-50 text-white font-bold rounded-xl px-4 py-3.5 transition-colors shadow-lg shadow-orange-500/20 flex items-center justify-center gap-2">
+        <button type="submit" disabled={loading || uploading} className="flex-[2] bg-orange-500 hover:bg-orange-600 disabled:opacity-50 text-white font-bold rounded-xl px-4 py-3 transition-colors shadow-lg shadow-orange-500/20 flex items-center justify-center gap-2">
           {loading ? <Loader2 className="animate-spin" size={20} /> : submitText}
         </button>
       </div>
 
-      {/* Pickers & Modals */}
+      {/* Pickers & Modals (注意這裡已經沒有舊的 DateRangePicker 了！) */}
       <LocationPicker isOpen={isLocationPickerOpen} onClose={() => setIsLocationPickerOpen(false)} onSelect={(id) => setFormData({ ...formData, default_city_id: id })} groupedCities={groupedCities} />
-      
-      {/* 🚨 這裡已經修正為傳入正確的 initialData 物件格式 🚨 */}
-      <DateRangePicker 
-        isOpen={isDatePickerOpen} 
-        onClose={() => setIsDatePickerOpen(false)} 
-        initialData={{ start_date: formData.start_date, end_date: formData.end_date }}
-        onSelect={(start, end) => setFormData({ ...formData, start_date: start, end_date: end })} 
-      />
-      
       {croppingImage && <ImageCropper imageSrc={croppingImage} aspect={16 / 9} onCropComplete={handleCropComplete} onCancel={() => setCroppingImage(null)} />}
     </form>
   );
