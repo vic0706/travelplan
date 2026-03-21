@@ -2,7 +2,7 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useAppStore } from '../store';
 import { format, parseISO, addDays, differenceInDays, isSameDay, isPast, addMinutes } from 'date-fns';
-import { Map, Info, Wallet, ArrowLeft, Calendar, Settings, Edit3, ChevronsUpDown, ChevronsDownUp, Unlock, Plus, DollarSign } from 'lucide-react';
+import { Map, Info, Wallet, ArrowLeft, Calendar, Settings, Edit3, ChevronsUpDown, ChevronsDownUp, Unlock, Plus, DollarSign, Loader2, LockIcon } from 'lucide-react';
 import { Trip, Itinerary, Expense, User, Booking } from '../types';
 import { clsx } from 'clsx';
 import { db } from '../db';
@@ -138,8 +138,8 @@ export function TripDetails() {
 
   const tripUsers = useLiveQuery(async () => {
     if (!id) return [];
-    const tripMembers = await db.tripMembers.where('trip_id').equals(Number(id)).toArray();
-    const userIds = tripMembers.map(m => m.user_id);
+    const tripMembersArr = await db.tripMembers.where('trip_id').equals(Number(id)).toArray();
+    const userIds = tripMembersArr.map(m => m.user_id);
     return db.users.where('id').anyOf(userIds).toArray();
   }, [id]);
 
@@ -202,25 +202,15 @@ export function TripDetails() {
   const hasEditPermission = !!(isMember || isAdmin);
   const canEdit = hasEditPermission && isEditMode;
 
-// 💡 權限檢查：只有「公開行程」或是「受邀成員/管理員」才能看到內容
+  // 💡 權限檢查：只有「公開行程」或是「受邀成員/管理員」才能看到內容
   const hasAccess = trip?.is_public === 1 || hasEditPermission;
 
-// 🚨 如果資料載入完畢，發現沒權限存取
+  // 🚨 這邊必須留著做路由跳轉，但不能 early return 擋住 Hook
   useEffect(() => {
     if (trip && !hasAccess) {
-      // 這裡可以直接跳轉回首頁，讓沒權限的人完全進不來
       navigate('/', { replace: true });
     }
   }, [trip, hasAccess, navigate]);
-
-  // 如果正在檢查權限中或沒權限，不渲染任何內容（避免畫面閃爍出行程內容）
-  if (!trip || !hasAccess) {
-    return (
-      <div className="flex items-center justify-center h-screen bg-black">
-        <Loader2 className="animate-spin text-orange-500" size={32} />
-      </div>
-    );
-  }
 
   const validTripStartDate = safeParse(trip?.start_date);
   const validTripEndDate = safeParse(trip?.end_date);
@@ -236,6 +226,7 @@ export function TripDetails() {
     return parsed ? isSameDay(parsed, selectedDate || new Date()) : false;
   }).sort((a, b) => a.start_time.localeCompare(b.start_time));
 
+  // 💡 修正 Hook 錯誤：這裡的 useMemo 會被順利執行到
   const conflictedIdsInView = useMemo(() => {
     const conflicts = new Set<number>();
     if (!selectedDate) return conflicts;
@@ -328,7 +319,14 @@ export function TripDetails() {
     return ['ALL', ...Array.from(cats)];
   }, [bookings]);
 
-  if (!trip) return <div className="flex items-center justify-center h-full min-h-[50vh]"><div className="text-zinc-500">Loading trip details...</div></div>;
+  // 🚨 修正 Hook 錯誤：這裡才是放置「載入中或無權限」阻擋畫面的正確位置
+  if (!trip || !hasAccess) {
+    return (
+      <div className="flex items-center justify-center h-screen bg-black">
+        <Loader2 className="animate-spin text-orange-500" size={32} />
+      </div>
+    );
+  }
 
   return (
     <div className="flex flex-col h-screen bg-black overflow-hidden overscroll-none">
@@ -346,7 +344,7 @@ export function TripDetails() {
             <ArrowLeft size={20} />
           </button>
           
-          {user && (
+          {hasEditPermission && (
             <button 
               onClick={handleToggleEditMode} 
               className={clsx("absolute right-4 p-2 backdrop-blur-md rounded-full transition-all z-20 border border-white/10 shadow-lg", isEditMode ? "bg-orange-500 text-white" : "bg-black/50 text-white hover:bg-orange-500 transition-all")} 
@@ -406,6 +404,7 @@ export function TripDetails() {
       </div>
 
       <div className="flex-1 overflow-y-auto p-4 pb-32 custom-scrollbar overscroll-none">
+        {/* -------------------- ITINERARY TAB -------------------- */}
         {activeTab === 'itinerary' && (
           <div className="space-y-6">
             {id && <WeatherWidget tripId={Number(id)} date={selectedDate} />}
@@ -458,7 +457,7 @@ export function TripDetails() {
               )}
               
               {canEdit && (
-                <button onClick={() => setIsItineraryFormOpen(true)} className="w-full mt-6 py-4 border-2 border-dashed border-zinc-800 rounded-3xl flex items-center justify-center gap-2 text-zinc-500 hover:text-orange-500 hover:border-orange-500/50 hover:bg-orange-500/5 transition-all">
+                <button onClick={() => { setEditingItinerary(null); setIsItineraryFormOpen(true); }} className="w-full mt-6 py-4 border-2 border-dashed border-zinc-800 rounded-3xl flex items-center justify-center gap-2 text-zinc-500 hover:text-orange-500 hover:border-orange-500/50 hover:bg-orange-500/5 transition-all">
                   <Plus size={20} /><span className="font-medium">Add Activity</span>
                 </button>
               )}
@@ -466,6 +465,7 @@ export function TripDetails() {
           </div>
         )}
 
+        {/* -------------------- INFO / BOOKINGS TAB -------------------- */}
         {activeTab === 'info' && (
           <div className="space-y-6">
             <div className="bg-zinc-900 border border-zinc-800 rounded-3xl p-6 shadow-lg">
@@ -491,7 +491,10 @@ export function TripDetails() {
                         <button 
                           key={cat} 
                           onClick={() => setBookingFilter(cat)} 
-                          className={clsx("px-4 py-2 rounded-xl text-xs font-bold whitespace-nowrap transition-colors border", bookingFilter === cat ? "bg-orange-500 border-orange-500 text-white" : "bg-zinc-900 border-zinc-800 text-zinc-400 hover:border-zinc-600")}
+                          className={clsx(
+                            "px-4 py-1.5 rounded-full text-xs font-bold whitespace-nowrap transition-colors border",
+                            bookingFilter === cat ? "bg-orange-500 text-white border-orange-500" : "bg-zinc-900 border-zinc-800 text-zinc-400 hover:text-white hover:bg-zinc-800"
+                          )}
                         >
                           {cat}
                         </button>
@@ -499,21 +502,37 @@ export function TripDetails() {
                     </div>
                   )}
                   
-                  <div className="space-y-3">
-                    {bookings.filter(b => bookingFilter === 'ALL' || b.category === bookingFilter).map(booking => (
-                      <BookingCard key={booking.id} booking={booking} canEdit={canEdit} onEdit={() => { setEditingBooking(booking); setIsBookingFormOpen(true); }} />
-                    ))}
+                  <div className="grid grid-cols-1 gap-4">
+                    {bookings
+                      .filter(b => bookingFilter === 'ALL' || b.category === bookingFilter)
+                      .sort((a, b) => {
+                        const now = new Date();
+                        const dateA = parseISO(`${a.start_date}T${a.start_time}`);
+                        const dateB = parseISO(`${b.start_date}T${b.start_time}`);
+                        const aPast = isPast(dateA) && !isSameDay(dateA, now);
+                        const bPast = isPast(dateB) && !isSameDay(dateB, now);
+                        if (aPast && !bPast) return 1;
+                        if (!aPast && bPast) return -1;
+                        return dateA.getTime() - dateB.getTime();
+                      })
+                      .map(booking => (
+                        <BookingCard key={booking.id} booking={booking} canEdit={canEdit} onEdit={() => { setEditingBooking(booking); setIsBookingFormOpen(true); }} />
+                      ))}
                   </div>
                 </>
               ) : (
-                <div className="text-center py-10 text-zinc-600 border border-dashed border-zinc-800 rounded-3xl text-sm">No bookings yet.</div>
+                <div className="bg-zinc-900/50 border border-dashed border-zinc-800 rounded-3xl p-12 text-center text-zinc-500">
+                  <div className="mb-4 flex justify-center"><Info size={32} className="opacity-20" /></div>
+                  <p className="text-sm">No bookings added yet.</p>
+                </div>
               )}
             </div>
           </div>
         )}
 
+        {/* -------------------- FINANCE TAB -------------------- */}
         {activeTab === 'finance' && (
-          <div className="space-y-6">
+          <div className="space-y-4">
             <div className="flex items-center justify-between px-2">
               <h3 className="text-lg font-bold text-white">Daily Expenses</h3>
               <div className="text-right">
@@ -524,80 +543,83 @@ export function TripDetails() {
               </div>
             </div>
 
-            <div className="space-y-3">
-              {filteredExpenses.length > 0 ? (
-                filteredExpenses.map((expense) => (
-                  <div key={expense.id} onClick={() => { if(canEdit){ setEditingExpense(expense); setIsFinanceFormOpen(true); } }} className={clsx("bg-zinc-900 border border-zinc-800 rounded-3xl p-5 flex items-center justify-between transition-all group", canEdit && "hover:border-orange-500/50 cursor-pointer active:scale-[0.98]")}>
-                    <div className="flex items-center gap-4">
-                      <div className="w-12 h-12 rounded-full bg-zinc-800 flex items-center justify-center shrink-0 border border-zinc-700">
-                        <DollarSign className="text-orange-500" size={24} />
-                      </div>
-                      <div>
-                        <div className="font-bold text-white text-base mb-1">{expense.item_name}</div>
-                        <div className="text-[11px] font-bold text-zinc-500 uppercase tracking-widest flex items-center gap-2">
-                          <span className="bg-zinc-800 px-2 py-0.5 rounded-md">{expense.category || 'Other'}</span>
-                          <span>Paid by {getUserNameById(expense.payer_id)}</span>
-                        </div>
-                      </div>
-                    </div>
-                    <div className="text-right flex items-center gap-3">
-                      <div className="text-lg font-bold text-white font-mono">{expense.currency} {expense.amount.toLocaleString()}</div>
-                      {canEdit && <div className="text-zinc-600 group-hover:text-orange-500 transition-colors"><Edit3 size={16} /></div>}
+            {filteredExpenses.length > 0 ? (
+              filteredExpenses.map(expense => (
+                <div 
+                  key={expense.id} 
+                  onClick={() => { if (canEdit) { setEditingExpense(expense); setIsFinanceFormOpen(true); } }} 
+                  className={`bg-zinc-900 border border-zinc-800 rounded-3xl p-5 shadow-lg flex items-center justify-between transition-colors ${canEdit ? 'cursor-pointer hover:bg-zinc-800/50' : ''}`}
+                >
+                  <div className="flex items-center gap-4">
+                    <div className="w-12 h-12 rounded-full bg-zinc-800 flex items-center justify-center shrink-0"><DollarSign className="text-zinc-400" size={20} /></div>
+                    <div>
+                      <h4 className="text-white font-medium">{expense.item_name}</h4>
+                      <p className="text-xs text-zinc-500 mt-1 uppercase tracking-wider">Paid by {getUserNameById(expense.payer_id)}</p>
                     </div>
                   </div>
-                ))
-              ) : (
-                <div className="text-center py-12 text-zinc-500 border border-dashed border-zinc-800 rounded-3xl"><p>No expenses for this day.</p></div>
-              )}
-            </div>
+                  <div className="text-right">
+                    <div className="text-lg font-semibold text-white">{expense.amount.toLocaleString()}</div>
+                    <div className="text-[10px] text-zinc-500 uppercase tracking-wider mt-1">{expense.currency}</div>
+                  </div>
+                </div>
+              ))
+            ) : (
+              <div className="text-center py-12 text-zinc-500 border border-dashed border-zinc-800 rounded-3xl"><p>No expenses recorded for this day.</p></div>
+            )}
 
             {canEdit && (
-              <button onClick={() => { setEditingExpense(null); setIsFinanceFormOpen(true); }} className="w-full mt-4 py-4 border-2 border-dashed border-zinc-800 rounded-3xl flex items-center justify-center gap-2 text-zinc-500 hover:text-orange-500 hover:border-orange-500/50 hover:bg-orange-500/5 transition-all">
+              <button onClick={() => { setEditingExpense(null); setIsFinanceFormOpen(true); }} className="w-full mt-6 py-4 border-2 border-dashed border-zinc-800 rounded-3xl flex items-center justify-center gap-2 text-zinc-500 hover:text-orange-500 hover:border-orange-500/50 hover:bg-orange-500/5 transition-all">
                 <Plus size={20} /><span className="font-medium">Add Expense</span>
               </button>
             )}
           </div>
         )}
 
+        {/* -------------------- SETTINGS TAB -------------------- */}
         {activeTab === 'settings' && hasEditPermission && (
-          <TripSettingsForm 
-            trip={trip} 
-            onUpdate={refreshTripData} 
-            onDelete={async () => {
-              try {
-                await apiFetch(`/api/trips/${id}`, { method: 'DELETE' });
-                await db.trips.delete(Number(id));
-                navigate('/');
-              } catch (e) { alert('Delete failed'); }
-            }}
-            onClose={() => setActiveTab('itinerary')}
-          />
+          <div className="space-y-6">
+            <div className="bg-zinc-900 border border-zinc-800 rounded-3xl p-6 shadow-lg">
+              <h3 className="text-lg font-semibold text-white mb-6">Trip Settings</h3>
+              <TripSettingsForm 
+                trip={trip} 
+                onUpdate={refreshTripData} 
+                onDelete={async () => {
+                  try {
+                    await apiFetch(`/api/trips/${id}`, { method: 'DELETE' });
+                    await db.trips.delete(Number(id));
+                    navigate('/');
+                  } catch (e) { alert('Delete failed'); }
+                }}
+                onClose={() => setActiveTab('itinerary')}
+              />
+            </div>
+          </div>
         )}
       </div>
 
-      <div className="fixed bottom-0 left-0 right-0 bg-black/90 backdrop-blur-xl border-t border-zinc-800 z-50 pb-safe-bottom">
-        <div className="flex justify-around items-center px-2 py-3">
-          <button onClick={() => setActiveTab('itinerary')} className={clsx("flex flex-col items-center gap-1.5 p-2 transition-colors", activeTab === 'itinerary' ? "text-orange-500" : "text-zinc-500 hover:text-zinc-300")}>
-            <Map size={24} />
-            <span className="text-[10px] font-bold tracking-wide">Itinerary</span>
+      {/* Footer Navigation */}
+      <div className="fixed bottom-0 left-0 right-0 bg-zinc-900/95 backdrop-blur-xl border-t border-zinc-800 flex items-center justify-around px-4 pt-2 z-[100] shadow-[0_-4px_20px_rgba(0,0,0,0.5)]" style={{ paddingBottom: 'max(0.5rem, calc(env(safe-area-inset-bottom) + 0.5rem))' }}>
+        <button onClick={() => setActiveTab('itinerary')} className={clsx("flex flex-col items-center justify-center w-full h-14 gap-1 rounded-2xl transition-all duration-300", activeTab === 'itinerary' ? "text-orange-500 bg-orange-500/10" : "text-zinc-500 hover:text-zinc-300 hover:bg-zinc-800/50")}>
+          <Map size={activeTab === 'itinerary' ? 24 : 22} className="transition-all duration-300" />
+          <span className="text-[10px] font-bold tracking-wide">Itinerary</span>
+        </button>
+        <button onClick={() => setActiveTab('info')} className={clsx("flex flex-col items-center justify-center w-full h-14 gap-1 rounded-2xl transition-all duration-300", activeTab === 'info' ? "text-orange-500 bg-orange-500/10" : "text-zinc-500 hover:text-zinc-300 hover:bg-zinc-800/50")}>
+          <Info size={activeTab === 'info' ? 24 : 22} className="transition-all duration-300" />
+          <span className="text-[10px] font-bold tracking-wide">Info</span>
+        </button>
+        <button onClick={() => setActiveTab('finance')} className={clsx("flex flex-col items-center justify-center w-full h-14 gap-1 rounded-2xl transition-all duration-300", activeTab === 'finance' ? "text-orange-500 bg-orange-500/10" : "text-zinc-500 hover:text-zinc-300 hover:bg-zinc-800/50")}>
+          <Wallet size={activeTab === 'finance' ? 24 : 22} className="transition-all duration-300" />
+          <span className="text-[10px] font-bold tracking-wide">Finance</span>
+        </button>
+        {hasEditPermission && (
+          <button onClick={() => setActiveTab('settings')} className={clsx("flex flex-col items-center justify-center w-full h-14 gap-1 rounded-2xl transition-all duration-300", activeTab === 'settings' ? "text-orange-500 bg-orange-500/10" : "text-zinc-500 hover:text-zinc-300 hover:bg-zinc-800/50")}>
+            <Settings size={activeTab === 'settings' ? 24 : 22} className="transition-all duration-300" />
+            <span className="text-[10px] font-bold tracking-wide">Settings</span>
           </button>
-          <button onClick={() => setActiveTab('info')} className={clsx("flex flex-col items-center gap-1.5 p-2 transition-colors", activeTab === 'info' ? "text-orange-500" : "text-zinc-500 hover:text-zinc-300")}>
-            <Info size={24} />
-            <span className="text-[10px] font-bold tracking-wide">Info</span>
-          </button>
-          <button onClick={() => setActiveTab('finance')} className={clsx("flex flex-col items-center gap-1.5 p-2 transition-colors", activeTab === 'finance' ? "text-orange-500" : "text-zinc-500 hover:text-zinc-300")}>
-            <Wallet size={24} />
-            <span className="text-[10px] font-bold tracking-wide">Finance</span>
-          </button>
-          {hasEditPermission && (
-            <button onClick={() => setActiveTab('settings')} className={clsx("flex flex-col items-center gap-1.5 p-2 transition-colors", activeTab === 'settings' ? "text-orange-500" : "text-zinc-500 hover:text-zinc-300")}>
-              <Settings size={24} />
-              <span className="text-[10px] font-bold tracking-wide">Settings</span>
-            </button>
-          )}
-        </div>
+        )}
       </div>
 
+      {/* Modals */}
       <AnimatePresence>
         {isItineraryFormOpen && (
           <div className="fixed inset-0 z-[100] flex items-end justify-center bg-black/80 backdrop-blur-sm sm:items-center p-4">
@@ -619,7 +641,7 @@ export function TripDetails() {
               <FinanceForm 
                 tripId={id!} 
                 defaultDate={selectedDate ? format(selectedDate, 'yyyy-MM-dd') : undefined} 
-                currencies={trip.currencies} 
+                currencies={trip.currencies ? (typeof trip.currencies === 'string' ? JSON.parse(trip.currencies) : trip.currencies) : ['TWD']} 
                 initialData={editingExpense}
                 onSuccess={() => { setIsFinanceFormOpen(false); setEditingExpense(null); refreshTripData(); }} 
                 onCancel={() => { setIsFinanceFormOpen(false); setEditingExpense(null); }} 
@@ -634,6 +656,7 @@ export function TripDetails() {
               <BookingForm 
                 initialData={editingBooking}
                 onSubmit={async (data) => {
+                  if (!id) return;
                   try {
                     const endpoint = editingBooking ? `/api/trips/${id}/bookings/${editingBooking.id}` : `/api/trips/${id}/bookings`;
                     const method = editingBooking ? 'PUT' : 'POST';
@@ -663,6 +686,7 @@ export function TripDetails() {
             itinerary={editingItinerary} 
             nextItinerary={filteredItineraries[filteredItineraries.findIndex(i => i.id === editingItinerary.id) + 1]}
             onSave={async (data) => {
+              if (!id) return;
               try {
                 await apiFetch(`/api/trips/${id}/itineraries/${editingItinerary.id}`, { method: 'PUT', body: JSON.stringify({ ...editingItinerary, ...data }) });
                 setIsNextTransportFormOpen(false);
