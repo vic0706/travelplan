@@ -18,12 +18,27 @@ interface ItineraryCardProps {
   isDragOverlay?: boolean;
 }
 
+// 💡 終極安全防呆解析器
+const safeParse = (data: any) => {
+  if (typeof data === 'object' && data !== null) return data;
+  if (!data || data === "" || data === "null") return [];
+  try {
+    return JSON.parse(data);
+  } catch (e) {
+    console.warn("JSON Parse Error in ItineraryCard. Data:", data);
+    return [];
+  }
+};
+
 export function ItineraryCard({ 
   item, canEdit, isConflicted, onEdit, showNextTransport, onEditNextTransport, expandSignal, collapseSignal, isDragOverlay 
 }: ItineraryCardProps) {
   const { categories } = useAppStore();
   const category = (categories || []).find(c => c.icon === item.icon) || { color: '#808080' };
-  const subItems = item.sub_items ? JSON.parse(item.sub_items) : [];
+  
+  // 安全取出標籤與子項目，絕不會崩潰
+  const tags = safeParse(item.tags);
+  const subItems = safeParse(item.sub_items);
 
   const endTimeStr = item.end_time || item.start_time || '23:59';
   const itemDateTime = new Date(`${item.date}T${endTimeStr}`);
@@ -32,13 +47,12 @@ export function ItineraryCard({
   const [isCardExpanded, setIsCardExpanded] = useState(false);
   const [isDetailsExpanded, setIsDetailsExpanded] = useState(false);
 
-  // 💡 只有當有照片時，才根據全域信號自動展開
   const displayImage = item.image_url || null;
 
   useEffect(() => { 
     if (expandSignal && expandSignal > 0 && displayImage) setIsCardExpanded(true); 
   }, [expandSignal, displayImage]);
-  
+
   useEffect(() => { 
     if (collapseSignal && collapseSignal > 0) setIsCardExpanded(false); 
   }, [collapseSignal]);
@@ -49,8 +63,8 @@ export function ItineraryCard({
   };
 
   const getGoogleMapsLink = () => {
-    if (item.google_place_id) return `https://www.google.com/maps/search/?api=1&query_place_id=${item.google_place_id}`;
-    return `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(item.address || item.title)}`;
+    if (item.google_place_id) return `http://googleusercontent.com/maps.google.com/?q=place_id:${item.google_place_id}`;
+    return `http://googleusercontent.com/maps.google.com/?q=${encodeURIComponent(item.address || item.title)}`;
   };
 
   const getTransportIcon = () => {
@@ -122,7 +136,7 @@ export function ItineraryCard({
               initial={{ height: 0, opacity: 0 }} animate={{ height: 'auto', opacity: 1 }} exit={{ height: 0, opacity: 0 }}
               transition={{ duration: 0.35, ease: "circOut" }}
             >
-              <div className="relative w-full aspect-[4/3] bg-zinc-800 group/photo">
+              <div className="relative w-full aspect-[21/9] bg-zinc-800 group/photo">
                 <img src={displayImage} alt={item.title} className="absolute inset-0 w-full h-full object-cover" />
                 <button 
                   onClick={(e) => { e.stopPropagation(); setIsDetailsExpanded(!isDetailsExpanded); }}

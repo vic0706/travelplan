@@ -5,7 +5,7 @@ import { Plus, Calendar, Loader2 } from 'lucide-react';
 import { format, differenceInDays, parseISO } from 'date-fns';
 import { db } from '../db';
 import { useLiveQuery } from 'dexie-react-hooks';
-import { apiFetch } from '../utils/api';
+import { apiFetch, safeJson } from '../utils/api';
 
 export function Home() {
   const trips = useLiveQuery(() => db.trips.orderBy('start_date').reverse().toArray());
@@ -27,7 +27,7 @@ export function Home() {
       try {
         const res = await apiFetch('/api/trips');
         if (!res.ok) throw new Error(`HTTP error! status: ${res.status}`);
-        const data = await res.json();
+        const data = await safeJson<any[]>(res);
         if (Array.isArray(data)) {
           const serverTripIds = new Set(data.map(t => t.id));
           const localTrips = await db.trips.toArray();

@@ -37,7 +37,10 @@ export interface Trip {
 export interface TripMember {
   trip_id: number;
   user_id: number;
+  id?: number; // Alias for user_id returned by some queries
   role: string;
+  name?: string;
+  avatar_url?: string;
 }
 
 export interface Itinerary {

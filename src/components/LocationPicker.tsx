@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import { X, ChevronRight, ArrowLeft, MapPin, Search, Loader2, Globe } from 'lucide-react';
-import { apiFetch } from '../utils/api';
+import { apiFetch, safeJson } from '../utils/api';
 import { City } from '../types';
 
 interface LocationPickerProps {
@@ -48,8 +48,8 @@ export function LocationPicker({ isOpen, onClose, onSelect, groupedCities }: Loc
       // 這邊預設會打之後要在 Worker 新增的搜尋 API
       const res = await apiFetch(`/api/places/search?q=${encodeURIComponent(query)}`);
       if (res.ok) {
-        const data = await res.json();
-        setSearchResults(data);
+        const data = await safeJson<any[]>(res);
+        setSearchResults(data || []);
       }
     } catch (err) {
       console.error('Place search failed', err);

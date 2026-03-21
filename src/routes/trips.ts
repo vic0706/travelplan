@@ -30,7 +30,7 @@ trips.get('/', async (c) => {
     if (tripsData.length === 0) return c.json([]);
     
     const tripIds = tripsData.map((t: any) => t.id).join(',');
-    const { results: allMembers } = await c.env.DB.prepare(`SELECT trip_id, user_id, role FROM TripMembers WHERE trip_id IN (${tripIds})`).all();
+    const { results: allMembers } = await c.env.DB.prepare(`SELECT trip_id, user_id as id, role FROM TripMembers WHERE trip_id IN (${tripIds})`).all();
     
     return c.json(tripsData.map((trip: any) => ({ 
       ...trip, 
@@ -70,7 +70,7 @@ trips.get('/:id', async (c) => {
     if (results.length === 0) return c.json({ error: 'Trip not found' }, 404);
     
     const trip = results[0] as any;
-    const { results: members } = await c.env.DB.prepare('SELECT user_id, role FROM TripMembers WHERE trip_id = ?').bind(id).all();
+    const { results: members } = await c.env.DB.prepare('SELECT user_id as id, role FROM TripMembers WHERE trip_id = ?').bind(id).all();
     
     return c.json({ 
       ...trip, 
@@ -265,7 +265,7 @@ trips.get('/:id/members', async (c) => {
     if (!canView) return c.json({ error: 'Unauthorized' }, 403);
 
     const { results } = await c.env.DB.prepare(`
-      SELECT tm.user_id, tm.role, u.name, u.avatar_url 
+      SELECT u.id, tm.role, u.name, u.avatar_url 
       FROM TripMembers tm JOIN Users u ON tm.user_id = u.id WHERE tm.trip_id = ?
     `).bind(tripId).all();
     return c.json(results);

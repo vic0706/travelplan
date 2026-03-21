@@ -10,7 +10,7 @@ import { AdminMembers } from './pages/AdminMembers';
 import { AdminSettings } from './pages/AdminSettings';
 
 import { useAppStore } from './store';
-import { apiFetch } from './utils/api';
+import { apiFetch, safeJson } from './utils/api';
 import { City } from './types';
 import { clsx } from 'clsx';
 
@@ -49,7 +49,7 @@ function AppContent() {
       try {
         const res = await apiFetch('/api/cities');
         if (res.ok) {
-          const data = await res.json() as City[];
+          const data = await safeJson<City[]>(res);
           setCities(data);
         }
       } catch (err) {

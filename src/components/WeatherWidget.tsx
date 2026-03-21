@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { Cloud, CloudDrizzle, CloudFog, CloudLightning, CloudRain, CloudSnow, Sun, Loader2 } from 'lucide-react';
-import { apiFetch } from '../utils/api';
+import { apiFetch, safeJson } from '../utils/api';
 import { format, isSameDay, isBefore, startOfDay } from 'date-fns';
 
 interface WeatherWidgetProps {
@@ -38,11 +38,11 @@ export function WeatherWidget({ tripId, date }: WeatherWidgetProps) {
       const dateStr = format(date, 'yyyy-MM-dd');
       const res = await apiFetch(`/api/trips/${tripId}/weather?date=${dateStr}`);
       if (res.status === 202 || res.status === 404) {
-        const json = await res.json() as { message: string };
+        const json = await safeJson<{ message: string }>(res, { message: 'Weather not available' });
         setMessage(json.message);
         setData(null);
       } else if (res.ok) {
-        const json = await res.json() as WeatherData;
+        const json = await safeJson<WeatherData>(res, null);
         setData(json);
         setMessage(null);
       }

@@ -14,7 +14,7 @@ interface BookingFormData {
   title: string;
   provider: string;
   order_id: string;
-  city_id: string;
+  city_id: string | number;
   start_date: string;
   start_time: string;
   end_date: string;
@@ -28,7 +28,7 @@ interface BookingFormData {
 }
 
 interface BookingFormProps {
-  initialData?: Partial<BookingFormData>;
+  initialData?: any;
   onSubmit: (data: BookingFormData) => Promise<void>;
   onCancel: () => void;
   loading?: boolean;
@@ -41,7 +41,7 @@ export function BookingForm({ initialData, onSubmit, onCancel, loading = false }
     title: initialData?.title || '',
     provider: initialData?.provider || '',
     order_id: initialData?.order_id || '',
-    city_id: initialData?.city_id || '',
+    city_id: initialData?.city_id ? String(initialData.city_id) : '',
     start_date: initialData?.start_date || '',
     start_time: initialData?.start_time || '',
     end_date: initialData?.end_date || '',

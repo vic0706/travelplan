@@ -15,6 +15,16 @@ interface ItineraryFormProps {
   initialData?: any;
 }
 
+// 安全解析陣列的工具，防止空字串 "" 導致的 JSON 崩潰
+const safeParseArray = (data: any) => {
+  if (Array.isArray(data)) return data;
+  if (!data || typeof data !== 'string') return [];
+  try {
+    const parsed = JSON.parse(data);
+    return Array.isArray(parsed) ? parsed : [];
+  } catch (e) { return []; }
+};
+
 export function ItineraryForm({ tripId, date, onSuccess, onCancel, initialData }: ItineraryFormProps) {
   const { categories: storeCategories = [], setCategories } = useAppStore();
   const [loading, setLoading] = useState(false);
@@ -30,9 +40,8 @@ export function ItineraryForm({ tripId, date, onSuccess, onCancel, initialData }
   const [croppingImage, setCroppingImage] = useState<string | null>(null);
 
   // 資料狀態
-  const [subItems, setSubItems] = useState<any[]>(
-    initialData?.sub_items ? JSON.parse(initialData.sub_items) : []
-  );
+  const [subItems, setSubItems] = useState<any[]>(safeParseArray(initialData?.sub_items));
+  const initialTagsArray = safeParseArray(initialData?.tags);
 
   const [formData, setFormData] = useState({
     title: initialData?.title || '',
@@ -41,7 +50,7 @@ export function ItineraryForm({ tripId, date, onSuccess, onCancel, initialData }
     end_time: initialData?.end_time || '10:00',
     notes: initialData?.notes || '',
     icon: initialData?.icon || 'MapPin',
-    tags: initialData?.tags ? (Array.isArray(initialData.tags) ? initialData.tags.join(', ') : initialData.tags) : '',
+    tags: initialTagsArray.join(', '), 
     is_time_fixed: initialData?.is_time_fixed || 0,
     image_url: initialData?.image_url || '',
     google_place_id: initialData?.google_place_id || ''
@@ -50,7 +59,7 @@ export function ItineraryForm({ tripId, date, onSuccess, onCancel, initialData }
   const [isLocationManuallyEdited, setIsLocationManuallyEdited] = useState(!!initialData?.address);
   const selectedCategory = storeCategories.find(c => c.icon === formData.icon) || { color: '#808080', icon: 'MapPin' };
 
-  // 1. 載入分類
+  // 載入分類
   useEffect(() => {
     if (storeCategories.length === 0) {
       const fetchCats = async () => {
@@ -61,12 +70,11 @@ export function ItineraryForm({ tripId, date, onSuccess, onCancel, initialData }
             setCategories(data);
           }
         } catch(e) { console.error("Category load error", e); }
-      };
-      fetchCats();
+      }; fetchCats();
     }
   }, [storeCategories, setCategories]);
 
-  // 2. 標題與地點同步
+  // 標題與地點同步
   const handleTitleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const newTitle = e.target.value;
     setFormData(prev => ({
@@ -76,7 +84,7 @@ export function ItineraryForm({ tripId, date, onSuccess, onCancel, initialData }
     }));
   };
 
-  // 3. 處理標籤輸入 (修復 ReferenceError)
+  // 處理標籤輸入
   const handleTagKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === 'Enter') {
       e.preventDefault();
@@ -91,12 +99,30 @@ export function ItineraryForm({ tripId, date, onSuccess, onCancel, initialData }
     }
   };
 
-  // 4. 照片處理
+  // 照片讀取處理 (解決黑屏：一定要等 onload 完成)
   const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
+
+    if (file.size > 5 * 1024 * 1024) {
+      alert("檔案太大了，請選擇 5MB 以下的圖片");
+      return;
+    }
+
     const reader = new FileReader();
-    reader.onload = () => setCroppingImage(reader.result as string);
+
+    reader.onload = () => {
+      if (typeof reader.result === 'string') {
+        console.log("圖片讀取完成，長度：", reader.result.length);
+        setCroppingImage(reader.result); // 觸發裁切窗顯示
+      }
+    };
+
+    reader.onerror = () => {
+      console.error("圖片讀取失敗");
+      alert("讀取檔案失敗，請換一張試試");
+    };
+
     reader.readAsDataURL(file);
     e.target.value = '';
   };
@@ -111,15 +137,12 @@ export function ItineraryForm({ tripId, date, onSuccess, onCancel, initialData }
     finally { setUploading(false); }
   };
 
-  // 5. 提交表單
+  // 提交表單
   const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setLoading(true);
+    e.preventDefault(); setLoading(true);
     try {
       const payload = { 
-        ...formData, 
-        trip_id: tripId, 
-        date, 
+        ...formData, trip_id: tripId, date, 
         tags: formData.tags.split(',').map(t => t.trim()).filter(Boolean), 
         sub_items: JSON.stringify(subItems) 
       };
@@ -142,6 +165,7 @@ export function ItineraryForm({ tripId, date, onSuccess, onCancel, initialData }
         <button onClick={onCancel} className="p-1.5 bg-zinc-800/50 rounded-full text-zinc-400"><X size={18} /></button>
       </div>
 
+      {/* 內容區 */}
       <div className="overflow-y-auto px-5 py-6 space-y-6 pb-32 custom-scrollbar">
         {error && <div className="text-red-400 text-xs font-bold bg-red-500/10 p-2 rounded-lg">{error}</div>}
         
@@ -169,13 +193,13 @@ export function ItineraryForm({ tripId, date, onSuccess, onCancel, initialData }
           </div>
         </div>
 
-        {/* Row 2: Title */}
+        {/* 活動標題 */}
         <div className="space-y-1.5">
           <label className="text-[10px] font-bold text-zinc-500 uppercase tracking-widest ml-1">Activity Title</label>
           <input type="text" required value={formData.title} onChange={handleTitleChange} className="w-full bg-[#242426] border border-zinc-800 rounded-2xl px-4 py-3 text-white font-bold text-base focus:border-orange-500 outline-none transition-all" placeholder="Where are we going?" />
         </div>
 
-        {/* Row 3: Schedule */}
+        {/* 時間 */}
         <div className="space-y-1.5">
           <label className="text-[10px] font-bold text-zinc-500 uppercase tracking-widest ml-1">Schedule</label>
           <div className="grid grid-cols-2 gap-3 bg-[#242426] border border-zinc-800 p-2 rounded-2xl">
@@ -252,40 +276,31 @@ export function ItineraryForm({ tripId, date, onSuccess, onCancel, initialData }
         </button>
       </div>
 
-      {/* 💡 照片管理彈窗 */}
+      {/* 照片管理彈窗 */}
       <AnimatePresence>
         {isPhotoModalOpen && (
           <div className="absolute inset-0 z-[100] flex items-center justify-center bg-black/90 backdrop-blur-xl p-6">
-            <motion.div initial={{ scale: 0.9, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0.9, opacity: 0 }} className="bg-[#1c1c1e] border border-zinc-800 rounded-[40px] w-full max-w-sm overflow-hidden flex flex-col shadow-2xl">
+            <motion.div initial={{ scale: 0.9, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0.9, opacity: 0 }} className="bg-[#1c1c1e] border border-zinc-800 rounded-[40px] w-full max-w-sm overflow-hidden flex flex-col shadow-2xl relative">
               <div className="p-4 border-b border-zinc-800 flex justify-between items-center bg-zinc-900/50">
                 <span className="text-xs font-black text-white uppercase tracking-widest">Photo Manager</span>
                 <button onClick={() => setIsPhotoModalOpen(false)} className="p-1"><X size={20} className="text-zinc-500" /></button>
               </div>
               <div className="p-6 flex flex-col items-center gap-6">
-                <div className="w-full aspect-[4/3] rounded-[28px] bg-zinc-950 border border-zinc-800 overflow-hidden relative shadow-inner">
+                <div className="w-full aspect-[21/9] rounded-[28px] bg-zinc-950 border border-zinc-800 overflow-hidden relative shadow-inner">
                   {formData.image_url ? (
                     <img src={formData.image_url} className="w-full h-full object-cover" alt="Full" />
                   ) : (
-                    <div className="absolute inset-0 flex flex-col items-center justify-center text-zinc-700 gap-2">
-                      <ImageIcon size={48} strokeWidth={1} />
-                      <span className="text-[10px] font-bold uppercase tracking-widest">No Photo</span>
-                    </div>
+                    <div className="absolute inset-0 flex flex-col items-center justify-center text-zinc-700 gap-2"><ImageIcon size={48} strokeWidth={1} /><span className="text-[10px] font-bold uppercase tracking-widest">No Photo</span></div>
                   )}
                   {uploading && (
-                    <div className="absolute inset-0 bg-black/60 flex items-center justify-center text-orange-500 backdrop-blur-sm">
-                      <Loader2 className="animate-spin" size={32} />
-                    </div>
+                    <div className="absolute inset-0 bg-black/60 flex items-center justify-center text-orange-500 backdrop-blur-sm"><Loader2 className="animate-spin" size={32} /></div>
                   )}
                 </div>
                 <div className="flex w-full gap-3">
                   <label className="flex-1 flex items-center justify-center gap-2 py-4 bg-white text-black rounded-2xl font-black text-xs uppercase cursor-pointer hover:bg-zinc-200 transition-colors shadow-lg shadow-white/5">
                     <Upload size={16} /> Upload <input type="file" className="hidden" accept="image/*" onChange={handleFileSelect} />
                   </label>
-                  {formData.image_url && (
-                    <button onClick={() => setFormData({...formData, image_url: ''})} className="w-16 flex items-center justify-center bg-red-500/10 text-red-500 rounded-2xl hover:bg-red-500/20 transition-colors">
-                      <Trash2 size={20} />
-                    </button>
-                  )}
+                  {formData.image_url && <button onClick={() => setFormData({...formData, image_url: ''})} className="w-16 flex items-center justify-center bg-red-500/10 text-red-500 rounded-2xl hover:bg-red-500/20 transition-colors"><Trash2 size={20} /></button>}
                 </div>
               </div>
             </motion.div>
@@ -293,18 +308,29 @@ export function ItineraryForm({ tripId, date, onSuccess, onCancel, initialData }
         )}
       </AnimatePresence>
 
-      {/* 💡 裁切視窗 */}
+      {/* 裁切視窗：強制放在最外層、最高層級 (z-[9999]) 並給予明確高度 */}
       <AnimatePresence>
         {croppingImage && (
-          <div className="fixed inset-0 z-[120] flex items-center justify-center bg-black/95 p-4">
-            <div className="w-full max-w-lg">
-              <ImageCropper image={croppingImage} aspect={4/3} onCropComplete={handleCropComplete} onCancel={() => setCroppingImage(null)} />
+          <div className="fixed inset-0 z-[9999] bg-black/95 flex flex-col items-center justify-center p-4 backdrop-blur-sm">
+            <div className="w-full max-w-md flex justify-between items-center mb-4 px-2">
+              <span className="text-white font-black tracking-widest uppercase text-sm">Crop Image</span>
+              <button onClick={() => setCroppingImage(null)} className="p-2 bg-zinc-800 rounded-full text-zinc-400 hover:text-white"><X size={20} /></button>
+            </div>
+            
+            {/* 這裡一定要有相對定位與高度 */}
+            <div className="w-full max-w-md h-[60vh] relative bg-zinc-950 rounded-[32px] overflow-hidden shadow-2xl border border-zinc-800">
+              <ImageCropper 
+                image={croppingImage} 
+                aspect={21/9} 
+                onCropComplete={handleCropComplete} 
+                onCancel={() => setCroppingImage(null)} 
+              />
             </div>
           </div>
         )}
       </AnimatePresence>
 
-      {/* 💡 分類選擇窗 */}
+      {/* 分類選擇窗 */}
       <AnimatePresence>
         {isIconPickerOpen && (
           <div className="absolute inset-0 z-50 flex items-end justify-center bg-black/60 backdrop-blur-sm p-4">
@@ -326,7 +352,7 @@ export function ItineraryForm({ tripId, date, onSuccess, onCancel, initialData }
         )}
       </AnimatePresence>
 
-      {/* 💡 子項目編輯窗 */}
+      {/* 子項目編輯窗 */}
       <AnimatePresence>
         {isSubItemModalOpen && (
           <div className="absolute inset-0 z-[110] flex items-center justify-center bg-black/80 backdrop-blur-md p-4">

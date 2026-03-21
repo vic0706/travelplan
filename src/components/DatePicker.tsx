@@ -1,18 +1,41 @@
 import React, { useState } from 'react';
 import { X, Check, ChevronLeft, ChevronRight } from 'lucide-react';
-import { format, addMonths, subMonths, startOfMonth, endOfMonth, eachDayOfInterval, isSameMonth, isSameDay, isToday, startOfWeek, endOfWeek, addDays } from 'date-fns';
+import { format, addMonths, subMonths, startOfMonth, endOfMonth, eachDayOfInterval, isSameMonth, isSameDay, isToday, startOfWeek, endOfWeek, addDays, parseISO } from 'date-fns';
 import { motion, AnimatePresence } from 'framer-motion';
 
 interface DatePickerProps {
   label?: string;
-  value: Date | null;
-  onChange: (date: Date) => void;
+  value?: Date | null;
+  onChange?: (date: Date) => void;
   placeholder?: string;
+  isOpen?: boolean;
+  onClose?: () => void;
+  onSelect?: (date: string) => void;
+  initialDate?: string;
 }
 
-export function DatePicker({ label, value, onChange, placeholder = 'Select date' }: DatePickerProps) {
-  const [isOpen, setIsOpen] = useState(false);
+export function DatePicker({ 
+  label, 
+  value: controlledValue, 
+  onChange: controlledOnChange, 
+  placeholder = 'Select date',
+  isOpen: externalIsOpen,
+  onClose: externalOnClose,
+  onSelect: externalOnSelect,
+  initialDate
+}: DatePickerProps) {
+  const [internalIsOpen, setInternalIsOpen] = useState(false);
   const [currentMonth, setCurrentMonth] = useState(new Date());
+
+  const isOpen = externalIsOpen !== undefined ? externalIsOpen : internalIsOpen;
+  const setIsOpen = (val: boolean) => {
+    if (externalOnClose && !val) externalOnClose();
+    setInternalIsOpen(val);
+  };
+
+  const value = controlledValue !== undefined 
+    ? controlledValue 
+    : (initialDate ? parseISO(initialDate) : null);
 
   const days = eachDayOfInterval({
     start: startOfWeek(startOfMonth(currentMonth)),
@@ -20,7 +43,8 @@ export function DatePicker({ label, value, onChange, placeholder = 'Select date'
   });
 
   const handleSelect = (date: Date) => {
-    onChange(date);
+    if (controlledOnChange) controlledOnChange(date);
+    if (externalOnSelect) externalOnSelect(format(date, 'yyyy-MM-dd'));
     setIsOpen(false);
   };
 

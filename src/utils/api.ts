@@ -48,3 +48,17 @@ export const apiFetch = async (path: string, options: RequestInit = {}) => {
     throw error;
   }
 };
+
+/**
+ * Safely parse JSON from a Response object, handling empty bodies and errors.
+ */
+export const safeJson = async <T>(res: Response, defaultValue: any = []): Promise<T> => {
+  try {
+    const text = await res.text();
+    if (!text || text.trim() === '') return defaultValue as T;
+    return JSON.parse(text) as T;
+  } catch (e) {
+    console.error('Safe JSON Parse Error:', e);
+    return defaultValue as T;
+  }
+};
