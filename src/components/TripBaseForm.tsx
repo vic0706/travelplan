@@ -190,7 +190,8 @@ export function TripBaseForm({ initialData, onSubmit, onCancel, submitText, load
       {/* Date Range */}
       <div className="w-full">
         <DateRangePicker
-          label="Dates *"
+          label="Schedule *"
+          hideTime={true}
           value={{
             start_date: formData.start_date ? parseISO(formData.start_date) : null,
             end_date: formData.end_date ? parseISO(formData.end_date) : null,

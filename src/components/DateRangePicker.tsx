@@ -25,9 +25,10 @@ interface DateRangePickerProps {
     daily_end_time?: string;
   }) => void;
   label?: string;
+  hideTime?: boolean; // 💡 新增屬性：是否隱藏時間選擇器
 }
 
-export function DateRangePicker({ value, onChange, label, category }: DateRangePickerProps) {
+export function DateRangePicker({ value, onChange, label, category, hideTime = false }: DateRangePickerProps) {
   const isHotel = category === 'HOTEL';
   const [isOpen, setIsOpen] = useState(false);
   const [selectedRange, setSelectedRange] = useState<DateRange | undefined>(() => (
@@ -74,7 +75,6 @@ export function DateRangePicker({ value, onChange, label, category }: DateRangeP
     setIsOpen(false);
   };
 
-  // 精緻化按鈕顯示內容 (支援跨日排版)
   const displayValue = () => {
     const formatTime = (t?: string) => t || '--:--';
     
@@ -83,7 +83,7 @@ export function DateRangePicker({ value, onChange, label, category }: DateRangeP
          return (
            <div className="flex flex-col flex-1">
              <span className="font-semibold text-white tracking-wide">{format(value.start_date, 'yyyy/MM/dd')}</span>
-             <span className="text-xs text-orange-400/90 font-mono mt-0.5">{formatTime(value.start_time)} ~ {formatTime(value.end_time)}</span>
+             {!hideTime && <span className="text-xs text-orange-400/90 font-mono mt-0.5">{formatTime(value.start_time)} ~ {formatTime(value.end_time)}</span>}
            </div>
          );
       }
@@ -91,14 +91,14 @@ export function DateRangePicker({ value, onChange, label, category }: DateRangeP
         <div className="flex items-center justify-between w-full">
           <div className="flex flex-col flex-1">
             <span className="font-semibold text-white text-sm">{format(value.start_date, 'yyyy/MM/dd')}</span>
-            <span className="text-xs text-orange-400/90 font-mono mt-0.5">{formatTime(value.start_time)}</span>
+            {!hideTime && <span className="text-xs text-orange-400/90 font-mono mt-0.5">{formatTime(value.start_time)}</span>}
           </div>
           <div className="shrink-0 text-zinc-600 px-3">
             <ArrowRight size={14} />
           </div>
           <div className="flex flex-col flex-1 text-right">
             <span className="font-semibold text-white text-sm">{format(value.end_date, 'yyyy/MM/dd')}</span>
-            <span className="text-xs text-orange-400/90 font-mono mt-0.5">{formatTime(value.end_time)}</span>
+            {!hideTime && <span className="text-xs text-orange-400/90 font-mono mt-0.5">{formatTime(value.end_time)}</span>}
           </div>
         </div>
       );
@@ -106,11 +106,11 @@ export function DateRangePicker({ value, onChange, label, category }: DateRangeP
       return (
         <div className="flex flex-col flex-1">
           <span className="font-semibold text-white">{format(value.start_date, 'yyyy/MM/dd')}</span>
-          <span className="text-xs text-orange-400/90 font-mono mt-0.5">{formatTime(value.start_time)} ~ </span>
+          {!hideTime && <span className="text-xs text-orange-400/90 font-mono mt-0.5">{formatTime(value.start_time)} ~ </span>}
         </div>
       );
     } else {
-      return <span className="text-zinc-500 font-medium">Select dates & times...</span>;
+      return <span className="text-zinc-500 font-medium">Select dates{hideTime ? '' : ' & times'}...</span>;
     }
   };
 
@@ -156,7 +156,7 @@ export function DateRangePicker({ value, onChange, label, category }: DateRangeP
   return (
     <>
       <div className="relative w-full">
-        {label && <label className="text-xs text-zinc-500 mb-1 block">{label}</label>}
+        {label && <label className="text-xs font-bold text-zinc-500 uppercase tracking-wider mb-1 block">{label}</label>}
         <button
           type="button"
           onClick={() => setIsOpen(true)}
@@ -177,13 +177,12 @@ export function DateRangePicker({ value, onChange, label, category }: DateRangeP
             className="fixed inset-x-0 bottom-0 z-[150] bg-zinc-900 rounded-t-3xl shadow-lg p-6 flex flex-col max-h-[90vh]"
           >
             <div className="flex justify-between items-center mb-4 shrink-0">
-              <h3 className="text-xl font-semibold text-white">Select Schedule</h3>
+              <h3 className="text-xl font-semibold text-white">Select {hideTime ? 'Dates' : 'Schedule'}</h3>
               <button onClick={handleCancel} className="text-zinc-400 hover:text-white">
                 <X size={24} />
               </button>
             </div>
 
-            {/* 加入 pb-24 確保最底下的時間選擇器不會被裁切 */}
             <div className="flex-1 overflow-y-auto custom-scrollbar px-2 pb-24">
               <DayPicker
                 mode="range"
@@ -232,62 +231,64 @@ export function DateRangePicker({ value, onChange, label, category }: DateRangeP
                 } as any}
               />
 
-              <div className="mt-4 space-y-4 border-t border-zinc-800 pt-4">
-                <div className="grid grid-cols-2 gap-4">
-                  <div className="space-y-2">
-                    <label className="text-xs font-bold text-zinc-500 uppercase tracking-wider flex items-center gap-1">
-                      <Clock size={12} /> {timeLabels.start}
-                    </label>
-                    <input
-                      type="time"
-                      value={times.start}
-                      onChange={e => setTimes({ ...times, start: e.target.value })}
-                      className="w-full bg-zinc-950 border border-zinc-800 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-orange-500 transition-colors [color-scheme:dark]"
-                    />
-                  </div>
-                  <div className="space-y-2">
-                    <label className="text-xs font-bold text-zinc-500 uppercase tracking-wider flex items-center gap-1">
-                      <Clock size={12} /> {timeLabels.end}
-                    </label>
-                    <input
-                      type="time"
-                      value={times.end}
-                      onChange={e => setTimes({ ...times, end: e.target.value })}
-                      className="w-full bg-zinc-950 border border-zinc-800 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-orange-500 transition-colors [color-scheme:dark]"
-                    />
-                  </div>
-                </div>
-
-                {isHotel && (
+              {/* 💡 時間選擇器區塊被 hideTime 控制 */}
+              {!hideTime && (
+                <div className="mt-4 space-y-4 border-t border-zinc-800 pt-4">
                   <div className="grid grid-cols-2 gap-4">
                     <div className="space-y-2">
                       <label className="text-xs font-bold text-zinc-500 uppercase tracking-wider flex items-center gap-1">
-                        <Clock size={12} /> Daily Leave Time
+                        <Clock size={12} /> {timeLabels.start}
                       </label>
                       <input
                         type="time"
-                        value={times.dailyStart}
-                        onChange={e => setTimes({ ...times, dailyStart: e.target.value })}
+                        value={times.start}
+                        onChange={e => setTimes({ ...times, start: e.target.value })}
                         className="w-full bg-zinc-950 border border-zinc-800 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-orange-500 transition-colors [color-scheme:dark]"
                       />
                     </div>
                     <div className="space-y-2">
                       <label className="text-xs font-bold text-zinc-500 uppercase tracking-wider flex items-center gap-1">
-                        <Clock size={12} /> Daily Return Time
+                        <Clock size={12} /> {timeLabels.end}
                       </label>
                       <input
                         type="time"
-                        value={times.dailyEnd}
-                        onChange={e => setTimes({ ...times, dailyEnd: e.target.value })}
+                        value={times.end}
+                        onChange={e => setTimes({ ...times, end: e.target.value })}
                         className="w-full bg-zinc-950 border border-zinc-800 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-orange-500 transition-colors [color-scheme:dark]"
                       />
                     </div>
                   </div>
-                )}
-              </div>
+
+                  {isHotel && (
+                    <div className="grid grid-cols-2 gap-4">
+                      <div className="space-y-2">
+                        <label className="text-xs font-bold text-zinc-500 uppercase tracking-wider flex items-center gap-1">
+                          <Clock size={12} /> Daily Leave Time
+                        </label>
+                        <input
+                          type="time"
+                          value={times.dailyStart}
+                          onChange={e => setTimes({ ...times, dailyStart: e.target.value })}
+                          className="w-full bg-zinc-950 border border-zinc-800 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-orange-500 transition-colors [color-scheme:dark]"
+                        />
+                      </div>
+                      <div className="space-y-2">
+                        <label className="text-xs font-bold text-zinc-500 uppercase tracking-wider flex items-center gap-1">
+                          <Clock size={12} /> Daily Return Time
+                        </label>
+                        <input
+                          type="time"
+                          value={times.dailyEnd}
+                          onChange={e => setTimes({ ...times, dailyEnd: e.target.value })}
+                          className="w-full bg-zinc-950 border border-zinc-800 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-orange-500 transition-colors [color-scheme:dark]"
+                        />
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
             </div>
 
-            {/* 固定在底部的按鈕區塊 */}
             <div className="absolute bottom-0 left-0 right-0 bg-zinc-900 p-6 pt-4 border-t border-zinc-800 flex gap-3 pb-safe-bottom">
               <button
                 type="button"

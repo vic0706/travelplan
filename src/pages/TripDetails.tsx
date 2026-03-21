@@ -328,7 +328,7 @@ export function TripDetails() {
               >
                  {isAllExpanded ? <ChevronsDownUp size={18} strokeWidth={2.5} /> : <ChevronsUpDown size={18} strokeWidth={2.5} />}
                  <span className="text-[8px] font-black uppercase tracking-widest mt-1 opacity-80">
-                   {isAllExpanded ? 'Fold' : 'All'}
+                   {isAllExpanded ? 'Collapse' : 'Expand'}
                  </span>
               </button>
             </div>

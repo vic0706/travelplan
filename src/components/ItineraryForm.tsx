@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useAppStore } from '../store';
-import { X, MapPin, Loader2, Plus, Trash2, Lock, Unlock, Camera, Image as ImageIcon, Upload, Tag as TagIcon } from 'lucide-react';
+import { X, MapPin, Loader2, Plus, Trash2, Lock, Unlock, Camera, Image as ImageIcon, Upload } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { apiFetch } from '../utils/api';
 import { DynamicIcon } from './DynamicIcon';
@@ -15,7 +15,6 @@ interface ItineraryFormProps {
   initialData?: any;
 }
 
-// 安全解析陣列的工具，防止空字串 "" 導致的 JSON 崩潰
 const safeParseArray = (data: any) => {
   if (Array.isArray(data)) return data;
   if (!data || typeof data !== 'string') return [];
@@ -36,10 +35,14 @@ export function ItineraryForm({ tripId, date, onSuccess, onCancel, initialData }
   const [isIconPickerOpen, setIsIconPickerOpen] = useState(false);
   const [isPhotoModalOpen, setIsPhotoModalOpen] = useState(false);
   const [isSubItemModalOpen, setIsSubItemModalOpen] = useState(false);
+  
+  // 💡 刪除功能的狀態
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const [isDeleting, setIsDeleting] = useState(false);
+
   const [editingSubItem, setEditingSubItem] = useState<any>(null);
   const [croppingImage, setCroppingImage] = useState<string | null>(null);
 
-  // 資料狀態
   const [subItems, setSubItems] = useState<any[]>(safeParseArray(initialData?.sub_items));
   const initialTagsArray = safeParseArray(initialData?.tags);
 
@@ -59,22 +62,17 @@ export function ItineraryForm({ tripId, date, onSuccess, onCancel, initialData }
   const [isLocationManuallyEdited, setIsLocationManuallyEdited] = useState(!!initialData?.address);
   const selectedCategory = storeCategories.find(c => c.icon === formData.icon) || { color: '#808080', icon: 'MapPin' };
 
-  // 載入分類
   useEffect(() => {
     if (storeCategories.length === 0) {
       const fetchCats = async () => {
         try {
           const res = await apiFetch('/api/settings/categories');
-          if (res.ok) {
-            const data = await res.json();
-            setCategories(data);
-          }
+          if (res.ok) setCategories(await res.json());
         } catch(e) { console.error("Category load error", e); }
       }; fetchCats();
     }
   }, [storeCategories, setCategories]);
 
-  // 標題與地點同步
   const handleTitleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const newTitle = e.target.value;
     setFormData(prev => ({
@@ -84,7 +82,6 @@ export function ItineraryForm({ tripId, date, onSuccess, onCancel, initialData }
     }));
   };
 
-  // 處理標籤輸入
   const handleTagKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === 'Enter') {
       e.preventDefault();
@@ -99,30 +96,14 @@ export function ItineraryForm({ tripId, date, onSuccess, onCancel, initialData }
     }
   };
 
-  // 照片讀取處理 (解決黑屏：一定要等 onload 完成)
   const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
-
-    if (file.size > 5 * 1024 * 1024) {
-      alert("檔案太大了，請選擇 5MB 以下的圖片");
-      return;
-    }
-
+    if (file.size > 5 * 1024 * 1024) { alert("檔案太大了，請選擇 5MB 以下的圖片"); return; }
     const reader = new FileReader();
-
     reader.onload = () => {
-      if (typeof reader.result === 'string') {
-        console.log("圖片讀取完成，長度：", reader.result.length);
-        setCroppingImage(reader.result); // 觸發裁切窗顯示
-      }
+      if (typeof reader.result === 'string') setCroppingImage(reader.result);
     };
-
-    reader.onerror = () => {
-      console.error("圖片讀取失敗");
-      alert("讀取檔案失敗，請換一張試試");
-    };
-
     reader.readAsDataURL(file);
     e.target.value = '';
   };
@@ -137,7 +118,22 @@ export function ItineraryForm({ tripId, date, onSuccess, onCancel, initialData }
     finally { setUploading(false); }
   };
 
-  // 提交表單
+  // 💡 執行刪除
+  const handleDelete = async () => {
+    setIsDeleting(true);
+    try {
+      const res = await apiFetch(`/api/trips/${tripId}/itineraries/${initialData.id}`, {
+        method: 'DELETE'
+      });
+      if (res.ok) onSuccess();
+      else throw new Error('Failed to delete');
+    } catch (err) {
+      alert('Delete failed');
+    } finally {
+      setIsDeleting(false);
+    }
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault(); setLoading(true);
     try {
@@ -158,18 +154,14 @@ export function ItineraryForm({ tripId, date, onSuccess, onCancel, initialData }
 
   return (
     <div className="bg-[#1c1c1e] border border-zinc-800 rounded-[32px] overflow-hidden flex flex-col w-full max-w-md mx-auto shadow-2xl relative max-h-[90vh]">
-      
-      {/* Header */}
       <div className="px-6 py-4 border-b border-zinc-800 flex items-center justify-between bg-[#1c1c1e]/90 backdrop-blur-md z-20 sticky top-0">
         <h2 className="text-lg font-bold text-white uppercase tracking-widest">{initialData ? 'Edit' : 'Add'} Activity</h2>
         <button onClick={onCancel} className="p-1.5 bg-zinc-800/50 rounded-full text-zinc-400"><X size={18} /></button>
       </div>
 
-      {/* 內容區 */}
       <div className="overflow-y-auto px-5 py-6 space-y-6 pb-32 custom-scrollbar">
         {error && <div className="text-red-400 text-xs font-bold bg-red-500/10 p-2 rounded-lg">{error}</div>}
         
-        {/* Row 1: ICON | LOCK | PHOTO */}
         <div className="grid grid-cols-3 gap-3">
           <div className="flex flex-col gap-1.5">
             <label className="text-[10px] font-bold text-zinc-500 uppercase tracking-widest ml-1">Icon</label>
@@ -177,14 +169,12 @@ export function ItineraryForm({ tripId, date, onSuccess, onCancel, initialData }
               <DynamicIcon name={formData.icon} size={22} />
             </button>
           </div>
-
           <div className="flex flex-col gap-1.5">
             <label className="text-[10px] font-bold text-zinc-500 uppercase tracking-widest ml-1">AI Lock</label>
             <button type="button" onClick={() => setFormData({ ...formData, is_time_fixed: formData.is_time_fixed ? 0 : 1 })} className={clsx("h-12 border rounded-2xl flex items-center justify-center transition-all", formData.is_time_fixed ? "bg-orange-500 border-orange-400 text-white shadow-lg shadow-orange-500/20" : "bg-zinc-800 border-zinc-700 text-zinc-500")}>
               {formData.is_time_fixed ? <Lock size={18} /> : <Unlock size={18} />}
             </button>
           </div>
-
           <div className="flex flex-col gap-1.5">
             <label className="text-[10px] font-bold text-zinc-500 uppercase tracking-widest ml-1">Photo</label>
             <button type="button" onClick={() => setIsPhotoModalOpen(true)} className={clsx("h-12 border rounded-2xl flex items-center justify-center overflow-hidden transition-all", formData.image_url ? "border-orange-500/50" : "bg-zinc-800 border-zinc-700 text-zinc-500 hover:border-zinc-500")}>
@@ -193,13 +183,11 @@ export function ItineraryForm({ tripId, date, onSuccess, onCancel, initialData }
           </div>
         </div>
 
-        {/* 活動標題 */}
         <div className="space-y-1.5">
           <label className="text-[10px] font-bold text-zinc-500 uppercase tracking-widest ml-1">Activity Title</label>
-          <input type="text" required value={formData.title} onChange={handleTitleChange} className="w-full bg-[#242426] border border-zinc-800 rounded-2xl px-4 py-3 text-white font-bold text-base focus:border-orange-500 outline-none transition-all" placeholder="Where are we going?" />
+          <input type="text" required value={formData.title} onChange={handleTitleChange} className="w-full bg-[#242426] border border-zinc-800 rounded-2xl px-4 py-3 text-white font-bold text-base focus:border-orange-500 outline-none transition-all" />
         </div>
 
-        {/* 時間 */}
         <div className="space-y-1.5">
           <label className="text-[10px] font-bold text-zinc-500 uppercase tracking-widest ml-1">Schedule</label>
           <div className="grid grid-cols-2 gap-3 bg-[#242426] border border-zinc-800 p-2 rounded-2xl">
@@ -214,7 +202,6 @@ export function ItineraryForm({ tripId, date, onSuccess, onCancel, initialData }
           </div>
         </div>
 
-        {/* Location */}
         <div>
           <label className="block text-[10px] font-bold text-zinc-500 uppercase tracking-widest mb-1.5 ml-1">Location Address</label>
           <div className="relative">
@@ -223,7 +210,6 @@ export function ItineraryForm({ tripId, date, onSuccess, onCancel, initialData }
           </div>
         </div>
 
-        {/* Tags */}
         <div>
           <label className="block text-[10px] font-bold text-zinc-500 uppercase tracking-widest mb-1.5 ml-1">Tags</label>
           <div className="bg-[#242426] border border-zinc-800 rounded-2xl p-2 flex flex-wrap gap-2 items-center">
@@ -237,7 +223,6 @@ export function ItineraryForm({ tripId, date, onSuccess, onCancel, initialData }
           </div>
         </div>
 
-        {/* Sub-Activities */}
         <div>
           <div className="flex items-center justify-between mb-2 px-1">
             <label className="block text-[10px] font-bold text-zinc-500 uppercase tracking-widest">Sub-Activities</label>
@@ -261,14 +246,26 @@ export function ItineraryForm({ tripId, date, onSuccess, onCancel, initialData }
           </div>
         </div>
 
-        {/* Notes */}
         <div>
           <label className="block text-[10px] font-bold text-zinc-500 uppercase tracking-widest mb-1.5 ml-1">Notes & Tips</label>
           <textarea value={formData.notes} onChange={e => setFormData({ ...formData, notes: e.target.value })} className="w-full bg-[#242426] border border-zinc-800 rounded-2xl px-4 py-3 text-white text-xs focus:border-orange-500 outline-none min-h-[100px] resize-none transition-all" placeholder="Any special notes for this activity?" />
         </div>
+
+        {/* 💡 Edit Mode 專屬的 Delete Activity 按鈕 */}
+        {initialData && (
+          <div className="pt-4 border-t border-zinc-800">
+            <button
+              type="button"
+              onClick={() => setShowDeleteConfirm(true)}
+              className="w-full py-3.5 bg-red-500/10 hover:bg-red-500/20 text-red-500 font-bold rounded-2xl transition-colors flex items-center justify-center gap-2 border border-red-500/20"
+            >
+              <Trash2 size={18} />
+              Delete Activity
+            </button>
+          </div>
+        )}
       </div>
 
-      {/* Footer */}
       <div className="absolute bottom-0 left-0 right-0 p-5 bg-[#1c1c1e] border-t border-zinc-800 flex gap-3 z-20">
         <button type="button" onClick={onCancel} className="flex-1 py-4 rounded-2xl font-bold text-zinc-500 text-sm hover:bg-zinc-800 transition-colors">Cancel</button>
         <button type="submit" disabled={loading || uploading} onClick={handleSubmit} className="flex-[2] py-4 bg-orange-500 text-white rounded-2xl font-black text-sm uppercase tracking-widest shadow-lg shadow-orange-500/20 flex items-center justify-center gap-2 active:scale-95 transition-all">
@@ -276,7 +273,41 @@ export function ItineraryForm({ tripId, date, onSuccess, onCancel, initialData }
         </button>
       </div>
 
-      {/* 照片管理彈窗 */}
+      {/* 💡 刪除確認彈窗 */}
+      <AnimatePresence>
+        {showDeleteConfirm && (
+          <div className="fixed inset-0 z-[200] flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm">
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.95 }}
+              className="bg-zinc-900 border border-zinc-800 rounded-3xl p-6 w-full max-w-sm shadow-2xl relative"
+            >
+              <h3 className="text-xl font-bold text-white mb-2">Delete Activity?</h3>
+              <p className="text-zinc-400 mb-6">Are you sure you want to delete <span className="text-white font-medium">{formData.title}</span>? This cannot be undone.</p>
+              <div className="flex gap-3">
+                <button
+                  type="button"
+                  onClick={() => setShowDeleteConfirm(false)}
+                  className="flex-1 px-4 py-3 rounded-xl font-medium text-zinc-400 hover:text-white hover:bg-zinc-800 transition-colors"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  onClick={handleDelete}
+                  disabled={isDeleting}
+                  className="flex-1 px-4 py-3 rounded-xl font-bold bg-red-500 text-white hover:bg-red-600 transition-colors shadow-lg shadow-red-500/20 flex justify-center items-center gap-2"
+                >
+                  {isDeleting ? <Loader2 size={18} className="animate-spin" /> : 'Delete'}
+                </button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      {/* 照片管理彈窗與其他彈窗 (維持不變) */}
       <AnimatePresence>
         {isPhotoModalOpen && (
           <div className="absolute inset-0 z-[100] flex items-center justify-center bg-black/90 backdrop-blur-xl p-6">
@@ -308,7 +339,6 @@ export function ItineraryForm({ tripId, date, onSuccess, onCancel, initialData }
         )}
       </AnimatePresence>
 
-      {/* 裁切視窗：強制放在最外層、最高層級 (z-[9999]) 並給予明確高度 */}
       <AnimatePresence>
         {croppingImage && (
           <div className="fixed inset-0 z-[9999] bg-black/95 flex flex-col items-center justify-center p-4 backdrop-blur-sm">
@@ -316,21 +346,13 @@ export function ItineraryForm({ tripId, date, onSuccess, onCancel, initialData }
               <span className="text-white font-black tracking-widest uppercase text-sm">Crop Image</span>
               <button onClick={() => setCroppingImage(null)} className="p-2 bg-zinc-800 rounded-full text-zinc-400 hover:text-white"><X size={20} /></button>
             </div>
-            
-            {/* 這裡一定要有相對定位與高度 */}
             <div className="w-full max-w-md h-[60vh] relative bg-zinc-950 rounded-[32px] overflow-hidden shadow-2xl border border-zinc-800">
-              <ImageCropper 
-                image={croppingImage} 
-                aspect={21/9} 
-                onCropComplete={handleCropComplete} 
-                onCancel={() => setCroppingImage(null)} 
-              />
+              <ImageCropper image={croppingImage} aspect={21/9} onCropComplete={handleCropComplete} onCancel={() => setCroppingImage(null)} />
             </div>
           </div>
         )}
       </AnimatePresence>
 
-      {/* 分類選擇窗 */}
       <AnimatePresence>
         {isIconPickerOpen && (
           <div className="absolute inset-0 z-50 flex items-end justify-center bg-black/60 backdrop-blur-sm p-4">
@@ -352,7 +374,6 @@ export function ItineraryForm({ tripId, date, onSuccess, onCancel, initialData }
         )}
       </AnimatePresence>
 
-      {/* 子項目編輯窗 */}
       <AnimatePresence>
         {isSubItemModalOpen && (
           <div className="absolute inset-0 z-[110] flex items-center justify-center bg-black/80 backdrop-blur-md p-4">
