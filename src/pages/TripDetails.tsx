@@ -202,6 +202,26 @@ export function TripDetails() {
   const hasEditPermission = !!(isMember || isAdmin);
   const canEdit = hasEditPermission && isEditMode;
 
+// 💡 權限檢查：只有「公開行程」或是「受邀成員/管理員」才能看到內容
+  const hasAccess = trip?.is_public === 1 || hasEditPermission;
+
+// 🚨 如果資料載入完畢，發現沒權限存取
+  useEffect(() => {
+    if (trip && !hasAccess) {
+      // 這裡可以直接跳轉回首頁，讓沒權限的人完全進不來
+      navigate('/', { replace: true });
+    }
+  }, [trip, hasAccess, navigate]);
+
+  // 如果正在檢查權限中或沒權限，不渲染任何內容（避免畫面閃爍出行程內容）
+  if (!trip || !hasAccess) {
+    return (
+      <div className="flex items-center justify-center h-screen bg-black">
+        <Loader2 className="animate-spin text-orange-500" size={32} />
+      </div>
+    );
+  }
+
   const validTripStartDate = safeParse(trip?.start_date);
   const validTripEndDate = safeParse(trip?.end_date);
   const daysCount = (validTripStartDate && validTripEndDate) ? differenceInDays(validTripEndDate, validTripStartDate) + 1 : 0;

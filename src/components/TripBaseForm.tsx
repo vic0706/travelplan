@@ -17,6 +17,7 @@ export interface TripFormData {
   cover_image_url: string;
   currencies: string[];
   members: number[];
+  is_public: number;
 }
 
 interface TripBaseFormProps {
@@ -58,6 +59,7 @@ export function TripBaseForm({ initialData, onSubmit, onCancel, submitText, load
     cover_image_url: initialData?.cover_image_url || '',
     currencies: safeParseArray(initialData?.currencies),
     members: parseInitialMembers(initialData?.members, user?.id),
+    is_public: initialData?.is_public ?? 0,
   });
 
   const [uploading, setUploading] = useState(false);
@@ -321,6 +323,39 @@ export function TripBaseForm({ initialData, onSubmit, onCancel, submitText, load
             </motion.div>
           )}
         </AnimatePresence>
+      </div>
+
+      {/* 💡 Privacy Setting (Public / Private) */}
+      <div className="w-full">
+        <label className="block text-xs font-bold text-zinc-500 uppercase tracking-wider mb-2 flex items-center gap-1.5">
+          Privacy Setting
+        </label>
+        <button
+          type="button"
+          onClick={() => setFormData(prev => ({ ...prev, is_public: prev.is_public ? 0 : 1 }))}
+          className={clsx(
+            "w-full rounded-xl px-4 py-3.5 flex items-center justify-between transition-colors border focus:outline-none",
+            formData.is_public 
+              ? "bg-emerald-500/10 border-emerald-500/30 hover:bg-emerald-500/20" 
+              : "bg-zinc-800 border-zinc-700 hover:border-zinc-500"
+          )}
+        >
+          <div className="flex items-center gap-3">
+            {formData.is_public ? <Globe size={20} className="text-emerald-500 shrink-0" /> : <Lock size={20} className="text-zinc-500 shrink-0" />}
+            <div className="flex flex-col items-start text-left">
+              <span className={clsx("text-sm font-bold", formData.is_public ? "text-emerald-500" : "text-zinc-300")}>
+                {formData.is_public ? 'Public Trip' : 'Private Trip'}
+              </span>
+              <span className="text-[10px] text-zinc-500 mt-0.5">
+                {formData.is_public ? 'Anyone with the link can view (Read-only)' : 'Only invited members can access'}
+              </span>
+            </div>
+          </div>
+          {/* iOS-style Switch */}
+          <div className={clsx("w-11 h-6 rounded-full relative transition-colors shrink-0", formData.is_public ? "bg-emerald-500" : "bg-zinc-700")}>
+            <div className={clsx("absolute top-1 w-4 h-4 rounded-full bg-white transition-all shadow-sm", formData.is_public ? "right-1" : "left-1")} />
+          </div>
+        </button>
       </div>
 
       {/* Action Buttons */}
