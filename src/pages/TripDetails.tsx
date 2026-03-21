@@ -18,13 +18,11 @@ import { FinanceOverview } from '../components/FinanceOverview';
 import { ConfirmDialog } from '../components/ConfirmDialog';
 import { motion, AnimatePresence } from 'framer-motion';
 
-// 💡 載入拆分出去的卡片元件與 Custom Hook
 import { BookingCard } from '../components/BookingCard';
 import { TransportationCard } from '../components/TransportationCard';
 import { ItineraryCard } from '../components/ItineraryCard';
 import { useTripData } from '../hooks/useTripData';
 
-// 輔助函式：處理時間與衝突計算
 const parseTime = (timeStr: string, baseDate: Date) => {
   if (!timeStr) return baseDate;
   const [hours, minutes] = timeStr.split(':').map(Number);
@@ -36,6 +34,7 @@ const parseTime = (timeStr: string, baseDate: Date) => {
 const getEffectiveTimes = (item: any, baseDate: Date) => {
   let start = parseTime(item.start_time, baseDate);
   let end = parseTime(item.end_time || item.start_time, baseDate);
+
   if (item.next_transport_mode) {
     let addMins = 0;
     if (item.next_transport_time) {
@@ -50,18 +49,21 @@ const getEffectiveTimes = (item: any, baseDate: Date) => {
 
 const safeParse = (dateStr: any) => {
   if (!dateStr || typeof dateStr !== 'string') return null;
-  try { const parsed = parseISO(dateStr); return isNaN(parsed.getTime()) ? null : parsed; } catch (e) { return null; }
+  try {
+    const parsed = parseISO(dateStr);
+    return isNaN(parsed.getTime()) ? null : parsed;
+  } catch (e) {
+    return null;
+  }
 };
 
 export function TripDetails() {
   const { id } = useParams();
   const navigate = useNavigate();
   const { user } = useAppStore();
-  
-  // 💡 呼叫剛做好的自訂 Hook，取得資料刷新功能
+
   const { refreshTripData } = useTripData(id);
 
-  // 監聽本地 Dexie 資料庫
   const trip = useLiveQuery(() => db.trips.get(Number(id) || 0), [id]);
   const itineraries = useLiveQuery(() => db.itineraries.where('trip_id').equals(Number(id) || 0).toArray(), [id]) || [];
   const expenses = useLiveQuery(() => db.expenses.where('trip_id').equals(Number(id) || 0).toArray(), [id]) || [];
@@ -82,31 +84,56 @@ export function TripDetails() {
     if (nextState) setExpandSignal(s => s + 1);
     else setCollapseSignal(s => s + 1);
   };
-  
-  useEffect(() => { setSelectedDate(new Date()); }, []);
-  
-  // 進入頁面或返回時觸發同步
-  useEffect(() => { refreshTripData(); }, [refreshTripData]);
 
   useEffect(() => {
-    if (trip?.start_date) {
+    refreshTripData();
+  }, [refreshTripData]);
+
+  // 💡 自動跳轉到「今天」的核心魔法邏輯
+  useEffect(() => {
+    if (trip?.start_date && trip?.end_date) {
+      const todayStr = format(new Date(), 'yyyy-MM-dd');
+      
+      // 如果「今天」的日期字串大於等於開始日，且小於等於結束日
+      if (todayStr >= trip.start_date && todayStr <= trip.end_date) {
+        // 將 selectedDate 設為「今天」
+        const todayParsed = safeParse(todayStr);
+        if (todayParsed) {
+          setSelectedDate(todayParsed);
+          return; // 成功跳到今天就結束
+        }
+      }
+      
+      // 如果今天不在旅程區間內，就預設跳到「旅程的第一天」
       const parsedStart = safeParse(trip.start_date);
       if (parsedStart) setSelectedDate(parsedStart);
     }
-  }, [trip?.start_date]);
+  }, [trip?.start_date, trip?.end_date]);
 
   const [isFinanceFormOpen, setIsFinanceFormOpen] = useState(false);
   const [isItineraryFormOpen, setIsItineraryFormOpen] = useState(false);
   const [isNextTransportFormOpen, setIsNextTransportFormOpen] = useState(false);
   const [isBookingFormOpen, setIsBookingFormOpen] = useState(false);
-  
+
   const [editingItinerary, setEditingItinerary] = useState<Itinerary | null>(null);
   const [editingExpense, setEditingExpense] = useState<Expense | null>(null);
   const [editingBooking, setEditingBooking] = useState<Booking | null>(null);
+  
   const [isEditMode, setIsEditMode] = useState(false);
 
-  const [confirmConfig, setConfirmConfig] = useState<{ isOpen: boolean; title: string; message: string; confirmText?: string; cancelText?: string; onConfirm: () => void; }>({ 
-    isOpen: false, title: '', message: '', confirmText: 'Confirm', onConfirm: () => {} 
+  const [confirmConfig, setConfirmConfig] = useState<{
+    isOpen: boolean;
+    title: string;
+    message: string;
+    confirmText?: string;
+    cancelText?: string;
+    onConfirm: () => void;
+  }>({
+    isOpen: false,
+    title: '',
+    message: '',
+    confirmText: 'Confirm',
+    onConfirm: () => {}
   });
 
   const tripUsers = useLiveQuery(async () => {
@@ -118,7 +145,10 @@ export function TripDetails() {
 
   const handleDeleteItinerary = async (itineraryId: number) => {
     setConfirmConfig({
-      isOpen: true, title: '刪除活動', message: '您確定要刪除此活動嗎？此操作無法復原。', confirmText: '刪除活動',
+      isOpen: true,
+      title: '刪除活動',
+      message: '您確定要刪除此活動嗎？此操作無法復原。',
+      confirmText: '刪除活動',
       onConfirm: async () => {
         if (!id) return;
         try {
@@ -128,26 +158,37 @@ export function TripDetails() {
           setIsItineraryFormOpen(false);
           setEditingItinerary(null);
           setConfirmConfig(prev => ({ ...prev, isOpen: false }));
-        } catch (err) { console.error(err); alert('Failed to delete activity'); }
+        } catch (err) {
+          console.error(err);
+          alert('Failed to delete activity');
+        }
       }
     });
   };
 
   const handleDeleteBooking = async (bookingId: number) => {
     setConfirmConfig({
-      isOpen: true, title: '刪除預訂', message: '您確定要刪除此預訂資訊嗎？相關的行程項目也會一併刪除。', confirmText: '刪除預訂',
+      isOpen: true,
+      title: '刪除預訂',
+      message: '您確定要刪除此預訂資訊嗎？相關的行程項目也會一併刪除。',
+      confirmText: '刪除預訂',
       onConfirm: async () => {
         if (!id) return;
         try {
           const res = await apiFetch(`/api/trips/${id}/bookings/${bookingId}`, { method: 'DELETE' });
           if (!res.ok) throw new Error('Failed to delete booking');
           await db.bookings.delete(bookingId);
+          
           const relatedItineraries = itineraries.filter(i => i.related_id === bookingId && (i.type === 'TRANSPORTATION' || i.type === 'ACCOMMODATION' || i.type === 'RENTAL'));
           if (relatedItineraries.length > 0) await db.itineraries.bulkDelete(relatedItineraries.map(i => i.id));
+          
           setIsBookingFormOpen(false);
           setEditingBooking(null);
           setConfirmConfig(prev => ({ ...prev, isOpen: false }));
-        } catch (err) { console.error(err); alert('Failed to delete booking'); }
+        } catch (err) {
+          console.error(err);
+          alert('Failed to delete booking');
+        }
       }
     });
   };
@@ -156,6 +197,7 @@ export function TripDetails() {
     members.some(m => Number(m.user_id) === Number(user.id)) ||
     (trip?.members && Array.isArray(trip.members) && trip.members.some((m: any) => Number(m.user_id) === Number(user.id)))
   );
+  
   const isAdmin = user?.role?.toLowerCase() === 'admin';
   const hasEditPermission = !!(isMember || isAdmin);
   const canEdit = hasEditPermission && isEditMode;
@@ -164,7 +206,10 @@ export function TripDetails() {
   const validTripEndDate = safeParse(trip?.end_date);
   const daysCount = (validTripStartDate && validTripEndDate) ? differenceInDays(validTripEndDate, validTripStartDate) + 1 : 0;
   const dates = Array.from({ length: daysCount }).map((_, i) => addDays(validTripStartDate || new Date(), i));
-  const tripCoverImageUrl = trip?.cover_image_url && typeof trip.cover_image_url === 'string' && trip.cover_image_url.startsWith('http') ? trip.cover_image_url : `https://picsum.photos/seed/${trip?.id}/1920/1080`;
+
+  const tripCoverImageUrl = trip?.cover_image_url && typeof trip.cover_image_url === 'string' && trip.cover_image_url.startsWith('http') 
+    ? trip.cover_image_url 
+    : `https://picsum.photos/seed/${trip?.id}/1920/1080`;
 
   const filteredItineraries = itineraries.filter(i => {
     const parsed = safeParse(i.date);
@@ -185,6 +230,7 @@ export function TripDetails() {
       for (let j = i + 1; j < items.length; j++) {
         const a = items[i];
         const b = items[j];
+
         if (a.times.start < b.times.end && a.times.end > b.times.start) {
           if (a.isBooking && !b.isBooking) conflicts.add(b.id);
           else if (!a.isBooking && b.isBooking) conflicts.add(a.id);
@@ -214,7 +260,7 @@ export function TripDetails() {
         for (let j = i + 1; j < items.length; j++) {
           const a = items[i];
           const b = items[j];
-          if (a.times.start < b.times.end && a.times.end > b.times.start) return true; 
+          if (a.times.start < b.times.end && a.times.end > b.times.start) return true;
         }
       }
     }
@@ -227,23 +273,23 @@ export function TripDetails() {
       return;
     }
     if (isEditMode) {
-       if (checkAllConflicts()) {
-         setConfirmConfig({
-           isOpen: true,
-           title: '時間衝突警告',
-           message: '目前行程中有卡片時間重疊（已標示紅框），建議您調整時間。確定要直接離開編輯模式嗎？',
-           confirmText: '確定離開',
-           cancelText: '繼續編輯',
-           onConfirm: () => {
-             setIsEditMode(false);
-             setConfirmConfig(prev => ({ ...prev, isOpen: false }));
-           }
-         });
-       } else {
-         setIsEditMode(false);
-       }
+      if (checkAllConflicts()) {
+        setConfirmConfig({
+          isOpen: true,
+          title: '時間衝突警告',
+          message: '目前行程中有卡片時間重疊（已標示紅框），建議您調整時間。確定要直接離開編輯模式嗎？',
+          confirmText: '確定離開',
+          cancelText: '繼續編輯',
+          onConfirm: () => {
+            setIsEditMode(false);
+            setConfirmConfig(prev => ({ ...prev, isOpen: false }));
+          }
+        });
+      } else {
+        setIsEditMode(false);
+      }
     } else {
-       setIsEditMode(true);
+      setIsEditMode(true);
     }
   };
 
@@ -272,20 +318,24 @@ export function TripDetails() {
           <div className="absolute top-0 left-0 right-0 h-32 bg-gradient-to-b from-black/80 via-black/40 to-transparent pointer-events-none"></div>
           <div className="absolute bottom-0 left-0 right-0 h-32 bg-gradient-to-t from-black via-black/50 to-transparent pointer-events-none"></div>
           
-          <button onClick={() => navigate('/')} className="absolute left-4 p-2 bg-black/30 backdrop-blur-md rounded-full text-white hover:bg-black/50 transition-colors z-20 border border-white/10" style={{ top: 'max(1rem, env(safe-area-inset-top))' }}>
+          <button 
+            onClick={() => navigate('/')} 
+            className="absolute left-4 p-2 bg-black/30 backdrop-blur-md rounded-full text-white hover:bg-black/50 transition-colors z-20 border border-white/10" 
+            style={{ top: 'max(1rem, env(safe-area-inset-top))' }}
+          >
             <ArrowLeft size={20} />
           </button>
-
+          
           {user && (
             <button 
-              onClick={handleToggleEditMode}
-              className={clsx("absolute right-4 p-2 backdrop-blur-md rounded-full transition-all z-20 border border-white/10 shadow-lg", isEditMode ? "bg-orange-500 text-white" : "bg-black/50 text-white hover:bg-orange-500 transition-all")}
+              onClick={handleToggleEditMode} 
+              className={clsx("absolute right-4 p-2 backdrop-blur-md rounded-full transition-all z-20 border border-white/10 shadow-lg", isEditMode ? "bg-orange-500 text-white" : "bg-black/50 text-white hover:bg-orange-500 transition-all")} 
               style={{ top: 'max(1rem, env(safe-area-inset-top))' }}
             >
               {isEditMode ? <Unlock size={20} /> : <Edit3 size={20} />}
             </button>
           )}
-          
+
           <div className="absolute bottom-0 left-0 right-0 p-4 z-10">
             <h1 className="text-3xl font-bold text-white mb-1 drop-shadow-lg tracking-tight">{trip.title}</h1>
             <div className="flex items-center gap-3 text-zinc-200 text-sm font-medium">
@@ -304,10 +354,11 @@ export function TripDetails() {
                 {dates.map((date, index) => {
                   const isActive = isSameDay(date, selectedDate || new Date());
                   return (
-                    <button
-                      key={index} onClick={() => setSelectedDate(date)}
+                    <button 
+                      key={index} 
+                      onClick={() => setSelectedDate(date)} 
                       className={clsx(
-                        "flex flex-col items-center justify-center min-w-[56px] h-16 rounded-xl transition-all shrink-0",
+                        "flex flex-col items-center justify-center min-w-[56px] h-16 rounded-xl transition-all shrink-0", 
                         isActive ? "bg-orange-500 text-white shadow-lg shadow-orange-500/20 scale-105" : "bg-zinc-900 text-zinc-400 hover:bg-zinc-800 border border-zinc-800"
                       )}
                     >
@@ -317,19 +368,17 @@ export function TripDetails() {
                   );
                 })}
               </div>
-              <button
-                onClick={toggleExpandAll}
+              <button 
+                onClick={toggleExpandAll} 
                 className={clsx(
-                  "shrink-0 flex flex-col items-center justify-center w-12 h-16 rounded-2xl transition-all border",
-                  isAllExpanded 
-                    ? "bg-gradient-to-b from-orange-500 to-orange-600 border-orange-400/50 text-white shadow-[0_4px_20px_rgba(249,115,22,0.4)]" 
-                    : "bg-zinc-900/80 border-zinc-700/50 text-zinc-400 hover:text-white hover:bg-zinc-800 shadow-lg backdrop-blur-sm"
+                  "shrink-0 flex flex-col items-center justify-center w-12 h-16 rounded-2xl transition-all border", 
+                  isAllExpanded ? "bg-gradient-to-b from-orange-500 to-orange-600 border-orange-400/50 text-white shadow-[0_4px_20px_rgba(249,115,22,0.4)]" : "bg-zinc-900/80 border-zinc-700/50 text-zinc-400 hover:text-white hover:bg-zinc-800 shadow-lg backdrop-blur-sm"
                 )}
               >
-                 {isAllExpanded ? <ChevronsDownUp size={18} strokeWidth={2.5} /> : <ChevronsUpDown size={18} strokeWidth={2.5} />}
-                 <span className="text-[8px] font-black uppercase tracking-widest mt-1 opacity-80">
-                   {isAllExpanded ? 'Collapse' : 'Expand'}
-                 </span>
+                {isAllExpanded ? <ChevronsDownUp size={18} strokeWidth={2.5} /> : <ChevronsUpDown size={18} strokeWidth={2.5} />}
+                <span className="text-[8px] font-black uppercase tracking-widest mt-1 opacity-80">
+                  {isAllExpanded ? 'Collapse' : 'Expand'}
+                </span>
               </button>
             </div>
           </div>
@@ -340,44 +389,46 @@ export function TripDetails() {
         {activeTab === 'itinerary' && (
           <div className="space-y-6">
             {id && <WeatherWidget tripId={Number(id)} date={selectedDate} />}
+
             <div className="space-y-4">
               {filteredItineraries.length > 0 ? (
                 filteredItineraries.map((item, index) => {
-                  
                   if (item.type === 'TRANSPORTATION' && item.related_id) {
                     const booking = bookings.find(b => b.id === item.related_id);
                     if (booking) {
                       return (
-                        <TransportationCard
-                          key={`transport-${item.id}`}
-                          item={item} booking={booking} canEdit={canEdit}
-                          isConflicted={conflictedIdsInView.has(item.id)}
-                          onEdit={() => { setEditingBooking(booking); setIsBookingFormOpen(true); }}
-                          showNextTransport={index < filteredItineraries.length - 1}
-                          onEditNextTransport={() => { setEditingItinerary(item); setIsNextTransportFormOpen(true); }}
-                          selectedDate={selectedDate || new Date()}
-                          expandSignal={expandSignal}
-                          collapseSignal={collapseSignal}
+                        <TransportationCard 
+                          key={`transport-${item.id}`} 
+                          item={item} 
+                          booking={booking} 
+                          canEdit={canEdit} 
+                          isConflicted={conflictedIdsInView.has(item.id)} 
+                          onEdit={() => { setEditingBooking(booking); setIsBookingFormOpen(true); }} 
+                          showNextTransport={index < filteredItineraries.length - 1} 
+                          onEditNextTransport={() => { setEditingItinerary(item); setIsNextTransportFormOpen(true); }} 
+                          selectedDate={selectedDate || new Date()} 
+                          expandSignal={expandSignal} 
+                          collapseSignal={collapseSignal} 
                         />
                       );
                     }
                   }
-
+                  
                   const booking = (item.type === 'ACCOMMODATION' || item.type === 'RENTAL') && item.related_id ? bookings.find(b => b.id === item.related_id) : undefined;
+                  
                   return (
                     <div key={`itinerary-${item.id}`} className="space-y-2">
                       <ItineraryCard 
-                        item={item} canEdit={canEdit}
-                        isConflicted={conflictedIdsInView.has(item.id)}
-                        onEdit={() => {
-                          setEditingItinerary(item); 
-                          setIsItineraryFormOpen(true); 
-                        }}
-                        selectedDate={selectedDate || new Date()} showNextTransport={index < filteredItineraries.length - 1}
-                        onEditNextTransport={() => { setEditingItinerary(item); setIsNextTransportFormOpen(true); }}
-                        booking={booking}
-                        expandSignal={expandSignal}
-                        collapseSignal={collapseSignal}
+                        item={item} 
+                        canEdit={canEdit} 
+                        isConflicted={conflictedIdsInView.has(item.id)} 
+                        onEdit={() => { setEditingItinerary(item); setIsItineraryFormOpen(true); }} 
+                        selectedDate={selectedDate || new Date()} 
+                        showNextTransport={index < filteredItineraries.length - 1} 
+                        onEditNextTransport={() => { setEditingItinerary(item); setIsNextTransportFormOpen(true); }} 
+                        booking={booking} 
+                        expandSignal={expandSignal} 
+                        collapseSignal={collapseSignal} 
                       />
                     </div>
                   );
@@ -385,7 +436,7 @@ export function TripDetails() {
               ) : (
                 <div className="text-center py-12 text-zinc-500 border border-dashed border-zinc-800 rounded-3xl"><p>No activities for this day.</p></div>
               )}
-
+              
               {canEdit && (
                 <button onClick={() => setIsItineraryFormOpen(true)} className="w-full mt-6 py-4 border-2 border-dashed border-zinc-800 rounded-3xl flex items-center justify-center gap-2 text-zinc-500 hover:text-orange-500 hover:border-orange-500/50 hover:bg-orange-500/5 transition-all">
                   <Plus size={20} /><span className="font-medium">Add Activity</span>
@@ -404,93 +455,84 @@ export function TripDetails() {
 
             <div className="space-y-4">
               <div className="flex items-center justify-between px-2">
-                 <h4 className="text-zinc-500 text-xs font-bold uppercase tracking-widest">Bookings</h4>
-                 {canEdit && (
-                   <button onClick={() => { setEditingBooking(null); setIsBookingFormOpen(true); }} className="p-2 bg-orange-500/10 text-orange-500 rounded-full hover:bg-orange-500/20 transition-colors">
-                     <Plus size={18} />
-                   </button>
-                 )}
+                <h4 className="text-zinc-500 text-xs font-bold uppercase tracking-widest">Bookings</h4>
+                {canEdit && (
+                  <button onClick={() => { setEditingBooking(null); setIsBookingFormOpen(true); }} className="p-2 bg-orange-500/10 text-orange-500 rounded-full hover:bg-orange-500/20 transition-colors">
+                    <Plus size={18} />
+                  </button>
+                )}
               </div>
-
+              
               {bookings.length > 0 ? (
                 <>
                   {availableBookingCategories.length > 2 && (
                     <div className="flex gap-2 overflow-x-auto no-scrollbar px-2 pb-2">
                       {availableBookingCategories.map(cat => (
-                        <button
-                          key={cat}
-                          onClick={() => setBookingFilter(cat)}
-                          className={clsx(
-                            "px-4 py-1.5 rounded-full text-xs font-bold whitespace-nowrap transition-colors border",
-                            bookingFilter === cat 
-                              ? "bg-orange-500 text-white border-orange-500" 
-                              : "bg-zinc-900 border-zinc-800 text-zinc-400 hover:text-white hover:bg-zinc-800"
-                          )}
+                        <button 
+                          key={cat} 
+                          onClick={() => setBookingFilter(cat)} 
+                          className={clsx("px-4 py-2 rounded-xl text-xs font-bold whitespace-nowrap transition-colors border", bookingFilter === cat ? "bg-orange-500 border-orange-500 text-white" : "bg-zinc-900 border-zinc-800 text-zinc-400 hover:border-zinc-600")}
                         >
                           {cat}
                         </button>
                       ))}
                     </div>
                   )}
-
-                  <div className="grid grid-cols-1 gap-4">
-                    {bookings
-                      .filter(b => bookingFilter === 'ALL' || b.category === bookingFilter)
-                      .sort((a, b) => {
-                        const now = new Date();
-                        const dateA = parseISO(`${a.start_date}T${a.start_time}`);
-                        const dateB = parseISO(`${b.start_date}T${b.start_time}`);
-                        const aPast = isPast(dateA) && !isSameDay(dateA, now);
-                        const bPast = isPast(dateB) && !isSameDay(dateB, now);
-
-                        if (aPast && !bPast) return 1;
-                        if (!aPast && bPast) return -1;
-                        return dateA.getTime() - dateB.getTime();
-                      })
-                      .map(booking => (
-                        <BookingCard
-                          key={booking.id} booking={booking} canEdit={canEdit}
-                          onEdit={() => { setEditingBooking(booking); setIsBookingFormOpen(true); }}
-                        />
-                      ))}
+                  
+                  <div className="space-y-3">
+                    {bookings.filter(b => bookingFilter === 'ALL' || b.category === bookingFilter).map(booking => (
+                      <BookingCard key={booking.id} booking={booking} canEdit={canEdit} onEdit={() => { setEditingBooking(booking); setIsBookingFormOpen(true); }} />
+                    ))}
                   </div>
                 </>
               ) : (
-                <div className="bg-zinc-900/50 border border-dashed border-zinc-800 rounded-3xl p-12 text-center text-zinc-500">
-                  <div className="mb-4 flex justify-center"><Info size={32} className="opacity-20" /></div>
-                  <p className="text-sm">No bookings added yet.</p>
-                </div>
+                <div className="text-center py-10 text-zinc-600 border border-dashed border-zinc-800 rounded-3xl text-sm">No bookings yet.</div>
               )}
             </div>
           </div>
         )}
 
         {activeTab === 'finance' && (
-          <div className="space-y-4">
-            {filteredExpenses.length > 0 ? (
-              filteredExpenses.map(expense => (
-                <div 
-                  key={expense.id} 
-                  onClick={() => { if (canEdit) { setEditingExpense(expense); setIsFinanceFormOpen(true); } }}
-                  className={`bg-zinc-900 border border-zinc-800 rounded-3xl p-5 shadow-lg flex items-center justify-between transition-colors ${canEdit ? 'cursor-pointer hover:bg-zinc-800/50' : ''}`}
-                >
-                  <div className="flex items-center gap-4">
-                    <div className="w-12 h-12 rounded-full bg-zinc-800 flex items-center justify-center shrink-0"><DollarSign className="text-zinc-400" size={20} /></div>
-                    <div>
-                      <h4 className="text-white font-medium">{expense.item_name}</h4>
-                      <p className="text-xs text-zinc-500 mt-1 uppercase tracking-wider">Paid by {getUserNameById(expense.payer_id)}</p>
+          <div className="space-y-6">
+            <div className="flex items-center justify-between px-2">
+              <h3 className="text-lg font-bold text-white">Daily Expenses</h3>
+              <div className="text-right">
+                <div className="text-[10px] text-zinc-500 font-bold uppercase tracking-widest mb-0.5">Daily Total</div>
+                <div className="text-xl font-bold text-white font-mono">
+                  {trip?.currencies?.[0] || 'TWD'} {filteredExpenses.reduce((sum, e) => sum + e.amount, 0).toLocaleString()}
+                </div>
+              </div>
+            </div>
+
+            <div className="space-y-3">
+              {filteredExpenses.length > 0 ? (
+                filteredExpenses.map((expense) => (
+                  <div key={expense.id} onClick={() => { if(canEdit){ setEditingExpense(expense); setIsFinanceFormOpen(true); } }} className={clsx("bg-zinc-900 border border-zinc-800 rounded-3xl p-5 flex items-center justify-between transition-all group", canEdit && "hover:border-orange-500/50 cursor-pointer active:scale-[0.98]")}>
+                    <div className="flex items-center gap-4">
+                      <div className="w-12 h-12 rounded-full bg-zinc-800 flex items-center justify-center shrink-0 border border-zinc-700">
+                        <DollarSign className="text-orange-500" size={24} />
+                      </div>
+                      <div>
+                        <div className="font-bold text-white text-base mb-1">{expense.item_name}</div>
+                        <div className="text-[11px] font-bold text-zinc-500 uppercase tracking-widest flex items-center gap-2">
+                          <span className="bg-zinc-800 px-2 py-0.5 rounded-md">{expense.category || 'Other'}</span>
+                          <span>Paid by {getUserNameById(expense.payer_id)}</span>
+                        </div>
+                      </div>
+                    </div>
+                    <div className="text-right flex items-center gap-3">
+                      <div className="text-lg font-bold text-white font-mono">{expense.currency} {expense.amount.toLocaleString()}</div>
+                      {canEdit && <div className="text-zinc-600 group-hover:text-orange-500 transition-colors"><Edit3 size={16} /></div>}
                     </div>
                   </div>
-                  <div className="text-right">
-                    <div className="text-lg font-semibold text-white">{expense.amount.toLocaleString()}</div>
-                    <div className="text-[10px] text-zinc-500 uppercase tracking-wider mt-1">{expense.currency}</div>
-                  </div>
-                </div>
-              ))
-            ) : <div className="text-center py-12 text-zinc-500 border border-dashed border-zinc-800 rounded-3xl"><p>No expenses recorded for this day.</p></div>}
+                ))
+              ) : (
+                <div className="text-center py-12 text-zinc-500 border border-dashed border-zinc-800 rounded-3xl"><p>No expenses for this day.</p></div>
+              )}
+            </div>
 
             {canEdit && (
-              <button onClick={() => { setEditingExpense(null); setIsFinanceFormOpen(true); }} className="w-full mt-6 py-4 border-2 border-dashed border-zinc-800 rounded-3xl flex items-center justify-center gap-2 text-zinc-500 hover:text-orange-500 hover:border-orange-500/50 hover:bg-orange-500/5 transition-all">
+              <button onClick={() => { setEditingExpense(null); setIsFinanceFormOpen(true); }} className="w-full mt-4 py-4 border-2 border-dashed border-zinc-800 rounded-3xl flex items-center justify-center gap-2 text-zinc-500 hover:text-orange-500 hover:border-orange-500/50 hover:bg-orange-500/5 transition-all">
                 <Plus size={20} /><span className="font-medium">Add Expense</span>
               </button>
             )}
@@ -498,113 +540,121 @@ export function TripDetails() {
         )}
 
         {activeTab === 'settings' && hasEditPermission && (
-          <div className="space-y-6">
-            <div className="bg-zinc-900 border border-zinc-800 rounded-3xl p-6 shadow-lg">
-              <h3 className="text-lg font-semibold text-white mb-6">Trip Settings</h3>
-              <TripSettingsForm trip={trip} onSuccess={() => { refreshTripData(); }} />
-            </div>
-          </div>
+          <TripSettingsForm 
+            trip={trip} 
+            onUpdate={refreshTripData} 
+            onDelete={async () => {
+              try {
+                await apiFetch(`/api/trips/${id}`, { method: 'DELETE' });
+                await db.trips.delete(Number(id));
+                navigate('/');
+              } catch (e) { alert('Delete failed'); }
+            }}
+            onClose={() => setActiveTab('itinerary')}
+          />
         )}
       </div>
 
-      <div className="fixed bottom-0 left-0 right-0 bg-zinc-900/95 backdrop-blur-xl border-t border-zinc-800 flex items-center justify-around px-4 pt-2 z-[100] shadow-[0_-4px_20px_rgba(0,0,0,0.5)]" style={{ paddingBottom: 'max(0.5rem, calc(env(safe-area-inset-bottom) + 0.5rem))' }}>
-        <button onClick={() => setActiveTab('itinerary')} className={clsx("flex flex-col items-center justify-center w-full h-12 space-y-1 transition-colors active:scale-95", activeTab === 'itinerary' ? "text-orange-500" : "text-zinc-500 hover:text-zinc-300")}>
-          <Map size={24} strokeWidth={activeTab === 'itinerary' ? 2.5 : 2} /><span className="text-[10px] font-bold uppercase tracking-wider">Itinerary</span>
-        </button>
-        <button onClick={() => setActiveTab('info')} className={clsx("flex flex-col items-center justify-center w-full h-12 space-y-1 transition-colors active:scale-95", activeTab === 'info' ? "text-orange-500" : "text-zinc-500 hover:text-zinc-300")}>
-          <Info size={24} strokeWidth={activeTab === 'info' ? 2.5 : 2} /><span className="text-[10px] font-bold uppercase tracking-wider">Info</span>
-        </button>
-        <button onClick={() => setActiveTab('finance')} className={clsx("flex flex-col items-center justify-center w-full h-12 space-y-1 transition-colors active:scale-95", activeTab === 'finance' ? "text-orange-500" : "text-zinc-500 hover:text-zinc-300")}>
-          <Wallet size={24} strokeWidth={activeTab === 'finance' ? 2.5 : 2} /><span className="text-[10px] font-bold uppercase tracking-wider">Finance</span>
-        </button>
-        {hasEditPermission && (
-          <button onClick={() => setActiveTab('settings')} className={clsx("flex flex-col items-center justify-center w-full h-12 space-y-1 transition-colors active:scale-95", activeTab === 'settings' ? "text-orange-500" : "text-zinc-500 hover:text-zinc-300")}>
-            <Settings size={24} strokeWidth={activeTab === 'settings' ? 2.5 : 2} /><span className="text-[10px] font-bold uppercase tracking-wider">Settings</span>
+      <div className="fixed bottom-0 left-0 right-0 bg-black/90 backdrop-blur-xl border-t border-zinc-800 z-50 pb-safe-bottom">
+        <div className="flex justify-around items-center px-2 py-3">
+          <button onClick={() => setActiveTab('itinerary')} className={clsx("flex flex-col items-center gap-1.5 p-2 transition-colors", activeTab === 'itinerary' ? "text-orange-500" : "text-zinc-500 hover:text-zinc-300")}>
+            <Map size={24} />
+            <span className="text-[10px] font-bold tracking-wide">Itinerary</span>
           </button>
-        )}
+          <button onClick={() => setActiveTab('info')} className={clsx("flex flex-col items-center gap-1.5 p-2 transition-colors", activeTab === 'info' ? "text-orange-500" : "text-zinc-500 hover:text-zinc-300")}>
+            <Info size={24} />
+            <span className="text-[10px] font-bold tracking-wide">Info</span>
+          </button>
+          <button onClick={() => setActiveTab('finance')} className={clsx("flex flex-col items-center gap-1.5 p-2 transition-colors", activeTab === 'finance' ? "text-orange-500" : "text-zinc-500 hover:text-zinc-300")}>
+            <Wallet size={24} />
+            <span className="text-[10px] font-bold tracking-wide">Finance</span>
+          </button>
+          {hasEditPermission && (
+            <button onClick={() => setActiveTab('settings')} className={clsx("flex flex-col items-center gap-1.5 p-2 transition-colors", activeTab === 'settings' ? "text-orange-500" : "text-zinc-500 hover:text-zinc-300")}>
+              <Settings size={24} />
+              <span className="text-[10px] font-bold tracking-wide">Settings</span>
+            </button>
+          )}
+        </div>
       </div>
 
       <AnimatePresence>
-        {isFinanceFormOpen && id && (
-          <div className="fixed inset-0 z-[200] flex items-center justify-center p-4">
-            <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={() => setIsFinanceFormOpen(false)} className="absolute inset-0 bg-black/80 backdrop-blur-sm" />
-            <motion.div initial={{ scale: 0.95, opacity: 0, y: 20 }} animate={{ scale: 1, opacity: 1, y: 0 }} exit={{ scale: 0.95, opacity: 0, y: 20 }} className="relative w-full max-w-md z-10">
-              <FinanceForm 
-                tripId={id} defaultDate={format(selectedDate || new Date(), 'yyyy-MM-dd')} currencies={trip.currencies || ['TWD']} initialData={editingExpense}
-                onSuccess={() => { setIsFinanceFormOpen(false); refreshTripData(); }} 
-                onCancel={() => setIsFinanceFormOpen(false)} 
-              />
-            </motion.div>
-          </div>
-        )}
-      </AnimatePresence>
-
-      <AnimatePresence>
-        {isItineraryFormOpen && id && (
-          <div className="fixed inset-0 z-[200] flex items-center justify-center p-4">
-            <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={() => setIsItineraryFormOpen(false)} className="absolute inset-0 bg-black/80 backdrop-blur-sm" />
-            <motion.div initial={{ scale: 0.95, opacity: 0, y: 20 }} animate={{ scale: 1, opacity: 1, y: 0 }} exit={{ scale: 0.95, opacity: 0, y: 20 }} className="relative w-full max-w-md z-10">
+        {isItineraryFormOpen && (
+          <div className="fixed inset-0 z-[100] flex items-end justify-center bg-black/80 backdrop-blur-sm sm:items-center p-4">
+            <motion.div initial={{ y: '100%' }} animate={{ y: 0 }} exit={{ y: '100%' }} className="w-full max-w-md max-h-[90vh]">
               <ItineraryForm 
-                tripId={Number(id)} defaultCityId={trip.default_city_id} date={format(selectedDate || new Date(), 'yyyy-MM-dd')} initialData={editingItinerary} onDelete={handleDeleteItinerary}
-                onSuccess={async () => { 
-                  setIsItineraryFormOpen(false); 
-                  setEditingItinerary(null); 
-                  await refreshTripData(); 
-                }} 
+                tripId={Number(id)} 
+                date={selectedDate ? format(selectedDate, 'yyyy-MM-dd') : ''} 
+                initialData={editingItinerary}
+                onSuccess={() => { setIsItineraryFormOpen(false); setEditingItinerary(null); refreshTripData(); }} 
                 onCancel={() => { setIsItineraryFormOpen(false); setEditingItinerary(null); }} 
               />
             </motion.div>
           </div>
         )}
-      </AnimatePresence>
 
-      <AnimatePresence>
-        {isBookingFormOpen && (
-          <div className="fixed inset-0 z-[100] flex items-end sm:items-center justify-center p-0 sm:p-4">
-            <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={() => setIsBookingFormOpen(false)} className="absolute inset-0 bg-black/80 backdrop-blur-sm" />
-            <motion.div initial={{ y: '100%' }} animate={{ y: 0 }} exit={{ y: '100%' }} transition={{ type: 'spring', damping: 25, stiffness: 200 }} className="relative w-full max-w-2xl z-10">
-              <BookingForm
-                tripId={Number(id)} initialData={editingBooking || undefined}
-                onSuccess={async () => {
-                  setIsBookingFormOpen(false);
-                  setEditingBooking(null);
-                  await refreshTripData(); 
-                }}
-                onCancel={() => { setIsBookingFormOpen(false); setEditingBooking(null); }}
-                onDelete={handleDeleteBooking}
+        {isFinanceFormOpen && (
+          <div className="fixed inset-0 z-[100] flex items-end justify-center bg-black/80 backdrop-blur-sm sm:items-center p-4">
+            <motion.div initial={{ y: '100%' }} animate={{ y: 0 }} exit={{ y: '100%' }} className="w-full max-w-md max-h-[90vh]">
+              <FinanceForm 
+                tripId={id!} 
+                defaultDate={selectedDate ? format(selectedDate, 'yyyy-MM-dd') : undefined} 
+                currencies={trip.currencies} 
+                initialData={editingExpense}
+                onSuccess={() => { setIsFinanceFormOpen(false); setEditingExpense(null); refreshTripData(); }} 
+                onCancel={() => { setIsFinanceFormOpen(false); setEditingExpense(null); }} 
               />
             </motion.div>
           </div>
         )}
-      </AnimatePresence>
 
-      <AnimatePresence>
+        {isBookingFormOpen && (
+          <div className="fixed inset-0 z-[100] flex items-end justify-center bg-black/80 backdrop-blur-sm sm:items-center p-4">
+            <motion.div initial={{ y: '100%' }} animate={{ y: 0 }} exit={{ y: '100%' }} className="w-full max-w-md bg-zinc-900 rounded-3xl p-6 shadow-2xl max-h-[90vh] overflow-y-auto">
+              <BookingForm 
+                initialData={editingBooking}
+                onSubmit={async (data) => {
+                  try {
+                    const endpoint = editingBooking ? `/api/trips/${id}/bookings/${editingBooking.id}` : `/api/trips/${id}/bookings`;
+                    const method = editingBooking ? 'PUT' : 'POST';
+                    await apiFetch(endpoint, { method, body: JSON.stringify(data) });
+                    setIsBookingFormOpen(false);
+                    setEditingBooking(null);
+                    refreshTripData();
+                  } catch (e) { alert('Failed to save booking'); }
+                }}
+                onCancel={() => { setIsBookingFormOpen(false); setEditingBooking(null); }} 
+              />
+              {editingBooking && (
+                <div className="mt-4 pt-4 border-t border-zinc-800">
+                  <button onClick={() => handleDeleteBooking(editingBooking.id)} className="w-full py-3 text-red-500 bg-red-500/10 hover:bg-red-500/20 font-bold rounded-xl transition-colors">
+                    Delete Booking
+                  </button>
+                </div>
+              )}
+            </motion.div>
+          </div>
+        )}
+
         {isNextTransportFormOpen && editingItinerary && (
-          <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="z-[300] relative">
-            <NextTransportForm
-              isOpen={isNextTransportFormOpen} 
-              onClose={() => setIsNextTransportFormOpen(false)} 
-              itinerary={editingItinerary}
-              nextItinerary={filteredItineraries[filteredItineraries.findIndex(i => i.id === editingItinerary.id) + 1]}
-              onSave={async (data) => {
+          <NextTransportForm 
+            isOpen={isNextTransportFormOpen} 
+            onClose={() => { setIsNextTransportFormOpen(false); setEditingItinerary(null); }} 
+            itinerary={editingItinerary} 
+            nextItinerary={filteredItineraries[filteredItineraries.findIndex(i => i.id === editingItinerary.id) + 1]}
+            onSave={async (data) => {
+              try {
                 await apiFetch(`/api/trips/${id}/itineraries/${editingItinerary.id}`, { method: 'PUT', body: JSON.stringify({ ...editingItinerary, ...data }) });
                 setIsNextTransportFormOpen(false);
-                await refreshTripData(); 
-              }}
-            />
-          </motion.div>
+                setEditingItinerary(null);
+                refreshTripData();
+              } catch (e) { alert('Failed to save transport info'); }
+            }} 
+          />
         )}
       </AnimatePresence>
 
-      <ConfirmDialog
-        isOpen={confirmConfig.isOpen}
-        title={confirmConfig.title}
-        message={confirmConfig.message}
-        confirmText={confirmConfig.confirmText}
-        cancelText={confirmConfig.cancelText}
-        onConfirm={confirmConfig.onConfirm}
-        onCancel={() => setConfirmConfig({ ...confirmConfig, isOpen: false })}
-      />
+      <ConfirmDialog {...confirmConfig} onCancel={() => setConfirmConfig(prev => ({ ...prev, isOpen: false }))} />
     </div>
   );
 }

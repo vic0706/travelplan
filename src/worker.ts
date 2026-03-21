@@ -11,6 +11,7 @@ import bookingRoutes from './routes/bookings';
 import expenseRoutes from './routes/expenses';
 import placeRoutes from './routes/places';
 import mediaRoutes from './routes/media';
+import cities from './routes/cities';
 
 export interface Env {
   DB: D1Database;
@@ -48,6 +49,7 @@ app.route('/api/trips/:id/bookings', bookingRoutes);
 app.route('/api/trips/:id/expenses', expenseRoutes);
 app.route('/api/places', placeRoutes);
 app.route('/api/media', mediaRoutes);
+app.route('/api/cities', cities);
 
 // 3. 基礎城市查詢
 app.get('/api/cities', async (c) => {
