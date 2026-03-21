@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useAppStore, User } from '../store';
-import { Image as ImageIcon, MapPin, Users, Loader2, Check, Globe, ChevronDown, ChevronUp } from 'lucide-react';
+import { Image as ImageIcon, MapPin, Users, Loader2, Check, Globe, ChevronDown, ChevronUp, Lock as LockIcon } from 'lucide-react';
 import { ImageCropper, uploadImageToSupabase } from './ImageCropper';
 import { LocationPicker } from './LocationPicker';
 import { DateRangePicker } from './DateRangePicker';
@@ -341,7 +341,7 @@ export function TripBaseForm({ initialData, onSubmit, onCancel, submitText, load
           )}
         >
           <div className="flex items-center gap-3">
-            {formData.is_public ? <Globe size={20} className="text-emerald-500 shrink-0" /> : <Lock size={20} className="text-zinc-500 shrink-0" />}
+            {formData.is_public ? <Globe size={20} className="text-emerald-500 shrink-0" /> : <LockIcon size={20} className="text-zinc-500 shrink-0" />}
             <div className="flex flex-col items-start text-left">
               <span className={clsx("text-sm font-bold", formData.is_public ? "text-emerald-500" : "text-zinc-300")}>
                 {formData.is_public ? 'Public Trip' : 'Private Trip'}
