@@ -1,6 +1,6 @@
 import { Hono } from 'hono';
 import { Env } from '../worker';
-import { checkTripAccess, getWeatherForDate, syncPlaceDetails } from '../utils/workerUtils';
+import { checkTripAccess, getWeatherForDate, syncPlaceDetails, optimizeDailyItinerary } from '../utils/workerUtils';
 
 const trips = new Hono<{ Bindings: Env; Variables: { user: any } }>();
 
@@ -141,25 +141,35 @@ trips.get('/:id/weather', async (c) => {
   }
 });
 
-// AI 同步與地點更新
+// AI 同步、地點更新與智慧排序
 trips.post('/:id/sync', async (c) => {
   const tripId = c.req.param('id');
   try {
     const canEdit = await checkTripAccess(c, Number(tripId), 'edit');
     if (!canEdit) return c.json({ error: 'Unauthorized' }, 403);
-    
+
     const { results: tripsInfo } = await c.env.DB.prepare(`SELECT * FROM Trips WHERE id = ?`).bind(tripId).all();
     if (tripsInfo.length === 0) return c.json({ error: 'Trip not found' }, 404);
     const trip = tripsInfo[0] as any;
-    
+
     const start = new Date(trip.start_date);
     const end = new Date(trip.end_date);
+    
+    // 每一天依序處理
     for (let d = new Date(start); d <= end; d.setDate(d.getDate() + 1)) {
       const dateStr = d.toISOString().split('T')[0];
+      
+      // 1. 更新天氣
       await getWeatherForDate(Number(tripId), dateStr, c.env, true);
+      
+      // 2. 💡 啟動 AI 智慧排序 (固樁、聚類、交通緩衝)
+      await optimizeDailyItinerary(c.env, Number(tripId), dateStr);
     }
+
+    // 3. 更新 Google 地點詳細資料與營業時間檢查
     await syncPlaceDetails(c.env, Number(tripId));
-    return c.json({ success: true, message: 'Sync completed' });
+
+    return c.json({ success: true, message: 'AI Sync & Optimization completed' });
   } catch (error: any) {
     return c.json({ error: error.message }, 500);
   }

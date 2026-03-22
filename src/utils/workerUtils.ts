@@ -311,3 +311,131 @@ export async function syncPlaceDetails(env: Env, tripId: number) {
     `).bind(rating, reviewsCount, openingHours, website, phone, status, warning, item.id).run();
   }
 }
+
+// ==========================================
+// 💡 行程智慧排序引擎 (Smart Itinerary Optimizer)
+// ==========================================
+
+// 輔助：計算兩點之間的直線距離 (公里 - Haversine 公式)
+function getDistanceKm(lat1: number, lon1: number, lat2: number, lon2: number) {
+  if (!lat1 || !lon1 || !lat2 || !lon2) return 0;
+  const R = 6371; 
+  const dLat = (lat2 - lat1) * (Math.PI / 180);
+  const dLon = (lon2 - lon1) * (Math.PI / 180);
+  const a = Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+            Math.cos(lat1 * (Math.PI / 180)) * Math.cos(lat2 * (Math.PI / 180)) * Math.sin(dLon / 2) * Math.sin(dLon / 2);
+  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a)); 
+  return R * c;
+}
+
+// 輔助：將 HH:MM 轉為分鐘數
+function timeToMins(timeStr: string) {
+  if (!timeStr) return 0;
+  const [h, m] = timeStr.split(':').map(Number);
+  return h * 60 + (m || 0);
+}
+
+// 輔助：將分鐘數轉為 HH:MM
+function minsToTime(mins: number) {
+  const h = Math.floor(mins / 60) % 24;
+  const m = Math.floor(mins % 60);
+  return `${h.toString().padStart(2, '0')}:${m.toString().padStart(2, '0')}`;
+}
+
+export async function optimizeDailyItinerary(env: Env, tripId: number, dateStr: string) {
+  // 1. 抓出該天所有的行程
+  const { results } = await env.DB.prepare(`
+    SELECT * FROM Itineraries WHERE trip_id = ? AND date = ? ORDER BY start_time ASC
+  `).bind(tripId, dateStr).all();
+
+  if (results.length === 0) return;
+
+  const items = results as any[];
+  
+  // 2. 區分「固樁 (Fixed)」與「彈性 (Flexible)」活動
+  // 並計算每個活動原本設定的「停留時間 (Duration)」
+  const fixedItems = items.filter(i => i.is_time_fixed === 1).map(i => ({
+    ...i,
+    durationMins: timeToMins(i.end_time) - timeToMins(i.start_time)
+  }));
+  
+  let flexItems = items.filter(i => i.is_time_fixed === 0 || !i.is_time_fixed).map(i => ({
+    ...i,
+    // 如果原本沒設好，預設給 60 分鐘停留
+    durationMins: Math.max(15, timeToMins(i.end_time) - timeToMins(i.start_time)) 
+  }));
+
+  // 3. 開始模擬時間軸 (假設一天從第一個活動的時間開始，或預設 09:00)
+  let currentMins = items.length > 0 ? timeToMins(items[0].start_time) : 540; 
+  let currentLat = items[0]?.lat;
+  let currentLng = items[0]?.lng;
+
+  const statements = [];
+
+  // 簡單的貪婪演算法 (Greedy Algorithm) 來排行程
+  while (flexItems.length > 0 || fixedItems.length > 0) {
+    // 檢查有沒有「固樁活動」的時間快到了 (例如 1 小時內)
+    const nextFixed = fixedItems.length > 0 ? fixedItems[0] : null;
+    
+    if (nextFixed && timeToMins(nextFixed.start_time) <= currentMins + 60) {
+      // 撞到固樁時間了，直接跳到該活動
+      currentMins = timeToMins(nextFixed.end_time);
+      currentLat = nextFixed.lat;
+      currentLng = nextFixed.lng;
+      fixedItems.shift(); // 移除已處理的
+      continue;
+    }
+
+    if (flexItems.length > 0) {
+      // 🌍 地理聚類優化：找出距離「當前位置」最近的彈性景點
+      let bestIdx = 0;
+      let minDistance = Infinity;
+
+      if (currentLat && currentLng) {
+        flexItems.forEach((item, idx) => {
+          if (item.lat && item.lng) {
+            const dist = getDistanceKm(currentLat, currentLng, item.lat, item.lng);
+            if (dist < minDistance) {
+              minDistance = dist;
+              bestIdx = idx;
+            }
+          }
+        });
+      }
+
+      const nextFlex = flexItems.splice(bestIdx, 1)[0]; // 取出並移除
+
+      // 🚗 交通模式緩衝：直線距離(公里) * 4分鐘 (假設市區平均車速)，加上 5 分鐘緩衝
+      const travelTimeMins = minDistance !== Infinity ? Math.ceil(minDistance * 4) + 5 : 15;
+      
+      // 更新這個彈性活動的時間
+      const newStartMins = currentMins + travelTimeMins;
+      const newEndMins = newStartMins + nextFlex.durationMins;
+
+      // 檢查是否會擠壓到下一個「固樁活動」
+      if (nextFixed && newEndMins > timeToMins(nextFixed.start_time)) {
+        // 放不下！這代表行程太滿了，標記衝突警告
+        statements.push(
+          env.DB.prepare(`UPDATE Itineraries SET sync_conflict_warning = ? WHERE id = ?`)
+            .bind(`⚠️ 距離下個行程時間不足，建議刪減`, nextFlex.id)
+        );
+        // 先把它塞在原位，但時間被壓縮
+        currentMins = timeToMins(nextFixed.start_time); 
+      } else {
+        // 放得下，更新資料庫的時間
+        statements.push(
+          env.DB.prepare(`UPDATE Itineraries SET start_time = ?, end_time = ?, sync_conflict_warning = NULL WHERE id = ?`)
+            .bind(minsToTime(newStartMins), minsToTime(newEndMins), nextFlex.id)
+        );
+        currentMins = newEndMins;
+        if (nextFlex.lat) currentLat = nextFlex.lat;
+        if (nextFlex.lng) currentLng = nextFlex.lng;
+      }
+    }
+  }
+
+  // 4. 批次執行更新
+  if (statements.length > 0) {
+    await env.DB.batch(statements);
+  }
+}
