@@ -68,7 +68,7 @@ export function ItineraryCard({
   };
 
   const getGoogleMapsLink = () => {
-    if (item.google_place_id) return `https://www.google.com/maps/search/?api=1&query_place_id=${item.google_place_id}`;
+    if (item.google_place_id) return `https://www.google.com/maps/search/?api=1&query=Google&query_place_id=${item.google_place_id}`;
     return `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(item.address || item.title)}`;
   };
 
@@ -82,14 +82,14 @@ export function ItineraryCard({
     }
   };
 
-  // 💡 判定卡片目前屬於哪種狀態
+  // 💡 核心狀態判定
   const hasTimeSet = !!item.start_time && item.start_time !== '';
   const isFixed = item.is_time_fixed === 1;
   const isAiCalculated = !isFixed && hasTimeSet;
   const isAiPending = !isFixed && !hasTimeSet;
 
-  // 💡 判定是否為「卡關的斷點」(有時間，卻沒有下一步交通)
-  const isMissingTransport = canEdit && hasTimeSet && (!item.next_transport_mode || item.next_transport_mode === '');
+  // 💡 判定是否為「斷路器中斷點」(有時間，但下一站交通未設)
+  const isCircuitBreaker = canEdit && hasTimeSet && (!item.next_transport_mode || item.next_transport_mode === '');
 
   return (
     <div className="flex flex-col w-full mb-3 px-1">
@@ -97,28 +97,28 @@ export function ItineraryCard({
         onClick={handleMainClick} 
         className={clsx(
           "relative group bg-[#1c1c1e] rounded-[32px] transition-all cursor-pointer border flex flex-col overflow-hidden",
-          canEdit && !isConflicted ? "hover:border-orange-500/50 bg-[#242426]" : "border-transparent hover:border-zinc-800",
+          canEdit && !isConflicted && !isCircuitBreaker ? "hover:border-orange-500/50 bg-[#242426]" : "border-transparent",
           isConflicted ? "border-red-500 ring-2 ring-red-500/50" : "",
           isDragOverlay && "opacity-90 scale-105 shadow-2xl z-50",
-          isAiPending && "border-dashed border-zinc-800/50" // 💡 待排程用虛線
+          isAiPending && "border-dashed border-zinc-800/50 grayscale-[0.3] opacity-80", // 待排程：虛線、輕微褪色
+          isCircuitBreaker && "border-red-500 border-2 shadow-[0_0_20px_rgba(239,68,68,0.25)] bg-[#2a1a1a]" // 斷路器：紅框、紅暈、深紅背
         )}
       >
-        {/* 卡片上半部內容 */}
         <div className="p-5 pb-4">
           <div className="flex items-center justify-between mb-3">
             <div className="flex items-center gap-3">
               <div 
                 className="shrink-0 transition-all duration-500"
                 style={{ 
-                  color: category.color,
-                  filter: !isPast ? `drop-shadow(0 0 8px ${category.color})` : 'none',
+                  color: isCircuitBreaker ? '#ef4444' : category.color,
+                  filter: !isPast ? `drop-shadow(0 0 8px ${isCircuitBreaker ? '#ef4444' : category.color})` : 'none',
                   opacity: !isPast ? 1 : 0.5 
                 }}
               >
                 <DynamicIcon name={item.icon || 'MapPin'} size={20} />
               </div>
               
-              {/* 💡 三態時間區塊 */}
+              {/* 三態時間區塊 */}
               {isFixed && (
                 <div className="flex items-center gap-2">
                   <span className="text-zinc-100 font-mono font-black tracking-wider text-[14px]">
@@ -133,7 +133,7 @@ export function ItineraryCard({
                   <span className="text-zinc-100 font-mono font-black tracking-wider text-[14px]">
                     {item.start_time} — {item.end_time}
                   </span>
-                  <div className="bg-orange-500/10 text-orange-500 text-[9px] font-black px-1.5 py-0.5 rounded-md flex items-center gap-1">
+                  <div className="bg-orange-500/10 text-orange-500 text-[9px] font-black px-1.5 py-0.5 rounded-md flex items-center gap-1 border border-orange-500/20">
                     <Sparkles size={8} /> AI
                   </div>
                 </div>
@@ -141,12 +141,12 @@ export function ItineraryCard({
 
               {isAiPending && (
                 <div className="flex items-center gap-2">
-                  <div className="bg-orange-500 text-white text-[9px] font-black px-1.5 py-0.5 rounded-md shadow-sm shadow-orange-500/20 flex items-center gap-1">
-                    <Sparkles size={8} /> 待排程
+                  <div className="bg-zinc-800 text-zinc-400 text-[9px] font-black px-1.5 py-0.5 rounded-md flex items-center gap-1 border border-zinc-700">
+                    <Sparkles size={8} /> AI
                   </div>
-                  <span className="text-orange-500/80 font-black text-[11px] uppercase tracking-widest">
+                  <span className="text-zinc-500 font-black text-[11px] uppercase tracking-widest">
                     {getPreferenceLabel(item.time_preference || 'anytime')}
-                    {item.stay_duration && <span className="ml-2 text-zinc-500 font-bold">⏱️ {item.stay_duration}m</span>}
+                    {item.stay_duration && <span className="ml-2 font-bold opacity-60">⏱️ {item.stay_duration}m</span>}
                   </span>
                 </div>
               )}
@@ -154,7 +154,10 @@ export function ItineraryCard({
             
             <button 
               onClick={(e) => { e.stopPropagation(); window.open(getGoogleMapsLink(), '_blank'); }}
-              className="p-3 bg-zinc-800/50 hover:bg-orange-500/20 text-zinc-400 hover:text-orange-500 rounded-2xl transition-all border border-white/5 active:scale-90"
+              className={clsx(
+                "p-3 rounded-2xl transition-all border border-white/5 active:scale-90",
+                isCircuitBreaker ? "bg-red-500 text-white shadow-lg shadow-red-500/20" : "bg-zinc-800/50 text-zinc-400 hover:text-orange-500"
+              )}
             >
               <Navigation2 size={18} />
             </button>
@@ -167,13 +170,18 @@ export function ItineraryCard({
             )}>{item.title}</h4>
             
             <div className="flex flex-wrap items-center gap-2 mt-2">
-              {item.rating && (
+              {isCircuitBreaker && (
+                <div className="inline-flex items-center gap-1.5 text-[10px] font-black text-red-400 bg-red-400/10 px-2.5 py-1 rounded-lg border border-red-400/20 uppercase tracking-widest animate-pulse">
+                   需優先處理交通設定以繼續 AI
+                </div>
+              )}
+              {item.rating && !isCircuitBreaker && (
                 <div className="flex items-center gap-1 text-yellow-500 bg-yellow-500/10 px-2 py-0.5 rounded-lg border border-yellow-500/10">
                   <Star size={10} className="fill-current" />
                   <span className="text-[10px] font-bold">{item.rating.toFixed(1)}</span>
                 </div>
               )}
-              {item.sync_conflict_warning && (
+              {item.sync_conflict_warning && !isCircuitBreaker && (
                 <div className="inline-flex items-center gap-1.5 text-[10px] font-black text-red-400 bg-red-400/10 px-2.5 py-0.5 rounded-lg border border-red-500/20 uppercase tracking-wide">
                   <AlertTriangle size={12} /> {item.sync_conflict_warning}
                 </div>
@@ -182,7 +190,7 @@ export function ItineraryCard({
           </div>
         </div>
 
-        {/* 照片與細節區塊 */}
+        {/* 照片與詳細資訊 */}
         <AnimatePresence>
           {isCardExpanded && displayImage && (
             <motion.div 
@@ -224,36 +232,36 @@ export function ItineraryCard({
           )}
         </AnimatePresence>
 
-        {/* 💡 底部票根交通欄 (包含紅燈警告機制) */}
+        {/* 底部交通欄 */}
         {showNextTransport && (canEdit || !!item.next_transport_mode) && (
           <div 
             onClick={(e) => { e.stopPropagation(); if (canEdit) onEditNextTransport?.(); }}
             className={clsx(
               "w-full px-6 py-4 flex items-center justify-between border-t transition-colors",
               canEdit ? "cursor-pointer" : "cursor-default",
-              isMissingTransport 
-                ? "border-red-500/50 bg-red-500/10 hover:bg-red-500/20" // 🚨 紅燈狀態
-                : "border-dashed border-zinc-700/60 bg-black/20 hover:bg-zinc-800/60" // 正常狀態
+              isCircuitBreaker 
+                ? "border-red-500 bg-red-500 text-white font-black" // 斷路器紅燈
+                : "border-dashed border-zinc-700/60 bg-black/20 hover:bg-zinc-800/60"
             )}
           >
-            <span className={clsx("text-[10px] font-black uppercase tracking-[0.2em]", isMissingTransport ? "text-red-400" : "text-zinc-500")}>
+            <span className={clsx("text-[10px] font-black uppercase tracking-[0.2em]", isCircuitBreaker ? "text-white" : "text-zinc-500")}>
               Next Stop
             </span>
             
             {item.next_transport_mode ? (
               <div className="flex items-center gap-2">
-                <div className="text-orange-500">{getTransportIcon()}</div>
-                <span className="text-[12px] font-black uppercase tracking-wider text-zinc-200">
+                <div className={isCircuitBreaker ? "text-white" : "text-orange-500"}>{getTransportIcon()}</div>
+                <span className={clsx("text-[12px] font-black uppercase tracking-wider", isCircuitBreaker ? "text-white" : "text-zinc-200")}>
                   {item.next_transport_time ? item.next_transport_time.replace(' min', 'm') : 'Auto'}
                 </span>
               </div>
             ) : (
               canEdit && (
-                <div className={clsx("flex items-center gap-1.5", isMissingTransport ? "text-red-400" : "text-zinc-600")}>
-                  {isMissingTransport && <AlertTriangle size={14} className="animate-pulse" />}
+                <div className={clsx("flex items-center gap-1.5", isCircuitBreaker ? "text-white" : "text-zinc-600")}>
+                  {isCircuitBreaker && <AlertTriangle size={14} className="animate-pulse" />}
                   <Plus size={14} />
                   <span className="text-[10px] font-bold uppercase">
-                    {isMissingTransport ? '需設定交通 (Set Transport)' : 'Set'}
+                    {isCircuitBreaker ? '設定交通以解鎖 AI' : 'Set'}
                   </span>
                 </div>
               )

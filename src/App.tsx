@@ -18,9 +18,9 @@ function AppContent() {
   const { 
     isLoginModalOpen, setLoginModalOpen, 
     isCreateTripModalOpen, setCreateTripModalOpen, 
-    setCities, _hasHydrated, token 
+    setCities, _hasHydrated 
   } = useAppStore();
-  
+
   const location = useLocation();
   const navigate = useNavigate();
   const isTripDetails = location.pathname.startsWith('/trip/');
@@ -36,7 +36,6 @@ function AppContent() {
         document.documentElement.style.height = `${height}px`;
         document.body.style.height = `${height}px`;
       };
-      
       fixHeight();
       window.addEventListener('resize', fixHeight);
       return () => window.removeEventListener('resize', fixHeight);
@@ -75,7 +74,6 @@ function AppContent() {
         </Routes>
       </main>
       
-      {/* 全域彈窗控制 */}
       {isLoginModalOpen && (
         <LoginModal onClose={() => setLoginModalOpen(false)} />
       )}

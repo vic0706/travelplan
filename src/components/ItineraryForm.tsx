@@ -39,12 +39,13 @@ export function ItineraryForm({ tripId, date, onSuccess, onCancel, initialData }
   const [error, setError] = useState('');
   const [tagInput, setTagInput] = useState('');
 
-  // UI 狀態控制
+  // UI 狀態控制 (彈窗開關)
   const [isIconPickerOpen, setIsIconPickerOpen] = useState(false);
   const [isPhotoModalOpen, setIsPhotoModalOpen] = useState(false);
   const [isSubItemModalOpen, setIsSubItemModalOpen] = useState(false);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
+
   const [editingSubItem, setEditingSubItem] = useState<any>(null);
   const [croppingImage, setCroppingImage] = useState<string | null>(null);
 
@@ -145,7 +146,7 @@ export function ItineraryForm({ tripId, date, onSuccess, onCancel, initialData }
         sub_items: JSON.stringify(subItems),
         is_time_fixed: isTimeFixed ? 1 : 0, 
         stay_duration: stayDuration.toString(),
-        time_preference: timePreference, // 💡 傳送時段偏好
+        time_preference: timePreference, 
       };
       
       const res = await apiFetch(initialData ? `/api/trips/${tripId}/itineraries/${initialData.id}` : `/api/trips/${tripId}/itineraries`, {
@@ -199,23 +200,13 @@ export function ItineraryForm({ tripId, date, onSuccess, onCancel, initialData }
           <input type="text" required value={formData.title} onChange={handleTitleChange} className="w-full bg-[#242426] border border-zinc-800 rounded-2xl px-4 py-3 text-white font-bold text-base focus:border-orange-500 outline-none transition-all" />
         </div>
 
-        {/* Schedule Mode 切換區塊 */}
+        {/* Schedule Mode */}
         <div className="space-y-3 pt-2">
           <label className="text-[10px] font-bold text-zinc-500 uppercase tracking-widest ml-1">Schedule Mode</label>
           <div className="flex bg-zinc-900/80 p-1.5 rounded-2xl border border-zinc-800 shadow-inner">
-            <button
-              type="button"
-              onClick={() => setIsTimeFixed(true)}
-              className={`flex-1 py-2.5 text-sm font-black rounded-xl transition-all ${isTimeFixed ? 'bg-zinc-800 text-white shadow-md' : 'text-zinc-500 hover:text-zinc-300'}`}
-            >
-              固定時間 (Custom)
-            </button>
-            <button
-              type="button"
-              onClick={() => setIsTimeFixed(false)}
-              className={`flex-1 py-2.5 text-sm font-black rounded-xl transition-all flex items-center justify-center gap-2 ${!isTimeFixed ? 'bg-orange-500 text-white shadow-md shadow-orange-500/20' : 'text-zinc-500 hover:text-zinc-300'}`}
-            >
-              <Sparkles size={16} /> 智慧排程 (Smart Fit)
+            <button type="button" onClick={() => setIsTimeFixed(true)} className={`flex-1 py-2.5 text-sm font-black rounded-xl transition-all ${isTimeFixed ? 'bg-zinc-800 text-white shadow-md' : 'text-zinc-500 hover:text-zinc-300'}`}>固定時間 (Fixed)</button>
+            <button type="button" onClick={() => setIsTimeFixed(false)} className={`flex-1 py-2.5 text-sm font-black rounded-xl transition-all flex items-center justify-center gap-2 ${!isTimeFixed ? 'bg-orange-500 text-white shadow-md shadow-orange-500/20' : 'text-zinc-500 hover:text-zinc-300'}`}>
+              <Sparkles size={16} /> 智慧排程 (Smart)
             </button>
           </div>
 
@@ -233,8 +224,6 @@ export function ItineraryForm({ tripId, date, onSuccess, onCancel, initialData }
               </motion.div>
             ) : (
               <motion.div key="smart" initial={{ opacity: 0, y: 5 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -5 }} className="bg-orange-500/5 p-5 rounded-2xl border border-orange-500/20 space-y-6">
-                
-                {/* 💡 時段偏好按鈕 */}
                 <div className="space-y-3">
                   <label className="text-[10px] font-black text-orange-500 uppercase tracking-widest ml-1">時段偏好 (Preference)</label>
                   <div className="grid grid-cols-2 gap-2">
@@ -244,52 +233,24 @@ export function ItineraryForm({ tripId, date, onSuccess, onCancel, initialData }
                       { id: 'afternoon', label: '下午', desc: '12:00 - 18:00' },
                       { id: 'evening', label: '晚上', desc: '18:00 - 24:00' }
                     ].map((pref) => (
-                      <button
-                        key={pref.id}
-                        type="button"
-                        onClick={() => setTimePreference(pref.id)}
-                        className={clsx(
-                          "flex flex-col items-start p-3 rounded-2xl border transition-all",
-                          timePreference === pref.id 
-                            ? "bg-orange-500 border-orange-400 text-white shadow-lg shadow-orange-500/20" 
-                            : "bg-zinc-900 border-zinc-800 text-zinc-500 hover:border-zinc-700"
-                        )}
-                      >
+                      <button key={pref.id} type="button" onClick={() => setTimePreference(pref.id)} className={clsx("flex flex-col items-start p-3 rounded-2xl border transition-all", timePreference === pref.id ? "bg-orange-500 border-orange-400 text-white shadow-lg shadow-orange-500/20" : "bg-zinc-900 border-zinc-800 text-zinc-500 hover:border-zinc-700")}>
                         <span className="text-sm font-black">{pref.label}</span>
-                        <span className={clsx("text-[9px] font-bold uppercase", timePreference === pref.id ? "text-orange-100" : "text-zinc-600")}>
-                          {pref.desc}
-                        </span>
+                        <span className={clsx("text-[9px] font-bold uppercase", timePreference === pref.id ? "text-orange-100" : "text-zinc-600")}>{pref.desc}</span>
                       </button>
                     ))}
                   </div>
                 </div>
-
-                {/* 💡 拉桿式停留時間 */}
                 <div className="space-y-4 pt-2 border-t border-orange-500/10">
                   <div className="flex items-center justify-between">
                     <label className="text-[10px] font-black text-orange-500 uppercase tracking-widest ml-1">停留長度</label>
                     <div className="flex items-center gap-1.5 bg-zinc-900 border border-zinc-800 rounded-lg px-3 py-1.5">
-                      <input 
-                        type="number" min="0" max="240" value={stayDuration} 
-                        onChange={(e) => setStayDuration(Math.min(240, Math.max(0, parseInt(e.target.value) || 0)))}
-                        className="w-10 bg-transparent text-white text-sm font-black text-right outline-none [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
-                      />
+                      <input type="number" min="0" max="240" value={stayDuration} onChange={(e) => setStayDuration(Math.min(240, Math.max(0, parseInt(e.target.value) || 0)))} className="w-10 bg-transparent text-white text-sm font-black text-right outline-none [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none" />
                       <span className="text-[10px] text-zinc-500 font-bold">MIN</span>
                     </div>
                   </div>
-                  <input 
-                    type="range" min="0" max="240" step="5" value={stayDuration} 
-                    onChange={(e) => setStayDuration(parseInt(e.target.value))}
-                    className="w-full accent-orange-500 h-1.5 bg-zinc-800 rounded-lg appearance-none cursor-pointer outline-none"
-                  />
-                  <div className="flex justify-between px-1 text-[9px] font-black text-zinc-600 uppercase">
-                    <span>0m</span><span>1h</span><span>2h</span><span>3h</span><span>4h</span>
-                  </div>
+                  <input type="range" min="0" max="240" step="5" value={stayDuration} onChange={(e) => setStayDuration(parseInt(e.target.value))} className="w-full accent-orange-500 h-1.5 bg-zinc-800 rounded-lg appearance-none cursor-pointer outline-none" />
+                  <div className="flex justify-between px-1 text-[9px] font-black text-zinc-600 uppercase"><span>0m</span><span>1h</span><span>2h</span><span>3h</span><span>4h</span></div>
                 </div>
-
-                <p className="text-zinc-500 text-[10px] leading-relaxed uppercase tracking-wide font-bold">
-                  💡 拉動滑桿調整停留時間，RUN AI 將自動為您安插最順路的時段。
-                </p>
               </motion.div>
             )}
           </AnimatePresence>
@@ -340,20 +301,13 @@ export function ItineraryForm({ tripId, date, onSuccess, onCancel, initialData }
         </div>
 
         <div>
-          <label className="block text-[10px] font-bold text-zinc-500 uppercase tracking-widest mb-1.5 ml-1">Notes & Tips</label>
-          <textarea value={formData.notes} onChange={e => setFormData({ ...formData, notes: e.target.value })} className="w-full bg-[#242426] border border-zinc-800 rounded-2xl px-4 py-3 text-white text-xs focus:border-orange-500 outline-none min-h-[100px] resize-none transition-all" placeholder="Any special notes for this activity?" />
+          <label className="block text-[10px] font-bold text-zinc-500 uppercase tracking-widest mb-1.5 ml-1">Notes</label>
+          <textarea value={formData.notes} onChange={e => setFormData({ ...formData, notes: e.target.value })} className="w-full bg-[#242426] border border-zinc-800 rounded-2xl px-4 py-3 text-white text-xs focus:border-orange-500 outline-none min-h-[100px] resize-none transition-all" placeholder="Any special notes?" />
         </div>
 
         {initialData && (
           <div className="pt-4 border-t border-zinc-800">
-            <button
-              type="button"
-              onClick={() => setShowDeleteConfirm(true)}
-              className="w-full py-3.5 bg-red-500/10 hover:bg-red-500/20 text-red-500 font-bold rounded-2xl transition-colors flex items-center justify-center gap-2 border border-red-500/20"
-            >
-              <Trash2 size={18} />
-              Delete Activity
-            </button>
+            <button type="button" onClick={() => setShowDeleteConfirm(true)} className="w-full py-3.5 bg-red-500/10 hover:bg-red-500/20 text-red-500 font-bold rounded-2xl transition-colors flex items-center justify-center gap-2 border border-red-500/20"><Trash2 size={18} />Delete Activity</button>
           </div>
         )}
       </div>
@@ -365,44 +319,35 @@ export function ItineraryForm({ tripId, date, onSuccess, onCancel, initialData }
         </button>
       </div>
 
+      {/* 刪除確認彈窗 */}
       <AnimatePresence>
         {showDeleteConfirm && (
           <div className="fixed inset-0 z-[200] flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm">
             <motion.div initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.95 }} className="bg-zinc-900 border border-zinc-800 rounded-3xl p-6 w-full max-w-sm shadow-2xl relative">
               <h3 className="text-xl font-bold text-white mb-2">Delete Activity?</h3>
-              <p className="text-zinc-400 mb-6">Are you sure you want to delete <span className="text-white font-medium">{formData.title}</span>? This cannot be undone.</p>
+              <p className="text-zinc-400 mb-6">Are you sure you want to delete this activity? This cannot be undone.</p>
               <div className="flex gap-3">
                 <button type="button" onClick={() => setShowDeleteConfirm(false)} className="flex-1 px-4 py-3 rounded-xl font-medium text-zinc-400 hover:text-white hover:bg-zinc-800 transition-colors">Cancel</button>
-                <button type="button" onClick={handleDelete} disabled={isDeleting} className="flex-1 px-4 py-3 rounded-xl font-bold bg-red-500 text-white hover:bg-red-600 transition-colors shadow-lg shadow-red-500/20 flex justify-center items-center gap-2">
-                  {isDeleting ? <Loader2 size={18} className="animate-spin" /> : 'Delete'}
-                </button>
+                <button type="button" onClick={handleDelete} disabled={isDeleting} className="flex-1 px-4 py-3 rounded-xl font-bold bg-red-500 text-white hover:bg-red-600 transition-colors flex justify-center items-center gap-2">{isDeleting ? <Loader2 size={18} className="animate-spin" /> : 'Delete'}</button>
               </div>
             </motion.div>
           </div>
         )}
       </AnimatePresence>
 
+      {/* 照片管理彈窗 */}
       <AnimatePresence>
         {isPhotoModalOpen && (
           <div className="absolute inset-0 z-[100] flex items-center justify-center bg-black/90 backdrop-blur-xl p-6">
             <motion.div initial={{ scale: 0.9, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0.9, opacity: 0 }} className="bg-[#1c1c1e] border border-zinc-800 rounded-[40px] w-full max-w-sm overflow-hidden flex flex-col shadow-2xl relative">
-              <div className="p-4 border-b border-zinc-800 flex justify-between items-center bg-zinc-900/50">
-                <span className="text-xs font-black text-white uppercase tracking-widest">Photo Manager</span>
-                <button type="button" onClick={() => setIsPhotoModalOpen(false)} className="p-1"><X size={20} className="text-zinc-500" /></button>
-              </div>
+              <div className="p-4 border-b border-zinc-800 flex justify-between items-center bg-zinc-900/50"><span className="text-xs font-black text-white uppercase tracking-widest">Photo Manager</span><button type="button" onClick={() => setIsPhotoModalOpen(false)} className="p-1"><X size={20} className="text-zinc-500" /></button></div>
               <div className="p-6 flex flex-col items-center gap-6">
                 <div className="w-full aspect-[21/9] rounded-[28px] bg-zinc-950 border border-zinc-800 overflow-hidden relative shadow-inner">
-                  {formData.image_url ? (
-                    <img src={formData.image_url} className="w-full h-full object-cover" alt="Full" />
-                  ) : (
-                    <div className="absolute inset-0 flex flex-col items-center justify-center text-zinc-700 gap-2"><ImageIcon size={48} strokeWidth={1} /><span className="text-[10px] font-bold uppercase tracking-widest">No Photo</span></div>
-                  )}
+                  {formData.image_url ? <img src={formData.image_url} className="w-full h-full object-cover" alt="Full" /> : <div className="absolute inset-0 flex flex-col items-center justify-center text-zinc-700 gap-2"><ImageIcon size={48} strokeWidth={1} /><span className="text-[10px] font-bold uppercase tracking-widest">No Photo</span></div>}
                   {uploading && <div className="absolute inset-0 bg-black/60 flex items-center justify-center text-orange-500 backdrop-blur-sm"><Loader2 className="animate-spin" size={32} /></div>}
                 </div>
                 <div className="flex w-full gap-3">
-                  <label className="flex-1 flex items-center justify-center gap-2 py-4 bg-white text-black rounded-2xl font-black text-xs uppercase cursor-pointer hover:bg-zinc-200 transition-colors shadow-lg shadow-white/5">
-                    <Upload size={16} /> Upload <input type="file" className="hidden" accept="image/*" onChange={handleFileSelect} />
-                  </label>
+                  <label className="flex-1 flex items-center justify-center gap-2 py-4 bg-white text-black rounded-2xl font-black text-xs uppercase cursor-pointer hover:bg-zinc-200 transition-colors shadow-lg shadow-white/5"><Upload size={16} /> Upload <input type="file" className="hidden" accept="image/*" onChange={handleFileSelect} /></label>
                   {formData.image_url && <button type="button" onClick={() => setFormData({...formData, image_url: ''})} className="w-16 flex items-center justify-center bg-red-500/10 text-red-500 rounded-2xl hover:bg-red-500/20 transition-colors"><Trash2 size={20} /></button>}
                 </div>
               </div>
@@ -411,13 +356,11 @@ export function ItineraryForm({ tripId, date, onSuccess, onCancel, initialData }
         )}
       </AnimatePresence>
 
+      {/* 裁切圖片彈窗 */}
       <AnimatePresence>
         {croppingImage && (
           <div className="fixed inset-0 z-[9999] bg-black/95 flex flex-col items-center justify-center p-4 backdrop-blur-sm">
-            <div className="w-full max-w-md flex justify-between items-center mb-4 px-2">
-              <span className="text-white font-black tracking-widest uppercase text-sm">Crop Image</span>
-              <button type="button" onClick={() => setCroppingImage(null)} className="p-2 bg-zinc-800 rounded-full text-zinc-400 hover:text-white"><X size={20} /></button>
-            </div>
+            <div className="w-full max-w-md flex justify-between items-center mb-4 px-2"><span className="text-white font-black tracking-widest uppercase text-sm">Crop Image</span><button type="button" onClick={() => setCroppingImage(null)} className="p-2 bg-zinc-800 rounded-full text-zinc-400 hover:text-white"><X size={20} /></button></div>
             <div className="w-full max-w-md h-[60vh] relative bg-zinc-950 rounded-[32px] overflow-hidden shadow-2xl border border-zinc-800">
               <ImageCropper image={croppingImage} aspect={21/9} onCropComplete={handleCropComplete} onCancel={() => setCroppingImage(null)} />
             </div>
@@ -425,19 +368,16 @@ export function ItineraryForm({ tripId, date, onSuccess, onCancel, initialData }
         )}
       </AnimatePresence>
 
+      {/* Icon 選擇彈窗 */}
       <AnimatePresence>
         {isIconPickerOpen && (
           <div className="absolute inset-0 z-50 flex items-end justify-center bg-black/60 backdrop-blur-sm p-4">
             <motion.div initial={{ y: '100%' }} animate={{ y: 0 }} exit={{ y: '100%' }} className="bg-[#1c1c1e] border border-zinc-800 rounded-[32px] w-full p-6 shadow-2xl flex flex-col max-h-[60vh]">
-              <div className="flex justify-between items-center mb-6 px-1">
-                <h3 className="font-black text-white text-base uppercase tracking-widest">Select Category</h3>
-                <button type="button" onClick={() => setIsIconPickerOpen(false)} className="text-zinc-500 p-1.5 bg-zinc-800 rounded-full"><X size={16} /></button>
-              </div>
+              <div className="flex justify-between items-center mb-6 px-1"><h3 className="font-black text-white text-base uppercase tracking-widest">Select Category</h3><button type="button" onClick={() => setIsIconPickerOpen(false)} className="text-zinc-500 p-1.5 bg-zinc-800 rounded-full"><X size={16} /></button></div>
               <div className="overflow-y-auto grid grid-cols-4 gap-3 pb-8 custom-scrollbar">
                 {storeCategories.map(cat => (
                   <button type="button" key={cat.id} onClick={() => { setFormData({ ...formData, icon: cat.icon }); setIsIconPickerOpen(false); }} className={clsx("flex flex-col items-center justify-center p-3.5 rounded-3xl transition-all border", formData.icon === cat.icon ? "border-white/20 bg-white/5 shadow-inner" : "border-transparent hover:bg-white/5")} style={{ color: cat.color }}>
-                    <DynamicIcon name={cat.icon} size={24} />
-                    <span className="text-[9px] font-bold mt-2 text-zinc-400 truncate w-full text-center uppercase tracking-tighter">{cat.name}</span>
+                    <DynamicIcon name={cat.icon} size={24} /><span className="text-[9px] font-bold mt-2 text-zinc-400 truncate w-full text-center uppercase tracking-tighter">{cat.name}</span>
                   </button>
                 ))}
               </div>
@@ -446,14 +386,12 @@ export function ItineraryForm({ tripId, date, onSuccess, onCancel, initialData }
         )}
       </AnimatePresence>
 
+      {/* 子活動彈窗 */}
       <AnimatePresence>
         {isSubItemModalOpen && (
           <div className="absolute inset-0 z-[110] flex items-center justify-center bg-black/80 backdrop-blur-md p-4">
             <motion.div initial={{ scale: 0.95, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0.95, opacity: 0 }} className="bg-[#1c1c1e] border border-zinc-800 rounded-[28px] w-full max-w-[320px] p-6 shadow-3xl">
-              <div className="flex justify-between items-center mb-5">
-                <h3 className="font-bold text-white text-sm uppercase tracking-widest">Sub-Activity</h3>
-                <button type="button" onClick={() => setIsSubItemModalOpen(false)}><X size={18} className="text-zinc-500" /></button>
-              </div>
+              <div className="flex justify-between items-center mb-5"><h3 className="font-bold text-white text-sm uppercase tracking-widest">Sub-Activity</h3><button type="button" onClick={() => setIsSubItemModalOpen(false)}><X size={18} className="text-zinc-500" /></button></div>
               <form onSubmit={(e:any) => { 
                 e.preventDefault(); 
                 const f = e.target; 
@@ -464,14 +402,8 @@ export function ItineraryForm({ tripId, date, onSuccess, onCancel, initialData }
               }} className="space-y-4">
                 <input type="text" name="title" required defaultValue={editingSubItem?.title} placeholder="What is this sub-task?" className="w-full bg-[#242426] border border-zinc-800 rounded-xl px-4 py-2.5 text-white text-xs outline-none focus:border-orange-500 transition-all" />
                 <div className="grid grid-cols-2 gap-3">
-                  <div className="bg-[#242426] border border-zinc-800 rounded-xl px-3 py-2">
-                    <span className="block text-[8px] text-zinc-500 font-bold mb-1">START</span>
-                    <input type="time" name="start_time" required defaultValue={editingSubItem?.start_time || formData.start_time} className="bg-transparent text-white font-mono text-xs w-full outline-none [color-scheme:dark]" />
-                  </div>
-                  <div className="bg-[#242426] border border-zinc-800 rounded-xl px-3 py-2">
-                    <span className="block text-[8px] text-zinc-500 font-bold mb-1">END</span>
-                    <input type="time" name="end_time" required defaultValue={editingSubItem?.end_time || formData.end_time} className="bg-transparent text-white font-mono text-xs w-full outline-none [color-scheme:dark]" />
-                  </div>
+                  <div className="bg-[#242426] border border-zinc-800 rounded-xl px-3 py-2"><span className="block text-[8px] text-zinc-500 font-bold mb-1">START</span><input type="time" name="start_time" required defaultValue={editingSubItem?.start_time || formData.start_time} className="bg-transparent text-white font-mono text-xs w-full outline-none [color-scheme:dark]" /></div>
+                  <div className="bg-[#242426] border border-zinc-800 rounded-xl px-3 py-2"><span className="block text-[8px] text-zinc-500 font-bold mb-1">END</span><input type="time" name="end_time" required defaultValue={editingSubItem?.end_time || formData.end_time} className="bg-transparent text-white font-mono text-xs w-full outline-none [color-scheme:dark]" /></div>
                 </div>
                 <textarea name="notes" defaultValue={editingSubItem?.notes} placeholder="Additional notes..." className="w-full bg-[#242426] border border-zinc-800 rounded-xl px-4 py-2.5 text-white text-xs outline-none min-h-[70px] focus:border-orange-500 transition-all" />
                 <button type="submit" className="w-full py-3.5 bg-orange-500 text-white rounded-2xl font-black text-xs uppercase tracking-widest shadow-lg shadow-orange-500/20 active:scale-95 transition-all">Save Sub-Activity</button>
@@ -480,7 +412,6 @@ export function ItineraryForm({ tripId, date, onSuccess, onCancel, initialData }
           </div>
         )}
       </AnimatePresence>
-
     </div>
   );
 }

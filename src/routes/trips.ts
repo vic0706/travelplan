@@ -142,7 +142,7 @@ trips.get('/:id/weather', async (c) => {
   }
 });
 
-// AI 同步、地點更新與智慧排序 (擠牙膏斷路器模式)
+// 🚀 RUN AI 同步與智慧排序 (啟動闖關模式)
 trips.post('/:id/sync', async (c) => {
   const tripId = c.req.param('id');
   try {
@@ -156,18 +156,19 @@ trips.post('/:id/sync', async (c) => {
     const start = new Date(trip.start_date);
     const end = new Date(trip.end_date);
     
+    // 依序處理每一天
     for (let d = new Date(start); d <= end; d.setDate(d.getDate() + 1)) {
       const dateStr = d.toISOString().split('T')[0];
-      // 1. 更新天氣
+      // 1. 更新天氣快取
       await getWeatherForDate(Number(tripId), dateStr, c.env, true);
-      // 2. 💡 啟動 AI 智慧排序 (內含第一張骨牌判定與斷路器邏輯)
+      // 2. 💡 執行排序大腦 (包含起點判定與交通斷路器)
       await optimizeDailyItinerary(c.env, Number(tripId), dateStr);
     }
 
-    // 3. 更新 Google 地點詳細資料
+    // 3. 同步 Google 地點細節與營業時間
     await syncPlaceDetails(c.env, Number(tripId));
 
-    return c.json({ success: true, message: 'AI Sync completed' });
+    return c.json({ success: true, message: 'AI Sync & Optimization completed' });
   } catch (error: any) {
     return c.json({ error: error.message }, 500);
   }
@@ -177,7 +178,7 @@ trips.post('/:id/sync', async (c) => {
 // 2. Itineraries (行程活動項目 CRUD)
 // ==========================================
 
-// 取得活動清單
+// 取得活動列表
 trips.get('/:id/itineraries', async (c) => {
   const tripId = c.req.param('id');
   try {
@@ -198,7 +199,7 @@ trips.get('/:id/itineraries', async (c) => {
   }
 });
 
-// 建立新項目
+// 建立新活動
 trips.post('/:id/itineraries', async (c) => {
   const tripId = c.req.param('id');
   try {
@@ -210,8 +211,10 @@ trips.post('/:id/itineraries', async (c) => {
     const subItemsStr = typeof body.sub_items === 'string' ? body.sub_items : '[]';
 
     await c.env.DB.prepare(
-      `INSERT INTO Itineraries (trip_id, date, start_time, end_time, title, address, google_place_id, lat, lng, notes, icon, tags, sub_items, is_time_fixed, stay_duration, time_preference, image_url) 
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+      `INSERT INTO Itineraries (
+        trip_id, date, start_time, end_time, title, address, google_place_id, 
+        lat, lng, notes, icon, tags, sub_items, is_time_fixed, stay_duration, time_preference, image_url
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
     ).bind(
       tripId, 
       body.date, 
@@ -238,7 +241,7 @@ trips.post('/:id/itineraries', async (c) => {
   }
 });
 
-// 更新項目
+// 更新活動
 trips.put('/:id/itineraries/:itemId', async (c) => {
   const tripId = c.req.param('id');
   const itemId = c.req.param('itemId');
@@ -287,7 +290,7 @@ trips.put('/:id/itineraries/:itemId', async (c) => {
   }
 });
 
-// 刪除活動項目
+// 刪除活動
 trips.delete('/:id/itineraries/:itemId', async (c) => {
   const tripId = c.req.param('id');
   const itemId = c.req.param('itemId');
@@ -328,7 +331,9 @@ trips.put('/:id/members', async (c) => {
     const canAdmin = await checkTripAccess(c, Number(tripId), 'admin');
     if (!canAdmin) return c.json({ error: 'Admins only' }, 403);
     
-    const { user_ids } = await c.req.json().catch(() => ({ user_ids: [] }));
+    const body = await c.req.json().catch(() => ({ user_ids: [] }));
+    const { user_ids } = body;
+    
     const statements = [c.env.DB.prepare('DELETE FROM TripMembers WHERE trip_id = ?').bind(tripId)];
     user_ids.forEach((uid: number) => {
       statements.push(c.env.DB.prepare('INSERT INTO TripMembers (trip_id, user_id, role) VALUES (?, ?, ?)').bind(tripId, uid, 'Member'));
