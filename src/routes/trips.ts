@@ -200,22 +200,34 @@ trips.get('/:id/itineraries', async (c) => {
   }
 });
 
-// 建立新項目 (包含 image_url)
+// 建立新項目 (包含智慧排程欄位與照片)
 trips.post('/:id/itineraries', async (c) => {
   try {
     const tripId = c.req.param('id');
     const body = await c.req.json();
     const tagsStr = Array.isArray(body.tags) ? JSON.stringify(body.tags) : '[]';
 
+    // 💡 確保 SQL 指令有加入 stay_duration 和 time_preference
     await c.env.DB.prepare(
-      `INSERT INTO Itineraries 
-      (trip_id, date, start_time, end_time, title, address, google_place_id, lat, lng, notes, icon, tags, sub_items, is_time_fixed, image_url) 
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+      `INSERT INTO Itineraries (trip_id, date, start_time, end_time, title, address, google_place_id, lat, lng, notes, icon, tags, sub_items, is_time_fixed, stay_duration, time_preference, image_url) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
     ).bind(
-      tripId, body.date, body.start_time, body.end_time, body.title, 
-      body.address || '', body.google_place_id || '', body.lat || null, body.lng || null, 
-      body.notes || '', body.icon || 'MapPin', tagsStr, body.sub_items || '[]', 
-      body.is_time_fixed || 0, body.image_url || null
+      tripId, 
+      body.date, 
+      body.start_time, 
+      body.end_time, 
+      body.title, 
+      body.address || '', 
+      body.google_place_id || '', 
+      body.lat || null, 
+      body.lng || null, 
+      body.notes || '', 
+      body.icon || 'MapPin', 
+      tagsStr, 
+      body.sub_items || '[]', 
+      body.is_time_fixed || 0,
+      body.stay_duration || '60',        // 💡 寫入停留時間
+      body.time_preference || 'anytime', // 💡 寫入時段偏好
+      body.image_url || null
     ).run();
 
     return c.json({ success: true });
@@ -224,26 +236,36 @@ trips.post('/:id/itineraries', async (c) => {
   }
 });
 
-// 更新項目 (包含交通欄位與照片)
+// 更新項目 (包含交通、智慧排程與照片)
 trips.put('/:id/itineraries/:itemId', async (c) => {
   try {
     const itemId = c.req.param('itemId');
     const body = await c.req.json();
     const tagsStr = Array.isArray(body.tags) ? JSON.stringify(body.tags) : '[]';
 
+    // 💡 確保 UPDATE 語法中加入 stay_duration 和 time_preference
     await c.env.DB.prepare(
-      `UPDATE Itineraries SET 
-        date = ?, start_time = ?, end_time = ?, title = ?, address = ?, 
-        google_place_id = ?, lat = ?, lng = ?, notes = ?, icon = ?, tags = ?, 
-        sub_items = ?, is_time_fixed = ?, next_transport_mode = ?, 
-        next_transport_time = ?, next_transport_auto_time = ?, image_url = ?
-       WHERE id = ?`
+      `UPDATE Itineraries SET date = ?, start_time = ?, end_time = ?, title = ?, address = ?, google_place_id = ?, lat = ?, lng = ?, notes = ?, icon = ?, tags = ?, sub_items = ?, is_time_fixed = ?, stay_duration = ?, time_preference = ?, next_transport_mode = ?, next_transport_time = ?, next_transport_auto_time = ?, image_url = ? WHERE id = ?`
     ).bind(
-      body.date, body.start_time, body.end_time, body.title, body.address || '', 
-      body.google_place_id || '', body.lat || null, body.lng || null, body.notes || '', 
-      body.icon || 'MapPin', tagsStr, body.sub_items || '[]', body.is_time_fixed || 0,
-      body.next_transport_mode || '', body.next_transport_time || '', 
-      body.next_transport_auto_time || '', body.image_url || null,
+      body.date, 
+      body.start_time, 
+      body.end_time, 
+      body.title, 
+      body.address || '', 
+      body.google_place_id || '', 
+      body.lat || null, 
+      body.lng || null, 
+      body.notes || '', 
+      body.icon || 'MapPin', 
+      tagsStr, 
+      body.sub_items || '[]', 
+      body.is_time_fixed || 0,
+      body.stay_duration || '60',         // 💡 更新停留時間
+      body.time_preference || 'anytime',  // 💡 更新時段偏好
+      body.next_transport_mode || '', 
+      body.next_transport_time || '', 
+      body.next_transport_auto_time || '', 
+      body.image_url || null, 
       itemId
     ).run();
 
