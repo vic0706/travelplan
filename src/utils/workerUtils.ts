@@ -347,10 +347,11 @@ export async function optimizeDailyItinerary(env: Env, tripId: number, dateStr: 
   const items = results as any[];
   
   // 2. 區分「固樁 (Fixed)」與「彈性 (Flexible)」活動
+  // 💡 確保固定的項目有按照時間排序，這很重要
   const fixedItems = items.filter(i => i.is_time_fixed === 1).map(i => ({
     ...i,
     durationMins: timeToMins(i.end_time) - timeToMins(i.start_time)
-  }));
+  })).sort((a, b) => timeToMins(a.start_time) - timeToMins(b.start_time));
   
   let flexItems = items.filter(i => i.is_time_fixed === 0 || !i.is_time_fixed).map(i => ({
     ...i,
@@ -358,46 +359,69 @@ export async function optimizeDailyItinerary(env: Env, tripId: number, dateStr: 
     time_pref: i.time_preference || 'anytime'
   }));
 
-  // 3. 開始模擬時間軸
-  let currentMins = items.length > 0 ? timeToMins(items[0].start_time) : 540; 
+  // 3. 🎯 尋找第一張骨牌 (決定今天的起點)
+  let currentMins = 540; // 預設 09:00 起跑
+  if (fixedItems.length > 0 && timeToMins(fixedItems[0].start_time) < 540) {
+    // 如果今天最早的固樁行程比 09:00 早 (例如 08:30 離開飯店)，就以它為起點！
+    currentMins = timeToMins(fixedItems[0].start_time);
+  }
+
   let currentLat = items[0]?.lat;
   let currentLng = items[0]?.lng;
+
+  // ⚡ 斷路器核心狀態變數
+  let lastProcessedItem: any = null; 
+  let isCircuitBroken = false; 
 
   const statements = [];
 
   while (flexItems.length > 0 || fixedItems.length > 0) {
-    // 檢查固樁活動
     const nextFixed = fixedItems.length > 0 ? fixedItems[0] : null;
-    
+
+    // ⛔ 如果斷路器已經觸發，不再推算時間，直接把剩下所有的彈性行程清空！
+    if (isCircuitBroken) {
+      const nextFlex = flexItems.shift(); 
+      if (nextFlex) {
+        statements.push(
+          env.DB.prepare(`UPDATE Itineraries SET start_time = '', end_time = '', sync_conflict_warning = NULL WHERE id = ?`)
+            .bind(nextFlex.id)
+        );
+      }
+      if (flexItems.length === 0) break;
+      continue;
+    }
+
+    // 處理固樁活動
     if (nextFixed && timeToMins(nextFixed.start_time) <= currentMins + 30) {
       currentMins = timeToMins(nextFixed.end_time);
       currentLat = nextFixed.lat;
       currentLng = nextFixed.lng;
+      lastProcessedItem = nextFixed; // 紀錄為上一個處理完的節點
       fixedItems.shift();
       continue;
     }
 
     if (flexItems.length > 0) {
+      // ⚡ 斷路器檢查：如果這不是第一站，且上一站「沒有」設定交通方式 ➔ 中斷！
+      if (lastProcessedItem && (!lastProcessedItem.next_transport_mode || lastProcessedItem.next_transport_mode === '')) {
+        isCircuitBroken = true;
+        continue; // 重新進入迴圈，開始把剩下的行程時間清空
+      }
+
       let bestIdx = -1;
       let minScore = Infinity;
       let bestDistance = 0;
 
-      // 🌍 智慧選擇：時段權重 + 距離
+      // 🌍 智慧選擇：尋找符合時段且最近的景點
       flexItems.forEach((item, idx) => {
         const window = PREFERENCE_WINDOWS[item.time_pref];
-        
-        // 如果現在時間已經超過該時段結束，給予極大懲罰 (除非是 anytime)
         if (currentMins > window.end && item.time_pref !== 'anytime') return;
 
         if (item.lat && item.lng) {
           const dist = getDistanceKm(currentLat, currentLng, item.lat, item.lng);
-          
-          // 💡 權重計算：如果現在「正處於」該活動的偏好時段，距離減半，優先選它
           let weight = 1.0;
-          if (currentMins >= window.start && currentMins <= window.end) {
-            weight = 0.5; 
-          }
-
+          if (currentMins >= window.start && currentMins <= window.end) weight = 0.5;
+          
           const score = dist * weight;
           if (score < minScore) {
             minScore = score;
@@ -407,26 +431,28 @@ export async function optimizeDailyItinerary(env: Env, tripId: number, dateStr: 
         }
       });
 
-      // 如果沒找到符合時段的，強行取第一個
       if (bestIdx === -1) bestIdx = 0;
 
       const nextFlex = flexItems.splice(bestIdx, 1)[0];
       const window = PREFERENCE_WINDOWS[nextFlex.time_pref];
       
-      // 🚗 計算交通與開始時間
-      const travelTimeMins = bestDistance !== 0 ? Math.ceil(bestDistance * 4) + 5 : 15;
+      // 🚗 交通時間計算 (如果有自訂分鐘數就用自訂，沒有就用距離推算)
+      let travelTimeMins = bestDistance !== 0 ? Math.ceil(bestDistance * 4) + 5 : 15;
+      if (lastProcessedItem && lastProcessedItem.next_transport_time) {
+        const parsedMins = parseInt(lastProcessedItem.next_transport_time);
+        if (!isNaN(parsedMins)) travelTimeMins = parsedMins;
+      }
       
-      // 💡 智慧跳轉：如果現在太早(還沒到偏好時段)，直接跳到該時段開始
       let newStartMins = Math.max(currentMins + travelTimeMins, window.start);
       const newEndMins = newStartMins + nextFlex.durationMins;
 
-      // 檢查固樁衝突
+      // 寫入計算好的時間
       if (nextFixed && newEndMins > timeToMins(nextFixed.start_time)) {
         statements.push(
           env.DB.prepare(`UPDATE Itineraries SET sync_conflict_warning = ? WHERE id = ?`)
             .bind(`⚠️ 距離下個固定行程時間不足`, nextFlex.id)
         );
-        currentMins = timeToMins(nextFixed.start_time); 
+        currentMins = timeToMins(nextFixed.start_time);
       } else {
         statements.push(
           env.DB.prepare(`UPDATE Itineraries SET start_time = ?, end_time = ?, sync_conflict_warning = NULL WHERE id = ?`)
@@ -436,9 +462,11 @@ export async function optimizeDailyItinerary(env: Env, tripId: number, dateStr: 
         if (nextFlex.lat) currentLat = nextFlex.lat;
         if (nextFlex.lng) currentLng = nextFlex.lng;
       }
+      lastProcessedItem = nextFlex; // 更新為上一個處理完的節點
     }
   }
 
+  // 4. 批次寫回資料庫
   if (statements.length > 0) {
     await env.DB.batch(statements);
   }

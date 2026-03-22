@@ -82,6 +82,15 @@ export function ItineraryCard({
     }
   };
 
+  // 💡 判定卡片目前屬於哪種狀態
+  const hasTimeSet = !!item.start_time && item.start_time !== '';
+  const isFixed = item.is_time_fixed === 1;
+  const isAiCalculated = !isFixed && hasTimeSet;
+  const isAiPending = !isFixed && !hasTimeSet;
+
+  // 💡 判定是否為「卡關的斷點」(有時間，卻沒有下一步交通)
+  const isMissingTransport = canEdit && hasTimeSet && (!item.next_transport_mode || item.next_transport_mode === '');
+
   return (
     <div className="flex flex-col w-full mb-3 px-1">
       <div 
@@ -91,7 +100,7 @@ export function ItineraryCard({
           canEdit && !isConflicted ? "hover:border-orange-500/50 bg-[#242426]" : "border-transparent hover:border-zinc-800",
           isConflicted ? "border-red-500 ring-2 ring-red-500/50" : "",
           isDragOverlay && "opacity-90 scale-105 shadow-2xl z-50",
-          item.is_time_fixed !== 1 && "border-dashed border-zinc-800/50" // 💡 智慧模式用虛線區分
+          isAiPending && "border-dashed border-zinc-800/50" // 💡 待排程用虛線
         )}
       >
         {/* 卡片上半部內容 */}
@@ -109,27 +118,36 @@ export function ItineraryCard({
                 <DynamicIcon name={item.icon || 'MapPin'} size={20} />
               </div>
               
-              {/* 💡 時間區塊：區分固定與智慧 */}
-              {item.is_time_fixed === 1 ? (
+              {/* 💡 三態時間區塊 */}
+              {isFixed && (
                 <div className="flex items-center gap-2">
                   <span className="text-zinc-100 font-mono font-black tracking-wider text-[14px]">
                     {item.start_time} — {item.end_time}
                   </span>
                   <Lock size={12} className="text-zinc-600" />
                 </div>
-              ) : (
+              )}
+              
+              {isAiCalculated && (
+                <div className="flex items-center gap-2">
+                  <span className="text-zinc-100 font-mono font-black tracking-wider text-[14px]">
+                    {item.start_time} — {item.end_time}
+                  </span>
+                  <div className="bg-orange-500/10 text-orange-500 text-[9px] font-black px-1.5 py-0.5 rounded-md flex items-center gap-1">
+                    <Sparkles size={8} /> AI
+                  </div>
+                </div>
+              )}
+
+              {isAiPending && (
                 <div className="flex items-center gap-2">
                   <div className="bg-orange-500 text-white text-[9px] font-black px-1.5 py-0.5 rounded-md shadow-sm shadow-orange-500/20 flex items-center gap-1">
-                    <Sparkles size={8} /> AI
+                    <Sparkles size={8} /> 待排程
                   </div>
                   <span className="text-orange-500/80 font-black text-[11px] uppercase tracking-widest">
                     {getPreferenceLabel(item.time_preference || 'anytime')}
                     {item.stay_duration && <span className="ml-2 text-zinc-500 font-bold">⏱️ {item.stay_duration}m</span>}
                   </span>
-                  {/* 如果已經算好時間，用小字稍微標註 */}
-                  {item.start_time && item.start_time !== '09:00' && (
-                     <span className="text-zinc-600 font-mono text-[10px] ml-1">({item.start_time})</span>
-                  )}
                 </div>
               )}
             </div>
@@ -206,16 +224,22 @@ export function ItineraryCard({
           )}
         </AnimatePresence>
 
-        {/* 底部票根交通欄 */}
+        {/* 💡 底部票根交通欄 (包含紅燈警告機制) */}
         {showNextTransport && (canEdit || !!item.next_transport_mode) && (
           <div 
             onClick={(e) => { e.stopPropagation(); if (canEdit) onEditNextTransport?.(); }}
             className={clsx(
-              "w-full px-6 py-4 flex items-center justify-between border-t border-dashed border-zinc-700/60 transition-colors bg-black/20",
-              canEdit ? "hover:bg-zinc-800/60 cursor-pointer" : "cursor-default"
+              "w-full px-6 py-4 flex items-center justify-between border-t transition-colors",
+              canEdit ? "cursor-pointer" : "cursor-default",
+              isMissingTransport 
+                ? "border-red-500/50 bg-red-500/10 hover:bg-red-500/20" // 🚨 紅燈狀態
+                : "border-dashed border-zinc-700/60 bg-black/20 hover:bg-zinc-800/60" // 正常狀態
             )}
           >
-            <span className="text-[10px] font-black text-zinc-500 uppercase tracking-[0.2em]">Next Stop</span>
+            <span className={clsx("text-[10px] font-black uppercase tracking-[0.2em]", isMissingTransport ? "text-red-400" : "text-zinc-500")}>
+              Next Stop
+            </span>
+            
             {item.next_transport_mode ? (
               <div className="flex items-center gap-2">
                 <div className="text-orange-500">{getTransportIcon()}</div>
@@ -224,7 +248,15 @@ export function ItineraryCard({
                 </span>
               </div>
             ) : (
-              canEdit && <div className="flex items-center gap-1.5 text-zinc-600"><Plus size={14} /><span className="text-[10px] font-bold uppercase">Set</span></div>
+              canEdit && (
+                <div className={clsx("flex items-center gap-1.5", isMissingTransport ? "text-red-400" : "text-zinc-600")}>
+                  {isMissingTransport && <AlertTriangle size={14} className="animate-pulse" />}
+                  <Plus size={14} />
+                  <span className="text-[10px] font-bold uppercase">
+                    {isMissingTransport ? '需設定交通 (Set Transport)' : 'Set'}
+                  </span>
+                </div>
+              )
             )}
           </div>
         )}
