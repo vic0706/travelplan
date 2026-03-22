@@ -43,9 +43,10 @@ trips.get('/', async (c) => {
 
 // 建立新行程
 trips.post('/', async (c) => {
-  const body = await c.req.json();
-  const { title, start_date, end_date, default_city_id, cover_image_url, currencies } = body;
   try {
+    const body = await c.req.json().catch(() => ({}));
+    const { title, start_date, end_date, default_city_id, cover_image_url, currencies } = body;
+    
     const { meta } = await c.env.DB.prepare(`
       INSERT INTO Trips (title, start_date, end_date, default_city_id, cover_image_url, currencies, is_public, created_at, updated_at)
       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
@@ -59,7 +60,7 @@ trips.post('/', async (c) => {
   }
 });
 
-// 獲取特定 ID 行程資料 (含幣別 JSON 解析)
+// 獲取特定 ID 行程資料
 trips.get('/:id', async (c) => {
   const id = c.req.param('id');
   try {
@@ -85,11 +86,11 @@ trips.get('/:id', async (c) => {
 // 更新行程設定
 trips.put('/:id', async (c) => {
   const id = c.req.param('id');
-  const user = c.get('user');
-  if (!user || user.role !== 'Admin') return c.json({ error: 'Unauthorized' }, 403);
-  
-  const body = await c.req.json();
   try {
+    const canEdit = await checkTripAccess(c, Number(id), 'edit');
+    if (!canEdit) return c.json({ error: 'Unauthorized' }, 403);
+    
+    const body = await c.req.json().catch(() => ({}));
     await c.env.DB.prepare(`
       UPDATE Trips SET title = ?, start_date = ?, end_date = ?, default_city_id = ?, cover_image_url = ?, currencies = ?, is_public = ?, updated_at = ?
       WHERE id = ?
@@ -106,10 +107,10 @@ trips.put('/:id', async (c) => {
 // 刪除行程
 trips.delete('/:id', async (c) => {
   const id = c.req.param('id');
-  const user = c.get('user');
-  if (!user || user.role !== 'Admin') return c.json({ error: 'Unauthorized' }, 403);
-  
   try {
+    const canAdmin = await checkTripAccess(c, Number(id), 'admin');
+    if (!canAdmin) return c.json({ error: 'Unauthorized' }, 403);
+    
     await c.env.DB.batch([
       c.env.DB.prepare('DELETE FROM Itineraries WHERE trip_id = ?').bind(id),
       c.env.DB.prepare('DELETE FROM Expenses WHERE trip_id = ?').bind(id),
@@ -123,7 +124,7 @@ trips.delete('/:id', async (c) => {
   }
 });
 
-// 💡 天氣查詢路由 (之前漏掉的部分)
+// 天氣查詢
 trips.get('/:id/weather', async (c) => {
   const id = c.req.param('id');
   const date = c.req.query('date');
@@ -141,7 +142,7 @@ trips.get('/:id/weather', async (c) => {
   }
 });
 
-// AI 同步、地點更新與智慧排序
+// AI 同步、地點更新與智慧排序 (擠牙膏斷路器模式)
 trips.post('/:id/sync', async (c) => {
   const tripId = c.req.param('id');
   try {
@@ -155,21 +156,18 @@ trips.post('/:id/sync', async (c) => {
     const start = new Date(trip.start_date);
     const end = new Date(trip.end_date);
     
-    // 每一天依序處理
     for (let d = new Date(start); d <= end; d.setDate(d.getDate() + 1)) {
       const dateStr = d.toISOString().split('T')[0];
-      
       // 1. 更新天氣
       await getWeatherForDate(Number(tripId), dateStr, c.env, true);
-      
-      // 2. 💡 啟動 AI 智慧排序 (固樁、聚類、交通緩衝)
+      // 2. 💡 啟動 AI 智慧排序 (內含第一張骨牌判定與斷路器邏輯)
       await optimizeDailyItinerary(c.env, Number(tripId), dateStr);
     }
 
-    // 3. 更新 Google 地點詳細資料與營業時間檢查
+    // 3. 更新 Google 地點詳細資料
     await syncPlaceDetails(c.env, Number(tripId));
 
-    return c.json({ success: true, message: 'AI Sync & Optimization completed' });
+    return c.json({ success: true, message: 'AI Sync completed' });
   } catch (error: any) {
     return c.json({ error: error.message }, 500);
   }
@@ -179,7 +177,7 @@ trips.post('/:id/sync', async (c) => {
 // 2. Itineraries (行程活動項目 CRUD)
 // ==========================================
 
-// 取得行程列表 (含 tags 與 sub_items 解析)
+// 取得活動清單
 trips.get('/:id/itineraries', async (c) => {
   const tripId = c.req.param('id');
   try {
@@ -200,22 +198,26 @@ trips.get('/:id/itineraries', async (c) => {
   }
 });
 
-// 建立新項目 (包含智慧排程欄位與照片)
+// 建立新項目
 trips.post('/:id/itineraries', async (c) => {
+  const tripId = c.req.param('id');
   try {
-    const tripId = c.req.param('id');
-    const body = await c.req.json();
-    const tagsStr = Array.isArray(body.tags) ? JSON.stringify(body.tags) : '[]';
+    const canEdit = await checkTripAccess(c, Number(tripId), 'edit');
+    if (!canEdit) return c.json({ error: 'Unauthorized' }, 403);
 
-    // 💡 確保 SQL 指令有加入 stay_duration 和 time_preference
+    const body = await c.req.json().catch(() => ({}));
+    const tagsStr = Array.isArray(body.tags) ? JSON.stringify(body.tags) : '[]';
+    const subItemsStr = typeof body.sub_items === 'string' ? body.sub_items : '[]';
+
     await c.env.DB.prepare(
-      `INSERT INTO Itineraries (trip_id, date, start_time, end_time, title, address, google_place_id, lat, lng, notes, icon, tags, sub_items, is_time_fixed, stay_duration, time_preference, image_url) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+      `INSERT INTO Itineraries (trip_id, date, start_time, end_time, title, address, google_place_id, lat, lng, notes, icon, tags, sub_items, is_time_fixed, stay_duration, time_preference, image_url) 
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
     ).bind(
       tripId, 
       body.date, 
-      body.start_time, 
-      body.end_time, 
-      body.title, 
+      body.start_time || '', 
+      body.end_time || '', 
+      body.title || 'Untitled', 
       body.address || '', 
       body.google_place_id || '', 
       body.lat || null, 
@@ -223,10 +225,10 @@ trips.post('/:id/itineraries', async (c) => {
       body.notes || '', 
       body.icon || 'MapPin', 
       tagsStr, 
-      body.sub_items || '[]', 
+      subItemsStr, 
       body.is_time_fixed || 0,
-      body.stay_duration || '60',        // 💡 寫入停留時間
-      body.time_preference || 'anytime', // 💡 寫入時段偏好
+      body.stay_duration || '60',
+      body.time_preference || 'anytime',
       body.image_url || null
     ).run();
 
@@ -236,21 +238,30 @@ trips.post('/:id/itineraries', async (c) => {
   }
 });
 
-// 更新項目 (包含交通、智慧排程與照片)
+// 更新項目
 trips.put('/:id/itineraries/:itemId', async (c) => {
+  const tripId = c.req.param('id');
+  const itemId = c.req.param('itemId');
   try {
-    const itemId = c.req.param('itemId');
-    const body = await c.req.json();
-    const tagsStr = Array.isArray(body.tags) ? JSON.stringify(body.tags) : '[]';
+    const canEdit = await checkTripAccess(c, Number(tripId), 'edit');
+    if (!canEdit) return c.json({ error: 'Unauthorized' }, 403);
 
-    // 💡 確保 UPDATE 語法中加入 stay_duration 和 time_preference
+    const body = await c.req.json().catch(() => ({}));
+    const tagsStr = Array.isArray(body.tags) ? JSON.stringify(body.tags) : '[]';
+    const subItemsStr = typeof body.sub_items === 'string' ? body.sub_items : '[]';
+
     await c.env.DB.prepare(
-      `UPDATE Itineraries SET date = ?, start_time = ?, end_time = ?, title = ?, address = ?, google_place_id = ?, lat = ?, lng = ?, notes = ?, icon = ?, tags = ?, sub_items = ?, is_time_fixed = ?, stay_duration = ?, time_preference = ?, next_transport_mode = ?, next_transport_time = ?, next_transport_auto_time = ?, image_url = ? WHERE id = ?`
+      `UPDATE Itineraries SET 
+        date = ?, start_time = ?, end_time = ?, title = ?, address = ?, google_place_id = ?, 
+        lat = ?, lng = ?, notes = ?, icon = ?, tags = ?, sub_items = ?, 
+        is_time_fixed = ?, stay_duration = ?, time_preference = ?, 
+        next_transport_mode = ?, next_transport_time = ?, next_transport_auto_time = ?, image_url = ? 
+      WHERE id = ? AND trip_id = ?`
     ).bind(
       body.date, 
-      body.start_time, 
-      body.end_time, 
-      body.title, 
+      body.start_time || '', 
+      body.end_time || '', 
+      body.title || 'Untitled', 
       body.address || '', 
       body.google_place_id || '', 
       body.lat || null, 
@@ -258,15 +269,16 @@ trips.put('/:id/itineraries/:itemId', async (c) => {
       body.notes || '', 
       body.icon || 'MapPin', 
       tagsStr, 
-      body.sub_items || '[]', 
+      subItemsStr, 
       body.is_time_fixed || 0,
-      body.stay_duration || '60',         // 💡 更新停留時間
-      body.time_preference || 'anytime',  // 💡 更新時段偏好
+      body.stay_duration || '60',
+      body.time_preference || 'anytime',
       body.next_transport_mode || '', 
       body.next_transport_time || '', 
       body.next_transport_auto_time || '', 
       body.image_url || null, 
-      itemId
+      itemId,
+      tripId
     ).run();
 
     return c.json({ success: true });
@@ -275,11 +287,15 @@ trips.put('/:id/itineraries/:itemId', async (c) => {
   }
 });
 
-// 刪除行程項目
+// 刪除活動項目
 trips.delete('/:id/itineraries/:itemId', async (c) => {
+  const tripId = c.req.param('id');
+  const itemId = c.req.param('itemId');
   try {
-    const itemId = c.req.param('itemId');
-    await c.env.DB.prepare('DELETE FROM Itineraries WHERE id = ?').bind(itemId).run();
+    const canEdit = await checkTripAccess(c, Number(tripId), 'edit');
+    if (!canEdit) return c.json({ error: 'Unauthorized' }, 403);
+
+    await c.env.DB.prepare('DELETE FROM Itineraries WHERE id = ? AND trip_id = ?').bind(itemId, tripId).run();
     return c.json({ success: true });
   } catch (error: any) {
     return c.json({ error: error.message }, 500);
@@ -308,10 +324,11 @@ trips.get('/:id/members', async (c) => {
 
 trips.put('/:id/members', async (c) => {
   const tripId = c.req.param('id');
-  const user = c.get('user');
-  if (!user || user.role !== 'Admin') return c.json({ error: 'Admins only' }, 403);
-  const { user_ids } = await c.req.json();
   try {
+    const canAdmin = await checkTripAccess(c, Number(tripId), 'admin');
+    if (!canAdmin) return c.json({ error: 'Admins only' }, 403);
+    
+    const { user_ids } = await c.req.json().catch(() => ({ user_ids: [] }));
     const statements = [c.env.DB.prepare('DELETE FROM TripMembers WHERE trip_id = ?').bind(tripId)];
     user_ids.forEach((uid: number) => {
       statements.push(c.env.DB.prepare('INSERT INTO TripMembers (trip_id, user_id, role) VALUES (?, ?, ?)').bind(tripId, uid, 'Member'));
