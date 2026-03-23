@@ -238,63 +238,81 @@ export async function geocodeTextToCoords(text: string, apiKey: string, region: 
   } catch (e: any) { return { coords: null, debug: e.message }; }
 }
 
-// 9. 智慧地點細節同步與防呆檢查引擎
+// 💡 升級版：智慧地點細節同步 (含照片轉址與座標回填)
 export async function syncPlaceDetails(env: Env, tripId: number) {
   const { results: items } = await env.DB.prepare(`
-    SELECT id, date, start_time, end_time, google_place_id 
+    SELECT id, date, start_time, end_time, google_place_id, lat, lng, image_url
     FROM Itineraries 
     WHERE trip_id = ? AND google_place_id IS NOT NULL AND google_place_id != ''
   `).bind(tripId).all();
 
   for (const item of items as any[]) {
     const placeId = item.google_place_id;
-    const cacheKey = `place_details:${placeId}`;
+    const cacheKey = `place_details_v2:${placeId}`; // 升級版本號以刷新快取
     let placeData: any = await env.KV.get(cacheKey, 'json');
 
     if (!placeData) {
+      // 💡 擴張 FieldMask，加入 location 和 photos
       const url = `https://places.googleapis.com/v1/places/${placeId}`;
       const res = await fetch(url, {
         headers: {
           'X-Goog-Api-Key': env.GOOGLE_MAPS_API_KEY,
-          'X-Goog-FieldMask': 'rating,userRatingCount,regularOpeningHours,websiteUri,internationalPhoneNumber,businessStatus'
+          'X-Goog-FieldMask': 'id,rating,userRatingCount,regularOpeningHours,websiteUri,internationalPhoneNumber,businessStatus,location,photos'
         }
       });
 
       if (res.ok) {
         placeData = await res.json();
         await env.KV.put(cacheKey, JSON.stringify(placeData), { expirationTtl: 604800 });
-      } else {
-        console.error(`Failed to fetch details for place ${placeId}`);
-        continue; 
+      } else continue;
+    }
+
+    // --- 1. 處理照片 (Photo to Media URI) ---
+    let finalImageUrl = item.image_url;
+    if (!finalImageUrl && placeData.photos && placeData.photos.length > 0) {
+      const photoName = placeData.photos[0].name; // 格式如 places/xxx/photos/yyy
+      const mediaRes = await fetch(`https://places.googleapis.com/v1/${photoName}/media?key=${env.GOOGLE_MAPS_API_KEY}&maxWidthPx=800&skipHttpRedirect=true`);
+      if (mediaRes.ok) {
+        const mediaData = await mediaRes.json() as any;
+        finalImageUrl = mediaData.photoUri; // 拿到真正的圖片網址
       }
     }
 
-    const rating = placeData.rating || null;
-    const reviewsCount = placeData.userRatingCount || null;
-    const website = placeData.websiteUri || null;
-    const phone = placeData.internationalPhoneNumber || null;
-    const status = placeData.businessStatus || null;
-    const openingHours = placeData.regularOpeningHours ? JSON.stringify(placeData.regularOpeningHours) : null;
+    // --- 2. 處理座標 (回填缺少的部分) ---
+    const finalLat = item.lat || placeData.location?.latitude;
+    const finalLng = item.lng || placeData.location?.longitude;
 
+    // --- 3. 處理狀態與警告 ---
     let warning = null;
-    if (status === 'CLOSED_TEMPORARILY') {
-      warning = '暫時停業 (Temporarily Closed)';
-    } else if (status === 'CLOSED_PERMANENTLY') {
-      warning = '永久停業 (Permanently Closed)';
-    } else if (placeData.regularOpeningHours?.periods) {
-      const dateObj = new Date(item.date);
-      const dayOfWeek = dateObj.getDay(); 
-      const hasHoursForDay = placeData.regularOpeningHours.periods.some((p: any) => p.open && p.open.day === dayOfWeek);
-      if (!hasHoursForDay && placeData.regularOpeningHours.periods.length > 0) {
-         warning = '排定日期可能公休 (Likely closed on this day)';
-      }
+    const status = placeData.businessStatus;
+    if (status === 'CLOSED_TEMPORARILY') warning = '暫時停業';
+    else if (status === 'CLOSED_PERMANENTLY') warning = '永久停業';
+    else if (placeData.regularOpeningHours?.periods) {
+      const dayOfWeek = new Date(item.date).getDay();
+      const isOpen = placeData.regularOpeningHours.periods.some((p: any) => p.open && p.open.day === dayOfWeek);
+      if (!isOpen) warning = '排定日期可能公休';
     }
 
+    // --- 4. 寫入資料庫 (補齊所有欄位) ---
     await env.DB.prepare(`
       UPDATE Itineraries
-      SET rating = ?, reviews_count = ?, opening_hours = ?, place_website = ?, place_phone = ?, place_status = ?, sync_conflict_warning = ?
+      SET rating = ?, reviews_count = ?, opening_hours = ?, place_website = ?, 
+          place_phone = ?, place_status = ?, sync_conflict_warning = ?,
+          lat = ?, lng = ?, image_url = ?
       WHERE id = ?
-    `).bind(rating, reviewsCount, openingHours, website, phone, status, warning, item.id).run();
+    `).bind(
+      placeData.rating || null,
+      placeData.userRatingCount || null,
+      placeData.regularOpeningHours ? JSON.stringify(placeData.regularOpeningHours) : null,
+      placeData.websiteUri || null,
+      placeData.internationalPhoneNumber || null,
+      status || null,
+      warning,
+      finalLat,
+      finalLng,
+      finalImageUrl,
+      item.id
+    ).run();
   }
 }
 
@@ -310,19 +328,17 @@ const PREFERENCE_WINDOWS: Record<string, { start: number, end: number }> = {
 };
 
 function getDistanceKm(lat1: number, lon1: number, lat2: number, lon2: number) {
-  if (!lat1 || !lon1 || !lat2 || !lon2) return 0;
+  if (!lat1 || !lon1 || !lat2 || !lon2) return null; // 💡 嚴格模式：無座標回傳 null
   try {
     const R = 6371; 
     const dLat = (lat2 - lat1) * (Math.PI / 180);
     const dLon = (lon2 - lon1) * (Math.PI / 180);
     const a = Math.sin(dLat / 2) * Math.sin(dLat / 2) +
               Math.cos(lat1 * (Math.PI / 180)) * Math.cos(lat2 * (Math.PI / 180)) * Math.sin(dLon / 2) * Math.sin(dLon / 2);
-    
-    // 💡 關鍵修正：使用 Math.min(1, a) 確保 a 不會大於 1，避免 NaN
     const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(Math.max(0, 1 - a))); 
     return R * c;
   } catch (e) {
-    return 5; // 萬一出錯，預設 5 公里
+    return null;
   }
 }
 
@@ -339,11 +355,10 @@ function minsToTime(mins: number) {
 }
 
 // ==========================================
-// 💡 行程智慧排序引擎 3.0 (Smart Itinerary Optimizer)
+// 💡 行程智慧排序引擎 3.1 (Smart Itinerary Optimizer)
 // ==========================================
 
 export async function optimizeDailyItinerary(env: Env, tripId: number, dateStr: string) {
-  // 1. 抓取今天所有的行程 (照原本設定的開始時間排序，方便抓取 FIX)
   const { results } = await env.DB.prepare(`
     SELECT * FROM Itineraries WHERE trip_id = ? AND date = ? ORDER BY start_time ASC
   `).bind(tripId, dateStr).all();
@@ -351,7 +366,6 @@ export async function optimizeDailyItinerary(env: Env, tripId: number, dateStr: 
   if (results.length === 0) return;
   const items = results as any[];
   
-  // 2. 區分「釘死 (FIX)」與「彈性 (FLEX)」
   const fixedItems = items.filter(i => i.is_time_fixed === 1).map(i => ({
     ...i,
     durationMins: timeToMins(i.end_time) - timeToMins(i.start_time)
@@ -365,37 +379,25 @@ export async function optimizeDailyItinerary(env: Env, tripId: number, dateStr: 
 
   const statements = [];
 
-  // ==========================================
-  // 🎯 規則一：動態起點 (Dynamic Start Time)
-  // ==========================================
-  let currentMins = 540; // 預設 09:00 起床
-
-  // 找尋早上的起點
-  const morningFixed = fixedItems.find(i => timeToMins(i.start_time) < 720); // 12:00 前的 FIX
+  // 動態決定起點
+  let currentMins = 540; 
+  const morningFixed = fixedItems.find(i => timeToMins(i.start_time) < 720); 
   const hasMorningFlex = flexItems.some(i => i.time_pref === 'morning' || i.time_pref === 'anytime');
   
   if (morningFixed) {
-    // 狀況 A：早上有 FIX，以它為起點 (如果它比 09:00 早，就提早起床)
     currentMins = Math.min(540, timeToMins(morningFixed.start_time));
   } else if (hasMorningFlex) {
-    // 狀況 B：早上沒 FIX，但有上午任務，09:00 準時開工
     currentMins = 540;
   } else if (flexItems.some(i => i.time_pref === 'afternoon')) {
-    // 狀況 C：只有下午任務，睡到 12:00
     currentMins = 720;
   } else {
-    // 狀況 D：只有晚上任務，睡到 18:00
     currentMins = 1080;
   }
 
-  // ==========================================
-  // ⚙️ 核心模擬變數
-  // ==========================================
   let currentLat = items[0]?.lat;
   let currentLng = items[0]?.lng;
   let lastProcessedItem: any = null; 
   
-  // 斷路器狀態紀錄 (分別紀錄各時段是否跳電)
   const circuitBreakers = {
     morning: false,
     afternoon: false,
@@ -404,95 +406,78 @@ export async function optimizeDailyItinerary(env: Env, tripId: number, dateStr: 
 
   const PREF_ORDER: Record<string, number> = { morning: 1, afternoon: 2, evening: 3, anytime: 99 };
 
-  // ==========================================
-  // 🏃‍♂️ 開始推進虛擬時鐘
-  // ==========================================
   while (flexItems.length > 0 || fixedItems.length > 0) {
-    if (flexItems.length === 0) break; // 彈性排完就收工
+    if (flexItems.length === 0) break;
 
     const nextFixed = fixedItems.length > 0 ? fixedItems[0] : null;
 
-    // 🕒 判斷現在是哪個時段，來決定要不要啟動斷路器
     let currentPeriod = 'morning';
     if (currentMins >= 720 && currentMins < 1080) currentPeriod = 'afternoon';
     else if (currentMins >= 1080) currentPeriod = 'evening';
 
-    // ------------------------------------------
-    // 🎯 規則四：局部斷路器 (Circuit Breaker)
-    // ------------------------------------------
+    // --- 區塊 B：觸發跳電檢查 ---
+    const isAutoAndNoCoords = lastProcessedItem?.next_transport_mode === 'auto' && (!lastProcessedItem.lat || !lastProcessedItem.lng);
+    if (lastProcessedItem && (!lastProcessedItem.next_transport_mode || lastProcessedItem.next_transport_mode === '' || isAutoAndNoCoords)) {
+      circuitBreakers[currentPeriod as keyof typeof circuitBreakers] = true;
+    }
+
+    // 處理跳電沉底邏輯
     if (circuitBreakers[currentPeriod as keyof typeof circuitBreakers]) {
-      // 該時段跳電了！找出該時段的景點，讓它沉底
       const failedItemIdx = flexItems.findIndex(i => i.time_pref === currentPeriod);
       
       if (failedItemIdx !== -1) {
         const failedItem = flexItems.splice(failedItemIdx, 1)[0];
         statements.push(
           env.DB.prepare(`UPDATE Itineraries SET start_time = '', end_time = '', sync_conflict_warning = ? WHERE id = ?`)
-          .bind('⚠️ 因上個行程未填寫交通，本時段暫停排程', failedItem.id)
+          .bind('⚠️ 因交通資料不全（沒座標或沒填），本時段暫停排程', failedItem.id)
         );
-        continue; // 繼續丟掉下一個同時段的景點
+        continue;
       } else {
-        // 該時段的景點都丟光了 (或者只剩 anytime)，準備時空跳躍！
-        if (currentPeriod === 'morning') currentMins = 720; // 跳到下午 12:00
-        else if (currentPeriod === 'afternoon') currentMins = 1080; // 跳到晚上 18:00
-        else break; // 晚上也跳電，今天結束
+        if (currentPeriod === 'morning') currentMins = 720;
+        else if (currentPeriod === 'afternoon') currentMins = 1080;
+        else break; 
         
-        lastProcessedItem = null; // 跳躍後，重置上一站的交通狀態
-        continue; // 重新開始新時段的評估
+        lastProcessedItem = null;
+        continue;
       }
     }
 
-    // ------------------------------------------
-    // 📌 推進到下一個 FIX (如果時間到了)
-    // ------------------------------------------
+    // 處理固定行程
     if (nextFixed && timeToMins(nextFixed.start_time) <= currentMins + 30) {
       currentMins = Math.max(currentMins, timeToMins(nextFixed.end_time));
       currentLat = nextFixed.lat;
       currentLng = nextFixed.lng;
       lastProcessedItem = nextFixed;
-      fixedItems.shift(); // 消化掉這個 FIX
+      fixedItems.shift(); 
       continue;
     }
 
-    // ------------------------------------------
-    // 🎯 交通檢查 (決定是否觸發斷路)
-    // ------------------------------------------
-    if (lastProcessedItem && (!lastProcessedItem.next_transport_mode || lastProcessedItem.next_transport_mode === '')) {
-      // 踩到雷了！啟動當前時段的斷路器
-      circuitBreakers[currentPeriod as keyof typeof circuitBreakers] = true;
-      continue;
-    }
-
-    // ------------------------------------------
-    // 🎯 規則二：嚴格時段選點 (Strict Bucket)
-    // ------------------------------------------
+    // 嚴格時段選點
     let activePhase = 99;
     flexItems.forEach(item => {
       const order = PREF_ORDER[item.time_pref] || 99;
-      // 💡 關鍵：我們只看「不小於當前時鐘時段」的景點
       if (order >= PREF_ORDER[currentPeriod] && order < activePhase) {
         activePhase = order;
       }
     });
 
-    // 如果剩下的景點時段，都比現在的時間晚 (例如現在才早上 10點，但只剩下午景點)
-    // 那就直接把時鐘快轉到那個時段！
     if (activePhase === 2 && currentMins < 720) { currentMins = 720; continue; }
     if (activePhase === 3 && currentMins < 1080) { currentMins = 1080; continue; }
 
     let bestIdx = -1;
     let minScore = Infinity;
-    let bestDistance = 0;
+    let bestDistance: number | null = null;
 
     flexItems.forEach((item, idx) => {
       const order = PREF_ORDER[item.time_pref] || 99;
-      
-      // 💡 只挑選「符合當前最低限制時段」或是「Anytime」
       if (order === activePhase || item.time_pref === 'anytime') {
-        let dist = 5; 
-        if (currentLat && currentLng && item.lat && item.lng) dist = getDistanceKm(currentLat, currentLng, item.lat, item.lng);
-        let score = dist + (item.time_pref === 'anytime' ? 2 : 0); // anytime 稍微扣分，讓指定時段優先
-        if (score < minScore) { minScore = score; bestIdx = idx; bestDistance = dist; }
+        const dist = getDistanceKm(currentLat, currentLng, item.lat, item.lng);
+        let score = (dist ?? 5) + (item.time_pref === 'anytime' ? 2 : 0);
+        if (score < minScore) {
+          minScore = score;
+          bestIdx = idx;
+          bestDistance = dist;
+        }
       }
     });
 
@@ -500,23 +485,30 @@ export async function optimizeDailyItinerary(env: Env, tripId: number, dateStr: 
     const nextFlex = flexItems.splice(bestIdx, 1)[0];
     const window = PREFERENCE_WINDOWS[nextFlex.time_pref] || PREFERENCE_WINDOWS.anytime;
     
-    let travelTimeMins = bestDistance !== 0 ? Math.ceil(bestDistance * 4) + 5 : 15;
-    if (lastProcessedItem?.next_transport_time) travelTimeMins = parseInt(lastProcessedItem.next_transport_time) || 15;
+    // --- 區塊 C：嚴格交通時間計算（移除 15 分鐘預設） ---
+    let travelTimeMins: number | null = null;
+    if (lastProcessedItem?.next_transport_time) {
+      travelTimeMins = parseInt(lastProcessedItem.next_transport_time);
+    } else if (lastProcessedItem?.next_transport_mode === 'auto' && bestDistance !== null) {
+      travelTimeMins = Math.ceil(bestDistance * 4) + 5;
+    }
+
+    // 如果沒資料算不出來交通時間，直接讓當前時段跳電
+    if (travelTimeMins === null && lastProcessedItem !== null) {
+      circuitBreakers[currentPeriod as keyof typeof circuitBreakers] = true;
+      flexItems.unshift(nextFlex); // 塞回去，換時段再排
+      continue;
+    }
     
-    let newStartMins = Math.max(currentMins + travelTimeMins, window.start);
+    let newStartMins = Math.max(currentMins + (travelTimeMins || 0), window.start);
     const newEndMins = newStartMins + nextFlex.durationMins;
 
-    // ------------------------------------------
-    // 🎯 規則三：跨越縫隙與碰撞測試 (Tetris Problem)
-    // ------------------------------------------
+    // 碰撞檢查
     if (nextFixed && newEndMins > timeToMins(nextFixed.start_time)) {
-      // 💥 塞不下了！會遲到！
-      // 解法：不排這個景點，讓它沉底，並快轉時鐘跨越縫隙
       statements.push(
         env.DB.prepare(`UPDATE Itineraries SET start_time = '', end_time = '', sync_conflict_warning = ? WHERE id = ?`)
         .bind('⚠️ 空檔時間不足以排入此行程', nextFlex.id)
       );
-      // 把時鐘推進到 FIX 行程的結束時間，繼續下一輪
       currentMins = timeToMins(nextFixed.end_time);
       currentLat = nextFixed.lat;
       currentLng = nextFixed.lng;
@@ -525,17 +517,10 @@ export async function optimizeDailyItinerary(env: Env, tripId: number, dateStr: 
       continue;
     }
 
-    // ------------------------------------------
-    // ✍️ 正常寫入排程
-    // ------------------------------------------
-    let warning = null;
-    if (newStartMins > window.end && nextFlex.time_pref !== 'anytime') {
-      warning = '⚠️ 排程已被擠壓出偏好時段';
-    }
-
+    // 寫入時間
     statements.push(
       env.DB.prepare(`UPDATE Itineraries SET start_time = ?, end_time = ?, sync_conflict_warning = ? WHERE id = ?`)
-      .bind(minsToTime(newStartMins), minsToTime(newEndMins), warning, nextFlex.id)
+      .bind(minsToTime(newStartMins), minsToTime(newEndMins), (newStartMins > window.end && nextFlex.time_pref !== 'anytime') ? '⚠️ 排程已被擠壓出偏好時段' : null, nextFlex.id)
     );
     
     currentMins = newEndMins;
@@ -544,4 +529,35 @@ export async function optimizeDailyItinerary(env: Env, tripId: number, dateStr: 
   }
 
   if (statements.length > 0) await env.DB.batch(statements);
+
+  // 最終校準 (Final Pass)
+  const { results: sortedItems } = await env.DB.prepare(`
+    SELECT id, lat, lng, next_transport_mode FROM Itineraries 
+    WHERE trip_id = ? AND date = ? AND start_time != '' AND start_time IS NOT NULL
+    ORDER BY start_time ASC
+  `).bind(tripId, dateStr).all();
+
+  const finalStatements = [];
+  for (let i = 0; i < sortedItems.length - 1; i++) {
+    const current = sortedItems[i] as any;
+    const next = sortedItems[i + 1] as any;
+
+    if (current.next_transport_mode === 'auto') {
+      const dist = getDistanceKm(current.lat, current.lng, next.lat, next.lng);
+      if (dist !== null) {
+        finalStatements.push(
+          env.DB.prepare(`UPDATE Itineraries SET next_transport_auto_time = ? WHERE id = ?`)
+          .bind(Math.ceil(dist * 4) + 5, current.id)
+        );
+      } else {
+        // 嚴格模式：沒座標就 NULL，不準預設 15
+        finalStatements.push(
+          env.DB.prepare(`UPDATE Itineraries SET next_transport_auto_time = NULL, sync_conflict_warning = ? WHERE id = ?`)
+          .bind('⚠️ 無法計算 Auto 交通：缺少地點座標', current.id)
+        );
+      }
+    }
+  }
+  
+  if (finalStatements.length > 0) await env.DB.batch(finalStatements);
 }

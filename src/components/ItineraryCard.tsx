@@ -199,13 +199,48 @@ export function ItineraryCard({
             >
               <div className="relative w-full aspect-[21/9] bg-zinc-800 group/photo">
                 <img src={displayImage} alt={item.title} className="absolute inset-0 w-full h-full object-cover" />
-                <button 
-                  type="button"
-                  onClick={(e) => { e.stopPropagation(); setIsDetailsExpanded(!isDetailsExpanded); }}
-                  className="absolute top-4 right-4 z-30 p-2.5 bg-black/40 hover:bg-black/60 backdrop-blur-md rounded-full text-white transition-colors border border-white/10"
-                >
-                  {isDetailsExpanded ? <Minimize2 size={18} /> : <Maximize2 size={18} />}
-                </button>
+          {/* 這裡是你要替換的 Next Stop 按鈕區塊 */}
+          <button 
+            type="button"
+            disabled={!canEdit}
+            onClick={(e) => { e.stopPropagation(); if(canEdit && onEditNextTransport) onEditNextTransport(); }}
+            className={clsx(
+              "w-full mt-2 py-2 px-4 rounded-xl flex items-center justify-between transition-all group",
+              isCircuitBreaker 
+                ? "border-red-500 bg-red-500 text-white font-black" // 斷路器紅燈
+                : "border-dashed border-zinc-700/60 bg-black/20 hover:bg-zinc-800/60"
+            )}
+          >
+            <span className={clsx("text-[10px] font-black uppercase tracking-[0.2em]", isCircuitBreaker ? "text-white" : "text-zinc-500")}>
+              Next Stop
+            </span>
+            
+            {item.next_transport_mode ? (
+              <div className="flex items-center gap-2">
+                <div className={isCircuitBreaker ? "text-white" : "text-orange-500"}>{getTransportIcon()}</div>
+                
+                {/* 💡 這裡加上影子欄位判斷邏輯 */}
+                <div className={clsx("flex items-center gap-1 text-[12px] font-black uppercase tracking-wider", isCircuitBreaker ? "text-white" : "text-zinc-200")}>
+                  {item.next_transport_mode === 'auto' ? (
+                    <>
+                      {(item as any).next_transport_auto_time ? `${(item as any).next_transport_auto_time}m` : 'Auto'}
+                      <Sparkles size={12} className={isCircuitBreaker ? "text-white/70" : "text-orange-500"} />
+                    </>
+                  ) : (
+                    item.next_transport_time ? item.next_transport_time.replace(' min', 'm') : 'Auto'
+                  )}
+                </div>
+              </div>
+            ) : (
+              canEdit && (
+                <div className={clsx("flex items-center gap-1.5", isCircuitBreaker ? "text-white" : "text-zinc-600")}>
+                  {isCircuitBreaker && <AlertTriangle size={14} className="animate-pulse" />}
+                  <Plus size={14} />
+                  <span className="text-[10px] font-bold uppercase tracking-wider">Add Transport</span>
+                </div>
+              )
+            )}
+          </button>
 
                 <AnimatePresence>
                   {isDetailsExpanded && (
