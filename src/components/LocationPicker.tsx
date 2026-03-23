@@ -78,7 +78,7 @@ export function LocationPicker({ isOpen, onClose, onSelect, groupedCities }: Loc
   return (
     <AnimatePresence>
       {isOpen && (
-        <div className="fixed inset-0 z-[100] flex items-end sm:items-center justify-center p-0 sm:p-4">
+        <div className="fixed inset-0 z-[200] flex items-end sm:items-center justify-center p-0 sm:p-4">
           <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={onClose} className="absolute inset-0 bg-black/80 backdrop-blur-sm" />
           
           <motion.div initial={{ y: "100%" }} animate={{ y: 0 }} exit={{ y: "100%" }} className="relative w-full max-w-lg bg-zinc-950 border-t sm:border border-zinc-800 rounded-t-[32px] sm:rounded-[32px] overflow-hidden flex flex-col max-h-[90vh]">
