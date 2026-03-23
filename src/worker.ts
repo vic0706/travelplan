@@ -91,23 +91,40 @@ app.get('/api/places/autocomplete', async (c) => {
 });
 
 // 2. 取得地點詳細座標與照片 (Details)
+// 2. 取得地點詳細座標與照片 (Details)
 app.get('/api/places/details', async (c) => {
   const placeId = c.req.query('placeId');
   if (!placeId) return c.json({ error: 'Missing placeId' }, 400);
 
   try {
-    // 使用 Google Places API (New) 來拿座標和照片代碼
+    // 💡 魔法 A：擴充 FieldMask，一口氣把評分、營業時間、照片都拿回來
     const url = `https://places.googleapis.com/v1/places/${placeId}`;
     const res = await fetch(url, {
       headers: {
         'X-Goog-Api-Key': c.env.GOOGLE_MAPS_API_KEY,
-        // 💡 關鍵：我們只要 location 和 photos，幫你省流量跟費用
-        'X-Goog-FieldMask': 'id,location,photos,displayName,formattedAddress'
+        'X-Goog-FieldMask': 'id,location,photos,displayName,formattedAddress,rating,userRatingCount,regularOpeningHours,websiteUri,internationalPhoneNumber,businessStatus'
       }
     });
     
-    const data = await res.json();
-    return c.json(data);
+    const data = await res.json() as any;
+
+    // 💡 魔法 B：把 Google 的「照片代碼」換成「真正的圖片網址」
+    let photoUri = null;
+    if (data.photos && data.photos.length > 0) {
+      const photoName = data.photos[0].name; // 長得像 places/XXX/photos/YYY
+      const mediaRes = await fetch(`https://places.googleapis.com/v1/${photoName}/media?key=${c.env.GOOGLE_MAPS_API_KEY}&maxWidthPx=800&skipHttpRedirect=true`);
+      if (mediaRes.ok) {
+        const mediaData = await mediaRes.json() as any;
+        photoUri = mediaData.photoUri; // 拿到可以直接 img src 的網址！
+      }
+    }
+
+    // 將資料與真實圖片網址合併回傳給前端
+    return c.json({
+      ...data,
+      actual_photo_url: photoUri
+    });
+
   } catch (error) {
     return c.json({ error: 'Failed to fetch place details' }, 500);
   }

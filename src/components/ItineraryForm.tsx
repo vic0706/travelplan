@@ -5,7 +5,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { apiFetch } from '../utils/api';
 import { DynamicIcon } from './DynamicIcon';
 import { ImageCropper, uploadImageToSupabase } from './ImageCropper';
-import { LocationPicker } from './LocationPicker'; // 💡 補上引入
+import { LocationPicker } from './LocationPicker';
 import { clsx } from 'clsx';
 
 interface ItineraryFormProps {
@@ -26,10 +26,8 @@ const safeParseArray = (data: any) => {
 };
 
 export function ItineraryForm({ tripId, date, onSuccess, onCancel, initialData }: ItineraryFormProps) {
-  // 💡 補上 cities，否則 LocationPicker 會沒有城市資料可以選
   const { categories: storeCategories = [], setCategories, cities: storeCities = [] } = useAppStore();
   
-  // 💡 計算 groupedCities 供 LocationPicker 使用
   const groupedCities = useMemo(() => {
     return storeCities.reduce((acc: any, city: any) => {
       const country = city.country || 'Others';
@@ -38,20 +36,15 @@ export function ItineraryForm({ tripId, date, onSuccess, onCancel, initialData }
       return acc;
     }, {});
   }, [storeCities]);
-  
-  // 💡 智慧排程核心狀態
-  const [isTimeFixed, setIsTimeFixed] = useState(initialData?.is_time_fixed === 1);
-  const [stayDuration, setStayDuration] = useState(
-    initialData?.stay_duration ? parseInt(initialData.stay_duration) : 60
-  );
-  const [timePreference, setTimePreference] = useState(initialData?.time_preference || 'anytime');
 
+  const [isTimeFixed, setIsTimeFixed] = useState(initialData?.is_time_fixed === 1);
+  const [stayDuration, setStayDuration] = useState(initialData?.stay_duration ? parseInt(initialData.stay_duration) : 60);
+  const [timePreference, setTimePreference] = useState(initialData?.time_preference || 'anytime');
   const [loading, setLoading] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [error, setError] = useState('');
   const [tagInput, setTagInput] = useState('');
 
-  // UI 狀態控制 (彈窗開關)
   const [isIconPickerOpen, setIsIconPickerOpen] = useState(false);
   const [isPhotoModalOpen, setIsPhotoModalOpen] = useState(false);
   const [isSubItemModalOpen, setIsSubItemModalOpen] = useState(false);
@@ -66,7 +59,6 @@ export function ItineraryForm({ tripId, date, onSuccess, onCancel, initialData }
 
   const [editingSubItem, setEditingSubItem] = useState<any>(null);
   const [croppingImage, setCroppingImage] = useState<string | null>(null);
-
   const [subItems, setSubItems] = useState<any[]>(safeParseArray(initialData?.sub_items));
   const initialTagsArray = safeParseArray(initialData?.tags);
 
@@ -80,12 +72,85 @@ export function ItineraryForm({ tripId, date, onSuccess, onCancel, initialData }
     tags: initialTagsArray.join(', '), 
     image_url: initialData?.image_url || '',
     google_place_id: initialData?.google_place_id || '',
-    lat: initialData?.lat || null, // 💡 確保有這兩個欄位來存 GPS
-    lng: initialData?.lng || null
+    lat: initialData?.lat || null,
+    lng: initialData?.lng || null,
+    rating: initialData?.rating || null,
+    reviews_count: initialData?.reviews_count || null,
+    opening_hours: initialData?.opening_hours || '',
+    place_website: initialData?.place_website || '',
+    place_phone: initialData?.place_phone || '',
+    place_status: initialData?.place_status || ''    
   });
 
-  const [isLocationManuallyEdited, setIsLocationManuallyEdited] = useState(!!initialData?.address);
+  const [isLocationManuallyEdited, setIsLocationManuallyEdited] = useState(false);
   const selectedCategory = storeCategories.find(c => c.icon === formData.icon) || { color: '#808080', icon: 'MapPin' };
+
+  // 💡 修正 A：正確解析 res.json() 來拿陣列資料
+  useEffect(() => {
+    const delayDebounceFn = setTimeout(async () => {
+      if (isLocationManuallyEdited && formData.address.length > 1) {
+        setIsSearching(true);
+        try {
+          const res = await apiFetch(`/api/places/autocomplete?q=${encodeURIComponent(formData.address)}&session=${sessionToken.current}`);
+          if (res.ok) {
+            const data = await res.json(); // 💡 補上解碼 JSON
+            setSuggestions(Array.isArray(data) ? data : []);
+          } else {
+            setSuggestions([]);
+          }
+        } catch (e) { 
+          console.error(e); 
+          setSuggestions([]);
+        } finally { 
+          setIsSearching(false); 
+        }
+      } else { 
+        setSuggestions([]); 
+      }
+    }, 400);
+    return () => clearTimeout(delayDebounceFn);
+  }, [formData.address, isLocationManuallyEdited]);
+
+  // 💡 邏輯 B：點選建議 (填入地址與 ID)
+  const handleSuggestionSelect = (suggestion: any) => {
+    setFormData(prev => ({ 
+      ...prev, 
+      address: suggestion.description,
+      google_place_id: suggestion.place_id 
+    }));
+    setSuggestions([]);
+    setIsLocationManuallyEdited(false);
+  };
+
+  // 💡 邏輯 C：點選放大鏡 (正式去抓 Detail 並填入所有豐富資料)
+  const handleFetchDetails = async () => {
+    if (!formData.google_place_id) return;
+    setIsSearching(true);
+    try {
+      const res = await apiFetch(`/api/places/details?placeId=${formData.google_place_id}&session=${sessionToken.current}`);
+      if (res.ok) {
+        const details = await res.json();
+        if (details.location) {
+          setFormData(prev => ({
+            ...prev,
+            lat: details.location.latitude,
+            lng: details.location.longitude,
+            // 💡 將後端轉好的圖片網址直接塞給卡片
+            image_url: details.actual_photo_url || prev.image_url,
+            rating: details.rating || null,
+            reviews_count: details.userRatingCount || null,
+            opening_hours: details.regularOpeningHours ? JSON.stringify(details.regularOpeningHours) : '',
+            place_website: details.websiteUri || '',
+            place_phone: details.internationalPhoneNumber || '',
+            place_status: details.businessStatus || ''
+          }));
+          sessionToken.current = Math.random().toString(36).substring(2);
+          alert('地點座標與詳細資訊已同步！✅');
+        }
+      }
+    } catch (e) { alert('Failed to fetch location details.'); } 
+    finally { setIsSearching(false); }
+  };
 
   useEffect(() => {
     if (storeCategories.length === 0) {
@@ -93,70 +158,13 @@ export function ItineraryForm({ tripId, date, onSuccess, onCancel, initialData }
         try {
           const res = await apiFetch('/api/settings/categories');
           if (res.ok) setCategories(await res.json());
-        } catch(e) { console.error("Category load error", e); }
+        } catch(e) { console.error(e); }
       }; fetchCats();
     }
   }, [storeCategories, setCategories]);
 
-  // 💡 核心邏輯：偵測輸入變動觸發 Autocomplete (含 Debounce)
-  useEffect(() => {
-    const delayDebounceFn = setTimeout(async () => {
-      // 只有當使用者「手動打字」且「字數 > 1」時才觸發
-      if (isLocationManuallyEdited && formData.address.length > 1) {
-        setIsSearching(true);
-        try {
-          const data = await apiFetch(`/api/places/autocomplete?q=${encodeURIComponent(formData.address)}&session=${sessionToken.current}`);
-          setSuggestions(data || []);
-        } catch (e) {
-          console.error('Autocomplete error', e);
-        } finally {
-          setIsSearching(false);
-        }
-      } else {
-        setSuggestions([]);
-      }
-    }, 400); // 400ms 防抖
-
-    return () => clearTimeout(delayDebounceFn);
-  }, [formData.address, isLocationManuallyEdited]);
-
-  // 💡 選中建議：呼叫 Details API 補齊座標
-  const handleSuggestionSelect = async (suggestion: any) => {
-    setFormData(prev => ({ 
-      ...prev, 
-      address: suggestion.description,
-      google_place_id: suggestion.place_id 
-    }));
-    setSuggestions([]);
-    setIsLocationManuallyEdited(false); // 停止觸發 autocomplete
-    
-    setIsSearching(true);
-    try {
-      const details = await apiFetch(`/api/places/details?placeId=${suggestion.place_id}&session=${sessionToken.current}`);
-      if (details.location) {
-        setFormData(prev => ({
-          ...prev,
-          lat: details.location.latitude,
-          lng: details.location.longitude,
-          title: prev.title || suggestion.structured_formatting.main_text // 如果標題是空的，自動幫填
-        }));
-        // 更新完後更換 Session Token，代表這次對話結束
-        sessionToken.current = Math.random().toString(36).substring(2);
-      }
-    } catch (e) {
-      console.error('Fetch details failed', e);
-    } finally {
-      setIsSearching(false);
-    }
-  };
-
   const handleTitleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const newTitle = e.target.value;
-    setFormData(prev => ({
-      ...prev,
-      title: newTitle,
-      address: isLocationManuallyEdited ? prev.address : newTitle
-    }));
+    setFormData(prev => ({ ...prev, title: e.target.value }));
   };
 
   const handleTagKeyDown = (e: React.KeyboardEvent) => {
@@ -176,18 +184,14 @@ export function ItineraryForm({ tripId, date, onSuccess, onCancel, initialData }
   const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
-    if (file.size > 5 * 1024 * 1024) { alert("檔案太大了，請選擇 5MB 以下的圖片"); return; }
     const reader = new FileReader();
-    reader.onload = () => {
-      if (typeof reader.result === 'string') setCroppingImage(reader.result);
-    };
+    reader.onload = () => { if (typeof reader.result === 'string') setCroppingImage(reader.result); };
     reader.readAsDataURL(file);
     e.target.value = '';
   };
 
   const handleCropComplete = async (blob: Blob) => {
-    setCroppingImage(null);
-    setUploading(true);
+    setCroppingImage(null); setUploading(true);
     try {
       const url = await uploadImageToSupabase(blob, 'itineraries');
       setFormData(prev => ({ ...prev, image_url: url }));
@@ -198,11 +202,8 @@ export function ItineraryForm({ tripId, date, onSuccess, onCancel, initialData }
   const handleDelete = async () => {
     setIsDeleting(true);
     try {
-      const res = await apiFetch(`/api/trips/${tripId}/itineraries/${initialData.id}`, {
-        method: 'DELETE'
-      });
+      const res = await apiFetch(`/api/trips/${tripId}/itineraries/${initialData.id}`, { method: 'DELETE' });
       if (res.ok) onSuccess();
-      else throw new Error('Failed to delete');
     } catch (err) { alert('Delete failed'); }
     finally { setIsDeleting(false); }
   };
@@ -220,13 +221,11 @@ export function ItineraryForm({ tripId, date, onSuccess, onCancel, initialData }
         stay_duration: stayDuration.toString(),
         time_preference: timePreference, 
       };
-      
       const res = await apiFetch(initialData ? `/api/trips/${tripId}/itineraries/${initialData.id}` : `/api/trips/${tripId}/itineraries`, {
         method: initialData ? 'PUT' : 'POST',
         body: JSON.stringify(payload)
       });
       if (res.ok) onSuccess();
-      else throw new Error('Save failed');
     } catch (err) { setError('Failed to save activity'); }
     finally { setLoading(false); }
   };
@@ -241,7 +240,6 @@ export function ItineraryForm({ tripId, date, onSuccess, onCancel, initialData }
       <div className="overflow-y-auto px-5 py-6 space-y-6 pb-32 custom-scrollbar">
         {error && <div className="text-red-400 text-xs font-bold bg-red-500/10 p-2 rounded-lg">{error}</div>}
         
-        {/* 頂部三等分網格 */}
         <div className="grid grid-cols-3 gap-3">
           <div className="flex flex-col gap-1.5">
             <label className="text-[10px] font-bold text-zinc-500 uppercase tracking-widest ml-1">Icon</label>
@@ -251,11 +249,7 @@ export function ItineraryForm({ tripId, date, onSuccess, onCancel, initialData }
           </div>
           <div className="flex flex-col gap-1.5">
             <label className="text-[10px] font-bold text-zinc-500 uppercase tracking-widest ml-1">AI Lock</label>
-            <button 
-              type="button" 
-              onClick={() => setIsTimeFixed(!isTimeFixed)} 
-              className={clsx("h-12 border rounded-2xl flex items-center justify-center transition-all", isTimeFixed ? "bg-orange-500 border-orange-400 text-white shadow-lg shadow-orange-500/20" : "bg-zinc-800 border-zinc-700 text-zinc-500 hover:border-zinc-500")}
-            >
+            <button type="button" onClick={() => setIsTimeFixed(!isTimeFixed)} className={clsx("h-12 border rounded-2xl flex items-center justify-center transition-all", isTimeFixed ? "bg-orange-500 border-orange-400 text-white shadow-lg shadow-orange-500/20" : "bg-zinc-800 border-zinc-700 text-zinc-500 hover:border-zinc-500")}>
               {isTimeFixed ? <Lock size={18} /> : <Unlock size={18} />}
             </button>
           </div>
@@ -272,7 +266,6 @@ export function ItineraryForm({ tripId, date, onSuccess, onCancel, initialData }
           <input type="text" required value={formData.title} onChange={handleTitleChange} className="w-full bg-[#242426] border border-zinc-800 rounded-2xl px-4 py-3 text-white font-bold text-base focus:border-orange-500 outline-none transition-all" />
         </div>
 
-        {/* Schedule Mode */}
         <div className="space-y-3 pt-2">
           <label className="text-[10px] font-bold text-zinc-500 uppercase tracking-widest ml-1">Schedule Mode</label>
           <div className="flex bg-zinc-900/80 p-1.5 rounded-2xl border border-zinc-800 shadow-inner">
@@ -328,55 +321,54 @@ export function ItineraryForm({ tripId, date, onSuccess, onCancel, initialData }
           </AnimatePresence>
         </div>
 
-        {/* 💡 替換為包含下拉建議的 Location & Address 區塊 */}
+        {/* 💡 Location & Address 區塊 */}
         <div className="relative">
           <div className="flex items-center justify-between mb-1.5 ml-1">
-            <label className="block text-[10px] font-bold text-zinc-500 uppercase tracking-widest">
-              Location & Address
-            </label>
+            <label className="block text-[10px] font-bold text-zinc-500 uppercase tracking-widest">Location Address</label>
             {formData.lat && (
               <div className="flex items-center gap-1.5 px-2 py-0.5 bg-green-500/10 rounded-full border border-green-500/20">
                 <Sparkles size={8} className="text-green-500" />
-                <span className="text-[8px] font-black text-green-500 uppercase tracking-widest">GPS Linked</span>
+                <span className="text-[8px] font-black text-green-500 uppercase tracking-widest">GPS Ready</span>
               </div>
             )}
           </div>
           <div className="relative flex items-center group">
-            <MapPin size={16} className={clsx("absolute left-4 text-zinc-500 pointer-events-none transition-colors", isSearching ? "text-orange-500 animate-pulse" : "group-hover:text-orange-500")} />
-            
+            <MapPin size={16} className={clsx("absolute left-4 z-10 transition-colors", isSearching ? "text-orange-500 animate-pulse" : "text-zinc-500")} />
             <input 
               type="text" 
               value={formData.address} 
-              onChange={e => { 
-                setFormData({ ...formData, address: e.target.value }); 
-                setIsLocationManuallyEdited(true); 
-              }} 
-              className="w-full bg-[#242426] border border-zinc-800 rounded-2xl pl-11 pr-12 py-3.5 text-white text-xs focus:border-orange-500 outline-none transition-all hover:bg-zinc-800/80" 
-              placeholder="輸入地點後點選建議..." 
+              onChange={e => { setFormData({ ...formData, address: e.target.value }); setIsLocationManuallyEdited(true); }} 
+              className="w-full bg-[#242426] border border-zinc-800 rounded-2xl pl-11 pr-12 py-3.5 text-white text-xs focus:border-orange-500 outline-none transition-all" 
+              placeholder="打字搜尋地點..." 
             />
-
+            {/* 💡 放大鏡按鈕：按了才抓 Details */}
             <button
               type="button"
-              onClick={() => setIsLocationPickerOpen(true)}
-              className="absolute right-2 p-1.5 bg-zinc-800 hover:bg-orange-500 text-zinc-400 hover:text-white rounded-xl transition-all"
+              onClick={handleFetchDetails}
+              disabled={!formData.google_place_id}
+              className={clsx("absolute right-2 p-1.5 rounded-xl transition-all", formData.google_place_id ? "bg-zinc-800 text-orange-500 hover:bg-orange-500 hover:text-white" : "text-zinc-700 cursor-not-allowed")}
             >
-              <Search size={14} />
+              {isSearching ? <Loader2 size={14} className="animate-spin" /> : <Search size={14} />}
             </button>
           </div>
 
-          {/* 💡 Autocomplete 下拉選單 */}
           <AnimatePresence>
             {suggestions.length > 0 && (
-              <motion.div initial={{ opacity: 0, y: -10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -10 }} className="absolute z-50 w-full mt-2 bg-zinc-900 border border-zinc-800 rounded-2xl overflow-hidden shadow-2xl">
-                {suggestions.map((s, idx) => (
-                  <button key={idx} type="button" onClick={() => handleSuggestionSelect(s)} className="w-full px-4 py-3 flex items-start gap-3 hover:bg-zinc-800 text-left border-b border-zinc-800/50 last:border-0 group">
-                    <MapPin size={14} className="mt-0.5 text-zinc-600 group-hover:text-orange-500 shrink-0" />
-                    <div className="flex-1 min-w-0">
-                      <div className="text-xs font-bold text-white truncate">{s.structured_formatting.main_text}</div>
-                      <div className="text-[10px] text-zinc-500 truncate">{s.structured_formatting.secondary_text}</div>
-                    </div>
-                  </button>
-                ))}
+              <motion.div 
+                initial={{ opacity: 0, y: -10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -10 }}
+                className="absolute left-0 top-full z-[999] w-full mt-2 bg-zinc-900 border border-zinc-800 rounded-2xl overflow-hidden shadow-[0_20px_50px_rgba(0,0,0,0.5)]"
+              >
+                <div className="max-h-[220px] overflow-y-auto custom-scrollbar">
+                  {suggestions.map((s, idx) => (
+                    <button key={idx} type="button" onClick={() => handleSuggestionSelect(s)} className="w-full px-4 py-3 flex items-start gap-3 hover:bg-zinc-800 text-left border-b border-zinc-800/50 last:border-0 group">
+                      <MapPin size={14} className="mt-0.5 text-zinc-600 group-hover:text-orange-500 shrink-0" />
+                      <div className="flex-1 min-w-0">
+                        <div className="text-xs font-bold text-white truncate">{s.structured_formatting.main_text}</div>
+                        <div className="text-[10px] text-zinc-500 truncate">{s.structured_formatting.secondary_text}</div>
+                      </div>
+                    </button>
+                  ))}
+                </div>
               </motion.div>
             )}
           </AnimatePresence>
@@ -437,7 +429,6 @@ export function ItineraryForm({ tripId, date, onSuccess, onCancel, initialData }
         </button>
       </div>
 
-      {/* 刪除確認彈窗 */}
       <AnimatePresence>
         {showDeleteConfirm && (
           <div className="fixed inset-0 z-[200] flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm">
@@ -453,7 +444,6 @@ export function ItineraryForm({ tripId, date, onSuccess, onCancel, initialData }
         )}
       </AnimatePresence>
 
-      {/* 照片管理彈窗 */}
       <AnimatePresence>
         {isPhotoModalOpen && (
           <div className="absolute inset-0 z-[100] flex items-center justify-center bg-black/90 backdrop-blur-xl p-6">
@@ -474,7 +464,6 @@ export function ItineraryForm({ tripId, date, onSuccess, onCancel, initialData }
         )}
       </AnimatePresence>
 
-      {/* 裁切圖片彈窗 */}
       <AnimatePresence>
         {croppingImage && (
           <div className="fixed inset-0 z-[9999] bg-black/95 flex flex-col items-center justify-center p-4 backdrop-blur-sm">
@@ -486,7 +475,6 @@ export function ItineraryForm({ tripId, date, onSuccess, onCancel, initialData }
         )}
       </AnimatePresence>
 
-      {/* Icon 選擇彈窗 */}
       <AnimatePresence>
         {isIconPickerOpen && (
           <div className="absolute inset-0 z-50 flex items-end justify-center bg-black/60 backdrop-blur-sm p-4">
@@ -504,7 +492,6 @@ export function ItineraryForm({ tripId, date, onSuccess, onCancel, initialData }
         )}
       </AnimatePresence>
 
-      {/* 子活動彈窗 */}
       <AnimatePresence>
         {isSubItemModalOpen && (
           <div className="absolute inset-0 z-[110] flex items-center justify-center bg-black/80 backdrop-blur-md p-4">
@@ -531,7 +518,6 @@ export function ItineraryForm({ tripId, date, onSuccess, onCancel, initialData }
         )}
       </AnimatePresence>
 
-      {/* 💡 Location Picker 移到最外層，正確回填 */}
       <LocationPicker 
         isOpen={isLocationPickerOpen}
         onClose={() => setIsLocationPickerOpen(false)}
@@ -545,10 +531,7 @@ export function ItineraryForm({ tripId, date, onSuccess, onCancel, initialData }
             lat: loc.lat || prev.lat,
             lng: loc.lng || prev.lng
           }));
-
-          if (loc.photo_reference) {
-            // 這裡保留擴充空間
-          }
+          setIsLocationManuallyEdited(false);
         }}
       />  
     </div>
