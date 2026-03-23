@@ -1,10 +1,11 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { useAppStore } from '../store';
 import { X, MapPin, Loader2, Plus, Trash2, Camera, Image as ImageIcon, Upload, Sparkles, Lock, Unlock , Search} from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { apiFetch } from '../utils/api';
 import { DynamicIcon } from './DynamicIcon';
 import { ImageCropper, uploadImageToSupabase } from './ImageCropper';
+import { LocationPicker } from './LocationPicker'; // 💡 補上引入
 import { clsx } from 'clsx';
 
 interface ItineraryFormProps {
@@ -25,7 +26,18 @@ const safeParseArray = (data: any) => {
 };
 
 export function ItineraryForm({ tripId, date, onSuccess, onCancel, initialData }: ItineraryFormProps) {
-  const { categories: storeCategories = [], setCategories } = useAppStore();
+  // 💡 補上 cities，否則 LocationPicker 會沒有城市資料可以選
+  const { categories: storeCategories = [], setCategories, cities: storeCities = [] } = useAppStore();
+  
+  // 💡 計算 groupedCities 供 LocationPicker 使用
+  const groupedCities = useMemo(() => {
+    return storeCities.reduce((acc: any, city: any) => {
+      const country = city.country || 'Others';
+      if (!acc[country]) acc[country] = [];
+      acc[country].push(city);
+      return acc;
+    }, {});
+  }, [storeCities]);
   
   // 💡 智慧排程核心狀態
   const [isTimeFixed, setIsTimeFixed] = useState(initialData?.is_time_fixed === 1);
@@ -47,6 +59,11 @@ export function ItineraryForm({ tripId, date, onSuccess, onCancel, initialData }
   const [isDeleting, setIsDeleting] = useState(false);
   const [isLocationPickerOpen, setIsLocationPickerOpen] = useState(false);
 
+  // 💡 Autocomplete 相關狀態
+  const [suggestions, setSuggestions] = useState<any[]>([]);
+  const [isSearching, setIsSearching] = useState(false);
+  const sessionToken = useRef(Math.random().toString(36).substring(2));
+
   const [editingSubItem, setEditingSubItem] = useState<any>(null);
   const [croppingImage, setCroppingImage] = useState<string | null>(null);
 
@@ -62,7 +79,9 @@ export function ItineraryForm({ tripId, date, onSuccess, onCancel, initialData }
     icon: initialData?.icon || 'MapPin',
     tags: initialTagsArray.join(', '), 
     image_url: initialData?.image_url || '',
-    google_place_id: initialData?.google_place_id || ''
+    google_place_id: initialData?.google_place_id || '',
+    lat: initialData?.lat || null, // 💡 確保有這兩個欄位來存 GPS
+    lng: initialData?.lng || null
   });
 
   const [isLocationManuallyEdited, setIsLocationManuallyEdited] = useState(!!initialData?.address);
@@ -78,6 +97,58 @@ export function ItineraryForm({ tripId, date, onSuccess, onCancel, initialData }
       }; fetchCats();
     }
   }, [storeCategories, setCategories]);
+
+  // 💡 核心邏輯：偵測輸入變動觸發 Autocomplete (含 Debounce)
+  useEffect(() => {
+    const delayDebounceFn = setTimeout(async () => {
+      // 只有當使用者「手動打字」且「字數 > 1」時才觸發
+      if (isLocationManuallyEdited && formData.address.length > 1) {
+        setIsSearching(true);
+        try {
+          const data = await apiFetch(`/api/places/autocomplete?q=${encodeURIComponent(formData.address)}&session=${sessionToken.current}`);
+          setSuggestions(data || []);
+        } catch (e) {
+          console.error('Autocomplete error', e);
+        } finally {
+          setIsSearching(false);
+        }
+      } else {
+        setSuggestions([]);
+      }
+    }, 400); // 400ms 防抖
+
+    return () => clearTimeout(delayDebounceFn);
+  }, [formData.address, isLocationManuallyEdited]);
+
+  // 💡 選中建議：呼叫 Details API 補齊座標
+  const handleSuggestionSelect = async (suggestion: any) => {
+    setFormData(prev => ({ 
+      ...prev, 
+      address: suggestion.description,
+      google_place_id: suggestion.place_id 
+    }));
+    setSuggestions([]);
+    setIsLocationManuallyEdited(false); // 停止觸發 autocomplete
+    
+    setIsSearching(true);
+    try {
+      const details = await apiFetch(`/api/places/details?placeId=${suggestion.place_id}&session=${sessionToken.current}`);
+      if (details.location) {
+        setFormData(prev => ({
+          ...prev,
+          lat: details.location.latitude,
+          lng: details.location.longitude,
+          title: prev.title || suggestion.structured_formatting.main_text // 如果標題是空的，自動幫填
+        }));
+        // 更新完後更換 Session Token，代表這次對話結束
+        sessionToken.current = Math.random().toString(36).substring(2);
+      }
+    } catch (e) {
+      console.error('Fetch details failed', e);
+    } finally {
+      setIsSearching(false);
+    }
+  };
 
   const handleTitleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const newTitle = e.target.value;
@@ -257,36 +328,58 @@ export function ItineraryForm({ tripId, date, onSuccess, onCancel, initialData }
           </AnimatePresence>
         </div>
 
-        <div>
-          <label className="block text-[10px] font-bold text-zinc-500 uppercase tracking-widest mb-1.5 ml-1">
-            Location & Address
-          </label>
-          <div className="relative group">
-            <MapPin size={16} className="absolute left-4 top-1/2 -translate-y-1/2 text-zinc-500 group-hover:text-orange-500 transition-colors" />
+        {/* 💡 替換為包含下拉建議的 Location & Address 區塊 */}
+        <div className="relative">
+          <div className="flex items-center justify-between mb-1.5 ml-1">
+            <label className="block text-[10px] font-bold text-zinc-500 uppercase tracking-widest">
+              Location & Address
+            </label>
+            {formData.lat && (
+              <div className="flex items-center gap-1.5 px-2 py-0.5 bg-green-500/10 rounded-full border border-green-500/20">
+                <Sparkles size={8} className="text-green-500" />
+                <span className="text-[8px] font-black text-green-500 uppercase tracking-widest">GPS Linked</span>
+              </div>
+            )}
+          </div>
+          <div className="relative flex items-center group">
+            <MapPin size={16} className={clsx("absolute left-4 text-zinc-500 pointer-events-none transition-colors", isSearching ? "text-orange-500 animate-pulse" : "group-hover:text-orange-500")} />
             
-            {/* 我們讓這個輸入框變成一個看起來像 input 的按鈕，點擊即開啟 Picker */}
             <input 
               type="text" 
-              readOnly // 設定唯讀，強迫使用 Picker 以確保拿到 GPS 座標
-              value={formData.address || formData.title || ""} 
-              onClick={() => setIsLocationPickerOpen(true)}
-              className="w-full bg-[#242426] border border-zinc-800 rounded-2xl pl-11 pr-12 py-3.5 text-white text-xs focus:border-orange-500 outline-none transition-all cursor-pointer hover:bg-zinc-800" 
-              placeholder="點擊搜尋地點或地址..." 
+              value={formData.address} 
+              onChange={e => { 
+                setFormData({ ...formData, address: e.target.value }); 
+                setIsLocationManuallyEdited(true); 
+              }} 
+              className="w-full bg-[#242426] border border-zinc-800 rounded-2xl pl-11 pr-12 py-3.5 text-white text-xs focus:border-orange-500 outline-none transition-all hover:bg-zinc-800/80" 
+              placeholder="輸入地點後點選建議..." 
             />
 
-            {/* 右側加入一個搜尋小圖示 */}
-            <div className="absolute right-4 top-1/2 -translate-y-1/2 text-zinc-600">
+            <button
+              type="button"
+              onClick={() => setIsLocationPickerOpen(true)}
+              className="absolute right-2 p-1.5 bg-zinc-800 hover:bg-orange-500 text-zinc-400 hover:text-white rounded-xl transition-all"
+            >
               <Search size={14} />
-            </div>
+            </button>
           </div>
-          
-          {/* 如果已經有 GPS 座標，顯示一個綠色小標記讓使用者放心 */}
-          {formData.lat && (
-            <div className="mt-2 ml-1 flex items-center gap-1.5">
-              <div className="w-1.5 h-1.5 rounded-full bg-green-500 animate-pulse" />
-              <span className="text-[9px] font-black text-green-500/80 uppercase tracking-widest">GPS Coordinates Linked</span>
-            </div>
-          )}
+
+          {/* 💡 Autocomplete 下拉選單 */}
+          <AnimatePresence>
+            {suggestions.length > 0 && (
+              <motion.div initial={{ opacity: 0, y: -10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -10 }} className="absolute z-50 w-full mt-2 bg-zinc-900 border border-zinc-800 rounded-2xl overflow-hidden shadow-2xl">
+                {suggestions.map((s, idx) => (
+                  <button key={idx} type="button" onClick={() => handleSuggestionSelect(s)} className="w-full px-4 py-3 flex items-start gap-3 hover:bg-zinc-800 text-left border-b border-zinc-800/50 last:border-0 group">
+                    <MapPin size={14} className="mt-0.5 text-zinc-600 group-hover:text-orange-500 shrink-0" />
+                    <div className="flex-1 min-w-0">
+                      <div className="text-xs font-bold text-white truncate">{s.structured_formatting.main_text}</div>
+                      <div className="text-[10px] text-zinc-500 truncate">{s.structured_formatting.secondary_text}</div>
+                    </div>
+                  </button>
+                ))}
+              </motion.div>
+            )}
+          </AnimatePresence>
         </div>
 
         <div>
@@ -433,32 +526,31 @@ export function ItineraryForm({ tripId, date, onSuccess, onCancel, initialData }
                 <textarea name="notes" defaultValue={editingSubItem?.notes} placeholder="Additional notes..." className="w-full bg-[#242426] border border-zinc-800 rounded-xl px-4 py-2.5 text-white text-xs outline-none min-h-[70px] focus:border-orange-500 transition-all" />
                 <button type="submit" className="w-full py-3.5 bg-orange-500 text-white rounded-2xl font-black text-xs uppercase tracking-widest shadow-lg shadow-orange-500/20 active:scale-95 transition-all">Save Sub-Activity</button>
               </form>
-              <LocationPicker 
-                isOpen={isLocationPickerOpen}
-                onClose={() => setIsLocationPickerOpen(false)}
-                groupedCities={groupedCities} // 確保你有傳入這個，或是改用 storeCities
-                onSelect={(loc) => {
-                  // 💡 智慧回填邏輯
-                  setFormData(prev => ({
-                    ...prev,
-                    // 如果選的是 Google 地標，自動更新標題與地址
-                    title: loc.name || prev.title, 
-                    address: loc.address || prev.address,
-                    google_place_id: loc.google_place_id || prev.google_place_id,
-                    lat: loc.lat || prev.lat,
-                    lng: loc.lng || prev.lng
-                  }));
-
-                  // 如果你有自動填入圖片的邏輯，也可以在這裡處理
-                  if (loc.photo_reference) {
-                    // 可以在這裡標記需要後端同步圖片
-                  }
-                }}
-              />              
             </motion.div>
           </div>
         )}
       </AnimatePresence>
+
+      {/* 💡 Location Picker 移到最外層，正確回填 */}
+      <LocationPicker 
+        isOpen={isLocationPickerOpen}
+        onClose={() => setIsLocationPickerOpen(false)}
+        groupedCities={groupedCities}
+        onSelect={(loc) => {
+          setFormData(prev => ({
+            ...prev,
+            title: loc.name || prev.title, 
+            address: loc.address || prev.address,
+            google_place_id: loc.google_place_id || prev.google_place_id,
+            lat: loc.lat || prev.lat,
+            lng: loc.lng || prev.lng
+          }));
+
+          if (loc.photo_reference) {
+            // 這裡保留擴充空間
+          }
+        }}
+      />  
     </div>
   );
 }

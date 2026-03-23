@@ -68,6 +68,52 @@ app.get('/api/settings/categories', async (c) => {
   }
 });
 
+// ==========================================
+// 📍 Google Places API 代理 (避免前端直接暴露 API Key)
+// ==========================================
+
+// 1. 地點搜尋建議 (Autocomplete)
+app.get('/api/places/autocomplete', async (c) => {
+  const q = c.req.query('q');
+  if (!q) return c.json([]);
+  
+  try {
+    // 使用 Google Maps Autocomplete API
+    const url = `https://maps.googleapis.com/maps/api/place/autocomplete/json?input=${encodeURIComponent(q)}&language=zh-TW&key=${c.env.GOOGLE_MAPS_API_KEY}`;
+    const res = await fetch(url);
+    const data = await res.json() as any;
+    
+    // 回傳 predictions 陣列給前端
+    return c.json(data.predictions || []);
+  } catch (error) {
+    return c.json({ error: 'Failed to fetch autocomplete' }, 500);
+  }
+});
+
+// 2. 取得地點詳細座標與照片 (Details)
+app.get('/api/places/details', async (c) => {
+  const placeId = c.req.query('placeId');
+  if (!placeId) return c.json({ error: 'Missing placeId' }, 400);
+
+  try {
+    // 使用 Google Places API (New) 來拿座標和照片代碼
+    const url = `https://places.googleapis.com/v1/places/${placeId}`;
+    const res = await fetch(url, {
+      headers: {
+        'X-Goog-Api-Key': c.env.GOOGLE_MAPS_API_KEY,
+        // 💡 關鍵：我們只要 location 和 photos，幫你省流量跟費用
+        'X-Goog-FieldMask': 'id,location,photos,displayName,formattedAddress'
+      }
+    });
+    
+    const data = await res.json();
+    return c.json(data);
+  } catch (error) {
+    return c.json({ error: 'Failed to fetch place details' }, 500);
+  }
+});
+
+
 // 5. 健康檢查
 app.get('/health-check', (c) => c.json({ status: 'ok', time: Date.now() }));
 
