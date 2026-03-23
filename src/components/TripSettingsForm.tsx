@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { TripBaseForm } from './TripBaseForm';
 import { apiFetch } from '../utils/api';
-import { Sparkles, Loader2, Trash2, AlertTriangle, Cpu, Wand2 } from 'lucide-react';
+import { Loader2, Trash2, AlertTriangle, Cpu, Wand2 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Trip } from '../types';
 
@@ -14,15 +14,12 @@ interface TripSettingsFormProps {
 
 export function TripSettingsForm({ trip, onUpdate, onDelete, onClose }: TripSettingsFormProps) {
   const [loading, setLoading] = useState(false);
-  
-  // 💡 拆分 AI 狀態
   const [isComputing, setIsComputing] = useState(false);
   const [isOptimizing, setIsOptimizing] = useState(false);
   
   const [pendingSaveData, setPendingSaveData] = useState<any>(null);
   const [outOfBoundsDates, setOutOfBoundsDates] = useState<string[]>([]);
 
-  // 1. 攔截儲存動作：檢查日期衝突
   const handleSubmit = async (data: any) => {
     setLoading(true);
     try {
@@ -48,7 +45,6 @@ export function TripSettingsForm({ trip, onUpdate, onDelete, onClose }: TripSett
     }
   };
 
-  // 2. 執行儲存
   const performSave = async (data: any) => {
     setLoading(true);
     try {
@@ -79,71 +75,70 @@ export function TripSettingsForm({ trip, onUpdate, onDelete, onClose }: TripSett
     }
   };
 
-  // 💡 3. AI Computation (天氣、Google API)
   const handleCompute = async () => {
     setIsComputing(true);
     try {
       const res = await apiFetch(`/api/trips/${trip.id}/compute`, { method: 'POST' });
-      if (res.ok) {
-        onUpdate();
-        alert('Computation completed!');
-      }
-    } finally {
-      setIsComputing(false);
-    }
+      if (res.ok) { onUpdate(); }
+    } finally { setIsComputing(false); }
   };
 
-  // 💡 4. AI Itinerary Optimization (排序)
   const handleOptimize = async () => {
     setIsOptimizing(true);
     try {
       const res = await apiFetch(`/api/trips/${trip.id}/optimize`, { method: 'POST' });
-      if (res.ok) {
-        onUpdate();
-        alert('Itinerary optimized!');
-      }
-    } finally {
-      setIsOptimizing(false);
-    }
+      if (res.ok) { onUpdate(); }
+    } finally { setIsOptimizing(false); }
   };
 
   return (
     <>
-      <div className="space-y-6">
-        <TripBaseForm
-          initialData={trip}
-          onSubmit={handleSubmit}
-          onCancel={onClose}
-          loading={loading}
-          hideDefaultButtons={true} // 💡 假設你的 BaseForm 支援隱藏預設按鈕，我們在下面自定義介面
-          extraButtons={
-            <div className="flex flex-col gap-3 w-full mt-4">
-              
-              {/* 第一行：AI 功能 */}
-              <div className="grid grid-cols-2 gap-3">
-                <button 
-                  type="button" 
-                  disabled={isComputing || loading} 
-                  onClick={handleCompute} 
-                  className="bg-zinc-800 hover:bg-zinc-700 text-zinc-300 font-bold rounded-2xl py-4 transition-all border border-zinc-700 flex flex-col items-center justify-center gap-1 disabled:opacity-50" 
-                >
-                  {isComputing ? <Loader2 size={18} className="animate-spin" /> : <Cpu size={18} />}
-                  <span className="uppercase tracking-widest text-[9px] font-black">AI Computation</span>
-                </button>
-                
-                <button 
-                  type="button" 
-                  disabled={isOptimizing || loading} 
-                  onClick={handleOptimize} 
-                  className="bg-orange-500/10 hover:bg-orange-500/20 text-orange-500 font-bold rounded-2xl py-4 transition-all border border-orange-500/20 flex flex-col items-center justify-center gap-1 disabled:opacity-50" 
-                >
-                  {isOptimizing ? <Loader2 size={18} className="animate-spin" /> : <Wand2 size={18} />}
-                  <span className="uppercase tracking-widest text-[9px] font-black">AI Optimization</span>
-                </button>
-              </div>
+      <style>{`
+        #trip-settings-style-override form > div.pt-6.border-t > div:first-child {
+          display: none !important;
+        }
+      `}</style>
 
-              {/* 第二行：Delete 與 Save Settings */}
-              <div className="grid grid-cols-2 gap-3">
+      <div id="trip-settings-style-override" className="flex flex-col h-full bg-[#1c1c1e]">
+        
+        {/* 極簡標題列：標題 + 橘色圖示按鈕 */}
+        <div className="px-6 py-5 flex items-center justify-between border-b border-zinc-800/50">
+          <h2 className="text-lg font-black text-white uppercase tracking-[0.2em]">Trip Settings</h2>
+          
+          <div className="flex items-center gap-4">
+            {/* AI Compute 按鈕 */}
+            <button 
+              type="button" 
+              title="AI Computation: Update weather & places"
+              disabled={isComputing || loading} 
+              onClick={handleCompute} 
+              className="relative p-2 text-orange-500 hover:bg-orange-500/10 rounded-xl transition-all disabled:opacity-30"
+            >
+              {isComputing ? <Loader2 size={22} className="animate-spin" /> : <Cpu size={22} />}
+            </button>
+            
+            {/* AI Optimize 按鈕 */}
+            <button 
+              type="button" 
+              title="AI Optimization: Re-sort itinerary flow"
+              disabled={isOptimizing || loading} 
+              onClick={handleOptimize} 
+              className="relative p-2 text-orange-500 hover:bg-orange-500/10 rounded-xl transition-all disabled:opacity-30"
+            >
+              {isOptimizing ? <Loader2 size={22} className="animate-spin" /> : <Wand2 size={22} />}
+            </button>
+          </div>
+        </div>
+
+        {/* 表單內容 */}
+        <div className="flex-1 overflow-y-auto px-6 py-6 custom-scrollbar">
+          <TripBaseForm
+            initialData={trip}
+            onSubmit={handleSubmit}
+            loading={loading}
+            submitText="Save" 
+            extraButtons={
+              <div className="grid grid-cols-2 gap-3 mt-10 pt-8 border-t border-zinc-800/50">
                 <button 
                   type="button" 
                   onClick={() => {
@@ -151,48 +146,25 @@ export function TripSettingsForm({ trip, onUpdate, onDelete, onClose }: TripSett
                   }} 
                   className="bg-red-500/10 hover:bg-red-500/20 text-red-500 font-bold rounded-2xl py-4 transition-colors border border-red-500/20 flex items-center justify-center gap-2" 
                 >
-                  <Trash2 size={16} />
-                  <span className="uppercase tracking-widest text-xs font-black">Delete</span>
+                  <Trash2 size={18} />
+                  <span className="uppercase tracking-widest text-xs font-black">Delete Trip</span>
                 </button>
 
-                {/* 💡 這裡是原本的 Submit 按鈕 */}
                 <button 
-                  type="submit" // 💡 這裡設為 submit 會觸發 TripBaseForm 的 onSubmit
+                  type="submit" 
                   disabled={loading}
-                  className="bg-white hover:bg-zinc-200 text-black font-black rounded-2xl py-4 transition-all flex items-center justify-center gap-2 shadow-lg shadow-white/5"
+                  className="bg-orange-500 hover:bg-orange-600 text-white font-black rounded-2xl py-4 transition-all flex items-center justify-center gap-2 shadow-lg shadow-orange-500/20"
                 >
-                  {loading ? <Loader2 size={16} className="animate-spin" /> : null}
+                  {loading ? <Loader2 size={18} className="animate-spin" /> : null}
                   <span className="uppercase tracking-widest text-xs">Save Settings</span>
                 </button>
               </div>
-
-              {/* 第三行：Cancel */}
-              <button 
-                type="button" 
-                onClick={onClose} 
-                className="w-full py-4 text-zinc-500 hover:text-white font-bold text-xs uppercase tracking-[0.3em] transition-colors"
-              >
-                Cancel
-              </button>
-
-            </div>
-          }
-        />
-
-        {/* 說明文字區塊 */}
-        <div className="bg-zinc-800/50 border border-zinc-700/50 rounded-2xl p-4 flex gap-3 items-start mt-2">
-          <div className="p-2 bg-orange-500/10 rounded-lg shrink-0">
-            <Sparkles size={16} className="text-orange-500" />
-          </div>
-          <div className="text-[10px] text-zinc-400 leading-relaxed">
-            <p className="font-bold text-zinc-200 mb-1">AI Tools Guide</p>
-            <span className="text-zinc-300">Computation:</span> Update weather and business hours (API call). <br/>
-            <span className="text-zinc-300">Optimization:</span> Resort itinerary based on your preferences.
-          </div>
+            }
+          />
         </div>
       </div>
 
-      {/* 日期衝突警告彈窗 (保持原樣) */}
+      {/* 警告彈窗 */}
       <AnimatePresence>
         {pendingSaveData && (
           <div className="fixed inset-0 z-[99999] bg-black/90 backdrop-blur-sm flex items-center justify-center p-4">
@@ -200,12 +172,11 @@ export function TripSettingsForm({ trip, onUpdate, onDelete, onClose }: TripSett
               <div className="absolute top-0 left-1/2 -translate-x-1/2 w-[200px] h-[100px] bg-red-500/20 blur-[50px] rounded-full pointer-events-none" />
               <div className="w-16 h-16 bg-red-500/10 rounded-full flex items-center justify-center mb-5 border border-red-500/20 relative z-10"><AlertTriangle size={32} className="text-red-500" /></div>
               <h3 className="text-lg font-black text-white uppercase tracking-widest mb-3 relative z-10">Date Conflict</h3>
-              <p className="text-sm text-zinc-400 mb-4 leading-relaxed relative z-10">You have existing activities scheduled on: <br /> <span className="font-mono font-bold text-red-400 bg-red-500/10 px-3 py-1 rounded-lg block mt-3 inline-block">{outOfBoundsDates.join(', ')}</span></p>
-              <p className="text-[11px] text-zinc-500 mb-6 bg-zinc-800/50 p-3 rounded-xl border border-zinc-700/50 relative z-10">Continuing will hide these from your timeline. They will not be deleted.</p>
+              <p className="text-sm text-zinc-400 mb-4 leading-relaxed relative z-10">Activities outside range: <br /> <span className="font-mono font-bold text-red-400 bg-red-500/10 px-3 py-1 rounded-lg block mt-3 inline-block">{outOfBoundsDates.join(', ')}</span></p>
               <div className="flex w-full gap-3 relative z-10">
-                <button onClick={() => setPendingSaveData(null)} className="flex-1 py-4 bg-zinc-800 hover:bg-zinc-700 text-white font-bold rounded-2xl">Cancel</button>
-                <button onClick={() => performSave(pendingSaveData)} disabled={loading} className="flex-[1.5] py-4 bg-red-500 hover:bg-red-600 text-white font-black uppercase tracking-widest text-[12px] rounded-2xl shadow-lg shadow-red-500/20 flex items-center justify-center gap-2">
-                  {loading ? <Loader2 size={16} className="animate-spin" /> : 'Proceed Anyway'}
+                <button onClick={() => setPendingSaveData(null)} className="flex-1 py-4 bg-zinc-800 text-white font-bold rounded-2xl transition-colors">Cancel</button>
+                <button onClick={() => performSave(pendingSaveData)} disabled={loading} className="flex-[1.5] py-4 bg-red-500 hover:bg-red-600 text-white font-black uppercase tracking-widest text-[12px] rounded-2xl transition-colors shadow-lg shadow-red-500/20 flex items-center justify-center gap-2">
+                  {loading ? <Loader2 size={18} className="animate-spin" /> : 'Proceed Anyway'}
                 </button>
               </div>
             </motion.div>
