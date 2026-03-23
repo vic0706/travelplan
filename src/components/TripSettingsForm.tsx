@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { TripBaseForm } from './TripBaseForm';
 import { apiFetch } from '../utils/api';
-import { Sparkles, Loader2, Trash2, AlertTriangle } from 'lucide-react';
+import { Sparkles, Loader2, Trash2, AlertTriangle, Cpu, Wand2 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Trip } from '../types';
 
@@ -14,58 +14,50 @@ interface TripSettingsFormProps {
 
 export function TripSettingsForm({ trip, onUpdate, onDelete, onClose }: TripSettingsFormProps) {
   const [loading, setLoading] = useState(false);
-  const [isSyncing, setIsSyncing] = useState(false);
   
-  // 💡 用來控制警告彈窗的狀態
+  // 💡 拆分 AI 狀態
+  const [isComputing, setIsComputing] = useState(false);
+  const [isOptimizing, setIsOptimizing] = useState(false);
+  
   const [pendingSaveData, setPendingSaveData] = useState<any>(null);
   const [outOfBoundsDates, setOutOfBoundsDates] = useState<string[]>([]);
 
-  // 1. 攔截儲存動作：先檢查日期衝突
+  // 1. 攔截儲存動作：檢查日期衝突
   const handleSubmit = async (data: any) => {
     setLoading(true);
     try {
-      // 取得目前這趟旅程「所有的現有活動」
       const res = await apiFetch(`/api/trips/${trip.id}/itineraries`);
       if (res.ok) {
         const itineraries = await res.json();
-        
-        // 抓出所有有排活動的不重複日期
         const existingDates = [...new Set(itineraries.map((i: any) => i.date))] as string[];
-        
-        // 檢查是否有活動的日期「小於新開始日」或「大於新結束日」
         const newStart = data.start_date;
         const newEnd = data.end_date;
         const outOfBounds = existingDates.filter(date => date < newStart || date > newEnd);
 
-        // 如果有衝突，暫停儲存並彈出警告！
         if (outOfBounds.length > 0) {
           setOutOfBoundsDates(outOfBounds.sort());
-          setPendingSaveData(data); // 暫存使用者剛剛輸入的新設定
+          setPendingSaveData(data);
           setLoading(false);
-          return; // 終止流程
+          return;
         }
       }
-      
-      // 如果沒衝突，直接執行真實儲存
       await performSave(data);
     } catch (err: any) {
-      alert("Failed to verify itineraries: " + err.message);
+      alert("Verification failed: " + err.message);
       setLoading(false);
     }
   };
 
-  // 2. 真實儲存邏輯 (包含樂觀更新)
+  // 2. 執行儲存
   const performSave = async (data: any) => {
     setLoading(true);
     try {
       const res = await apiFetch(`/api/trips/${trip.id}`, { method: 'PUT', body: JSON.stringify(data) });
-      
       if (res.ok && data.members) {
         await apiFetch(`/api/trips/${trip.id}/members`, { method: 'PUT', body: JSON.stringify({ user_ids: data.members }) });
       }
 
       if (res.ok) {
-        // 樂觀更新 (Optimistic Update)，確保畫面立即生效
         trip.title = data.title;
         trip.start_date = data.start_date;
         trip.end_date = data.end_date;
@@ -74,15 +66,11 @@ export function TripSettingsForm({ trip, onUpdate, onDelete, onClose }: TripSett
         trip.currencies = JSON.stringify(data.currencies);
         trip.members = data.members.map((id: number) => ({ user_id: id, role: 'Member' }));
 
-        setPendingSaveData(null); // 關閉警告彈窗 (如果有開的話)
-        onClose();                // 關閉設定彈窗
-        
-        setTimeout(() => {
-          onUpdate(); // 1.5 秒後背景重新抓取，確保 D1 同步完成
-        }, 1500);
-
+        setPendingSaveData(null);
+        onClose();
+        setTimeout(() => onUpdate(), 1500);
       } else {
-        alert('Failed to update trip');
+        alert('Update failed');
       }
     } catch (err: any) {
       alert(err.message);
@@ -91,23 +79,31 @@ export function TripSettingsForm({ trip, onUpdate, onDelete, onClose }: TripSett
     }
   };
 
-  const handleSync = async () => {
-    setIsSyncing(true);
+  // 💡 3. AI Computation (天氣、Google API)
+  const handleCompute = async () => {
+    setIsComputing(true);
     try {
-      const res = await apiFetch(`/api/trips/${trip.id}/sync`, { method: 'POST' });
+      const res = await apiFetch(`/api/trips/${trip.id}/compute`, { method: 'POST' });
       if (res.ok) {
-        onClose();
-        setTimeout(() => {
-          onUpdate();
-        }, 1500);
-      } else {
-        const error = await res.json() as { error?: string };
-        alert(`Sync failed: ${error.error || 'Unknown error'}`);
+        onUpdate();
+        alert('Computation completed!');
       }
-    } catch (err: any) {
-      alert(`Sync error: ${err.message}`);
     } finally {
-      setIsSyncing(false);
+      setIsComputing(false);
+    }
+  };
+
+  // 💡 4. AI Itinerary Optimization (排序)
+  const handleOptimize = async () => {
+    setIsOptimizing(true);
+    try {
+      const res = await apiFetch(`/api/trips/${trip.id}/optimize`, { method: 'POST' });
+      if (res.ok) {
+        onUpdate();
+        alert('Itinerary optimized!');
+      }
+    } finally {
+      setIsOptimizing(false);
     }
   };
 
@@ -116,97 +112,99 @@ export function TripSettingsForm({ trip, onUpdate, onDelete, onClose }: TripSett
       <div className="space-y-6">
         <TripBaseForm
           initialData={trip}
-          onSubmit={handleSubmit} // 綁定攔截器
+          onSubmit={handleSubmit}
           onCancel={onClose}
-          submitText="Save Settings"
           loading={loading}
+          hideDefaultButtons={true} // 💡 假設你的 BaseForm 支援隱藏預設按鈕，我們在下面自定義介面
           extraButtons={
-            <div className="grid grid-cols-2 gap-3 w-full">
-              <button 
-                type="button" 
-                disabled={isSyncing || loading} 
-                onClick={handleSync} 
-                className="bg-indigo-500/10 hover:bg-indigo-500/20 text-indigo-400 font-bold rounded-xl py-3.5 transition-all border border-indigo-500/20 flex items-center justify-center gap-2 group disabled:opacity-50" 
-              >
-                {isSyncing ? (
-                  <Loader2 size={18} className="animate-spin" />
-                ) : (
-                  <Sparkles size={18} className="group-hover:rotate-12 transition-transform" />
-                )}
-                <span className="uppercase tracking-widest text-xs font-black">RUN AI</span>
-              </button>
+            <div className="flex flex-col gap-3 w-full mt-4">
               
+              {/* 第一行：AI 功能 */}
+              <div className="grid grid-cols-2 gap-3">
+                <button 
+                  type="button" 
+                  disabled={isComputing || loading} 
+                  onClick={handleCompute} 
+                  className="bg-zinc-800 hover:bg-zinc-700 text-zinc-300 font-bold rounded-2xl py-4 transition-all border border-zinc-700 flex flex-col items-center justify-center gap-1 disabled:opacity-50" 
+                >
+                  {isComputing ? <Loader2 size={18} className="animate-spin" /> : <Cpu size={18} />}
+                  <span className="uppercase tracking-widest text-[9px] font-black">AI Computation</span>
+                </button>
+                
+                <button 
+                  type="button" 
+                  disabled={isOptimizing || loading} 
+                  onClick={handleOptimize} 
+                  className="bg-orange-500/10 hover:bg-orange-500/20 text-orange-500 font-bold rounded-2xl py-4 transition-all border border-orange-500/20 flex flex-col items-center justify-center gap-1 disabled:opacity-50" 
+                >
+                  {isOptimizing ? <Loader2 size={18} className="animate-spin" /> : <Wand2 size={18} />}
+                  <span className="uppercase tracking-widest text-[9px] font-black">AI Optimization</span>
+                </button>
+              </div>
+
+              {/* 第二行：Delete 與 Save Settings */}
+              <div className="grid grid-cols-2 gap-3">
+                <button 
+                  type="button" 
+                  onClick={() => {
+                    if (window.confirm('Are you sure you want to delete this trip?')) onDelete();
+                  }} 
+                  className="bg-red-500/10 hover:bg-red-500/20 text-red-500 font-bold rounded-2xl py-4 transition-colors border border-red-500/20 flex items-center justify-center gap-2" 
+                >
+                  <Trash2 size={16} />
+                  <span className="uppercase tracking-widest text-xs font-black">Delete</span>
+                </button>
+
+                {/* 💡 這裡是原本的 Submit 按鈕 */}
+                <button 
+                  type="submit" // 💡 這裡設為 submit 會觸發 TripBaseForm 的 onSubmit
+                  disabled={loading}
+                  className="bg-white hover:bg-zinc-200 text-black font-black rounded-2xl py-4 transition-all flex items-center justify-center gap-2 shadow-lg shadow-white/5"
+                >
+                  {loading ? <Loader2 size={16} className="animate-spin" /> : null}
+                  <span className="uppercase tracking-widest text-xs">Save Settings</span>
+                </button>
+              </div>
+
+              {/* 第三行：Cancel */}
               <button 
                 type="button" 
-                onClick={() => {
-                  if (window.confirm('Are you sure you want to delete this trip? This action cannot be undone.')) {
-                    onDelete();
-                  }
-                }} 
-                className="bg-red-500/10 hover:bg-red-500/20 text-red-500 font-bold rounded-xl py-3.5 transition-colors border border-red-500/20 flex items-center justify-center gap-2" 
-                title="Delete Trip" 
+                onClick={onClose} 
+                className="w-full py-4 text-zinc-500 hover:text-white font-bold text-xs uppercase tracking-[0.3em] transition-colors"
               >
-                <Trash2 size={18} />
-                <span className="uppercase tracking-widest text-xs font-black">Delete</span>
+                Cancel
               </button>
+
             </div>
           }
         />
 
+        {/* 說明文字區塊 */}
         <div className="bg-zinc-800/50 border border-zinc-700/50 rounded-2xl p-4 flex gap-3 items-start mt-2">
           <div className="p-2 bg-orange-500/10 rounded-lg shrink-0">
             <Sparkles size={16} className="text-orange-500" />
           </div>
-          <div className="text-xs text-zinc-400 leading-relaxed">
-            <p className="font-bold text-zinc-200 mb-1">About RUN AI</p>
-            Calculates dynamic weather for each location, synchronizes Google Places business hours, and optimizes your itinerary flow.
+          <div className="text-[10px] text-zinc-400 leading-relaxed">
+            <p className="font-bold text-zinc-200 mb-1">AI Tools Guide</p>
+            <span className="text-zinc-300">Computation:</span> Update weather and business hours (API call). <br/>
+            <span className="text-zinc-300">Optimization:</span> Resort itinerary based on your preferences.
           </div>
         </div>
       </div>
 
-      {/* 💡 自製日期衝突警告彈窗 (只有發生衝突時才會跳出) */}
+      {/* 日期衝突警告彈窗 (保持原樣) */}
       <AnimatePresence>
         {pendingSaveData && (
           <div className="fixed inset-0 z-[99999] bg-black/90 backdrop-blur-sm flex items-center justify-center p-4">
-            <motion.div 
-              initial={{ scale: 0.95, opacity: 0 }} 
-              animate={{ scale: 1, opacity: 1 }} 
-              exit={{ scale: 0.95, opacity: 0 }}
-              className="bg-[#1c1c1e] border border-red-500/30 rounded-[32px] w-full max-w-sm p-6 shadow-2xl flex flex-col items-center text-center relative overflow-hidden"
-            >
-              {/* 背景紅光特效 */}
+            <motion.div initial={{ scale: 0.95, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0.95, opacity: 0 }} className="bg-[#1c1c1e] border border-red-500/30 rounded-[32px] w-full max-w-sm p-6 shadow-2xl flex flex-col items-center text-center relative overflow-hidden">
               <div className="absolute top-0 left-1/2 -translate-x-1/2 w-[200px] h-[100px] bg-red-500/20 blur-[50px] rounded-full pointer-events-none" />
-
-              <div className="w-16 h-16 bg-red-500/10 rounded-full flex items-center justify-center mb-5 border border-red-500/20 relative z-10">
-                <AlertTriangle size={32} className="text-red-500" />
-              </div>
-              
+              <div className="w-16 h-16 bg-red-500/10 rounded-full flex items-center justify-center mb-5 border border-red-500/20 relative z-10"><AlertTriangle size={32} className="text-red-500" /></div>
               <h3 className="text-lg font-black text-white uppercase tracking-widest mb-3 relative z-10">Date Conflict</h3>
-              
-              <p className="text-sm text-zinc-400 mb-4 leading-relaxed relative z-10">
-                You have existing activities scheduled on dates outside your new trip range:
-                <br />
-                <span className="font-mono font-bold text-red-400 bg-red-500/10 px-3 py-1 rounded-lg block mt-3 inline-block">
-                  {outOfBoundsDates.join(', ')}
-                </span>
-              </p>
-              
-              <p className="text-[11px] text-zinc-500 mb-6 bg-zinc-800/50 p-3 rounded-xl border border-zinc-700/50 relative z-10">
-                Continuing will hide these activities from your timeline. They will not be deleted, but you won't be able to see them.
-              </p>
-
+              <p className="text-sm text-zinc-400 mb-4 leading-relaxed relative z-10">You have existing activities scheduled on: <br /> <span className="font-mono font-bold text-red-400 bg-red-500/10 px-3 py-1 rounded-lg block mt-3 inline-block">{outOfBoundsDates.join(', ')}</span></p>
+              <p className="text-[11px] text-zinc-500 mb-6 bg-zinc-800/50 p-3 rounded-xl border border-zinc-700/50 relative z-10">Continuing will hide these from your timeline. They will not be deleted.</p>
               <div className="flex w-full gap-3 relative z-10">
-                <button 
-                  onClick={() => setPendingSaveData(null)}
-                  className="flex-1 py-4 bg-zinc-800 hover:bg-zinc-700 text-white font-bold rounded-2xl transition-colors"
-                >
-                  Cancel
-                </button>
-                <button 
-                  onClick={() => performSave(pendingSaveData)}
-                  disabled={loading}
-                  className="flex-[1.5] py-4 bg-red-500 hover:bg-red-600 text-white font-black uppercase tracking-widest text-[12px] rounded-2xl transition-colors shadow-lg shadow-red-500/20 flex items-center justify-center gap-2"
-                >
+                <button onClick={() => setPendingSaveData(null)} className="flex-1 py-4 bg-zinc-800 hover:bg-zinc-700 text-white font-bold rounded-2xl">Cancel</button>
+                <button onClick={() => performSave(pendingSaveData)} disabled={loading} className="flex-[1.5] py-4 bg-red-500 hover:bg-red-600 text-white font-black uppercase tracking-widest text-[12px] rounded-2xl shadow-lg shadow-red-500/20 flex items-center justify-center gap-2">
                   {loading ? <Loader2 size={16} className="animate-spin" /> : 'Proceed Anyway'}
                 </button>
               </div>

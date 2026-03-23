@@ -332,6 +332,40 @@ function minsToTime(mins: number) {
   return `${h.toString().padStart(2, '0')}:${m.toString().padStart(2, '0')}`;
 }
 
+// ==========================================
+// 💡 行程智慧排序引擎 (Smart Itinerary Optimizer)
+// ==========================================
+
+const PREFERENCE_WINDOWS: Record<string, { start: number, end: number }> = {
+  anytime: { start: 0, end: 1439 },     // 00:00 - 23:59
+  morning: { start: 360, end: 720 },    // 06:00 - 12:00
+  afternoon: { start: 720, end: 1080 }, // 12:00 - 18:00
+  evening: { start: 1080, end: 1439 }   // 18:00 - 23:59
+};
+
+function getDistanceKm(lat1: number, lon1: number, lat2: number, lon2: number) {
+  if (!lat1 || !lon1 || !lat2 || !lon2) return 0;
+  const R = 6371; 
+  const dLat = (lat2 - lat1) * (Math.PI / 180);
+  const dLon = (lon2 - lon1) * (Math.PI / 180);
+  const a = Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+            Math.cos(lat1 * (Math.PI / 180)) * Math.cos(lat2 * (Math.PI / 180)) * Math.sin(dLon / 2) * Math.sin(dLon / 2);
+  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a)); 
+  return R * c;
+}
+
+function timeToMins(timeStr: string) {
+  if (!timeStr) return 0;
+  const [h, m] = timeStr.split(':').map(Number);
+  return h * 60 + (m || 0);
+}
+
+function minsToTime(mins: number) {
+  const h = Math.floor(mins / 60) % 24;
+  const m = Math.floor(mins % 60);
+  return `${h.toString().padStart(2, '0')}:${m.toString().padStart(2, '0')}`;
+}
+
 export async function optimizeDailyItinerary(env: Env, tripId: number, dateStr: string) {
   const { results } = await env.DB.prepare(`
     SELECT * FROM Itineraries WHERE trip_id = ? AND date = ? ORDER BY start_time ASC
@@ -364,11 +398,19 @@ export async function optimizeDailyItinerary(env: Env, tripId: number, dateStr: 
   let isCircuitBroken = false; 
   const statements = [];
 
+  // 💡 嚴格優先級定義 (數值越小越優先)
+  const PREF_ORDER: Record<string, number> = {
+    morning: 1,
+    afternoon: 2,
+    evening: 3,
+    anytime: 99
+  };
+
   // 3. 核心模擬循環
   while (flexItems.length > 0 || fixedItems.length > 0) {
     const nextFixed = fixedItems.length > 0 ? fixedItems[0] : null;
 
-    // ⚡ 斷路器：清空後續時間
+    // ⚡ 斷路器：清空後續時間 (沉底顯示待排程)
     if (isCircuitBroken) {
       const nextFlex = flexItems.shift(); 
       if (nextFlex) {
@@ -380,7 +422,7 @@ export async function optimizeDailyItinerary(env: Env, tripId: number, dateStr: 
 
     // 處理固樁項目
     if (nextFixed && timeToMins(nextFixed.start_time) <= currentMins + 30) {
-      currentMins = timeToMins(nextFixed.end_time);
+      currentMins = Math.max(currentMins, timeToMins(nextFixed.end_time));
       currentLat = nextFixed.lat;
       currentLng = nextFixed.lng;
       lastProcessedItem = nextFixed;
@@ -395,20 +437,32 @@ export async function optimizeDailyItinerary(env: Env, tripId: number, dateStr: 
         continue;
       }
 
+      // 🌍 嚴格分桶邏輯 (Strict Bucket Sorting)
+      let activePhase = 99;
+      flexItems.forEach(item => {
+        const order = PREF_ORDER[item.time_pref] || 99;
+        if (order < activePhase) activePhase = order; // 找出目前剩下的景點中，最早的時段
+      });
+
       let bestIdx = -1;
       let minScore = Infinity;
       let bestDistance = 0;
 
-      // 🌍 智慧選擇：時段分桶與距離權重
+      // 🎯 尋找「符合當前時段限制」的最短距離景點
       flexItems.forEach((item, idx) => {
-        const window = PREFERENCE_WINDOWS[item.time_pref];
-        if (currentMins > window.end && item.time_pref !== 'anytime') return;
-
-        if (item.lat && item.lng) {
-          const dist = getDistanceKm(currentLat, currentLng, item.lat, item.lng);
-          let weight = 1.0;
-          if (currentMins >= window.start && currentMins <= window.end) weight = 0.5;
-          const score = dist * weight;
+        const order = PREF_ORDER[item.time_pref] || 99;
+        
+        // 🛡️ 只有「符合當前最早時段」或是「不限時段 (anytime)」的景點，才有資格被選！
+        if (order === activePhase || item.time_pref === 'anytime') {
+          let dist = 5; // 基本預設距離
+          if (currentLat && currentLng && item.lat && item.lng) {
+            dist = getDistanceKm(currentLat, currentLng, item.lat, item.lng);
+          }
+          
+          let score = dist;
+          // 💡 輕微懲罰 anytime 項目 (+2km)，讓系統在距離相近時優先消化指定時間的景點
+          if (item.time_pref === 'anytime') score += 2;
+          
           if (score < minScore) {
             minScore = score;
             bestIdx = idx;
@@ -417,28 +471,39 @@ export async function optimizeDailyItinerary(env: Env, tripId: number, dateStr: 
         }
       });
 
-      if (bestIdx === -1) bestIdx = 0;
+      if (bestIdx === -1) bestIdx = 0; // 防呆
       const nextFlex = flexItems.splice(bestIdx, 1)[0];
-      const window = PREFERENCE_WINDOWS[nextFlex.time_pref];
+      const window = PREFERENCE_WINDOWS[nextFlex.time_pref] || PREFERENCE_WINDOWS.anytime;
       
+      // 🚗 交通時間計算
       let travelTimeMins = bestDistance !== 0 ? Math.ceil(bestDistance * 4) + 5 : 15;
       if (lastProcessedItem?.next_transport_time) {
         const parsedMins = parseInt(lastProcessedItem.next_transport_time);
         if (!isNaN(parsedMins)) travelTimeMins = parsedMins;
       }
       
+      // 💡 時間推進
       let newStartMins = Math.max(currentMins + travelTimeMins, window.start);
       const newEndMins = newStartMins + nextFlex.durationMins;
 
+      // 💡 防呆警告判斷
+      let warning = null;
       if (nextFixed && newEndMins > timeToMins(nextFixed.start_time)) {
-        statements.push(env.DB.prepare(`UPDATE Itineraries SET sync_conflict_warning = ? WHERE id = ?`).bind(`⚠️ 距離下個固定行程時間不足`, nextFlex.id));
-        currentMins = timeToMins(nextFixed.start_time);
-      } else {
-        statements.push(env.DB.prepare(`UPDATE Itineraries SET start_time = ?, end_time = ?, sync_conflict_warning = NULL WHERE id = ?`).bind(minsToTime(newStartMins), minsToTime(newEndMins), nextFlex.id));
-        currentMins = newEndMins;
-        if (nextFlex.lat) currentLat = nextFlex.lat;
-        if (nextFlex.lng) currentLng = nextFlex.lng;
+        warning = '⚠️ 距離下個固定行程時間不足';
       }
+      if (newStartMins > window.end && nextFlex.time_pref !== 'anytime') {
+        warning = warning ? warning + ' | ⚠️ 超出偏好時段' : '⚠️ 已超出偏好時段 (行程太滿)';
+      }
+
+      // 💥 致命 BUG 關鍵修復處：無論是否衝突，都必須覆寫該景點的時間！
+      statements.push(
+        env.DB.prepare(`UPDATE Itineraries SET start_time = ?, end_time = ?, sync_conflict_warning = ? WHERE id = ?`)
+        .bind(minsToTime(newStartMins), minsToTime(newEndMins), warning, nextFlex.id)
+      );
+      
+      currentMins = newEndMins; // 正常推進時間，不隨便跳轉
+      if (nextFlex.lat) currentLat = nextFlex.lat;
+      if (nextFlex.lng) currentLng = nextFlex.lng;
       lastProcessedItem = nextFlex;
     }
   }

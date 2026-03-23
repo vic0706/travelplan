@@ -142,33 +142,58 @@ trips.get('/:id/weather', async (c) => {
   }
 });
 
-// 🚀 RUN AI 同步與智慧排序 (啟動闖關模式)
-trips.post('/:id/sync', async (c) => {
+// ==========================================
+// 💡 1. AI Itinerary Optimization (純內部排序)
+// ==========================================
+trips.post('/:id/optimize', async (c) => {
   const tripId = c.req.param('id');
   try {
     const canEdit = await checkTripAccess(c, Number(tripId), 'edit');
     if (!canEdit) return c.json({ error: 'Unauthorized' }, 403);
 
-    const { results: tripsInfo } = await c.env.DB.prepare(`SELECT * FROM Trips WHERE id = ?`).bind(tripId).all();
-    if (tripsInfo.length === 0) return c.json({ error: 'Trip not found' }, 404);
-    const trip = tripsInfo[0] as any;
+    const { results: tripInfo } = await c.env.DB.prepare(`SELECT start_date, end_date FROM Trips WHERE id = ?`).bind(tripId).all();
+    if (tripInfo.length === 0) return c.json({ error: 'Trip not found' }, 404);
+    const trip = tripInfo[0] as any;
 
     const start = new Date(trip.start_date);
     const end = new Date(trip.end_date);
     
-    // 依序處理每一天
+    // 只執行排序邏輯，不調用外部 API
     for (let d = new Date(start); d <= end; d.setDate(d.getDate() + 1)) {
       const dateStr = d.toISOString().split('T')[0];
-      // 1. 更新天氣快取
-      await getWeatherForDate(Number(tripId), dateStr, c.env, true);
-      // 2. 💡 執行排序大腦 (包含起點判定與交通斷路器)
       await optimizeDailyItinerary(c.env, Number(tripId), dateStr);
     }
 
-    // 3. 同步 Google 地點細節與營業時間
+    return c.json({ success: true, message: 'Itinerary Optimized' });
+  } catch (error: any) {
+    return c.json({ error: error.message }, 500);
+  }
+});
+
+// ==========================================
+// 💡 2. AI Computation (天氣與 Google API)
+// ==========================================
+trips.post('/:id/compute', async (c) => {
+  const tripId = c.req.param('id');
+  try {
+    const canEdit = await checkTripAccess(c, Number(tripId), 'edit');
+    if (!canEdit) return c.json({ error: 'Unauthorized' }, 403);
+
+    const { results: tripInfo } = await c.env.DB.prepare(`SELECT start_date, end_date FROM Trips WHERE id = ?`).bind(tripId).all();
+    if (tripInfo.length === 0) return c.json({ error: 'Trip not found' }, 404);
+    const trip = tripInfo[0] as any;
+
+    const start = new Date(trip.start_date);
+    const end = new Date(trip.end_date);
+    
+    // 執行耗費額度的外部 API 計算
+    for (let d = new Date(start); d <= end; d.setDate(d.getDate() + 1)) {
+      const dateStr = d.toISOString().split('T')[0];
+      await getWeatherForDate(Number(tripId), dateStr, c.env, true);
+    }
     await syncPlaceDetails(c.env, Number(tripId));
 
-    return c.json({ success: true, message: 'AI Sync & Optimization completed' });
+    return c.json({ success: true, message: 'External Data Computed' });
   } catch (error: any) {
     return c.json({ error: error.message }, 500);
   }

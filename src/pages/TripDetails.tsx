@@ -221,10 +221,49 @@ export function TripDetails() {
     ? trip.cover_image_url 
     : `https://picsum.photos/seed/${trip?.id}/1920/1080`;
 
-  const filteredItineraries = itineraries.filter(i => {
-    const parsed = safeParse(i.date);
-    return parsed ? isSameDay(parsed, selectedDate || new Date()) : false;
-  }).sort((a, b) => a.start_time.localeCompare(b.start_time));
+  const filteredItineraries = useMemo(() => {
+    if (!itineraries) return [];
+
+    // 💡 定義時段優先級權重 (越小越前面)
+    const prefWeight: Record<string, number> = {
+      'anytime': 0,
+      'morning': 1,
+      'afternoon': 2,
+      'evening': 3
+    };
+
+    return itineraries
+      .filter(item => {
+        try {
+          const itemDate = typeof item.date === 'string' ? parseISO(item.date) : item.date;
+          return isSameDay(itemDate, selectedDate || new Date());
+        } catch (e) { return false; }
+      })
+      .sort((a, b) => {
+        const hasTimeA = !!a.start_time && a.start_time.trim() !== '';
+        const hasTimeB = !!b.start_time && b.start_time.trim() !== '';
+
+        // 1. 優先級一：已排定時間 vs 未排定時間
+        if (hasTimeA && !hasTimeB) return -1; // 有時間的在上
+        if (!hasTimeA && hasTimeB) return 1;  // 沒時間的在下 (沉底)
+
+        // 2. 優先級二：如果兩者都有時間，按時間早晚排
+        if (hasTimeA && hasTimeB) {
+          return a.start_time.localeCompare(b.start_time);
+        }
+
+        // 3. 優先級三：如果兩者都沒時間 (AI 待處理)，按「時段偏好」排序
+        const weightA = prefWeight[a.time_preference || 'anytime'] ?? 0;
+        const weightB = prefWeight[b.time_preference || 'anytime'] ?? 0;
+
+        if (weightA !== weightB) {
+          return weightA - weightB; // 按 不限 > 上午 > 下午 > 晚上 排
+        }
+
+        // 4. 優先級四：時段也一樣的話，按 ID 排序維持穩定
+        return (a.id || 0) - (b.id || 0);
+      });
+  }, [itineraries, selectedDate]);
 
   // 💡 修正 Hook 錯誤：這裡的 useMemo 會被順利執行到
   const conflictedIdsInView = useMemo(() => {
@@ -443,7 +482,7 @@ export function TripDetails() {
                         isConflicted={conflictedIdsInView.has(item.id)} 
                         onEdit={() => { setEditingItinerary(item); setIsItineraryFormOpen(true); }} 
                         selectedDate={selectedDate || new Date()} 
-                        showNextTransport={index < filteredItineraries.length - 1} 
+                        showNextTransport={true}
                         onEditNextTransport={() => { setEditingItinerary(item); setIsNextTransportFormOpen(true); }} 
                         booking={booking} 
                         expandSignal={expandSignal} 
