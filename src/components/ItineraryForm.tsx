@@ -86,6 +86,16 @@ export function ItineraryForm({ tripId, date, onSuccess, onCancel, initialData }
 
   });
 
+  const [mode, setMode] = useState(initialData?.next_transport_mode || 'auto');
+
+// 💡 如果是 auto，預設給 '0'，如果有舊時間就帶舊時間
+  const [time, setTime] = useState(() => {
+      if (initialData?.next_transport_time) return initialData.next_transport_time;
+      if (initialData?.next_transport_mode === 'auto') return '0';
+  return '';
+});
+
+
   const [isLocationManuallyEdited, setIsLocationManuallyEdited] = useState(false);
   const selectedCategory = storeCategories.find(c => c.icon === formData.icon) || { color: '#808080', icon: 'MapPin' };
 
