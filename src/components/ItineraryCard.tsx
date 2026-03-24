@@ -75,20 +75,25 @@ export function ItineraryCard({
   useEffect(() => { if (collapseSignal && collapseSignal > 0) setIsCardExpanded(false); }, [collapseSignal]);
 
   // 💡 修正後的導航 URL 邏輯
+// 💡 修正後的導航 URL 邏輯
   const getGoogleMapsLink = () => {
-    // 使用官方推薦的 dir (directions) 格式
-    const baseUrl = "https://www.google.com/maps/dir/?api=1";
-    const destination = encodeURIComponent(item.address || item.title);
-    
-    let url = `${baseUrl}&destination=${destination}`;
-    
-    // 如果有 Place ID，這會是最精準的導航目標
-    if (item.google_place_id) {
-      url += `&destination_place_id=${item.google_place_id}`;
-    }
-    
-    return url;
-  };
+  // 使用官方 Google Maps Directions API 格式，確保跨平台相容性
+  const baseUrl = "https://www.google.com/maps/dir/?api=1";
+  
+  // 目的地名稱或地址
+  const destination = encodeURIComponent(item.address || item.title);
+  
+  // 構建網址：不設定 origin 參數，Google Maps 會自動以「目前位置」為起點
+  let url = `${baseUrl}&destination=${destination}`;
+  
+  // 如果資料庫中有 Place ID，這能提供最精準的店家定位
+  if (item.google_place_id) {
+    url += `&destination_place_id=${item.google_place_id}`;
+  }
+  
+  return url;
+};
+
 
   const getTransportIcon = () => {
     switch (item.next_transport_mode?.toLowerCase()) {
