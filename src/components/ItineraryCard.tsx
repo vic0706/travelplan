@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { MapPin, Car, Train, Bus, AlertTriangle, Star, Plus, Footprints, Bike, Navigation2, Lock, Sparkles, ChevronDown, Clock, ChevronRight } from 'lucide-react';
+import { MapPin, Car, Train, Bus, AlertTriangle, Star, Plus, Footprints, Bike, Navigation2, Lock, Sparkles, Clock, ChevronRight } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Itinerary } from '../types';
 import { DynamicIcon } from './DynamicIcon';
@@ -63,8 +63,9 @@ export function ItineraryCard({
   const itemDateTime = new Date(`${item.date}T${endTimeStr}`);
   const isPast = Date.now() > itemDateTime.getTime();
 
+  // 💡 智慧預設：沒過期且有照片才展開。過期或沒照片預設為收折
   const [isCardExpanded, setIsCardExpanded] = useState(!isPast && !!item.image_url);
-  const [viewIndex, setViewIndex] = useState(0); 
+  const [viewIndex, setViewIndex] = useState(0); // 0: 照片, 1: 細節
   const [expandedSubIdx, setExpandedSubIdx] = useState<number | null>(null);
 
   const closedWarning = checkIsClosed(item.date, item.opening_hours);
@@ -94,10 +95,11 @@ export function ItineraryCard({
   const isAiCalculated = !isFixed && (!!item.start_time && item.start_time !== '');
   const isCircuitBreaker = canEdit && (!!item.start_time) && (!item.next_transport_mode || item.next_transport_mode === '');
 
+  // 💡 滑動切換邏輯
   const handleDragEnd = (e: any, info: any) => {
     const threshold = 50;
-    if (info.offset.x < -threshold) setViewIndex(1);
-    else if (info.offset.x > threshold) setViewIndex(0);
+    if (info.offset.x < -threshold) setViewIndex(1); // 往左滑看細節
+    else if (info.offset.x > threshold) setViewIndex(0); // 往右滑看照片
   };
 
   return (
@@ -109,8 +111,9 @@ export function ItineraryCard({
         isCircuitBreaker && "border-red-500 shadow-[0_0_15px_rgba(239,68,68,0.2)] bg-[#2a1a1a]"
       )}>
         
+        {/* 1. 第一行 (Icon, Time, Nav) */}
         <div className="p-4 pb-1.5 flex items-center justify-between">
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2.5">
             <div style={{ color: isCircuitBreaker ? '#ef4444' : category.color, filter: !isPast ? `drop-shadow(0 0 6px ${category.color}33)` : 'none' }}>
               <DynamicIcon name={item.icon || 'MapPin'} size={18} />
             </div>
@@ -131,15 +134,17 @@ export function ItineraryCard({
           </button>
         </div>
 
+        {/* 2. 第二行 (標題) */}
         <div className="px-4 pb-3" onClick={() => (canEdit ? onEdit() : item.image_url && setIsCardExpanded(!isCardExpanded))}>
           <h4 className={clsx("text-[19px] font-black leading-tight truncate cursor-pointer", isPast ? "text-zinc-600" : "text-white")}>
             {item.title}
           </h4>
         </div>
 
+        {/* 3. 第三行 (照片 & 細節滑動區塊) */}
         <AnimatePresence>
           {isCardExpanded && item.image_url && (
-            <motion.div initial={{ height: 0, opacity: 0 }} animate={{ height: 'auto', opacity: 1 }} exit={{ height: 0, opacity: 0 }}>
+            <motion.div initial={{ height: 0, opacity: 0 }} animate={{ height: 'auto', opacity: 1 }} exit={{ height: 0, opacity: 0 }} className="relative">
               <div className="relative w-full aspect-[21/9] bg-zinc-900 overflow-hidden cursor-grab active:cursor-grabbing">
                 <motion.div 
                   drag="x"
@@ -149,11 +154,14 @@ export function ItineraryCard({
                   transition={{ type: "spring", stiffness: 300, damping: 30 }}
                   className="flex w-full h-full"
                 >
+                  {/* Page 0: 照片 */}
                   <div className="w-full h-full shrink-0 relative">
                     <img src={item.image_url} alt="place" className="w-full h-full object-cover opacity-70" />
                   </div>
 
+                  {/* Page 1: 細節資訊 */}
                   <div className="w-full h-full shrink-0 bg-black/85 p-4 overflow-y-auto custom-scrollbar flex flex-col gap-3 backdrop-blur-md">
+                    {/* 星星 & Tags */}
                     <div className="flex flex-wrap items-center gap-2">
                       {item.rating && (
                         <div className="flex items-center gap-1 text-yellow-500 bg-yellow-500/10 px-2 py-0.5 rounded-lg border border-yellow-500/20">
@@ -162,10 +170,11 @@ export function ItineraryCard({
                         </div>
                       )}
                       {tags.map((t: string) => (
-                        <span key={t} className="text-[10px] font-bold text-orange-500 bg-orange-500/10 px-2 py-0.5 rounded-md border border-orange-500/10">#{t}</span>
+                        <span key={t} className="text-[9px] font-bold text-orange-500 bg-orange-500/10 px-2 py-0.5 rounded-md border border-orange-500/10">#{t}</span>
                       ))}
                     </div>
 
+                    {/* 子項目互動清單 */}
                     {subItems.length > 0 && (
                       <div className="flex flex-col gap-1">
                         {subItems.map((sub: any, idx: number) => (
@@ -191,31 +200,37 @@ export function ItineraryCard({
                       </div>
                     )}
 
-                    <div className="space-y-1 px-1">
+                    {/* 紅色警告訊息 & 備註 (移除分隔線) */}
+                    <div className="space-y-1.5 px-1 mt-1">
                       {isConflicted && <div className="text-red-500 font-bold text-[11px] flex items-center gap-1.5"><AlertTriangle size={12} /> 行程時間衝突</div>}
                       {closedWarning && <div className="text-red-500 font-bold text-[11px] flex items-center gap-1.5"><Clock size={12} /> ⚠️ {closedWarning}</div>}
                       {item.sync_conflict_warning && <div className="text-red-500 font-bold text-[11px] flex items-center gap-1.5"><AlertTriangle size={12} /> {item.sync_conflict_warning}</div>}
-                      {item.notes && <p className="text-[12px] text-zinc-400 leading-relaxed italic whitespace-pre-wrap mt-1">{item.notes}</p>}
+                      {item.notes && <p className="text-[12px] text-zinc-400 leading-relaxed italic whitespace-pre-wrap">{item.notes}</p>}
                     </div>
                   </div>
                 </motion.div>
-              </div>
 
-              <div className="flex justify-center gap-1.5 mt-1.5 pb-2">
-                <div className={clsx("w-1.5 h-1.5 rounded-full transition-all", viewIndex === 0 ? "bg-white scale-110" : "bg-zinc-700")} />
-                <div className={clsx(
-                  "w-1.5 h-1.5 rounded-full transition-all", 
-                  viewIndex === 1 ? (hasWarning ? "bg-red-500 scale-110" : "bg-white scale-110") : (hasWarning ? "bg-red-900/50" : "bg-zinc-700")
-                )} />
+                {/* 💡 內嵌式分頁指示器 (Dots) - 放在照片區域內部最下方 */}
+                <div className="absolute bottom-2 left-0 right-0 flex justify-center gap-1.5 z-30 pointer-events-none">
+                  <div className={clsx(
+                    "w-1.5 h-1.5 rounded-full transition-all shadow-sm", 
+                    viewIndex === 0 ? "bg-white scale-110" : "bg-white/30"
+                  )} />
+                  <div className={clsx(
+                    "w-1.5 h-1.5 rounded-full transition-all shadow-sm", 
+                    viewIndex === 1 ? (hasWarning ? "bg-red-500 scale-110" : "bg-white scale-110") : (hasWarning ? "bg-red-500/40" : "bg-white/30")
+                  )} />
+                </div>
               </div>
             </motion.div>
           )}
         </AnimatePresence>
 
+        {/* 4. 第四行 (Next Stop) - 智慧顯示邏輯 & 移除線條 */}
         {showNextTransport && (canEdit || !!item.next_transport_mode) && (isCardExpanded || !isPast) && (
           <button 
             type="button" disabled={!canEdit}
-            onClick={(e) => { e.stopPropagation(); if (canEdit && onEditNextTransport) onEditNextTransport(); }}
+            onClick={(e) => { e.stopPropagation(); if (canEdit) onEditNextTransport?.(); }}
             className={clsx(
               "w-full px-5 py-3.5 flex items-center justify-between transition-colors",
               canEdit ? "cursor-pointer" : "cursor-default",
