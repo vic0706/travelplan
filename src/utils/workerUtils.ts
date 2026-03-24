@@ -485,20 +485,37 @@ export async function optimizeDailyItinerary(env: Env, tripId: number, dateStr: 
     const nextFlex = flexItems.splice(bestIdx, 1)[0];
     const window = PREFERENCE_WINDOWS[nextFlex.time_pref] || PREFERENCE_WINDOWS.anytime;
     
-    // --- 區塊 C：嚴格交通時間計算（移除 15 分鐘預設） ---
+    // 💡 修改前的邏輯太嚴格，只有 mode === 'auto' 才算
+    // 💡 修正後：只要有 mode，沒給具體時間就一律用座標估算！
+
     let travelTimeMins: number | null = null;
-    if (lastProcessedItem?.next_transport_time) {
+
+    // 條件 1：如果有手動填具體時間 (且不為 0)，優先使用手動時間
+    if (lastProcessedItem.next_transport_time && parseInt(lastProcessedItem.next_transport_time) > 0) {
       travelTimeMins = parseInt(lastProcessedItem.next_transport_time);
-    } else if (lastProcessedItem?.next_transport_mode === 'auto' && bestDistance !== null) {
-      travelTimeMins = Math.ceil(bestDistance * 4) + 5;
+    } 
+    // 條件 2：只要有設定交通方式 (不管是 auto, transit 還是 driving)
+    else if (lastProcessedItem.next_transport_mode && lastProcessedItem.next_transport_mode !== '') {
+      // 嘗試使用座標進行距離推算兜底
+      const dist = getDistanceKm(currentLat, currentLng, nextFlex.lat, nextFlex.lng);
+      if (dist !== null) {
+        travelTimeMins = Math.ceil(dist * 4) + 5; // 預設估算：每公里 4 分鐘 + 5 分鐘緩衝    
+        // 💡 這裡可以針對不同交通工具微調係數 (可選)
+        if (lastProcessedItem.next_transport_mode === 'walking') {
+          travelTimeMins = Math.ceil(dist * 12); // 走路比較慢，每公里 12 分鐘
+        } else if (lastProcessedItem.next_transport_mode === 'driving') {
+          travelTimeMins = Math.ceil(dist * 3) + 5; // 開車比較快
+        }
+      }
+     }
+
+    // 如果連兜底都算不出來（例如完全沒填 mode，或兩個景點都沒有座標），才觸發斷路器跳電
+    if (travelTimeMins === null) {
+       circuitBreakers[timePref] = true;
+       break;
     }
 
-    // 如果沒資料算不出來交通時間，直接讓當前時段跳電
-    if (travelTimeMins === null && lastProcessedItem !== null) {
-      circuitBreakers[currentPeriod as keyof typeof circuitBreakers] = true;
-      flexItems.unshift(nextFlex); // 塞回去，換時段再排
-      continue;
-    }
+
     
     let newStartMins = Math.max(currentMins + (travelTimeMins || 0), window.start);
     const newEndMins = newStartMins + nextFlex.durationMins;
