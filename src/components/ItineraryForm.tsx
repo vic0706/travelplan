@@ -79,7 +79,11 @@ export function ItineraryForm({ tripId, date, onSuccess, onCancel, initialData }
     opening_hours: initialData?.opening_hours || '',
     place_website: initialData?.place_website || '',
     place_phone: initialData?.place_phone || '',
-    place_status: initialData?.place_status || ''    
+    next_transport_mode: initialData?.next_transport_mode || '',
+    next_transport_time: initialData?.next_transport_time || '',
+    next_transport_auto_time: initialData?.next_transport_auto_time || '' 
+});
+
   });
 
   const [isLocationManuallyEdited, setIsLocationManuallyEdited] = useState(false);
