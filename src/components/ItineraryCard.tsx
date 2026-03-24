@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Map, Car, Train, Bus, AlertTriangle, Star, Maximize2, Minimize2, Plus, Footprints, Bike, Navigation2, Lock, Sparkles } from 'lucide-react';
+import { MapPin, Car, Train, Bus, AlertTriangle, Star, Plus, Footprints, Bike, Navigation2, Lock, Sparkles, ChevronDown, Clock, ChevronRight } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Itinerary } from '../types';
 import { DynamicIcon } from './DynamicIcon';
@@ -26,7 +26,6 @@ const safeParse = (data: any) => {
   } catch (e) { return []; }
 };
 
-// 輔助：轉換時段文字
 const getPreferenceLabel = (pref: string) => {
   switch (pref) {
     case 'morning': return '上午';
@@ -34,6 +33,21 @@ const getPreferenceLabel = (pref: string) => {
     case 'evening': return '晚上';
     default: return '不限';
   }
+};
+
+const checkIsClosed = (dateStr: string, openingHoursJson: string | undefined | null) => {
+  if (!openingHoursJson) return null;
+  try {
+    const data = JSON.parse(openingHoursJson);
+    if (data.periods?.length === 1) {
+      const p = data.periods[0];
+      if (p.open?.day === 0 && p.open?.hour === 0 && !p.close) return null;
+    }
+    const date = new Date(dateStr);
+    const dayOfWeek = date.getDay();
+    const isOpenThisDay = data.periods?.some((p: any) => p.open?.day === dayOfWeek);
+    return !isOpenThisDay ? "排定日期可能公休" : null;
+  } catch (e) { return null; }
 };
 
 export function ItineraryCard({ 
@@ -44,32 +58,26 @@ export function ItineraryCard({
   
   const tags = safeParse(item.tags);
   const subItems = safeParse(item.sub_items);
-
+  
   const endTimeStr = item.end_time || item.start_time || '23:59';
   const itemDateTime = new Date(`${item.date}T${endTimeStr}`);
   const isPast = Date.now() > itemDateTime.getTime();
-  
-  const [isCardExpanded, setIsCardExpanded] = useState(false);
-  const [isDetailsExpanded, setIsDetailsExpanded] = useState(false);
 
-  const displayImage = item.image_url || null;
+  const [isCardExpanded, setIsCardExpanded] = useState(!isPast && !!item.image_url);
+  const [viewIndex, setViewIndex] = useState(0); 
+  const [expandedSubIdx, setExpandedSubIdx] = useState<number | null>(null);
 
-  useEffect(() => { 
-    if (expandSignal && expandSignal > 0 && displayImage) setIsCardExpanded(true); 
-  }, [expandSignal, displayImage]);
+  const closedWarning = checkIsClosed(item.date, item.opening_hours);
+  const hasWarning = !!closedWarning || !!item.sync_conflict_warning || !!isConflicted;
 
-  useEffect(() => { 
-    if (collapseSignal && collapseSignal > 0) setIsCardExpanded(false); 
-  }, [collapseSignal]);
-
-  const handleMainClick = () => {
-    if (canEdit) onEdit();
-    else if (displayImage) setIsCardExpanded(!isCardExpanded);
-  };
+  useEffect(() => { if (expandSignal && expandSignal > 0 && item.image_url) setIsCardExpanded(true); }, [expandSignal, item.image_url]);
+  useEffect(() => { if (collapseSignal && collapseSignal > 0) setIsCardExpanded(false); }, [collapseSignal]);
 
   const getGoogleMapsLink = () => {
-    if (item.google_place_id) return `https://www.google.com/maps/search/?api=1&query=Google&query_place_id=${item.google_place_id}`;
-    return `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(item.address || item.title)}`;
+    const destination = item.google_place_id 
+      ? `place_id:${item.google_place_id}` 
+      : encodeURIComponent(item.address || item.title);
+    return `http://googleusercontent.com/maps.google.com/maps?daddr=${destination}`;
   };
 
   const getTransportIcon = () => {
@@ -82,226 +90,156 @@ export function ItineraryCard({
     }
   };
 
-  // 💡 核心狀態判定
-  const hasTimeSet = !!item.start_time && item.start_time !== '';
   const isFixed = item.is_time_fixed === 1;
-  const isAiCalculated = !isFixed && hasTimeSet;
-  const isAiPending = !isFixed && !hasTimeSet;
+  const isAiCalculated = !isFixed && (!!item.start_time && item.start_time !== '');
+  const isCircuitBreaker = canEdit && (!!item.start_time) && (!item.next_transport_mode || item.next_transport_mode === '');
 
-  // 💡 判定是否為「斷路器中斷點」(有時間，但下一站交通未設)
-  const isCircuitBreaker = canEdit && hasTimeSet && (!item.next_transport_mode || item.next_transport_mode === '');
+  const handleDragEnd = (e: any, info: any) => {
+    const threshold = 50;
+    if (info.offset.x < -threshold) setViewIndex(1);
+    else if (info.offset.x > threshold) setViewIndex(0);
+  };
 
   return (
-    <div className="flex flex-col w-full mb-3 px-1">
-      <div 
-        onClick={handleMainClick} 
-        className={clsx(
-          "relative group bg-[#1c1c1e] rounded-[32px] transition-all cursor-pointer border flex flex-col overflow-hidden",
-          canEdit && !isConflicted && !isCircuitBreaker ? "hover:border-orange-500/50 bg-[#242426]" : "border-transparent",
-          isConflicted ? "border-red-500 ring-2 ring-red-500/50" : "",
-          isDragOverlay && "opacity-90 scale-105 shadow-2xl z-50",
-          isAiPending && "border-dashed border-zinc-800/50 grayscale-[0.3] opacity-80", // 待排程：虛線、輕微褪色
-          isCircuitBreaker && "border-red-500 border-2 shadow-[0_0_20px_rgba(239,68,68,0.25)] bg-[#2a1a1a]" // 斷路器：紅框、紅暈、深紅背
-        )}
-      >
-        <div className="p-5 pb-4">
-          <div className="flex items-center justify-between mb-3">
-            <div className="flex items-center gap-3">
-              <div 
-                className="shrink-0 transition-all duration-500"
-                style={{ 
-                  color: isCircuitBreaker ? '#ef4444' : category.color,
-                  filter: !isPast ? `drop-shadow(0 0 8px ${isCircuitBreaker ? '#ef4444' : category.color})` : 'none',
-                  opacity: !isPast ? 1 : 0.5 
-                }}
-              >
-                <DynamicIcon name={item.icon || 'MapPin'} size={20} />
-              </div>
-              
-              {/* 三態時間區塊 */}
-              {isFixed && (
-                <div className="flex items-center gap-2">
-                  <span className="text-zinc-100 font-mono font-black tracking-wider text-[14px]">
-                    {item.start_time} — {item.end_time}
-                  </span>
-                  <Lock size={12} className="text-zinc-600" />
-                </div>
-              )}
-              
-              {isAiCalculated && (
-                <div className="flex items-center gap-2">
-                  <span className="text-zinc-100 font-mono font-black tracking-wider text-[14px]">
-                    {item.start_time} — {item.end_time}
-                  </span>
-                  <div className="bg-orange-500/10 text-orange-500 text-[9px] font-black px-1.5 py-0.5 rounded-md flex items-center gap-1 border border-orange-500/20">
-                    <Sparkles size={8} /> AI
-                  </div>
-                </div>
-              )}
-
-              {isAiPending && (
-                <div className="flex items-center gap-2">
-                  <div className="bg-zinc-800 text-zinc-400 text-[9px] font-black px-1.5 py-0.5 rounded-md flex items-center gap-1 border border-zinc-700">
-                    <Sparkles size={8} /> AI
-                  </div>
-                  <span className="text-zinc-500 font-black text-[11px] uppercase tracking-widest">
-                    {getPreferenceLabel(item.time_preference || 'anytime')}
-                    {item.stay_duration && <span className="ml-2 font-bold opacity-60">⏱️ {item.stay_duration}m</span>}
-                  </span>
-                </div>
-              )}
+    <div className={clsx("flex flex-col w-full mb-3 px-1 transition-all", isDragOverlay && "opacity-90 scale-105 shadow-2xl z-50")}>
+      <div className={clsx(
+        "relative flex flex-col bg-[#1c1c1e] rounded-[32px] overflow-hidden border transition-all",
+        canEdit && !isConflicted && !isCircuitBreaker ? "hover:border-zinc-700 border-zinc-800" : "border-zinc-800",
+        isConflicted && "border-red-500 ring-2 ring-red-500/50",
+        isCircuitBreaker && "border-red-500 shadow-[0_0_15px_rgba(239,68,68,0.2)] bg-[#2a1a1a]"
+      )}>
+        
+        <div className="p-4 pb-1.5 flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <div style={{ color: isCircuitBreaker ? '#ef4444' : category.color, filter: !isPast ? `drop-shadow(0 0 6px ${category.color}33)` : 'none' }}>
+              <DynamicIcon name={item.icon || 'MapPin'} size={18} />
             </div>
-            
-            <button 
-              onClick={(e) => { e.stopPropagation(); window.open(getGoogleMapsLink(), '_blank'); }}
-              className={clsx(
-                "p-3 rounded-2xl transition-all border border-white/5 active:scale-90",
-                isCircuitBreaker ? "bg-red-500 text-white shadow-lg shadow-red-500/20" : "bg-zinc-800/50 text-zinc-400 hover:text-orange-500"
+            <div className="flex items-center gap-1.5">
+              {item.start_time ? (
+                <span className={clsx("font-mono font-black tracking-tight text-[13px]", isPast ? "text-zinc-500" : "text-zinc-100")}>
+                  {item.start_time} — {item.end_time}
+                </span>
+              ) : (
+                <span className="text-zinc-500 font-black text-[10px] uppercase tracking-wider">{getPreferenceLabel(item.time_preference || 'anytime')}</span>
               )}
-            >
-              <Navigation2 size={18} />
-            </button>
-          </div>
-
-          <div>
-            <h4 className={clsx(
-              "text-[20px] font-black leading-tight truncate",
-              isPast ? "text-zinc-600" : "text-white"
-            )}>{item.title}</h4>
-            
-            <div className="flex flex-wrap items-center gap-2 mt-2">
-              {isCircuitBreaker && (
-                <div className="inline-flex items-center gap-1.5 text-[10px] font-black text-red-400 bg-red-400/10 px-2.5 py-1 rounded-lg border border-red-400/20 uppercase tracking-widest animate-pulse">
-                   需優先處理交通設定以繼續 AI
-                </div>
-              )}
-              {item.rating && !isCircuitBreaker && (
-                <div className="flex items-center gap-1 text-yellow-500 bg-yellow-500/10 px-2 py-0.5 rounded-lg border border-yellow-500/10">
-                  <Star size={10} className="fill-current" />
-                  <span className="text-[10px] font-bold">{item.rating.toFixed(1)}</span>
-                </div>
-              )}
-              {item.sync_conflict_warning && !isCircuitBreaker && (
-                <div className="inline-flex items-center gap-1.5 text-[10px] font-black text-red-400 bg-red-400/10 px-2.5 py-0.5 rounded-lg border border-red-500/20 uppercase tracking-wide">
-                  <AlertTriangle size={12} /> {item.sync_conflict_warning}
-                </div>
-              )}
+              {isFixed && <Lock size={10} className="text-zinc-600" />}
+              {isAiCalculated && <Sparkles size={10} className="text-orange-500/60" />}
             </div>
           </div>
+          <button onClick={(e) => { e.stopPropagation(); window.open(getGoogleMapsLink(), '_blank'); }} className="p-2 bg-zinc-800/40 rounded-xl text-zinc-400 hover:text-orange-500 transition-all border border-white/5 active:scale-90">
+            <Navigation2 size={14} />
+          </button>
         </div>
 
-        {/* 照片與詳細資訊 */}
-        <AnimatePresence>
-          {isCardExpanded && displayImage && (
-            <motion.div 
-              initial={{ height: 0, opacity: 0 }} animate={{ height: 'auto', opacity: 1 }} exit={{ height: 0, opacity: 0 }}
-              transition={{ duration: 0.35, ease: "circOut" }}
-            >
-              <div className="relative w-full aspect-[21/9] bg-zinc-800 group/photo">
-                <img src={displayImage} alt={item.title} className="absolute inset-0 w-full h-full object-cover" />
-          {/* 這裡是你要替換的 Next Stop 按鈕區塊 */}
-          <button 
-            type="button"
-            disabled={!canEdit}
-            onClick={(e) => { e.stopPropagation(); if(canEdit && onEditNextTransport) onEditNextTransport(); }}
-            className={clsx(
-              "w-full mt-2 py-2 px-4 rounded-xl flex items-center justify-between transition-all group",
-              isCircuitBreaker 
-                ? "border-red-500 bg-red-500 text-white font-black" // 斷路器紅燈
-                : "border-dashed border-zinc-700/60 bg-black/20 hover:bg-zinc-800/60"
-            )}
-          >
-            <span className={clsx("text-[10px] font-black uppercase tracking-[0.2em]", isCircuitBreaker ? "text-white" : "text-zinc-500")}>
-              Next Stop
-            </span>
-            
-            {item.next_transport_mode ? (
-              <div className="flex items-center gap-2">
-                <div className={isCircuitBreaker ? "text-white" : "text-orange-500"}>{getTransportIcon()}</div>
-                
-                {/* 💡 這裡加上影子欄位判斷邏輯 */}
-                <div className={clsx("flex items-center gap-1 text-[12px] font-black uppercase tracking-wider", isCircuitBreaker ? "text-white" : "text-zinc-200")}>
-                  {item.next_transport_mode === 'auto' ? (
-                    <>
-                      {(item as any).next_transport_auto_time ? `${(item as any).next_transport_auto_time}m` : 'Auto'}
-                      <Sparkles size={12} className={isCircuitBreaker ? "text-white/70" : "text-orange-500"} />
-                    </>
-                  ) : (
-                    item.next_transport_time ? item.next_transport_time.replace(' min', 'm') : 'Auto'
-                  )}
-                </div>
-              </div>
-            ) : (
-              canEdit && (
-                <div className={clsx("flex items-center gap-1.5", isCircuitBreaker ? "text-white" : "text-zinc-600")}>
-                  {isCircuitBreaker && <AlertTriangle size={14} className="animate-pulse" />}
-                  <Plus size={14} />
-                  <span className="text-[10px] font-bold uppercase tracking-wider">Add Transport</span>
-                </div>
-              )
-            )}
-          </button>
+        <div className="px-4 pb-3" onClick={() => (canEdit ? onEdit() : item.image_url && setIsCardExpanded(!isCardExpanded))}>
+          <h4 className={clsx("text-[19px] font-black leading-tight truncate cursor-pointer", isPast ? "text-zinc-600" : "text-white")}>
+            {item.title}
+          </h4>
+        </div>
 
-                <AnimatePresence>
-                  {isDetailsExpanded && (
-                    <motion.div 
-                      initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
-                      className="absolute inset-0 bg-black/80 backdrop-blur-md z-20 px-4 py-6 flex flex-col"
-                      onClick={(e) => e.stopPropagation()} 
-                    >
-                      <div className="flex-1 overflow-y-auto custom-scrollbar space-y-3">
-                        <span className="text-[11px] font-black text-zinc-500 uppercase tracking-[0.2em] block px-1">Schedule Details</span>
-                        {subItems.length > 0 ? subItems.map((sub: any, idx: number) => (
-                          <div key={idx} className="w-full flex items-center justify-between bg-white/5 p-4 rounded-2xl border border-white/10">
-                            <span className="text-[14px] font-bold text-zinc-100">{sub.title}</span>
-                            <span className="text-[10px] text-zinc-400 font-mono">{sub.start_time} - {sub.end_time}</span>
+        <AnimatePresence>
+          {isCardExpanded && item.image_url && (
+            <motion.div initial={{ height: 0, opacity: 0 }} animate={{ height: 'auto', opacity: 1 }} exit={{ height: 0, opacity: 0 }}>
+              <div className="relative w-full aspect-[21/9] bg-zinc-900 overflow-hidden cursor-grab active:cursor-grabbing">
+                <motion.div 
+                  drag="x"
+                  dragConstraints={{ left: 0, right: 0 }}
+                  onDragEnd={handleDragEnd}
+                  animate={{ x: viewIndex === 0 ? "0%" : "-100%" }}
+                  transition={{ type: "spring", stiffness: 300, damping: 30 }}
+                  className="flex w-full h-full"
+                >
+                  <div className="w-full h-full shrink-0 relative">
+                    <img src={item.image_url} alt="place" className="w-full h-full object-cover opacity-70" />
+                  </div>
+
+                  <div className="w-full h-full shrink-0 bg-black/85 p-4 overflow-y-auto custom-scrollbar flex flex-col gap-3 backdrop-blur-md">
+                    <div className="flex flex-wrap items-center gap-2">
+                      {item.rating && (
+                        <div className="flex items-center gap-1 text-yellow-500 bg-yellow-500/10 px-2 py-0.5 rounded-lg border border-yellow-500/20">
+                          <Star size={10} className="fill-current" />
+                          <span className="text-[11px] font-black">{item.rating.toFixed(1)}</span>
+                        </div>
+                      )}
+                      {tags.map((t: string) => (
+                        <span key={t} className="text-[10px] font-bold text-orange-500 bg-orange-500/10 px-2 py-0.5 rounded-md border border-orange-500/10">#{t}</span>
+                      ))}
+                    </div>
+
+                    {subItems.length > 0 && (
+                      <div className="flex flex-col gap-1">
+                        {subItems.map((sub: any, idx: number) => (
+                          <div key={idx}>
+                            <div className="flex items-center justify-between bg-white/5 p-2 rounded-xl border border-white/5">
+                              <div className="flex items-center gap-2.5 overflow-hidden">
+                                <span className="text-[9px] text-zinc-500 font-mono shrink-0">{sub.start_time}</span>
+                                <span className="text-[12px] font-bold text-zinc-200 truncate">{sub.title}</span>
+                              </div>
+                              {sub.notes && (
+                                <button onClick={() => setExpandedSubIdx(expandedSubIdx === idx ? null : idx)} className={clsx("p-1 rounded-md transition-all", expandedSubIdx === idx ? "bg-orange-500 text-white" : "text-zinc-600")}>
+                                  <ChevronRight size={12} className={clsx("transition-transform", expandedSubIdx === idx && "rotate-90")} />
+                                </button>
+                              )}
+                            </div>
+                            <AnimatePresence>
+                              {expandedSubIdx === idx && sub.notes && (
+                                <motion.div initial={{ height: 0, opacity: 0 }} animate={{ height: 'auto', opacity: 1 }} exit={{ height: 0, opacity: 0 }} className="p-2.5 mt-0.5 bg-zinc-800/40 rounded-lg text-[11px] text-zinc-400 italic border-l-2 border-orange-500/50 ml-1.5">{sub.notes}</motion.div>
+                              )}
+                            </AnimatePresence>
                           </div>
-                        )) : <div className="text-sm text-zinc-600 italic px-1 mt-4">No sub-items scheduled.</div>}
+                        ))}
                       </div>
-                      {item.notes && <div className="mt-4 pt-4 border-t border-white/10 text-[13px] text-zinc-300 leading-relaxed italic line-clamp-6 px-1">{item.notes}</div>}
-                    </motion.div>
-                  )}
-                </AnimatePresence>
+                    )}
+
+                    <div className="space-y-1 px-1">
+                      {isConflicted && <div className="text-red-500 font-bold text-[11px] flex items-center gap-1.5"><AlertTriangle size={12} /> 行程時間衝突</div>}
+                      {closedWarning && <div className="text-red-500 font-bold text-[11px] flex items-center gap-1.5"><Clock size={12} /> ⚠️ {closedWarning}</div>}
+                      {item.sync_conflict_warning && <div className="text-red-500 font-bold text-[11px] flex items-center gap-1.5"><AlertTriangle size={12} /> {item.sync_conflict_warning}</div>}
+                      {item.notes && <p className="text-[12px] text-zinc-400 leading-relaxed italic whitespace-pre-wrap mt-1">{item.notes}</p>}
+                    </div>
+                  </div>
+                </motion.div>
+              </div>
+
+              <div className="flex justify-center gap-1.5 mt-1.5 pb-2">
+                <div className={clsx("w-1.5 h-1.5 rounded-full transition-all", viewIndex === 0 ? "bg-white scale-110" : "bg-zinc-700")} />
+                <div className={clsx(
+                  "w-1.5 h-1.5 rounded-full transition-all", 
+                  viewIndex === 1 ? (hasWarning ? "bg-red-500 scale-110" : "bg-white scale-110") : (hasWarning ? "bg-red-900/50" : "bg-zinc-700")
+                )} />
               </div>
             </motion.div>
           )}
         </AnimatePresence>
 
-        {/* 底部交通欄 */}
-        {showNextTransport && (canEdit || !!item.next_transport_mode) && (
-          <div 
-            onClick={(e) => { e.stopPropagation(); if (canEdit) onEditNextTransport?.(); }}
+        {showNextTransport && (canEdit || !!item.next_transport_mode) && (isCardExpanded || !isPast) && (
+          <button 
+            type="button" disabled={!canEdit}
+            onClick={(e) => { e.stopPropagation(); if (canEdit && onEditNextTransport) onEditNextTransport(); }}
             className={clsx(
-              "w-full px-6 py-4 flex items-center justify-between border-t transition-colors",
+              "w-full px-5 py-3.5 flex items-center justify-between transition-colors",
               canEdit ? "cursor-pointer" : "cursor-default",
-              isCircuitBreaker 
-                ? "border-red-500 bg-red-500 text-white font-black" // 斷路器紅燈
-                : "border-dashed border-zinc-700/60 bg-black/20 hover:bg-zinc-800/60"
+              isCircuitBreaker ? "bg-red-500 text-white font-black" : "bg-transparent hover:bg-zinc-800/40"
             )}
           >
-            <span className={clsx("text-[10px] font-black uppercase tracking-[0.2em]", isCircuitBreaker ? "text-white" : "text-zinc-500")}>
-              Next Stop
-            </span>
-            
+            <span className={clsx("text-[9px] font-black uppercase tracking-[0.2em]", isCircuitBreaker ? "text-white" : "text-zinc-500")}>Next Stop</span>
             {item.next_transport_mode ? (
               <div className="flex items-center gap-2">
                 <div className={isCircuitBreaker ? "text-white" : "text-orange-500"}>{getTransportIcon()}</div>
-                <span className={clsx("text-[12px] font-black uppercase tracking-wider", isCircuitBreaker ? "text-white" : "text-zinc-200")}>
-                  {item.next_transport_time ? item.next_transport_time.replace(' min', 'm') : 'Auto'}
-                </span>
+                <div className={clsx("flex items-center gap-1 text-[11px] font-black tracking-tight", isCircuitBreaker ? "text-white" : "text-zinc-200")}>
+                  {item.next_transport_mode === 'auto' ? (
+                    <>{(item as any).next_transport_auto_time ? `${(item as any).next_transport_auto_time}m` : 'Auto'}<Sparkles size={9} /></>
+                  ) : (
+                    item.next_transport_time?.replace(' min', 'm') || 'Set'
+                  )}
+                </div>
               </div>
             ) : (
-              canEdit && (
-                <div className={clsx("flex items-center gap-1.5", isCircuitBreaker ? "text-white" : "text-zinc-600")}>
-                  {isCircuitBreaker && <AlertTriangle size={14} className="animate-pulse" />}
-                  <Plus size={14} />
-                  <span className="text-[10px] font-bold uppercase">
-                    {isCircuitBreaker ? '設定交通以解鎖 AI' : 'Set'}
-                  </span>
-                </div>
-              )
+              <div className={clsx("flex items-center gap-1.5 opacity-60", isCircuitBreaker ? "text-white" : "text-zinc-500")}>
+                <Plus size={12} /><span className="text-[9px] font-bold uppercase">Add</span>
+              </div>
             )}
-          </div>
+          </button>
         )}
       </div>
     </div>
