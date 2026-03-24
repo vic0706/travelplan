@@ -71,29 +71,20 @@ export function ItineraryCard({
   const closedWarning = checkIsClosed(item.date, item.opening_hours);
   const hasWarning = !!closedWarning || !!item.sync_conflict_warning || !!isConflicted;
 
+  // 💡 監聽子項目選取：一旦選取，自動滑向第 3 頁 (Index 2)
+  useEffect(() => {
+    if (expandedSubIdx !== null) {
+      setViewIndex(2);
+    }
+  }, [expandedSubIdx]);
+
   useEffect(() => { if (expandSignal && expandSignal > 0 && item.image_url) setIsCardExpanded(true); }, [expandSignal, item.image_url]);
   useEffect(() => { if (collapseSignal && collapseSignal > 0) setIsCardExpanded(false); }, [collapseSignal]);
 
-  // 💡 修正後的導航 URL 邏輯
-// 💡 修正後的導航 URL 邏輯
   const getGoogleMapsLink = () => {
-  // 使用官方 Google Maps Directions API 格式，確保跨平台相容性
-  const baseUrl = "https://www.google.com/maps/dir/?api=1";
-  
-  // 目的地名稱或地址
-  const destination = encodeURIComponent(item.address || item.title);
-  
-  // 構建網址：不設定 origin 參數，Google Maps 會自動以「目前位置」為起點
-  let url = `${baseUrl}&destination=${destination}`;
-  
-  // 如果資料庫中有 Place ID，這能提供最精準的店家定位
-  if (item.google_place_id) {
-    url += `&destination_place_id=${item.google_place_id}`;
-  }
-  
-  return url;
-};
-
+    const destination = item.google_place_id ? `place_id:${item.google_place_id}` : encodeURIComponent(item.address || item.title);
+    return `http://googleusercontent.com/maps.google.com/maps?daddr=${destination}`;
+  };
 
   const getTransportIcon = () => {
     switch (item.next_transport_mode?.toLowerCase()) {
@@ -109,32 +100,24 @@ export function ItineraryCard({
   const isAiCalculated = !isFixed && (!!item.start_time && item.start_time !== '');
   const isCircuitBreaker = canEdit && (!!item.start_time) && (!item.next_transport_mode || item.next_transport_mode === '');
 
+  // 💡 進階滑動判定
   const handleDragEnd = (e: any, info: any) => {
-    const swipeThreshold = 30;
-    const velocityThreshold = 200;
+    const swipeThreshold = 50;
+    const velocityThreshold = 500;
+    const maxIndex = expandedSubIdx !== null ? 2 : 1;
+
+    let newIndex = viewIndex;
     if (info.offset.x < -swipeThreshold || info.velocity.x < -velocityThreshold) {
-      if (viewIndex === 0) setViewIndex(1);
-      else if (viewIndex === 1 && expandedSubIdx !== null) setViewIndex(2);
-    } 
-    else if (info.offset.x > swipeThreshold || info.velocity.x > velocityThreshold) {
-      if (viewIndex === 2) setViewIndex(1);
-      else if (viewIndex === 1) setViewIndex(0);
+      newIndex = Math.min(viewIndex + 1, maxIndex);
+    } else if (info.offset.x > swipeThreshold || info.velocity.x > velocityThreshold) {
+      newIndex = Math.max(viewIndex - 1, 0);
     }
-  };
 
-  useEffect(() => {
-    if (viewIndex < 2 && expandedSubIdx !== null) {
-      const timer = setTimeout(() => setExpandedSubIdx(null), 300);
-      return () => clearTimeout(timer);
+    // 💡 自動清除邏輯：如果從第 3 頁滑回第 2 頁，清除選取的子項目
+    if (viewIndex === 2 && newIndex === 1) {
+      setExpandedSubIdx(null);
     }
-  }, [viewIndex]);
-
-  const handleToggleExpand = (e: React.MouseEvent) => {
-    if (canEdit) {
-      onEdit();
-    } else if (item.image_url) {
-      setIsCardExpanded(!isCardExpanded);
-    }
+    setViewIndex(newIndex);
   };
 
   return (
@@ -146,62 +129,57 @@ export function ItineraryCard({
         isCircuitBreaker && "border-red-500 shadow-[0_0_15px_rgba(239,68,68,0.2)] bg-[#2a1a1a]"
       )}>
         
-        {/* 頂層點擊感應區 (第一行與第二行) */}
-        <div onClick={handleToggleExpand} className="cursor-pointer">
-          <div className="p-4 pb-1.5 flex items-center justify-between">
-            <div className="flex items-center gap-2.5">
-              <div style={{ color: isCircuitBreaker ? '#ef4444' : category.color, filter: !isPast ? `drop-shadow(0 0 6px ${category.color}33)` : 'none' }}>
-                <DynamicIcon name={item.icon || 'MapPin'} size={18} />
-              </div>
-              <div className="flex items-center gap-1.5">
-                {item.start_time ? (
-                  <span className={clsx("font-mono font-black tracking-tight text-[13px]", isPast ? "text-zinc-500" : "text-zinc-100")}>
-                    {item.start_time} — {item.end_time}
-                  </span>
-                ) : (
-                  <span className="text-zinc-500 font-black text-[10px] uppercase tracking-wider">{getPreferenceLabel(item.time_preference || 'anytime')}</span>
-                )}
-                {isFixed && <Lock size={10} className="text-zinc-600" />}
-                {isAiCalculated && <Sparkles size={10} className="text-orange-500/60" />}
-              </div>
+        {/* 第一行 (Icon, Time, Nav) */}
+        <div className="p-4 pb-1.5 flex items-center justify-between">
+          <div className="flex items-center gap-2.5">
+            <div style={{ color: isCircuitBreaker ? '#ef4444' : category.color, filter: !isPast ? `drop-shadow(0 0 6px ${category.color}33)` : 'none' }}>
+              <DynamicIcon name={item.icon || 'MapPin'} size={18} />
             </div>
-            {/* 導航按鈕 (已修正網址) */}
-            <button 
-              onClick={(e) => { e.stopPropagation(); window.open(getGoogleMapsLink(), '_blank'); }} 
-              className="p-2 bg-zinc-800/40 rounded-xl text-zinc-400 hover:text-orange-500 transition-all border border-white/5 active:scale-90"
-            >
-              <Navigation2 size={14} />
-            </button>
+            <div className="flex items-center gap-1.5">
+              {item.start_time ? (
+                <span className={clsx("font-mono font-black tracking-tight text-[13px]", isPast ? "text-zinc-500" : "text-zinc-100")}>
+                  {item.start_time} — {item.end_time}
+                </span>
+              ) : (
+                <span className="text-zinc-500 font-black text-[10px] uppercase tracking-wider">{getPreferenceLabel(item.time_preference || 'anytime')}</span>
+              )}
+              {isFixed && <Lock size={10} className="text-zinc-600" />}
+              {isAiCalculated && <Sparkles size={10} className="text-orange-500/60" />}
+            </div>
           </div>
-
-          <div className="px-4 pb-3">
-            <h4 className={clsx("text-[19px] font-black leading-tight truncate", isPast ? "text-zinc-600" : "text-white")}>
-              {item.title}
-            </h4>
-          </div>
+          <button onClick={(e) => { e.stopPropagation(); window.open(getGoogleMapsLink(), '_blank'); }} className="p-2 bg-zinc-800/40 rounded-xl text-zinc-400 hover:text-orange-500 transition-all border border-white/5 active:scale-90">
+            <Navigation2 size={14} />
+          </button>
         </div>
 
-        {/* 動態三段式滑動區塊 */}
+        {/* 第二行 (標題) */}
+        <div className="px-4 pb-3" onClick={() => (canEdit ? onEdit() : item.image_url && setIsCardExpanded(!isCardExpanded))}>
+          <h4 className={clsx("text-[19px] font-black leading-tight truncate cursor-pointer", isPast ? "text-zinc-600" : "text-white")}>
+            {item.title}
+          </h4>
+        </div>
+
+        {/* 第三行 (動態三段滑動區塊) */}
         <AnimatePresence>
           {isCardExpanded && item.image_url && (
             <motion.div initial={{ height: 0, opacity: 0 }} animate={{ height: 'auto', opacity: 1 }} exit={{ height: 0, opacity: 0 }} className="relative">
-              <div className="relative w-full aspect-[21/9] bg-[#1c1c1e] overflow-hidden cursor-grab active:cursor-grabbing">
+              <div className="relative w-full aspect-[21/9] bg-zinc-900 overflow-hidden cursor-grab active:cursor-grabbing">
                 <motion.div 
                   drag="x"
                   dragConstraints={{ left: 0, right: 0 }}
-                  dragElastic={0.05}
+                  dragElastic={0.2}
                   onDragEnd={handleDragEnd}
                   animate={{ x: `-${viewIndex * 100}%` }}
-                  transition={{ type: "spring", stiffness: 400, damping: 40 }}
-                  className="flex w-full h-full"
+                  transition={{ type: "spring", stiffness: 300, damping: 32 }}
+                  className="flex w-[300%] h-full"
                 >
-                  {/* Page 0: 照片 (點擊切換 Page 1) */}
-                  <div className="w-full h-full shrink-0 flex-none relative" onClick={() => setViewIndex(1)}>
-                    <img src={item.image_url} alt="place" className="w-full h-full object-cover opacity-60 pointer-events-none" />
+                  {/* Page 0: 照片 */}
+                  <div className="w-1/3 h-full shrink-0 relative">
+                    <img src={item.image_url} alt="place" className="w-full h-full object-cover opacity-70 pointer-events-none" />
                   </div>
 
-                  {/* Page 1: 細節清單 */}
-                  <div className="w-full h-full shrink-0 flex-none bg-black/40 backdrop-blur-md p-4 overflow-y-auto custom-scrollbar flex flex-col gap-3">
+                  {/* Page 1: 摘要清單 */}
+                  <div className="w-1/3 h-full shrink-0 bg-black/85 p-4 overflow-y-auto custom-scrollbar flex flex-col gap-3 backdrop-blur-md">
                     <div className="flex flex-wrap items-center gap-2">
                       {item.rating && (
                         <div className="flex items-center gap-1 text-yellow-500 bg-yellow-500/10 px-2 py-0.5 rounded-lg border border-yellow-500/20">
@@ -217,16 +195,19 @@ export function ItineraryCard({
                     {subItems.length > 0 && (
                       <div className="flex flex-col gap-1.5">
                         {subItems.map((sub: any, idx: number) => (
-                          <div 
-                            key={idx} 
-                            onClick={(e) => { e.stopPropagation(); setExpandedSubIdx(idx); setViewIndex(2); }}
-                            className="flex items-center justify-between bg-white/5 p-2.5 rounded-xl border border-white/5 active:bg-white/10"
-                          >
+                          <div key={idx} className="flex items-center justify-between bg-white/5 p-2.5 rounded-xl border border-white/5">
                             <div className="flex items-center gap-2.5 overflow-hidden">
                               <span className="text-[9px] text-zinc-500 font-mono shrink-0">{sub.start_time}</span>
                               <span className="text-[12px] font-bold text-zinc-200 truncate">{sub.title}</span>
                             </div>
-                            {sub.notes && <ChevronRight size={12} className="text-orange-500/70" />}
+                            {sub.notes && (
+                              <button 
+                                onClick={(e) => { e.stopPropagation(); setExpandedSubIdx(idx); }} 
+                                className="p-1 bg-zinc-800 rounded-md text-orange-500 hover:bg-zinc-700"
+                              >
+                                <ChevronRight size={12} />
+                              </button>
+                            )}
                           </div>
                         ))}
                       </div>
@@ -235,42 +216,47 @@ export function ItineraryCard({
                     <div className="space-y-1.5 px-1 mt-1">
                       {isConflicted && <div className="text-red-500 font-bold text-[11px] flex items-center gap-1.5"><AlertTriangle size={12} /> 行程時間衝突</div>}
                       {closedWarning && <div className="text-red-500 font-bold text-[11px] flex items-center gap-1.5"><Clock size={12} /> ⚠️ {closedWarning}</div>}
-                      {item.sync_conflict_warning && <div className="text-red-500 font-bold text-[11px] flex items-center gap-1.5"><AlertTriangle size={12} /> {item.sync_conflict_warning}</div>}
                       {item.notes && <p className="text-[12px] text-zinc-400 leading-relaxed italic whitespace-pre-wrap">{item.notes}</p>}
                     </div>
                   </div>
 
-                  {/* Page 2: 子項目詳細備註 */}
-                  <div className="w-full h-full shrink-0 flex-none bg-[#141414] p-4 overflow-y-auto custom-scrollbar flex flex-col gap-3">
+                  {/* Page 2: 子項目詳細備註 (自動產生) */}
+                  <div className="w-1/3 h-full shrink-0 bg-zinc-900 p-5 flex flex-col gap-3 relative">
                     {expandedSubIdx !== null && subItems[expandedSubIdx] && (
                       <>
                         <div className="flex items-center justify-between border-b border-white/10 pb-2">
-                          <button onClick={() => setViewIndex(1)} className="flex items-center gap-1 text-orange-500 font-bold text-xs">
-                            <ChevronLeft size={16} /> 返回列表
+                          <button onClick={() => { setViewIndex(1); setExpandedSubIdx(null); }} className="flex items-center gap-1 text-orange-500 font-bold text-xs">
+                            <ChevronLeft size={16} /> Back
                           </button>
-                          <span className="text-[10px] text-zinc-500 font-mono">{subItems[expandedSubIdx].start_time}</span>
+                          <span className="text-[10px] text-zinc-500 font-mono">{subItems[expandedSubIdx].start_time} - {subItems[expandedSubIdx].end_time}</span>
                         </div>
-                        <div className="flex-1">
+                        <div className="flex-1 overflow-y-auto custom-scrollbar">
                           <h5 className="text-white font-bold text-sm mb-2">{subItems[expandedSubIdx].title}</h5>
-                          <p className="text-zinc-400 text-xs leading-relaxed italic whitespace-pre-wrap">
-                            {subItems[expandedSubIdx].notes || "無詳細備註內容"}
-                          </p>
+                          <p className="text-zinc-400 text-xs leading-relaxed italic whitespace-pre-wrap">{subItems[expandedSubIdx].notes || "No notes."}</p>
                         </div>
                       </>
                     )}
                   </div>
                 </motion.div>
 
-                {/* 指示器 (Dots) */}
+                {/* 💡 動態分頁指示器 (Dots) */}
                 <div className="absolute bottom-2 left-0 right-0 flex justify-center gap-2 z-30 pointer-events-none">
-                  <div className="flex bg-black/40 backdrop-blur-md px-2.5 py-1.5 rounded-full gap-2 border border-white/5">
-                    <div className={clsx("w-1.5 h-1.5 rounded-full transition-all duration-300", viewIndex === 0 ? "bg-white scale-125 shadow-[0_0_8px_white]" : "bg-white/20")} />
+                  <div className="flex bg-black/20 backdrop-blur-sm px-2 py-1 rounded-full gap-1.5">
+                    {/* 點 1: 照片 */}
+                    <div className={clsx("w-1.5 h-1.5 rounded-full transition-all duration-300", viewIndex === 0 ? "bg-white scale-125 shadow-[0_0_8px_white]" : "bg-white/30")} />
+                    
+                    {/* 點 2: 摘要 */}
                     <div className={clsx(
                       "w-1.5 h-1.5 rounded-full transition-all duration-300", 
-                      viewIndex === 1 ? (hasWarning ? "bg-red-500 scale-125 shadow-[0_0_8px_#ef4444]" : "bg-white scale-125 shadow-[0_0_8px_white]") : (hasWarning ? "bg-red-500/40" : "bg-white/20")
+                      viewIndex === 1 ? (hasWarning ? "bg-red-500 scale-125 shadow-[0_0_8px_#ef4444]" : "bg-white scale-125 shadow-[0_0_8px_white]") : (hasWarning ? "bg-red-500/50" : "bg-white/30")
                     )} />
+
+                    {/* 💡 點 3: 只有在選取子項目時才顯示 */}
                     {expandedSubIdx !== null && (
-                      <motion.div initial={{ scale: 0, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} className={clsx("w-1.5 h-1.5 rounded-full transition-all duration-300", viewIndex === 2 ? "bg-orange-500 scale-125 shadow-[0_0_8px_#f97316]" : "bg-orange-500/20")} />
+                      <motion.div 
+                        initial={{ scale: 0, opacity: 0 }} animate={{ scale: 1, opacity: 1 }}
+                        className={clsx("w-1.5 h-1.5 rounded-full transition-all duration-300", viewIndex === 2 ? "bg-white scale-125 shadow-[0_0_8px_white]" : "bg-white/30")} 
+                      />
                     )}
                   </div>
                 </div>
