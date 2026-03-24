@@ -317,18 +317,11 @@ export async function syncPlaceDetails(env: Env, tripId: number) {
 }
 
 // ==========================================
-// 💡 AI 排序引擎輔助函式
+// 💡 AI 排序引擎輔助函式 (移至外層共用，保持乾淨)
 // ==========================================
 
-const PREFERENCE_WINDOWS: Record<string, { start: number, end: number }> = {
-  anytime: { start: 0, end: 1439 },
-  morning: { start: 360, end: 720 },
-  afternoon: { start: 720, end: 1080 },
-  evening: { start: 1080, end: 1439 }
-};
-
 function getDistanceKm(lat1: number, lon1: number, lat2: number, lon2: number) {
-  if (!lat1 || !lon1 || !lat2 || !lon2) return null; // 💡 嚴格模式：無座標回傳 null
+  if (!lat1 || !lon1 || !lat2 || !lon2) return null; // 嚴格模式：無座標回傳 null
   try {
     const R = 6371; 
     const dLat = (lat2 - lat1) * (Math.PI / 180);
@@ -355,226 +348,139 @@ function minsToTime(mins: number) {
 }
 
 // ==========================================
-// 💡 行程智慧排序引擎 3.1 (Smart Itinerary Optimizer)
+// 🚀 AI 連續流體排程引擎
 // ==========================================
 
-export async function optimizeDailyItinerary(env: Env, tripId: number, dateStr: string) {
-  const { results } = await env.DB.prepare(`
-    SELECT * FROM Itineraries WHERE trip_id = ? AND date = ? ORDER BY start_time ASC
+export async function optimizeDailyItinerary(env: any, tripId: number, dateStr: string) {
+  // 1. 取得當天所有行程，確保排序：有時間的依時間排，沒時間(待排程)的壓在最後
+  const { results: items } = await env.DB.prepare(`
+    SELECT * FROM Itineraries 
+    WHERE trip_id = ? AND date = ?
+    ORDER BY 
+      CASE WHEN start_time = '' OR start_time IS NULL THEN 1 ELSE 0 END,
+      start_time ASC, 
+      id ASC
   `).bind(tripId, dateStr).all();
 
-  if (results.length === 0) return;
-  const items = results as any[];
-  
-  const fixedItems = items.filter(i => i.is_time_fixed === 1).map(i => ({
-    ...i,
-    durationMins: timeToMins(i.end_time) - timeToMins(i.start_time)
-  })).sort((a, b) => timeToMins(a.start_time) - timeToMins(b.start_time));
-  
-  let flexItems = items.filter(i => i.is_time_fixed === 0 || !i.is_time_fixed).map(i => ({
-    ...i,
-    durationMins: parseInt(i.stay_duration) || 60,
-    time_pref: i.time_preference || 'anytime'
-  }));
+  if (items.length === 0) return;
 
   const statements = [];
-
-  // 動態決定起點
-  let currentMins = 540; 
-  const morningFixed = fixedItems.find(i => timeToMins(i.start_time) < 720); 
-  const hasMorningFlex = flexItems.some(i => i.time_pref === 'morning' || i.time_pref === 'anytime');
+  let currentMins = 9 * 60; // 預設從早上 09:00 開始排程
+  let isCircuitBroken = false; // 交通斷路器
   
-  if (morningFixed) {
-    currentMins = Math.min(540, timeToMins(morningFixed.start_time));
-  } else if (hasMorningFlex) {
-    currentMins = 540;
-  } else if (flexItems.some(i => i.time_pref === 'afternoon')) {
-    currentMins = 720;
-  } else {
-    currentMins = 1080;
+  // 如果第一站有固定時間，且早於 09:00，則提早啟動一天的時間軸
+  const firstFixed = items.find((item: any) => item.is_time_fixed === 1);
+  if (firstFixed && timeToMins(firstFixed.start_time) > 0) {
+    currentMins = Math.min(currentMins, timeToMins(firstFixed.start_time));
   }
 
-  let currentLat = items[0]?.lat;
-  let currentLng = items[0]?.lng;
-  let lastProcessedItem: any = null; 
-  
-  const circuitBreakers = {
-    morning: false,
-    afternoon: false,
-    evening: false
-  };
+  // 2. 開始巡迴當天每個景點，進行流體排程
+  for (let i = 0; i < items.length; i++) {
+    const item = items[i] as any;
 
-  const PREF_ORDER: Record<string, number> = { morning: 1, afternoon: 2, evening: 3, anytime: 99 };
-
-  while (flexItems.length > 0 || fixedItems.length > 0) {
-    if (flexItems.length === 0) break;
-
-    const nextFixed = fixedItems.length > 0 ? fixedItems[0] : null;
-
-    let currentPeriod = 'morning';
-    if (currentMins >= 720 && currentMins < 1080) currentPeriod = 'afternoon';
-    else if (currentMins >= 1080) currentPeriod = 'evening';
-
-    // --- 區塊 B：觸發跳電檢查 ---
-    const isAutoAndNoCoords = lastProcessedItem?.next_transport_mode === 'auto' && (!lastProcessedItem.lat || !lastProcessedItem.lng);
-    if (lastProcessedItem && (!lastProcessedItem.next_transport_mode || lastProcessedItem.next_transport_mode === '' || isAutoAndNoCoords)) {
-      circuitBreakers[currentPeriod as keyof typeof circuitBreakers] = true;
-    }
-
-    // 處理跳電沉底邏輯
-    if (circuitBreakers[currentPeriod as keyof typeof circuitBreakers]) {
-      const failedItemIdx = flexItems.findIndex(i => i.time_pref === currentPeriod);
+    // 📌 狀況 A：這是一個「固定時間」的行程 (AI Lock)
+    if (item.is_time_fixed === 1) {
+      // 無視先前的交通延誤，強制將時間軸校準到它的結束時間
+      currentMins = timeToMins(item.end_time);
+      isCircuitBroken = false; // 💡 遇到固定點，斷路器自動重置解鎖！
       
-      if (failedItemIdx !== -1) {
-        const failedItem = flexItems.splice(failedItemIdx, 1)[0];
-        statements.push(
-          env.DB.prepare(`UPDATE Itineraries SET start_time = '', end_time = '', sync_conflict_warning = ? WHERE id = ?`)
-          .bind('⚠️ 因交通資料不全（沒座標或沒填），本時段暫停排程', failedItem.id)
-        );
-        continue;
-      } else {
-        if (currentPeriod === 'morning') currentMins = 720;
-        else if (currentPeriod === 'afternoon') currentMins = 1080;
-        else break; 
-        
-        lastProcessedItem = null;
-        continue;
-      }
-    }
-
-    // 處理固定行程
-    if (nextFixed && timeToMins(nextFixed.start_time) <= currentMins + 30) {
-      currentMins = Math.max(currentMins, timeToMins(nextFixed.end_time));
-      currentLat = nextFixed.lat;
-      currentLng = nextFixed.lng;
-      lastProcessedItem = nextFixed;
-      fixedItems.shift(); 
+      // 清除警告
+      statements.push(
+        env.DB.prepare(`UPDATE Itineraries SET sync_conflict_warning = null WHERE id = ?`).bind(item.id)
+      );
       continue;
     }
 
-    // 嚴格時段選點
-    let activePhase = 99;
-    flexItems.forEach(item => {
-      const order = PREF_ORDER[item.time_pref] || 99;
-      if (order >= PREF_ORDER[currentPeriod] && order < activePhase) {
-        activePhase = order;
-      }
-    });
-
-    if (activePhase === 2 && currentMins < 720) { currentMins = 720; continue; }
-    if (activePhase === 3 && currentMins < 1080) { currentMins = 1080; continue; }
-
-    let bestIdx = -1;
-    let minScore = Infinity;
-    let bestDistance: number | null = null;
-
-    flexItems.forEach((item, idx) => {
-      const order = PREF_ORDER[item.time_pref] || 99;
-      if (order === activePhase || item.time_pref === 'anytime') {
-        const dist = getDistanceKm(currentLat, currentLng, item.lat, item.lng);
-        let score = (dist ?? 5) + (item.time_pref === 'anytime' ? 2 : 0);
-        if (score < minScore) {
-          minScore = score;
-          bestIdx = idx;
-          bestDistance = dist;
-        }
-      }
-    });
-
-    if (bestIdx === -1) bestIdx = 0;
-    const nextFlex = flexItems.splice(bestIdx, 1)[0];
-    const window = PREFERENCE_WINDOWS[nextFlex.time_pref] || PREFERENCE_WINDOWS.anytime;
-    
-    // 💡 修改前的邏輯太嚴格，只有 mode === 'auto' 才算
-    // 💡 修正後：只要有 mode，沒給具體時間就一律用座標估算！
-
-    let travelTimeMins: number | null = null;
-
-    // 條件 1：如果有手動填具體時間 (且不為 0)，優先使用手動時間
-    if (lastProcessedItem.next_transport_time && parseInt(lastProcessedItem.next_transport_time) > 0) {
-      travelTimeMins = parseInt(lastProcessedItem.next_transport_time);
-    } 
-    // 條件 2：只要有設定交通方式 (不管是 auto, transit 還是 driving)
-    else if (lastProcessedItem.next_transport_mode && lastProcessedItem.next_transport_mode !== '') {
-      // 嘗試使用座標進行距離推算兜底
-      const dist = getDistanceKm(currentLat, currentLng, nextFlex.lat, nextFlex.lng);
-      if (dist !== null) {
-        travelTimeMins = Math.ceil(dist * 4) + 5; // 預設估算：每公里 4 分鐘 + 5 分鐘緩衝    
-        // 💡 這裡可以針對不同交通工具微調係數 (可選)
-        if (lastProcessedItem.next_transport_mode === 'walking') {
-          travelTimeMins = Math.ceil(dist * 12); // 走路比較慢，每公里 12 分鐘
-        } else if (lastProcessedItem.next_transport_mode === 'driving') {
-          travelTimeMins = Math.ceil(dist * 3) + 5; // 開車比較快
-        }
-      }
-     }
-
-    // 如果連兜底都算不出來（例如完全沒填 mode，或兩個景點都沒有座標），才觸發斷路器跳電
-    if (travelTimeMins === null) {
-       circuitBreakers[timePref] = true;
-       break;
-    }
-
-
-    
-    let newStartMins = Math.max(currentMins + (travelTimeMins || 0), window.start);
-    const newEndMins = newStartMins + nextFlex.durationMins;
-
-    // 碰撞檢查
-    if (nextFixed && newEndMins > timeToMins(nextFixed.start_time)) {
+    // 📌 狀況 B：這是一個「智慧排程」的彈性行程
+    // 如果斷路器處於跳脫狀態 (代表前面的交通斷了)
+    if (isCircuitBroken) {
       statements.push(
         env.DB.prepare(`UPDATE Itineraries SET start_time = '', end_time = '', sync_conflict_warning = ? WHERE id = ?`)
-        .bind('⚠️ 空檔時間不足以排入此行程', nextFlex.id)
+        .bind('⚠️ 前方交通未設定，AI 暫停排程', item.id)
       );
-      currentMins = timeToMins(nextFixed.end_time);
-      currentLat = nextFixed.lat;
-      currentLng = nextFixed.lng;
-      lastProcessedItem = nextFixed;
-      fixedItems.shift(); 
-      continue;
+      continue; // 直接跳過，留給使用者去補交通
     }
 
-    // 寫入時間
-    statements.push(
-      env.DB.prepare(`UPDATE Itineraries SET start_time = ?, end_time = ?, sync_conflict_warning = ? WHERE id = ?`)
-      .bind(minsToTime(newStartMins), minsToTime(newEndMins), (newStartMins > window.end && nextFlex.time_pref !== 'anytime') ? '⚠️ 排程已被擠壓出偏好時段' : null, nextFlex.id)
-    );
-    
-    currentMins = newEndMins;
-    if (nextFlex.lat) { currentLat = nextFlex.lat; currentLng = nextFlex.lng; }
-    lastProcessedItem = nextFlex;
-  }
+    // 初始化交通時間與換場緩衝
+    let transportMins = 0;
+    let transitionBuffer = 0; 
+    const prevItem = i > 0 ? (items[i - 1] as any) : null;
 
-  if (statements.length > 0) await env.DB.batch(statements);
+    if (prevItem) {
+      // 🚨 如果前一站完全沒設交通模式 -> 觸發斷路器！
+      if (!prevItem.next_transport_mode) {
+        isCircuitBroken = true;
+        statements.push(
+          env.DB.prepare(`UPDATE Itineraries SET start_time = '', end_time = '', sync_conflict_warning = ? WHERE id = ?`)
+          .bind('⚠️ 請設定前一站交通方式', item.id)
+        );
+        continue;
+      }
 
-  // 最終校準 (Final Pass)
-  const { results: sortedItems } = await env.DB.prepare(`
-    SELECT id, lat, lng, next_transport_mode FROM Itineraries 
-    WHERE trip_id = ? AND date = ? AND start_time != '' AND start_time IS NOT NULL
-    ORDER BY start_time ASC
-  `).bind(tripId, dateStr).all();
+      // 💡 根據 next_transport_time 是否為 'auto' 來決定是否自動計算
+      if (prevItem.next_transport_time === 'auto') {
+        const dist = getDistanceKm(prevItem.lat, prevItem.lng, item.lat, item.lng);
+        
+        // 依照使用者選定的交通模式，套用不同的速度倍率與緩衝時間
+        let speedMultiplier = 4; // 預設 Driving 速度 (約 15km/h)
+        let buffer = 5;          // 預設找車位緩衝
 
-  const finalStatements = [];
-  for (let i = 0; i < sortedItems.length - 1; i++) {
-    const current = sortedItems[i] as any;
-    const next = sortedItems[i + 1] as any;
+        if (prevItem.next_transport_mode === 'WALKING') {
+          speedMultiplier = 12;  // 走路比較慢 (約 5km/h)
+          buffer = 2;            // 不需要找車位
+        } else if (prevItem.next_transport_mode === 'BICYCLING') {
+          speedMultiplier = 4;   // 腳踏車約 15km/h
+          buffer = 2;
+        } else if (prevItem.next_transport_mode === 'TRANSIT') {
+          speedMultiplier = 4;   // 大眾運輸
+          buffer = 10;           // 等車、步行去車站的緩衝較大
+        }
 
-    if (current.next_transport_mode === 'auto') {
-      const dist = getDistanceKm(current.lat, current.lng, next.lat, next.lng);
-      if (dist !== null) {
-        finalStatements.push(
+        transportMins = dist !== null ? Math.ceil(dist * speedMultiplier) + buffer : 15; 
+        
+        // 💡 既然是 AI 自動算，我們就加 5 分鐘換場緩衝
+        transitionBuffer = 5;
+
+        // 準確回寫 AI 計算的 auto_time 給前一站
+        statements.push(
           env.DB.prepare(`UPDATE Itineraries SET next_transport_auto_time = ? WHERE id = ?`)
-          .bind(Math.ceil(dist * 4) + 5, current.id)
+          .bind(transportMins, prevItem.id)
         );
       } else {
-        // 嚴格模式：沒座標就 NULL，不準預設 15
-        finalStatements.push(
-          env.DB.prepare(`UPDATE Itineraries SET next_transport_auto_time = NULL, sync_conflict_warning = ? WHERE id = ?`)
-          .bind('⚠️ 無法計算 Auto 交通：缺少地點座標', current.id)
-        );
+        // 💡 使用者手動設定的時間 (例如 "30 min" 擷取出 30)
+        transportMins = parseInt(prevItem.next_transport_time?.replace(/\D/g, '')) || 15;
+        // 💡 手動設定不給緩衝，完全遵照使用者意志
+        transitionBuffer = 0;
       }
     }
+
+    // 進行時間推進 (加上交通時間與緩衝時間)
+    const startMins = currentMins + transportMins + transitionBuffer;
+    const stayDuration = parseInt(item.stay_duration) || 60;
+    const endMins = startMins + stayDuration;
+
+    // 🔍 碰撞偵測：是否擠壓到未來的固定行程？
+    let warning = null;
+    const nextFixed = items.slice(i + 1).find((x: any) => x.is_time_fixed === 1);
+    if (nextFixed) {
+      const nextFixedStartMins = timeToMins(nextFixed.start_time);
+      if (endMins > nextFixedStartMins) {
+        warning = '⚠️ 停留時間與後方固定行程重疊';
+      }
+    }
+
+    // 💡 寫入計算結果
+    statements.push(
+      env.DB.prepare(`UPDATE Itineraries SET start_time = ?, end_time = ?, sync_conflict_warning = ? WHERE id = ?`)
+      .bind(minsToTime(startMins), minsToTime(endMins), warning, item.id)
+    );
+
+    // 更新當前時間游標，準備計算下一站
+    currentMins = endMins;
   }
-  
-  if (finalStatements.length > 0) await env.DB.batch(finalStatements);
+
+  // 3. 批次寫入資料庫
+  if (statements.length > 0) {
+    await env.DB.batch(statements);
+  }
 }

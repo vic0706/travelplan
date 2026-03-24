@@ -233,19 +233,22 @@ trips.post('/:id/itineraries', async (c) => {
 
     const body = await c.req.json().catch(() => ({}));
     const tagsStr = Array.isArray(body.tags) ? JSON.stringify(body.tags) : '[]';
+    
+    // 陣列安全轉換
     const subItemsStr = Array.isArray(body.sub_items) 
-    ? JSON.stringify(body.sub_items) 
-    : (typeof body.sub_items === 'string' ? body.sub_items : '[]');
+      ? JSON.stringify(body.sub_items) 
+      : (typeof body.sub_items === 'string' ? body.sub_items : '[]');
 
+    // 💡 移除了 time_preference
     await c.env.DB.prepare(
       `INSERT INTO Itineraries (
         trip_id, date, start_time, end_time, title, address, google_place_id, 
-        lat, lng, notes, icon, tags, sub_items, is_time_fixed, stay_duration, time_preference, image_url
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+        lat, lng, notes, icon, tags, sub_items, is_time_fixed, stay_duration, image_url
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
     ).bind(
       tripId, 
       body.date, 
-      body.start_time || '', 
+      body.start_time || '',  // 若無時間則存入空字串
       body.end_time || '', 
       body.title || 'Untitled', 
       body.address || '', 
@@ -258,7 +261,6 @@ trips.post('/:id/itineraries', async (c) => {
       subItemsStr, 
       body.is_time_fixed || 0,
       body.stay_duration || '60',
-      body.time_preference || 'anytime',
       body.image_url || null
     ).run();
 
@@ -278,15 +280,18 @@ trips.put('/:id/itineraries/:itemId', async (c) => {
 
     const body = await c.req.json().catch(() => ({}));
     const tagsStr = Array.isArray(body.tags) ? JSON.stringify(body.tags) : '[]';
+    
+    // 陣列安全轉換
     const subItemsStr = Array.isArray(body.sub_items) 
-    ? JSON.stringify(body.sub_items) 
-    : (typeof body.sub_items === 'string' ? body.sub_items : '[]');
+      ? JSON.stringify(body.sub_items) 
+      : (typeof body.sub_items === 'string' ? body.sub_items : '[]');
 
+    // 💡 移除了 time_preference
     await c.env.DB.prepare(
       `UPDATE Itineraries SET 
         date = ?, start_time = ?, end_time = ?, title = ?, address = ?, google_place_id = ?, 
         lat = ?, lng = ?, notes = ?, icon = ?, tags = ?, sub_items = ?, 
-        is_time_fixed = ?, stay_duration = ?, time_preference = ?, 
+        is_time_fixed = ?, stay_duration = ?, 
         next_transport_mode = ?, next_transport_time = ?, next_transport_auto_time = ?, image_url = ? 
       WHERE id = ? AND trip_id = ?`
     ).bind(
@@ -304,7 +309,6 @@ trips.put('/:id/itineraries/:itemId', async (c) => {
       subItemsStr, 
       body.is_time_fixed || 0,
       body.stay_duration || '60',
-      body.time_preference || 'anytime',
       body.next_transport_mode || '', 
       body.next_transport_time || '', 
       body.next_transport_auto_time || '', 

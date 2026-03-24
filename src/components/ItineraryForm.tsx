@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { useAppStore } from '../store';
-import { X, MapPin, Loader2, Plus, Trash2, Camera, Image as ImageIcon, Upload, Sparkles, Lock, Unlock , Search} from 'lucide-react';
+import { X, MapPin, Loader2, Plus, Trash2, Camera, Image as ImageIcon, Upload, Sparkles, Lock, Unlock, Search } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { apiFetch } from '../utils/api';
 import { DynamicIcon } from './DynamicIcon';
@@ -39,7 +39,6 @@ export function ItineraryForm({ tripId, date, onSuccess, onCancel, initialData }
 
   const [isTimeFixed, setIsTimeFixed] = useState(initialData?.is_time_fixed === 1);
   const [stayDuration, setStayDuration] = useState(initialData?.stay_duration ? parseInt(initialData.stay_duration) : 60);
-  const [timePreference, setTimePreference] = useState(initialData?.time_preference || 'anytime');
   const [loading, setLoading] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [error, setError] = useState('');
@@ -52,7 +51,7 @@ export function ItineraryForm({ tripId, date, onSuccess, onCancel, initialData }
   const [isDeleting, setIsDeleting] = useState(false);
   const [isLocationPickerOpen, setIsLocationPickerOpen] = useState(false);
 
-  // 💡 Autocomplete 相關狀態
+  // Autocomplete 相關狀態
   const [suggestions, setSuggestions] = useState<any[]>([]);
   const [isSearching, setIsSearching] = useState(false);
   const sessionToken = useRef(Math.random().toString(36).substring(2));
@@ -65,8 +64,8 @@ export function ItineraryForm({ tripId, date, onSuccess, onCancel, initialData }
   const [formData, setFormData] = useState({
     title: initialData?.title || '',
     address: initialData?.address || '',
-    start_time: initialData?.start_time || '09:00',
-    end_time: initialData?.end_time || '10:00',
+    start_time: initialData?.start_time || '',
+    end_time: initialData?.end_time || '',
     notes: initialData?.notes || '',
     icon: initialData?.icon || 'MapPin',
     tags: initialTagsArray.join(', '), 
@@ -82,24 +81,12 @@ export function ItineraryForm({ tripId, date, onSuccess, onCancel, initialData }
     next_transport_mode: initialData?.next_transport_mode || '',
     next_transport_time: initialData?.next_transport_time || '',
     next_transport_auto_time: initialData?.next_transport_auto_time || '' 
-});
-
   });
-
-  const [mode, setMode] = useState(initialData?.next_transport_mode || 'auto');
-
-// 💡 如果是 auto，預設給 '0'，如果有舊時間就帶舊時間
-  const [time, setTime] = useState(() => {
-      if (initialData?.next_transport_time) return initialData.next_transport_time;
-      if (initialData?.next_transport_mode === 'auto') return '0';
-  return '';
-});
-
 
   const [isLocationManuallyEdited, setIsLocationManuallyEdited] = useState(false);
   const selectedCategory = storeCategories.find(c => c.icon === formData.icon) || { color: '#808080', icon: 'MapPin' };
 
-  // 💡 修正 A：正確解析 res.json() 來拿陣列資料
+  // 延遲搜尋 Autocomplete
   useEffect(() => {
     const delayDebounceFn = setTimeout(async () => {
       if (isLocationManuallyEdited && formData.address.length > 1) {
@@ -107,7 +94,7 @@ export function ItineraryForm({ tripId, date, onSuccess, onCancel, initialData }
         try {
           const res = await apiFetch(`/api/places/autocomplete?q=${encodeURIComponent(formData.address)}&session=${sessionToken.current}`);
           if (res.ok) {
-            const data = await res.json(); // 💡 補上解碼 JSON
+            const data = await res.json();
             setSuggestions(Array.isArray(data) ? data : []);
           } else {
             setSuggestions([]);
@@ -125,7 +112,7 @@ export function ItineraryForm({ tripId, date, onSuccess, onCancel, initialData }
     return () => clearTimeout(delayDebounceFn);
   }, [formData.address, isLocationManuallyEdited]);
 
-  // 💡 邏輯 B：點選建議 (填入地址與 ID)
+  // 點選建議 (填入地址與 ID)
   const handleSuggestionSelect = (suggestion: any) => {
     setFormData(prev => ({ 
       ...prev, 
@@ -136,7 +123,7 @@ export function ItineraryForm({ tripId, date, onSuccess, onCancel, initialData }
     setIsLocationManuallyEdited(false);
   };
 
-  // 💡 邏輯 C：點選放大鏡 (正式去抓 Detail 並填入所有豐富資料)
+  // 點選放大鏡 (正式去抓 Detail)
   const handleFetchDetails = async () => {
     if (!formData.google_place_id) return;
     setIsSearching(true);
@@ -149,7 +136,6 @@ export function ItineraryForm({ tripId, date, onSuccess, onCancel, initialData }
             ...prev,
             lat: details.location.latitude,
             lng: details.location.longitude,
-            // 💡 將後端轉好的圖片網址直接塞給卡片
             image_url: details.actual_photo_url || prev.image_url,
             rating: details.rating || null,
             reviews_count: details.userRatingCount || null,
@@ -232,8 +218,7 @@ export function ItineraryForm({ tripId, date, onSuccess, onCancel, initialData }
         tags: formData.tags.split(',').map(t => t.trim()).filter(Boolean), 
         sub_items: JSON.stringify(subItems),
         is_time_fixed: isTimeFixed ? 1 : 0, 
-        stay_duration: stayDuration.toString(),
-        time_preference: timePreference, 
+        stay_duration: stayDuration.toString()
       };
       const res = await apiFetch(initialData ? `/api/trips/${tripId}/itineraries/${initialData.id}` : `/api/trips/${tripId}/itineraries`, {
         method: initialData ? 'PUT' : 'POST',
@@ -280,6 +265,7 @@ export function ItineraryForm({ tripId, date, onSuccess, onCancel, initialData }
           <input type="text" required value={formData.title} onChange={handleTitleChange} className="w-full bg-[#242426] border border-zinc-800 rounded-2xl px-4 py-3 text-white font-bold text-base focus:border-orange-500 outline-none transition-all" />
         </div>
 
+        {/* 💡 Schedule Mode 區塊 */}
         <div className="space-y-3 pt-2">
           <label className="text-[10px] font-bold text-zinc-500 uppercase tracking-widest ml-1">Schedule Mode</label>
           <div className="flex bg-zinc-900/80 p-1.5 rounded-2xl border border-zinc-800 shadow-inner">
@@ -302,40 +288,22 @@ export function ItineraryForm({ tripId, date, onSuccess, onCancel, initialData }
                 </div>
               </motion.div>
             ) : (
-              <motion.div key="smart" initial={{ opacity: 0, y: 5 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -5 }} className="bg-orange-500/5 p-5 rounded-2xl border border-orange-500/20 space-y-6">
-                <div className="space-y-3">
-                  <label className="text-[10px] font-black text-orange-500 uppercase tracking-widest ml-1">時段偏好 (Preference)</label>
-                  <div className="grid grid-cols-2 gap-2">
-                    {[
-                      { id: 'anytime', label: '不限', desc: '00:00 - 24:00' },
-                      { id: 'morning', label: '上午', desc: '06:00 - 12:00' },
-                      { id: 'afternoon', label: '下午', desc: '12:00 - 18:00' },
-                      { id: 'evening', label: '晚上', desc: '18:00 - 24:00' }
-                    ].map((pref) => (
-                      <button key={pref.id} type="button" onClick={() => setTimePreference(pref.id)} className={clsx("flex flex-col items-start p-3 rounded-2xl border transition-all", timePreference === pref.id ? "bg-orange-500 border-orange-400 text-white shadow-lg shadow-orange-500/20" : "bg-zinc-900 border-zinc-800 text-zinc-500 hover:border-zinc-700")}>
-                        <span className="text-sm font-black">{pref.label}</span>
-                        <span className={clsx("text-[9px] font-bold uppercase", timePreference === pref.id ? "text-orange-100" : "text-zinc-600")}>{pref.desc}</span>
-                      </button>
-                    ))}
+              <motion.div key="smart" initial={{ opacity: 0, y: 5 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -5 }} className="bg-orange-500/5 p-5 rounded-2xl border border-orange-500/20 space-y-4">
+                <div className="flex items-center justify-between">
+                  <label className="text-[10px] font-black text-orange-500 uppercase tracking-widest ml-1">停留長度 (Stay Duration)</label>
+                  <div className="flex items-center gap-1.5 bg-zinc-900 border border-zinc-800 rounded-lg px-3 py-1.5">
+                    <input type="number" min="0" max="240" value={stayDuration} onChange={(e) => setStayDuration(Math.min(240, Math.max(0, parseInt(e.target.value) || 0)))} className="w-10 bg-transparent text-white text-sm font-black text-right outline-none [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none" />
+                    <span className="text-[10px] text-zinc-500 font-bold">MIN</span>
                   </div>
                 </div>
-                <div className="space-y-4 pt-2 border-t border-orange-500/10">
-                  <div className="flex items-center justify-between">
-                    <label className="text-[10px] font-black text-orange-500 uppercase tracking-widest ml-1">停留長度</label>
-                    <div className="flex items-center gap-1.5 bg-zinc-900 border border-zinc-800 rounded-lg px-3 py-1.5">
-                      <input type="number" min="0" max="240" value={stayDuration} onChange={(e) => setStayDuration(Math.min(240, Math.max(0, parseInt(e.target.value) || 0)))} className="w-10 bg-transparent text-white text-sm font-black text-right outline-none [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none" />
-                      <span className="text-[10px] text-zinc-500 font-bold">MIN</span>
-                    </div>
-                  </div>
-                  <input type="range" min="0" max="240" step="5" value={stayDuration} onChange={(e) => setStayDuration(parseInt(e.target.value))} className="w-full accent-orange-500 h-1.5 bg-zinc-800 rounded-lg appearance-none cursor-pointer outline-none" />
-                  <div className="flex justify-between px-1 text-[9px] font-black text-zinc-600 uppercase"><span>0m</span><span>1h</span><span>2h</span><span>3h</span><span>4h</span></div>
-                </div>
+                <input type="range" min="0" max="240" step="5" value={stayDuration} onChange={(e) => setStayDuration(parseInt(e.target.value))} className="w-full accent-orange-500 h-1.5 bg-zinc-800 rounded-lg appearance-none cursor-pointer outline-none" />
+                <div className="flex justify-between px-1 text-[9px] font-black text-zinc-600 uppercase"><span>0m</span><span>1h</span><span>2h</span><span>3h</span><span>4h</span></div>
               </motion.div>
             )}
           </AnimatePresence>
         </div>
 
-        {/* 💡 Location & Address 區塊 */}
+        {/* Location & Address 區塊 */}
         <div className="relative">
           <div className="flex items-center justify-between mb-1.5 ml-1">
             <label className="block text-[10px] font-bold text-zinc-500 uppercase tracking-widest">Location Address</label>
@@ -355,7 +323,6 @@ export function ItineraryForm({ tripId, date, onSuccess, onCancel, initialData }
               className="w-full bg-[#242426] border border-zinc-800 rounded-2xl pl-11 pr-12 py-3.5 text-white text-xs focus:border-orange-500 outline-none transition-all" 
               placeholder="打字搜尋地點..." 
             />
-            {/* 💡 放大鏡按鈕：按了才抓 Details */}
             <button
               type="button"
               onClick={handleFetchDetails}

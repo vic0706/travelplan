@@ -87,11 +87,13 @@ export function ItineraryCard({
   };
 
   const getTransportIcon = () => {
-    switch (item.next_transport_mode?.toLowerCase()) {
-      case 'train': case 'subway': return <Train size={14} />;
-      case 'bus': return <Bus size={14} />;
-      case 'walking': return <Footprints size={14} />;
-      case 'bicycling': return <Bike size={14} />;
+    // 💡 修正：直接根據模式回傳圖示
+    switch (item.next_transport_mode?.toUpperCase()) {
+      case 'TRANSIT': case 'TRAIN': return <Train size={14} />;
+      case 'BUS': return <Bus size={14} />;
+      case 'WALKING': return <Footprints size={14} />;
+      case 'BICYCLING': return <Bike size={14} />;
+      case 'DRIVING': return <Car size={14} />;
       default: return <Car size={14} />;
     }
   };

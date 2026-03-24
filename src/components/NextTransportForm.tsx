@@ -1,18 +1,17 @@
 import React, { useState, useEffect } from 'react';
-import { X, Footprints, Bus, Car, Bike, Clock, Loader2, MapPin } from 'lucide-react';
+import { X, Footprints, Bus, Car, Bike, Clock, Loader2, Sparkles } from 'lucide-react';
 import { clsx } from 'clsx';
 import { Itinerary } from '../types';
-import { apiFetch } from '../utils/api';
-import { motion, AnimatePresence } from 'framer-motion';
+import { motion } from 'framer-motion';
 
 interface NextTransportFormProps {
   isOpen: boolean;
   onClose: () => void;
-  itinerary: Itinerary;
-  nextItinerary?: Itinerary;
+  itinerary: Itinerary | null | undefined;
   onSave: (data: { next_transport_mode: string; next_transport_time: string; next_transport_auto_time: string }) => Promise<void>;
 }
 
+// 💡 已移除 color 和 bg 定義，統一使用主題色
 const TRANSPORT_MODES = [
   { id: 'DRIVING', label: 'Drive', icon: Car },
   { id: 'TRANSIT', label: 'Transit', icon: Bus },
@@ -20,188 +19,171 @@ const TRANSPORT_MODES = [
   { id: 'BICYCLING', label: 'Bicycle', icon: Bike },
 ];
 
-export function NextTransportForm({ isOpen, onClose, itinerary, nextItinerary, onSave }: NextTransportFormProps) {
-  const [mode, setMode] = useState(itinerary.next_transport_mode || '');
-  
-  const initialMins = itinerary.next_transport_time ? parseInt(itinerary.next_transport_time.replace(/\D/g, '')) : 0;
-  const [duration, setDuration] = useState<number>(initialMins);
+export function NextTransportForm({ isOpen, onClose, itinerary, onSave }: NextTransportFormProps) {
+  const [mode, setMode] = useState('DRIVING');
+  const [duration, setDuration] = useState<number>(15);
   const [loading, setLoading] = useState(false);
-  
-  const [originCoords, setOriginCoords] = useState('');
-  const [destCoords, setDestCoords] = useState('');
-  const [fetchingCoords, setFetchingCoords] = useState(false);
 
+  // 載入現有資料
   useEffect(() => {
-    if (itinerary.next_transport_auto_time && itinerary.next_transport_auto_time.includes('|')) {
-       const [o, d] = itinerary.next_transport_auto_time.split('|');
-       setOriginCoords(o);
-       setDestCoords(d);
+    if (isOpen && itinerary) {
+      if (itinerary.next_transport_mode === 'auto') {
+        setDuration(0);
+        setMode('DRIVING'); // 預設顯示在第一個
+      } else {
+        const currentMode = itinerary.next_transport_mode || 'DRIVING';
+        setMode(currentMode);
+        const mins = itinerary.next_transport_time 
+          ? parseInt(itinerary.next_transport_time.replace(/\D/g, '')) 
+          : 15;
+        setDuration(mins || 15);
+      }
     }
-  }, [itinerary]);
+  }, [isOpen, itinerary]);
 
-  useEffect(() => {
-    if (isOpen && duration === 0 && mode && (!originCoords || !destCoords)) {
-      const fetchGeocode = async () => {
-        setFetchingCoords(true);
-        try {
-          if (!originCoords) {
-             const oAddr = itinerary.address || `${itinerary.city_name || ''} ${itinerary.title}`;
-             const oRes = await apiFetch(`/api/geocode?address=${encodeURIComponent(oAddr)}`);
-             if (oRes.ok) {
-                const oData = await oRes.json() as any;
-                if (oData.lat) setOriginCoords(`${oData.lat},${oData.lng}`);
-             }
-          }
-          if (!destCoords && nextItinerary) {
-             const dAddr = nextItinerary.address || `${nextItinerary.city_name || ''} ${nextItinerary.title}`;
-             const dRes = await apiFetch(`/api/geocode?address=${encodeURIComponent(dAddr)}`);
-             if (dRes.ok) {
-                const dData = await dRes.json() as any;
-                if (dData.lat) setDestCoords(`${dData.lat},${dData.lng}`);
-             }
-          }
-        } catch (e) { console.error("Geocode failed"); }
-        setFetchingCoords(false);
-      };
-      fetchGeocode();
-    }
-  }, [isOpen, duration, mode, originCoords, destCoords, itinerary, nextItinerary]);
-
-  if (!isOpen) return null;
+  if (!isOpen || !itinerary) return null;
 
   const handleSave = async () => {
     setLoading(true);
     try {
-      const safeOrigin = originCoords ? originCoords.trim() : '';
-      const safeDest = destCoords ? destCoords.trim() : '';
-      
+      // 💡 修正：如果時間為 0，next_transport_time 存為 'auto'
+      // 💡 next_transport_mode 永遠儲存選中的模式（如 WALKING）
+      const isAuto = duration === 0;
       await onSave({
-        next_transport_mode: mode,
-        next_transport_time: duration === 0 ? '' : `${duration} min`,
-        next_transport_auto_time: (safeOrigin || safeDest) ? `${safeOrigin}|${safeDest}` : ''
+        next_transport_mode: mode, 
+        next_transport_time: isAuto ? 'auto' : `${duration} min`,
+        next_transport_auto_time: '' // 這是給後端回寫用的暫存欄位
       });
+      onClose();
     } finally {
       setLoading(false);
     }
   };
 
   const handleClear = async () => {
-    setMode('');
-    setDuration(0);
-    setOriginCoords('');
-    setDestCoords('');
     setLoading(true);
     try {
       await onSave({ next_transport_mode: '', next_transport_time: '', next_transport_auto_time: '' });
+      onClose();
     } finally {
       setLoading(false);
     }
   };
 
   return (
-    // 💡 修正關鍵：改為 fixed inset-0 並提高 z-index
-    <div className="fixed inset-0 z-[400] flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm">
+    <div className="fixed inset-0 z-[400] flex items-end sm:items-center justify-center p-4 sm:p-0 bg-black/80 backdrop-blur-sm">
       <motion.div 
-        initial={{ scale: 0.9, opacity: 0 }}
-        animate={{ scale: 1, opacity: 1 }}
-        className="bg-zinc-900 border border-zinc-800 rounded-3xl w-full max-w-md shadow-2xl overflow-hidden flex flex-col max-h-[90vh]"
+        initial={{ y: '100%', opacity: 0 }}
+        animate={{ y: 0, opacity: 1 }}
+        exit={{ y: '100%', opacity: 0 }}
+        transition={{ type: "spring", damping: 25, stiffness: 300 }}
+        className="bg-[#1c1c1e] border border-zinc-800 rounded-[36px] w-full max-w-sm overflow-hidden shadow-2xl flex flex-col"
       >
-        <div className="p-6 border-b border-zinc-800 flex justify-between items-center bg-zinc-900/50 shrink-0">
-          <h3 className="text-lg font-bold text-white">Next Transport</h3>
-          <button onClick={onClose} className="text-zinc-400 hover:text-white p-1 rounded-full hover:bg-zinc-800 transition-colors">
-            <X size={20} />
+        {/* Header */}
+        <div className="px-6 py-5 border-b border-zinc-800 flex justify-between items-center bg-[#242426] shrink-0">
+          <div>
+            <h3 className="font-black text-white text-base uppercase tracking-widest">前往下一站</h3>
+            <p className="text-[10px] text-zinc-500 font-bold mt-1 truncate max-w-[200px]">離開 {itinerary.title}</p>
+          </div>
+          <button onClick={onClose} className="p-2 bg-zinc-800 rounded-full text-zinc-400 hover:text-white transition-colors">
+            <X size={18} />
           </button>
         </div>
         
+        {/* Content */}
         <div className="p-6 space-y-6 overflow-y-auto custom-scrollbar">
-          <div className="space-y-3">
-            <label className="text-xs font-bold text-zinc-500 uppercase tracking-wider">Transport Mode</label>
-            <div className="grid grid-cols-4 gap-2">
-              {TRANSPORT_MODES.map(m => {
-                const Icon = m.icon;
-                const isActive = mode === m.id;
-                return (
-                  <button
-                    key={m.id} type="button"
-                    onClick={() => setMode(m.id)}
-                    className={clsx(
-                      "flex flex-col items-center justify-center py-3 rounded-2xl border transition-all",
-                      isActive ? "bg-orange-500/20 border-orange-500 text-orange-500 shadow-sm" : "bg-zinc-800 border-zinc-700 text-zinc-400 hover:text-white hover:border-zinc-500"
-                    )}
-                  >
-                    <Icon size={20} className="mb-1.5" />
-                    <span className="text-[10px] font-bold">{m.label}</span>
-                  </button>
-                );
-              })}
-            </div>
+          {/* Transport Mode Grid */}
+          <div className="grid grid-cols-2 gap-3">
+            {TRANSPORT_MODES.map(m => {
+              const Icon = m.icon;
+              const isActive = mode === m.id;
+              
+              return (
+                <button
+                  key={m.id} type="button"
+                  onClick={() => setMode(m.id)}
+                  className={clsx(
+                    "flex flex-col items-center justify-center gap-2 py-4 rounded-2xl border transition-all active:scale-95",
+                    // 💡 被選中時統一使用主題橘色 (bg-orange-500/10, text-orange-500)
+                    isActive 
+                      ? "bg-orange-500/10 border-orange-500/50 text-orange-500 shadow-inner" 
+                      : "bg-[#242426] border-zinc-800 text-zinc-500 hover:bg-zinc-800 hover:text-white hover:border-zinc-500"
+                  )}
+                >
+                  <Icon size={24} className="mb-1" />
+                  <span className="text-[10px] font-bold uppercase tracking-widest">{m.label}</span>
+                </button>
+              );
+            })}
           </div>
 
-          {mode && (
-            <div className="space-y-4 bg-zinc-950/50 p-5 rounded-2xl border border-zinc-800">
-              <label className="text-xs font-bold text-zinc-500 uppercase tracking-wider flex justify-between items-center">
-                <span className="flex items-center gap-1.5"><Clock size={14} className="text-orange-500" /> Travel Duration</span>
-                <div className="flex items-center gap-2">
-                  {duration === 0 ? (
-                     <span className="text-orange-500 font-bold px-2 py-1 bg-orange-500/10 rounded-md">AUTO (Maps)</span>
-                  ) : (
-                    <>
-                      <input 
-                        type="number" value={duration} onChange={e => setDuration(Math.max(0, parseInt(e.target.value) || 0))}
-                        className="w-16 bg-zinc-900 border border-zinc-700 rounded-lg px-2 py-1.5 text-right text-orange-500 font-bold focus:outline-none"
-                      />
-                      <span className="text-zinc-500 text-[10px] font-bold">MIN</span>
-                    </>
-                  )}
-                </div>
+          {/* Time Input Area */}
+          <div className="bg-[#242426] border border-zinc-800 rounded-2xl p-5 space-y-4">
+            <div className="flex items-center justify-between">
+              <label className="text-[10px] font-black text-zinc-400 uppercase tracking-widest flex items-center gap-2">
+                <Clock size={12} className="text-orange-500" /> 預估交通時間
               </label>
-              <div className="pt-2">
-                <input 
-                  type="range" min="0" max="240" step="5" value={Math.min(duration, 240)} onChange={e => setDuration(parseInt(e.target.value))}
-                  className="w-full h-1.5 bg-zinc-800 rounded-lg appearance-none cursor-pointer accent-orange-500"
-                />
-                <div className="flex justify-between text-[10px] text-zinc-600 font-mono mt-2 px-1">
-                  <span>Auto</span><span>1h</span><span>2h</span><span>3h</span><span>4h+</span>
-                </div>
+              
+              <div className="flex items-center gap-2 bg-zinc-900 border border-zinc-800 rounded-xl px-4 py-2">
+                {duration === 0 ? (
+                  <div className="flex items-center gap-1.5 text-orange-500 animate-pulse">
+                    <Sparkles size={14} />
+                    <span className="text-sm font-black">AUTO</span>
+                  </div>
+                ) : (
+                  <>
+                    <input 
+                      type="number" min="0" max="300" 
+                      value={duration} 
+                      onChange={(e) => setDuration(Math.max(0, parseInt(e.target.value) || 0))}
+                      className="w-12 bg-transparent text-white text-lg font-black text-right outline-none [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none" 
+                    />
+                    <span className="text-[10px] text-zinc-500 font-bold uppercase">MIN</span>
+                  </>
+                )}
               </div>
             </div>
-          )}
 
-          {mode && (
-             <div className="space-y-4 bg-orange-500/5 p-5 rounded-2xl border border-orange-500/20">
-                <div className="flex items-center justify-between">
-                   <h4 className="text-xs font-bold text-orange-500 uppercase tracking-wider flex items-center gap-1.5">
-                     <MapPin size={14} /> Waypoints
-                   </h4>
-                   {fetchingCoords && <Loader2 size={14} className="animate-spin text-orange-500" />}
-                </div>
-                
-                <div className="space-y-3">
-                  <div>
-                    <label className="text-[10px] font-bold text-zinc-400 uppercase tracking-wider mb-1 block">Origin (Coords, URL, or Text)</label>
-                    <input 
-                      type="text" value={originCoords} onChange={e => setOriginCoords(e.target.value)}
-                      placeholder="e.g., 25.0330, 121.5654 or TPE"
-                      className="w-full bg-zinc-900 border border-zinc-700 rounded-xl px-4 py-2.5 text-white focus:outline-none focus:border-orange-500 font-mono text-sm"
-                    />
-                  </div>
-                  <div>
-                    <label className="text-[10px] font-bold text-zinc-400 uppercase tracking-wider mb-1 block">Destination (Coords, URL, or Text)</label>
-                    <input 
-                      type="text" value={destCoords} onChange={e => setDestCoords(e.target.value)}
-                      placeholder="e.g., 25.0430, 121.5554 or Tokyo Tower"
-                      className="w-full bg-zinc-900 border border-zinc-700 rounded-xl px-4 py-2.5 text-white focus:outline-none focus:border-orange-500 font-mono text-sm"
-                    />
-                  </div>
-                </div>
-             </div>
-          )}
+            {/* 💡 拉桿也統一使用主題橘色 accent-orange-500 */}
+            <input 
+              type="range" min="0" max="120" step="5" 
+              value={duration} 
+              onChange={(e) => setDuration(parseInt(e.target.value))} 
+              className="w-full h-1.5 rounded-lg appearance-none cursor-pointer outline-none bg-orange-500 accent-orange-500"
+              style={{ accentColor: '#f97316' }} // 強制顯示為主題橘
+            />
+
+            <div className="flex justify-between text-[9px] text-zinc-600 font-bold uppercase px-1">
+              <span className={clsx(duration === 0 && "text-orange-500")}>Auto</span>
+              <span>30m</span>
+              <span>1h</span>
+              <span>2h</span>
+            </div>
+            
+            {duration === 0 && (
+              <p className="text-[10px] text-orange-500/60 text-center font-bold italic">
+                * 設定為 0 將由 AI 根據距離自動計算
+              </p>
+            )}
+          </div>
         </div>
 
-        <div className="p-6 border-t border-zinc-800 bg-zinc-900/50 flex gap-3 shrink-0">
-          <button onClick={handleClear} disabled={loading || !itinerary.next_transport_mode} className="flex-1 py-4 bg-zinc-800 hover:bg-red-500/20 text-zinc-400 hover:text-red-500 font-bold rounded-xl transition-colors">Clear</button>
-          <button onClick={handleSave} disabled={loading || !mode} className="flex-[2] py-4 bg-orange-500 hover:bg-orange-600 text-white font-bold rounded-xl shadow-lg transition-colors flex justify-center items-center gap-2">
-            {loading ? <Loader2 className="animate-spin" size={20} /> : 'Save Transport'}
+        {/* Footer */}
+        <div className="p-5 border-t border-zinc-800 bg-[#1c1c1e] flex gap-3 shrink-0">
+          <button 
+            onClick={handleClear} 
+            disabled={loading || !itinerary.next_transport_mode} 
+            className="flex-1 py-4 bg-[#242426] hover:bg-red-500/10 text-zinc-400 hover:text-red-500 font-bold rounded-2xl transition-colors text-xs uppercase tracking-widest"
+          >
+            清除
+          </button>
+          {/* 💡 確認按鈕统一使用主題橘色 */}
+          <button 
+            onClick={handleSave} 
+            disabled={loading} 
+            className="flex-[2] py-4 bg-orange-500 rounded-2xl font-black text-sm uppercase tracking-widest shadow-lg flex items-center justify-center gap-2 active:scale-95 transition-all text-white shadow-orange-500/10 hover:bg-orange-600"
+          >
+            {loading ? <Loader2 size={18} className="animate-spin" /> : '確認儲存'}
           </button>
         </div>
       </motion.div>
