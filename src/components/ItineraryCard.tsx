@@ -19,10 +19,12 @@ interface ItineraryCardProps {
 }
 
 const safeParse = (data: any) => {
-  if (typeof data === 'object' && data !== null) return data;
+  if (Array.isArray(data)) return data;
+  if (typeof data === 'object' && data !== null) return []; 
   if (!data || data === "" || data === "null") return [];
   try {
-    return JSON.parse(data);
+    const parsed = JSON.parse(data);
+    return Array.isArray(parsed) ? parsed : [];
   } catch (e) { return []; }
 };
 
@@ -63,9 +65,8 @@ export function ItineraryCard({
   const itemDateTime = new Date(`${item.date}T${endTimeStr}`);
   const isPast = Date.now() > itemDateTime.getTime();
 
-  // 💡 智慧預設：沒過期且有照片才展開。過期或沒照片預設為收折
   const [isCardExpanded, setIsCardExpanded] = useState(!isPast && !!item.image_url);
-  const [viewIndex, setViewIndex] = useState(0); // 0: 照片, 1: 細節
+  const [viewIndex, setViewIndex] = useState(0); 
   const [expandedSubIdx, setExpandedSubIdx] = useState<number | null>(null);
 
   const closedWarning = checkIsClosed(item.date, item.opening_hours);
@@ -95,11 +96,19 @@ export function ItineraryCard({
   const isAiCalculated = !isFixed && (!!item.start_time && item.start_time !== '');
   const isCircuitBreaker = canEdit && (!!item.start_time) && (!item.next_transport_mode || item.next_transport_mode === '');
 
-  // 💡 滑動切換邏輯
+  // 💡 優化後的滑動判定：結合位移與速度
   const handleDragEnd = (e: any, info: any) => {
-    const threshold = 50;
-    if (info.offset.x < -threshold) setViewIndex(1); // 往左滑看細節
-    else if (info.offset.x > threshold) setViewIndex(0); // 往右滑看照片
+    const swipeThreshold = 50;
+    const velocityThreshold = 500;
+    
+    // 往左滑 (info.offset.x 為負) -> 切換到詳情
+    if (info.offset.x < -swipeThreshold || info.velocity.x < -velocityThreshold) {
+      setViewIndex(1);
+    } 
+    // 往右滑 (info.offset.x 為正) -> 切換回照片
+    else if (info.offset.x > swipeThreshold || info.velocity.x > velocityThreshold) {
+      setViewIndex(0);
+    }
   };
 
   return (
@@ -111,7 +120,7 @@ export function ItineraryCard({
         isCircuitBreaker && "border-red-500 shadow-[0_0_15px_rgba(239,68,68,0.2)] bg-[#2a1a1a]"
       )}>
         
-        {/* 1. 第一行 (Icon, Time, Nav) */}
+        {/* 1. 頂層列 */}
         <div className="p-4 pb-1.5 flex items-center justify-between">
           <div className="flex items-center gap-2.5">
             <div style={{ color: isCircuitBreaker ? '#ef4444' : category.color, filter: !isPast ? `drop-shadow(0 0 6px ${category.color}33)` : 'none' }}>
@@ -134,14 +143,14 @@ export function ItineraryCard({
           </button>
         </div>
 
-        {/* 2. 第二行 (標題) */}
+        {/* 2. 標題層 */}
         <div className="px-4 pb-3" onClick={() => (canEdit ? onEdit() : item.image_url && setIsCardExpanded(!isCardExpanded))}>
           <h4 className={clsx("text-[19px] font-black leading-tight truncate cursor-pointer", isPast ? "text-zinc-600" : "text-white")}>
             {item.title}
           </h4>
         </div>
 
-        {/* 3. 第三行 (照片 & 細節滑動區塊) */}
+        {/* 3. 照片 & 細節滑動區塊 */}
         <AnimatePresence>
           {isCardExpanded && item.image_url && (
             <motion.div initial={{ height: 0, opacity: 0 }} animate={{ height: 'auto', opacity: 1 }} exit={{ height: 0, opacity: 0 }} className="relative">
@@ -149,6 +158,7 @@ export function ItineraryCard({
                 <motion.div 
                   drag="x"
                   dragConstraints={{ left: 0, right: 0 }}
+                  dragElastic={0.2}
                   onDragEnd={handleDragEnd}
                   animate={{ x: viewIndex === 0 ? "0%" : "-100%" }}
                   transition={{ type: "spring", stiffness: 300, damping: 30 }}
@@ -156,12 +166,11 @@ export function ItineraryCard({
                 >
                   {/* Page 0: 照片 */}
                   <div className="w-full h-full shrink-0 relative">
-                    <img src={item.image_url} alt="place" className="w-full h-full object-cover opacity-70" />
+                    <img src={item.image_url} alt="place" className="w-full h-full object-cover opacity-70 pointer-events-none" />
                   </div>
 
                   {/* Page 1: 細節資訊 */}
                   <div className="w-full h-full shrink-0 bg-black/85 p-4 overflow-y-auto custom-scrollbar flex flex-col gap-3 backdrop-blur-md">
-                    {/* 星星 & Tags */}
                     <div className="flex flex-wrap items-center gap-2">
                       {item.rating && (
                         <div className="flex items-center gap-1 text-yellow-500 bg-yellow-500/10 px-2 py-0.5 rounded-lg border border-yellow-500/20">
@@ -174,25 +183,25 @@ export function ItineraryCard({
                       ))}
                     </div>
 
-                    {/* 子項目互動清單 */}
+                    {/* 💡 重新修復的子項目列表 */}
                     {subItems.length > 0 && (
-                      <div className="flex flex-col gap-1">
+                      <div className="flex flex-col gap-1.5">
                         {subItems.map((sub: any, idx: number) => (
-                          <div key={idx}>
-                            <div className="flex items-center justify-between bg-white/5 p-2 rounded-xl border border-white/5">
+                          <div key={idx} className="group/sub">
+                            <div className="flex items-center justify-between bg-white/5 p-2.5 rounded-xl border border-white/5">
                               <div className="flex items-center gap-2.5 overflow-hidden">
                                 <span className="text-[9px] text-zinc-500 font-mono shrink-0">{sub.start_time}</span>
                                 <span className="text-[12px] font-bold text-zinc-200 truncate">{sub.title}</span>
                               </div>
                               {sub.notes && (
-                                <button onClick={() => setExpandedSubIdx(expandedSubIdx === idx ? null : idx)} className={clsx("p-1 rounded-md transition-all", expandedSubIdx === idx ? "bg-orange-500 text-white" : "text-zinc-600")}>
+                                <button onClick={() => setExpandedSubIdx(expandedSubIdx === idx ? null : idx)} className={clsx("p-1 rounded-md transition-all", expandedSubIdx === idx ? "bg-orange-500 text-white" : "text-zinc-600 hover:text-zinc-400")}>
                                   <ChevronRight size={12} className={clsx("transition-transform", expandedSubIdx === idx && "rotate-90")} />
                                 </button>
                               )}
                             </div>
                             <AnimatePresence>
                               {expandedSubIdx === idx && sub.notes && (
-                                <motion.div initial={{ height: 0, opacity: 0 }} animate={{ height: 'auto', opacity: 1 }} exit={{ height: 0, opacity: 0 }} className="p-2.5 mt-0.5 bg-zinc-800/40 rounded-lg text-[11px] text-zinc-400 italic border-l-2 border-orange-500/50 ml-1.5">{sub.notes}</motion.div>
+                                <motion.div initial={{ height: 0, opacity: 0 }} animate={{ height: 'auto', opacity: 1 }} exit={{ height: 0, opacity: 0 }} className="p-2.5 mt-1 bg-zinc-800/40 rounded-lg text-[11px] text-zinc-400 italic border-l-2 border-orange-500/50 ml-1.5">{sub.notes}</motion.div>
                               )}
                             </AnimatePresence>
                           </div>
@@ -200,7 +209,7 @@ export function ItineraryCard({
                       </div>
                     )}
 
-                    {/* 紅色警告訊息 & 備註 (移除分隔線) */}
+                    {/* 紅色警告訊息 & 備註 */}
                     <div className="space-y-1.5 px-1 mt-1">
                       {isConflicted && <div className="text-red-500 font-bold text-[11px] flex items-center gap-1.5"><AlertTriangle size={12} /> 行程時間衝突</div>}
                       {closedWarning && <div className="text-red-500 font-bold text-[11px] flex items-center gap-1.5"><Clock size={12} /> ⚠️ {closedWarning}</div>}
@@ -210,23 +219,25 @@ export function ItineraryCard({
                   </div>
                 </motion.div>
 
-                {/* 💡 內嵌式分頁指示器 (Dots) - 放在照片區域內部最下方 */}
-                <div className="absolute bottom-2 left-0 right-0 flex justify-center gap-1.5 z-30 pointer-events-none">
-                  <div className={clsx(
-                    "w-1.5 h-1.5 rounded-full transition-all shadow-sm", 
-                    viewIndex === 0 ? "bg-white scale-110" : "bg-white/30"
-                  )} />
-                  <div className={clsx(
-                    "w-1.5 h-1.5 rounded-full transition-all shadow-sm", 
-                    viewIndex === 1 ? (hasWarning ? "bg-red-500 scale-110" : "bg-white scale-110") : (hasWarning ? "bg-red-500/40" : "bg-white/30")
-                  )} />
+                {/* 💡 內嵌式分頁指示器 (置於照片內最下方) */}
+                <div className="absolute bottom-2 left-0 right-0 flex justify-center gap-2 z-30 pointer-events-none">
+                  <div className="flex bg-black/20 backdrop-blur-sm px-2 py-1 rounded-full gap-1.5">
+                    <div className={clsx(
+                      "w-1.5 h-1.5 rounded-full transition-all duration-300", 
+                      viewIndex === 0 ? "bg-white scale-125 shadow-[0_0_8px_white]" : "bg-white/30"
+                    )} />
+                    <div className={clsx(
+                      "w-1.5 h-1.5 rounded-full transition-all duration-300", 
+                      viewIndex === 1 ? (hasWarning ? "bg-red-500 scale-125 shadow-[0_0_8px_#ef4444]" : "bg-white scale-125 shadow-[0_0_8px_white]") : (hasWarning ? "bg-red-500/50" : "bg-white/30")
+                    )} />
+                  </div>
                 </div>
               </div>
             </motion.div>
           )}
         </AnimatePresence>
 
-        {/* 4. 第四行 (Next Stop) - 智慧顯示邏輯 & 移除線條 */}
+        {/* 4. 第四行 (Next Stop) */}
         {showNextTransport && (canEdit || !!item.next_transport_mode) && (isCardExpanded || !isPast) && (
           <button 
             type="button" disabled={!canEdit}
@@ -243,7 +254,10 @@ export function ItineraryCard({
                 <div className={isCircuitBreaker ? "text-white" : "text-orange-500"}>{getTransportIcon()}</div>
                 <div className={clsx("flex items-center gap-1 text-[11px] font-black tracking-tight", isCircuitBreaker ? "text-white" : "text-zinc-200")}>
                   {item.next_transport_mode === 'auto' ? (
-                    <>{(item as any).next_transport_auto_time ? `${(item as any).next_transport_auto_time}m` : 'Auto'}<Sparkles size={9} /></>
+                    <>
+                      {(item as any).next_transport_auto_time ? `${(item as any).next_transport_auto_time}m` : 'Auto'}
+                      <Sparkles size={9} />
+                    </>
                   ) : (
                     item.next_transport_time?.replace(' min', 'm') || 'Set'
                   )}
