@@ -41,7 +41,7 @@ trips.get('/', async (c) => {
   }
 });
 
-// 建立新行程
+// 建立行程 (Trips)
 trips.post('/', async (c) => {
   try {
     const body = await c.req.json().catch(() => ({}));
@@ -233,7 +233,9 @@ trips.post('/:id/itineraries', async (c) => {
 
     const body = await c.req.json().catch(() => ({}));
     const tagsStr = Array.isArray(body.tags) ? JSON.stringify(body.tags) : '[]';
-    const subItemsStr = typeof body.sub_items === 'string' ? body.sub_items : '[]';
+    const subItemsStr = Array.isArray(body.sub_items) 
+    ? JSON.stringify(body.sub_items) 
+    : (typeof body.sub_items === 'string' ? body.sub_items : '[]');
 
     await c.env.DB.prepare(
       `INSERT INTO Itineraries (
@@ -276,7 +278,9 @@ trips.put('/:id/itineraries/:itemId', async (c) => {
 
     const body = await c.req.json().catch(() => ({}));
     const tagsStr = Array.isArray(body.tags) ? JSON.stringify(body.tags) : '[]';
-    const subItemsStr = typeof body.sub_items === 'string' ? body.sub_items : '[]';
+    const subItemsStr = Array.isArray(body.sub_items) 
+    ? JSON.stringify(body.sub_items) 
+    : (typeof body.sub_items === 'string' ? body.sub_items : '[]');
 
     await c.env.DB.prepare(
       `UPDATE Itineraries SET 
