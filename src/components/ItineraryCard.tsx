@@ -74,9 +74,20 @@ export function ItineraryCard({
   useEffect(() => { if (expandSignal && expandSignal > 0 && item.image_url) setIsCardExpanded(true); }, [expandSignal, item.image_url]);
   useEffect(() => { if (collapseSignal && collapseSignal > 0) setIsCardExpanded(false); }, [collapseSignal]);
 
+  // 💡 修正後的導航 URL 邏輯
   const getGoogleMapsLink = () => {
-    const destination = item.google_place_id ? `place_id:${item.google_place_id}` : encodeURIComponent(item.address || item.title);
-    return `http://googleusercontent.com/maps.google.com/maps?daddr=${destination}`;
+    // 使用官方推薦的 dir (directions) 格式
+    const baseUrl = "https://www.google.com/maps/dir/?api=1";
+    const destination = encodeURIComponent(item.address || item.title);
+    
+    let url = `${baseUrl}&destination=${destination}`;
+    
+    // 如果有 Place ID，這會是最精準的導航目標
+    if (item.google_place_id) {
+      url += `&destination_place_id=${item.google_place_id}`;
+    }
+    
+    return url;
   };
 
   const getTransportIcon = () => {
@@ -93,33 +104,33 @@ export function ItineraryCard({
   const isAiCalculated = !isFixed && (!!item.start_time && item.start_time !== '');
   const isCircuitBreaker = canEdit && (!!item.start_time) && (!item.next_transport_mode || item.next_transport_mode === '');
 
-  // 💡 極致滑動判定：速度與位移雙重校準
   const handleDragEnd = (e: any, info: any) => {
-    const swipeThreshold = 30; // 降低閾值，提升靈敏度
+    const swipeThreshold = 30;
     const velocityThreshold = 200;
-    
-    // 向左滑 (移動到下一頁)
     if (info.offset.x < -swipeThreshold || info.velocity.x < -velocityThreshold) {
       if (viewIndex === 0) setViewIndex(1);
       else if (viewIndex === 1 && expandedSubIdx !== null) setViewIndex(2);
     } 
-    // 向右滑 (回到上一頁)
     else if (info.offset.x > swipeThreshold || info.velocity.x > velocityThreshold) {
-      if (viewIndex === 2) {
-        setViewIndex(1);
-      } else if (viewIndex === 1) {
-        setViewIndex(0);
-      }
+      if (viewIndex === 2) setViewIndex(1);
+      else if (viewIndex === 1) setViewIndex(0);
     }
   };
 
-  // 當從 Page 2 滑回 Page 1 時，延遲清除子項目索引，讓動畫平滑
   useEffect(() => {
     if (viewIndex < 2 && expandedSubIdx !== null) {
       const timer = setTimeout(() => setExpandedSubIdx(null), 300);
       return () => clearTimeout(timer);
     }
   }, [viewIndex]);
+
+  const handleToggleExpand = (e: React.MouseEvent) => {
+    if (canEdit) {
+      onEdit();
+    } else if (item.image_url) {
+      setIsCardExpanded(!isCardExpanded);
+    }
+  };
 
   return (
     <div className={clsx("flex flex-col w-full mb-3 px-1 transition-all", isDragOverlay && "opacity-90 scale-105 shadow-2xl z-50")}>
@@ -130,37 +141,42 @@ export function ItineraryCard({
         isCircuitBreaker && "border-red-500 shadow-[0_0_15px_rgba(239,68,68,0.2)] bg-[#2a1a1a]"
       )}>
         
-        {/* 第一行 (Icon, Time, Nav) */}
-        <div className="p-4 pb-1.5 flex items-center justify-between">
-          <div className="flex items-center gap-2.5">
-            <div style={{ color: isCircuitBreaker ? '#ef4444' : category.color, filter: !isPast ? `drop-shadow(0 0 6px ${category.color}33)` : 'none' }}>
-              <DynamicIcon name={item.icon || 'MapPin'} size={18} />
+        {/* 頂層點擊感應區 (第一行與第二行) */}
+        <div onClick={handleToggleExpand} className="cursor-pointer">
+          <div className="p-4 pb-1.5 flex items-center justify-between">
+            <div className="flex items-center gap-2.5">
+              <div style={{ color: isCircuitBreaker ? '#ef4444' : category.color, filter: !isPast ? `drop-shadow(0 0 6px ${category.color}33)` : 'none' }}>
+                <DynamicIcon name={item.icon || 'MapPin'} size={18} />
+              </div>
+              <div className="flex items-center gap-1.5">
+                {item.start_time ? (
+                  <span className={clsx("font-mono font-black tracking-tight text-[13px]", isPast ? "text-zinc-500" : "text-zinc-100")}>
+                    {item.start_time} — {item.end_time}
+                  </span>
+                ) : (
+                  <span className="text-zinc-500 font-black text-[10px] uppercase tracking-wider">{getPreferenceLabel(item.time_preference || 'anytime')}</span>
+                )}
+                {isFixed && <Lock size={10} className="text-zinc-600" />}
+                {isAiCalculated && <Sparkles size={10} className="text-orange-500/60" />}
+              </div>
             </div>
-            <div className="flex items-center gap-1.5">
-              {item.start_time ? (
-                <span className={clsx("font-mono font-black tracking-tight text-[13px]", isPast ? "text-zinc-500" : "text-zinc-100")}>
-                  {item.start_time} — {item.end_time}
-                </span>
-              ) : (
-                <span className="text-zinc-500 font-black text-[10px] uppercase tracking-wider">{getPreferenceLabel(item.time_preference || 'anytime')}</span>
-              )}
-              {isFixed && <Lock size={10} className="text-zinc-600" />}
-              {isAiCalculated && <Sparkles size={10} className="text-orange-500/60" />}
-            </div>
+            {/* 導航按鈕 (已修正網址) */}
+            <button 
+              onClick={(e) => { e.stopPropagation(); window.open(getGoogleMapsLink(), '_blank'); }} 
+              className="p-2 bg-zinc-800/40 rounded-xl text-zinc-400 hover:text-orange-500 transition-all border border-white/5 active:scale-90"
+            >
+              <Navigation2 size={14} />
+            </button>
           </div>
-          <button onClick={(e) => { e.stopPropagation(); window.open(getGoogleMapsLink(), '_blank'); }} className="p-2 bg-zinc-800/40 rounded-xl text-zinc-400 hover:text-orange-500 transition-all border border-white/5 active:scale-90">
-            <Navigation2 size={14} />
-          </button>
+
+          <div className="px-4 pb-3">
+            <h4 className={clsx("text-[19px] font-black leading-tight truncate", isPast ? "text-zinc-600" : "text-white")}>
+              {item.title}
+            </h4>
+          </div>
         </div>
 
-        {/* 第二行 (標題) */}
-        <div className="px-4 pb-3" onClick={() => (canEdit ? onEdit() : item.image_url && setIsCardExpanded(!isCardExpanded))}>
-          <h4 className={clsx("text-[19px] font-black leading-tight truncate cursor-pointer", isPast ? "text-zinc-600" : "text-white")}>
-            {item.title}
-          </h4>
-        </div>
-
-        {/* 第三行 (動態三段式滑動區塊) */}
+        {/* 動態三段式滑動區塊 */}
         <AnimatePresence>
           {isCardExpanded && item.image_url && (
             <motion.div initial={{ height: 0, opacity: 0 }} animate={{ height: 'auto', opacity: 1 }} exit={{ height: 0, opacity: 0 }} className="relative">
@@ -174,8 +190,8 @@ export function ItineraryCard({
                   transition={{ type: "spring", stiffness: 400, damping: 40 }}
                   className="flex w-full h-full"
                 >
-                  {/* Page 0: 照片 */}
-                  <div className="w-full h-full shrink-0 flex-none relative">
+                  {/* Page 0: 照片 (點擊切換 Page 1) */}
+                  <div className="w-full h-full shrink-0 flex-none relative" onClick={() => setViewIndex(1)}>
                     <img src={item.image_url} alt="place" className="w-full h-full object-cover opacity-60 pointer-events-none" />
                   </div>
 
@@ -240,24 +256,16 @@ export function ItineraryCard({
                   </div>
                 </motion.div>
 
-                {/* 💡 內嵌指示器 (Dots)：動態增減 */}
+                {/* 指示器 (Dots) */}
                 <div className="absolute bottom-2 left-0 right-0 flex justify-center gap-2 z-30 pointer-events-none">
                   <div className="flex bg-black/40 backdrop-blur-md px-2.5 py-1.5 rounded-full gap-2 border border-white/5">
-                    {/* Dot 1: Photo */}
                     <div className={clsx("w-1.5 h-1.5 rounded-full transition-all duration-300", viewIndex === 0 ? "bg-white scale-125 shadow-[0_0_8px_white]" : "bg-white/20")} />
-                    
-                    {/* Dot 2: List */}
                     <div className={clsx(
                       "w-1.5 h-1.5 rounded-full transition-all duration-300", 
                       viewIndex === 1 ? (hasWarning ? "bg-red-500 scale-125 shadow-[0_0_8px_#ef4444]" : "bg-white scale-125 shadow-[0_0_8px_white]") : (hasWarning ? "bg-red-500/40" : "bg-white/20")
                     )} />
-
-                    {/* Dot 3: Sub-item Detail (動態) */}
                     {expandedSubIdx !== null && (
-                      <motion.div 
-                        initial={{ scale: 0, opacity: 0 }} animate={{ scale: 1, opacity: 1 }}
-                        className={clsx("w-1.5 h-1.5 rounded-full transition-all duration-300", viewIndex === 2 ? "bg-orange-500 scale-125 shadow-[0_0_8px_#f97316]" : "bg-orange-500/20")} 
-                      />
+                      <motion.div initial={{ scale: 0, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} className={clsx("w-1.5 h-1.5 rounded-full transition-all duration-300", viewIndex === 2 ? "bg-orange-500 scale-125 shadow-[0_0_8px_#f97316]" : "bg-orange-500/20")} />
                     )}
                   </div>
                 </div>
