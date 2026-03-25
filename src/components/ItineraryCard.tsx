@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { MapPin, Car, Train, Bus, AlertTriangle, Star, Plus, Footprints, Bike, Navigation2, Lock, Sparkles, Clock, ChevronRight, ChevronLeft } from 'lucide-react';
+import { MapPin, Car, Train, Bus, AlertTriangle, Star, Plus, Footprints, Bike, Navigation2, Lock, Sparkles, Clock, X } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Itinerary } from '../types';
 import { DynamicIcon } from './DynamicIcon';
@@ -62,10 +62,14 @@ export function ItineraryCard({
   const closedWarning = checkIsClosed(item.date, item.opening_hours);
   const hasWarning = !!closedWarning || !!item.sync_conflict_warning || !!isConflicted;
 
+  // 💡 邏輯：判定是否有足夠資料需要「右滑」(排除只有星星的情況)
+  const hasDetailContent = tags.length > 0 || subItems.length > 0 || !!item.notes || hasWarning;
+
+  // 💡 核心修正：補回漏掉的 isCircuitBreaker 宣告
+  const isCircuitBreaker = canEdit && (!!item.start_time) && (!item.next_transport_mode || item.next_transport_mode === '');
+
   useEffect(() => {
-    if (expandedSubIdx !== null) {
-      setViewIndex(2);
-    }
+    if (expandedSubIdx !== null) setViewIndex(2);
   }, [expandedSubIdx]);
 
   useEffect(() => { if (expandSignal && expandSignal > 0 && item.image_url) setIsCardExpanded(true); }, [expandSignal, item.image_url]);
@@ -88,20 +92,13 @@ export function ItineraryCard({
     }
   };
 
-  const isFixed = item.is_time_fixed === 1;
-  const isAiCalculated = !isFixed && (!!item.start_time && item.start_time !== '');
-  const isCircuitBreaker = canEdit && (!!item.start_time) && (!item.next_transport_mode || item.next_transport_mode === '');
-
-  // 💡 核心數值解析邏輯
-  // next_transport_time: 轉為數字，過濾掉 " min" 等字串
   const manualVal = parseInt(item.next_transport_time?.toString().replace(/\D/g, '') || '0', 10);
-  // next_transport_auto_time: 轉為數字，處理 20.0 這種浮點數
   const autoVal = Math.round(Number((item as any).next_transport_auto_time || 0));
 
   const handleDragEnd = (e: any, info: any) => {
     const swipeThreshold = 50;
     const velocityThreshold = 500;
-    const maxIndex = expandedSubIdx !== null ? 2 : 1;
+    const maxIndex = expandedSubIdx !== null ? 2 : (hasDetailContent ? 1 : 0);
 
     let newIndex = viewIndex;
     if (info.offset.x < -swipeThreshold || info.velocity.x < -velocityThreshold) {
@@ -110,9 +107,7 @@ export function ItineraryCard({
       newIndex = Math.max(viewIndex - 1, 0);
     }
 
-    if (viewIndex === 2 && newIndex === 1) {
-      setExpandedSubIdx(null);
-    }
+    if (viewIndex === 2 && newIndex === 1) setExpandedSubIdx(null);
     setViewIndex(newIndex);
   };
 
@@ -125,7 +120,7 @@ export function ItineraryCard({
         isCircuitBreaker && "border-red-500 shadow-[0_0_15px_rgba(239,68,68,0.2)] bg-[#2a1a1a]"
       )}>
         
-        {/* 第一行 (Icon, Time, Nav) */}
+        {/* Header Section */}
         <div className="p-4 pb-1.5 flex items-center justify-between">
           <div className="flex items-center gap-2.5">
             <div style={{ color: isCircuitBreaker ? '#ef4444' : category.color, filter: !isPast ? `drop-shadow(0 0 6px ${category.color}33)` : 'none' }}>
@@ -137,8 +132,8 @@ export function ItineraryCard({
                   {item.start_time} — {item.end_time}
                 </span>
               )}
-              {isFixed && <Lock size={10} className="text-zinc-600" />}
-              {isAiCalculated && <Sparkles size={10} className="text-orange-500/60" />}
+              {item.is_time_fixed === 1 && <Lock size={10} className="text-zinc-600" />}
+              {item.start_time && !item.is_time_fixed && !isPast && <Sparkles size={10} className="text-orange-500/60" />}
             </div>
           </div>
           <button onClick={(e) => { e.stopPropagation(); window.open(getGoogleMapsLink(), '_blank'); }} className="p-2 bg-zinc-800/40 rounded-xl text-zinc-400 hover:text-orange-500 transition-all border border-white/5 active:scale-90">
@@ -146,32 +141,44 @@ export function ItineraryCard({
           </button>
         </div>
 
-        {/* 第二行 (標題) */}
+        {/* Title Section */}
         <div className="px-4 pb-3" onClick={() => (canEdit ? onEdit() : item.image_url && setIsCardExpanded(!isCardExpanded))}>
           <h4 className={clsx("text-[19px] font-black leading-tight truncate cursor-pointer", isPast ? "text-zinc-600" : "text-white")}>
             {item.title}
           </h4>
         </div>
 
-        {/* 第三行 (動態三段滑動區塊) */}
+        {/* Dynamic Image Section */}
         <AnimatePresence>
           {isCardExpanded && item.image_url && (
             <motion.div initial={{ height: 0, opacity: 0 }} animate={{ height: 'auto', opacity: 1 }} exit={{ height: 0, opacity: 0 }} className="relative">
               <div className="relative w-full aspect-[21/9] bg-zinc-900 overflow-hidden cursor-grab active:cursor-grabbing">
+                
+                {/* 💡 背景照片固定，不隨容器滑動 */}
+                <img 
+                  src={item.image_url} 
+                  alt="place" 
+                  className={clsx(
+                    "absolute inset-0 w-full h-full object-cover z-0 pointer-events-none transition-opacity duration-500",
+                    isPast ? "opacity-30" : "opacity-80"
+                  )} 
+                />
+
+                {/* 💡 滑動內容層：寬度維持 100%，使用絕對定位排列頁面 */}
                 <motion.div 
-                  drag="x"
+                  drag={hasDetailContent ? "x" : false}
                   dragConstraints={{ left: 0, right: 0 }}
                   dragElastic={0.2}
                   onDragEnd={handleDragEnd}
                   animate={{ x: `-${viewIndex * 100}%` }}
                   transition={{ type: "spring", stiffness: 300, damping: 32 }}
-                  className="flex w-[300%] h-full"
+                  className="absolute inset-0 w-full h-full z-10"
                 >
-                  <div className="w-1/3 h-full shrink-0 relative">
-                    <img src={item.image_url} alt="place" className="w-full h-full object-cover opacity-70 pointer-events-none" />
-                  </div>
+                  {/* Page 0: 透明 (點擊照片直接跳到 Page 1) */}
+                  <div className="absolute inset-0 left-0 w-full h-full" onClick={() => hasDetailContent && setViewIndex(1)} />
 
-                  <div className="w-1/3 h-full shrink-0 bg-black/85 p-4 overflow-y-auto custom-scrollbar flex flex-col gap-3 backdrop-blur-md">
+                  {/* Page 1: 摘要清單 (毛玻璃效果) */}
+                  <div className="absolute inset-0 left-[100%] w-full h-full bg-black/40 backdrop-blur-md p-4 overflow-y-auto custom-scrollbar flex flex-col gap-3">
                     <div className="flex flex-wrap items-center gap-2">
                       {item.rating && (
                         <div className="flex items-center gap-1 text-yellow-500 bg-yellow-500/10 px-2 py-0.5 rounded-lg border border-yellow-500/20">
@@ -187,18 +194,22 @@ export function ItineraryCard({
                     {subItems.length > 0 && (
                       <div className="flex flex-col gap-1.5">
                         {subItems.map((sub: any, idx: number) => (
-                          <div key={idx} className="flex items-center justify-between bg-white/5 p-2.5 rounded-xl border border-white/5">
+                          <div 
+                            key={idx} 
+                            onClick={(e) => { if (sub.notes) { e.stopPropagation(); setExpandedSubIdx(idx); } }}
+                            className={clsx(
+                              "flex items-center justify-between p-2.5 rounded-xl border transition-all",
+                              sub.notes ? "bg-white/10 border-white/10 hover:bg-white/20 cursor-pointer" : "bg-white/5 border-white/5 opacity-80"
+                            )}
+                          >
                             <div className="flex items-center gap-2.5 overflow-hidden">
-                              <span className="text-[9px] text-zinc-500 font-mono shrink-0">{sub.start_time}</span>
+                              <span className="text-[9px] text-zinc-400 font-mono shrink-0">{sub.start_time}</span>
                               <span className="text-[12px] font-bold text-zinc-200 truncate">{sub.title}</span>
                             </div>
                             {sub.notes && (
-                              <button 
-                                onClick={(e) => { e.stopPropagation(); setExpandedSubIdx(idx); }} 
-                                className="p-1 bg-zinc-800 rounded-md text-orange-500 hover:bg-zinc-700"
-                              >
-                                <ChevronRight size={12} />
-                              </button>
+                              <div className="flex items-center gap-1 text-orange-500 animate-pulse">
+                                <Sparkles size={10} /><span className="text-[8px] font-black uppercase tracking-tighter">Note</span>
+                              </div>
                             )}
                           </div>
                         ))}
@@ -208,49 +219,59 @@ export function ItineraryCard({
                     <div className="space-y-1.5 px-1 mt-1">
                       {isConflicted && <div className="text-red-500 font-bold text-[11px] flex items-center gap-1.5"><AlertTriangle size={12} /> 行程時間衝突</div>}
                       {closedWarning && <div className="text-red-500 font-bold text-[11px] flex items-center gap-1.5"><Clock size={12} /> ⚠️ {closedWarning}</div>}
-                      {item.notes && <p className="text-[12px] text-zinc-400 leading-relaxed italic whitespace-pre-wrap">{item.notes}</p>}
+                      {item.notes && <p className="text-[12px] text-zinc-300 leading-relaxed italic whitespace-pre-wrap">{item.notes}</p>}
                     </div>
                   </div>
 
-                  <div className="w-1/3 h-full shrink-0 bg-zinc-900 p-5 flex flex-col gap-3 relative">
+                  {/* Page 2: 子項目詳細備註 (模糊背景) */}
+                  <div className="absolute inset-0 left-[200%] w-full h-full bg-black/60 backdrop-blur-md p-5 flex flex-col gap-4">
                     {expandedSubIdx !== null && subItems[expandedSubIdx] && (
                       <>
-                        <div className="flex items-center justify-between border-b border-white/10 pb-2">
-                          <button onClick={() => { setViewIndex(1); setExpandedSubIdx(null); }} className="flex items-center gap-1 text-orange-500 font-bold text-xs">
-                            <ChevronLeft size={16} /> Back
+                        <div className="flex items-center justify-between border-b border-white/10 pb-3">
+                          <div className="bg-white/10 px-2 py-1 rounded-lg flex items-center gap-2">
+                            <Clock size={12} className="text-zinc-400" />
+                            <span className="text-[11px] text-zinc-200 font-mono font-bold">
+                              {subItems[expandedSubIdx].start_time} — {subItems[expandedSubIdx].end_time}
+                            </span>
+                          </div>
+                          <button 
+                            onClick={(e) => { e.stopPropagation(); setViewIndex(1); setExpandedSubIdx(null); }} 
+                            className="p-1.5 bg-white/10 hover:bg-white/20 rounded-full text-zinc-400 hover:text-white transition-colors"
+                          >
+                            <X size={16} />
                           </button>
-                          <span className="text-[10px] text-zinc-500 font-mono">{subItems[expandedSubIdx].start_time} - {subItems[expandedSubIdx].end_time}</span>
                         </div>
-                        <div className="flex-1 overflow-y-auto custom-scrollbar">
-                          <h5 className="text-white font-bold text-sm mb-2">{subItems[expandedSubIdx].title}</h5>
-                          <p className="text-zinc-400 text-xs leading-relaxed italic whitespace-pre-wrap">{subItems[expandedSubIdx].notes || "No notes."}</p>
+                        <div className="flex-1 overflow-y-auto custom-scrollbar pt-1">
+                          <h5 className="text-[16px] font-black text-white mb-3 tracking-tight">{subItems[expandedSubIdx].title}</h5>
+                          <div className="bg-white/5 rounded-2xl p-4 border border-white/5">
+                            <p className="text-zinc-300 text-[13px] leading-relaxed italic whitespace-pre-wrap">
+                              {subItems[expandedSubIdx].notes || "No additional notes recorded."}
+                            </p>
+                          </div>
                         </div>
                       </>
                     )}
                   </div>
                 </motion.div>
 
-                <div className="absolute bottom-2 left-0 right-0 flex justify-center gap-2 z-30 pointer-events-none">
-                  <div className="flex bg-black/20 backdrop-blur-sm px-2 py-1 rounded-full gap-1.5">
-                    <div className={clsx("w-1.5 h-1.5 rounded-full transition-all duration-300", viewIndex === 0 ? "bg-white scale-125 shadow-[0_0_8px_white]" : "bg-white/30")} />
-                    <div className={clsx(
-                      "w-1.5 h-1.5 rounded-full transition-all duration-300", 
-                      viewIndex === 1 ? (hasWarning ? "bg-red-500 scale-125 shadow-[0_0_8px_#ef4444]" : "bg-white scale-125 shadow-[0_0_8px_white]") : (hasWarning ? "bg-red-500/50" : "bg-white/30")
-                    )} />
-                    {expandedSubIdx !== null && (
-                      <motion.div 
-                        initial={{ scale: 0, opacity: 0 }} animate={{ scale: 1, opacity: 1 }}
-                        className={clsx("w-1.5 h-1.5 rounded-full transition-all duration-300", viewIndex === 2 ? "bg-white scale-125 shadow-[0_0_8px_white]" : "bg-white/30")} 
-                      />
-                    )}
+                {/* Indicators */}
+                {hasDetailContent && (
+                  <div className="absolute bottom-2 left-0 right-0 flex justify-center gap-2 z-30 pointer-events-none">
+                    <div className="flex bg-black/20 backdrop-blur-sm px-2 py-1 rounded-full gap-1.5">
+                      <div className={clsx("w-1.5 h-1.5 rounded-full transition-all duration-300", viewIndex === 0 ? "bg-white scale-125 shadow-[0_0_8px_white]" : "bg-white/30")} />
+                      <div className={clsx("w-1.5 h-1.5 rounded-full transition-all duration-300", viewIndex === 1 ? (hasWarning ? "bg-red-500 scale-125 shadow-[0_0_8px_#ef4444]" : "bg-white scale-125 shadow-[0_0_8px_white]") : (hasWarning ? "bg-red-500/50" : "bg-white/30"))} />
+                      {expandedSubIdx !== null && (
+                        <motion.div initial={{ scale: 0, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} className={clsx("w-1.5 h-1.5 rounded-full transition-all duration-300", viewIndex === 2 ? "bg-white scale-125 shadow-[0_0_8px_white]" : "bg-white/30")} />
+                      )}
+                    </div>
                   </div>
-                </div>
+                )}
               </div>
             </motion.div>
           )}
         </AnimatePresence>
 
-        {/* 第四行 (Next Stop) - 💡 嚴格執行您的優先序邏輯 */}
+        {/* Footer: Next Transport */}
         {showNextTransport && (canEdit || !!item.next_transport_mode) && (isCardExpanded || !isPast) && (
           <button 
             type="button" disabled={!canEdit}
@@ -265,27 +286,15 @@ export function ItineraryCard({
             
             {item.next_transport_mode ? (
               <div className="flex items-center gap-2">
-                {/* 💡 恢復橘色外觀 */}
                 <div className={isCircuitBreaker ? "text-white" : "text-orange-500"}>
                   {getTransportIcon()}
                 </div>
-                
-                <div className={clsx(
-                  "flex items-center gap-1 text-[11px] font-black tracking-tight", 
-                  isCircuitBreaker ? "text-white" : "text-orange-500"
-                )}>
-                  {/* 💡 優先序判斷實作 */}
+                <div className={clsx("flex items-center gap-1 text-[11px] font-black tracking-tight", isCircuitBreaker ? "text-white" : "text-orange-500")}>
                   {manualVal > 0 ? (
-                    // 優先序 1: 手動設定值
                     `${manualVal}m`
                   ) : autoVal > 0 ? (
-                    // 優先序 2: manualVal 為 0 且 autoVal 有值，顯示 AI 數值
-                    <>
-                      {autoVal}m
-                      <Sparkles size={9} className="animate-pulse" />
-                    </>
+                    <>{autoVal}m<Sparkles size={9} className="animate-pulse" /></>
                   ) : (
-                    // 優先序 3: 全都沒填 (或新建立) 顯示 Auto
                     'Auto'
                   )}
                 </div>
