@@ -351,8 +351,8 @@ function minsToTime(mins: number) {
 // 🚀 AI 連續流體排程引擎
 // ==========================================
 
+// 🚀 正確順序的 AI 連續流體排程引擎
 export async function optimizeDailyItinerary(env: any, tripId: number, dateStr: string) {
-  // 1. 取得當天所有行程，確保排序：有時間的依時間排，沒時間(待排程)的壓在最後
   const { results: items } = await env.DB.prepare(`
     SELECT * FROM Itineraries 
     WHERE trip_id = ? AND date = ?
@@ -365,49 +365,39 @@ export async function optimizeDailyItinerary(env: any, tripId: number, dateStr: 
   if (items.length === 0) return;
 
   const statements = [];
-  let currentMins = 9 * 60; // 預設從早上 09:00 開始排程
-  let isCircuitBroken = false; // 交通斷路器
+  let currentMins = 9 * 60; // 預設從 09:00 開始
+  let isCircuitBroken = false; 
   
-  // 如果第一站有固定時間，且早於 09:00，則提早啟動一天的時間軸
   const firstFixed = items.find((item: any) => item.is_time_fixed === 1);
   if (firstFixed && timeToMins(firstFixed.start_time) > 0) {
     currentMins = Math.min(currentMins, timeToMins(firstFixed.start_time));
   }
 
-  // 2. 開始巡迴當天每個景點，進行流體排程
   for (let i = 0; i < items.length; i++) {
     const item = items[i] as any;
 
-    // 📌 狀況 A：這是一個「固定時間」的行程 (AI Lock)
     if (item.is_time_fixed === 1) {
-      // 無視先前的交通延誤，強制將時間軸校準到它的結束時間
       currentMins = timeToMins(item.end_time);
-      isCircuitBroken = false; // 💡 遇到固定點，斷路器自動重置解鎖！
-      
-      // 清除警告
-      statements.push(
-        env.DB.prepare(`UPDATE Itineraries SET sync_conflict_warning = null WHERE id = ?`).bind(item.id)
-      );
+      isCircuitBroken = false; 
+      statements.push(env.DB.prepare(`UPDATE Itineraries SET sync_conflict_warning = null WHERE id = ?`).bind(item.id));
       continue;
     }
 
-    // 📌 狀況 B：這是一個「智慧排程」的彈性行程
-    // 如果斷路器處於跳脫狀態 (代表前面的交通斷了)
     if (isCircuitBroken) {
       statements.push(
         env.DB.prepare(`UPDATE Itineraries SET start_time = '', end_time = '', sync_conflict_warning = ? WHERE id = ?`)
         .bind('⚠️ 前方交通未設定，AI 暫停排程', item.id)
       );
-      continue; // 直接跳過，留給使用者去補交通
+      continue;
     }
 
-    // 初始化交通時間與換場緩衝
-    let transportMins = 0;
-    let transitionBuffer = 0; 
+    // 💡 第一步：先定義 prevItem
     const prevItem = i > 0 ? (items[i - 1] as any) : null;
+    let transportMins = 0;
+    let transitionBuffer = 0;
 
+    // 💡 第二步：計算交通時間 (transportMins) 與 緩衝 (transitionBuffer)
     if (prevItem) {
-      // 🚨 如果前一站完全沒設交通模式 -> 觸發斷路器！
       if (!prevItem.next_transport_mode) {
         isCircuitBroken = true;
         statements.push(
@@ -417,70 +407,53 @@ export async function optimizeDailyItinerary(env: any, tripId: number, dateStr: 
         continue;
       }
 
-      // 💡 根據 next_transport_time 是否為 'auto' 來決定是否自動計算
       if (prevItem.next_transport_time === 'auto') {
         const dist = getDistanceKm(prevItem.lat, prevItem.lng, item.lat, item.lng);
-        
-        // 依照使用者選定的交通模式，套用不同的速度倍率與緩衝時間
-        let speedMultiplier = 4; // 預設 Driving 速度 (約 15km/h)
-        let buffer = 5;          // 預設找車位緩衝
+        let speedMultiplier = 4; // 預設 Driving
+        let buffer = 5;
 
         if (prevItem.next_transport_mode === 'WALKING') {
-          speedMultiplier = 12;  // 走路比較慢 (約 5km/h)
-          buffer = 2;            // 不需要找車位
-        } else if (prevItem.next_transport_mode === 'BICYCLING') {
-          speedMultiplier = 4;   // 腳踏車約 15km/h
+          speedMultiplier = 12; 
           buffer = 2;
         } else if (prevItem.next_transport_mode === 'TRANSIT') {
-          speedMultiplier = 4;   // 大眾運輸
-          buffer = 10;           // 等車、步行去車站的緩衝較大
+          speedMultiplier = 4;
+          buffer = 10; // 大眾運輸給較多緩衝
         }
 
         transportMins = dist !== null ? Math.ceil(dist * speedMultiplier) + buffer : 15; 
-        
-        // 💡 既然是 AI 自動算，我們就加 5 分鐘換場緩衝
-        transitionBuffer = 5;
+        transitionBuffer = 5; // AI 計算時額外給予 5 分鐘換場緩衝
 
-        // 準確回寫 AI 計算的 auto_time 給前一站
         statements.push(
           env.DB.prepare(`UPDATE Itineraries SET next_transport_auto_time = ? WHERE id = ?`)
           .bind(transportMins, prevItem.id)
         );
       } else {
-        // 💡 使用者手動設定的時間 (例如 "30 min" 擷取出 30)
+        // 手動模式
         transportMins = parseInt(prevItem.next_transport_time?.replace(/\D/g, '')) || 15;
-        // 💡 手動設定不給緩衝，完全遵照使用者意志
-        transitionBuffer = 0;
+        transitionBuffer = 0; // 手動設定不加額外緩衝
       }
     }
 
-    // 進行時間推進 (加上交通時間與緩衝時間)
+    // 💡 第三步：使用算好的 transportMins 推進時間
     const startMins = currentMins + transportMins + transitionBuffer;
     const stayDuration = parseInt(item.stay_duration) || 60;
     const endMins = startMins + stayDuration;
 
-    // 🔍 碰撞偵測：是否擠壓到未來的固定行程？
     let warning = null;
     const nextFixed = items.slice(i + 1).find((x: any) => x.is_time_fixed === 1);
     if (nextFixed) {
-      const nextFixedStartMins = timeToMins(nextFixed.start_time);
-      if (endMins > nextFixedStartMins) {
+      if (endMins > timeToMins(nextFixed.start_time)) {
         warning = '⚠️ 停留時間與後方固定行程重疊';
       }
     }
 
-    // 💡 寫入計算結果
     statements.push(
       env.DB.prepare(`UPDATE Itineraries SET start_time = ?, end_time = ?, sync_conflict_warning = ? WHERE id = ?`)
       .bind(minsToTime(startMins), minsToTime(endMins), warning, item.id)
     );
 
-    // 更新當前時間游標，準備計算下一站
     currentMins = endMins;
   }
 
-  // 3. 批次寫入資料庫
-  if (statements.length > 0) {
-    await env.DB.batch(statements);
-  }
+  if (statements.length > 0) await env.DB.batch(statements);
 }

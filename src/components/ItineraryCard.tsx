@@ -27,15 +27,6 @@ const safeParse = (data: any) => {
   } catch (e) { return []; }
 };
 
-const getPreferenceLabel = (pref: string) => {
-  switch (pref) {
-    case 'morning': return '上午';
-    case 'afternoon': return '下午';
-    case 'evening': return '晚上';
-    default: return '不限';
-  }
-};
-
 const checkIsClosed = (dateStr: string, openingHoursJson: string | undefined | null) => {
   if (!openingHoursJson) return null;
   try {
@@ -71,7 +62,6 @@ export function ItineraryCard({
   const closedWarning = checkIsClosed(item.date, item.opening_hours);
   const hasWarning = !!closedWarning || !!item.sync_conflict_warning || !!isConflicted;
 
-  // 💡 監聽子項目選取：一旦選取，自動滑向第 3 頁 (Index 2)
   useEffect(() => {
     if (expandedSubIdx !== null) {
       setViewIndex(2);
@@ -87,13 +77,13 @@ export function ItineraryCard({
   };
 
   const getTransportIcon = () => {
-    // 💡 修正：直接根據模式回傳圖示
-    switch (item.next_transport_mode?.toUpperCase()) {
-      case 'TRANSIT': case 'TRAIN': return <Train size={14} />;
-      case 'BUS': return <Bus size={14} />;
-      case 'WALKING': return <Footprints size={14} />;
-      case 'BICYCLING': return <Bike size={14} />;
-      case 'DRIVING': return <Car size={14} />;
+    const mode = item.next_transport_mode?.toLowerCase();
+    switch (mode) {
+      case 'transit': case 'train': return <Train size={14} />;
+      case 'bus': return <Bus size={14} />;
+      case 'walking': return <Footprints size={14} />;
+      case 'bicycling': return <Bike size={14} />;
+      case 'driving': return <Car size={14} />;
       default: return <Car size={14} />;
     }
   };
@@ -102,7 +92,12 @@ export function ItineraryCard({
   const isAiCalculated = !isFixed && (!!item.start_time && item.start_time !== '');
   const isCircuitBreaker = canEdit && (!!item.start_time) && (!item.next_transport_mode || item.next_transport_mode === '');
 
-  // 💡 進階滑動判定
+  // 💡 核心數值解析邏輯
+  // next_transport_time: 轉為數字，過濾掉 " min" 等字串
+  const manualVal = parseInt(item.next_transport_time?.toString().replace(/\D/g, '') || '0', 10);
+  // next_transport_auto_time: 轉為數字，處理 20.0 這種浮點數
+  const autoVal = Math.round(Number((item as any).next_transport_auto_time || 0));
+
   const handleDragEnd = (e: any, info: any) => {
     const swipeThreshold = 50;
     const velocityThreshold = 500;
@@ -115,7 +110,6 @@ export function ItineraryCard({
       newIndex = Math.max(viewIndex - 1, 0);
     }
 
-    // 💡 自動清除邏輯：如果從第 3 頁滑回第 2 頁，清除選取的子項目
     if (viewIndex === 2 && newIndex === 1) {
       setExpandedSubIdx(null);
     }
@@ -138,12 +132,10 @@ export function ItineraryCard({
               <DynamicIcon name={item.icon || 'MapPin'} size={18} />
             </div>
             <div className="flex items-center gap-1.5">
-              {item.start_time ? (
+              {item.start_time && (
                 <span className={clsx("font-mono font-black tracking-tight text-[13px]", isPast ? "text-zinc-500" : "text-zinc-100")}>
                   {item.start_time} — {item.end_time}
                 </span>
-              ) : (
-                <span className="text-zinc-500 font-black text-[10px] uppercase tracking-wider">{getPreferenceLabel(item.time_preference || 'anytime')}</span>
               )}
               {isFixed && <Lock size={10} className="text-zinc-600" />}
               {isAiCalculated && <Sparkles size={10} className="text-orange-500/60" />}
@@ -175,12 +167,10 @@ export function ItineraryCard({
                   transition={{ type: "spring", stiffness: 300, damping: 32 }}
                   className="flex w-[300%] h-full"
                 >
-                  {/* Page 0: 照片 */}
                   <div className="w-1/3 h-full shrink-0 relative">
                     <img src={item.image_url} alt="place" className="w-full h-full object-cover opacity-70 pointer-events-none" />
                   </div>
 
-                  {/* Page 1: 摘要清單 */}
                   <div className="w-1/3 h-full shrink-0 bg-black/85 p-4 overflow-y-auto custom-scrollbar flex flex-col gap-3 backdrop-blur-md">
                     <div className="flex flex-wrap items-center gap-2">
                       {item.rating && (
@@ -222,7 +212,6 @@ export function ItineraryCard({
                     </div>
                   </div>
 
-                  {/* Page 2: 子項目詳細備註 (自動產生) */}
                   <div className="w-1/3 h-full shrink-0 bg-zinc-900 p-5 flex flex-col gap-3 relative">
                     {expandedSubIdx !== null && subItems[expandedSubIdx] && (
                       <>
@@ -241,19 +230,13 @@ export function ItineraryCard({
                   </div>
                 </motion.div>
 
-                {/* 💡 動態分頁指示器 (Dots) */}
                 <div className="absolute bottom-2 left-0 right-0 flex justify-center gap-2 z-30 pointer-events-none">
                   <div className="flex bg-black/20 backdrop-blur-sm px-2 py-1 rounded-full gap-1.5">
-                    {/* 點 1: 照片 */}
                     <div className={clsx("w-1.5 h-1.5 rounded-full transition-all duration-300", viewIndex === 0 ? "bg-white scale-125 shadow-[0_0_8px_white]" : "bg-white/30")} />
-                    
-                    {/* 點 2: 摘要 */}
                     <div className={clsx(
                       "w-1.5 h-1.5 rounded-full transition-all duration-300", 
                       viewIndex === 1 ? (hasWarning ? "bg-red-500 scale-125 shadow-[0_0_8px_#ef4444]" : "bg-white scale-125 shadow-[0_0_8px_white]") : (hasWarning ? "bg-red-500/50" : "bg-white/30")
                     )} />
-
-                    {/* 💡 點 3: 只有在選取子項目時才顯示 */}
                     {expandedSubIdx !== null && (
                       <motion.div 
                         initial={{ scale: 0, opacity: 0 }} animate={{ scale: 1, opacity: 1 }}
@@ -267,7 +250,7 @@ export function ItineraryCard({
           )}
         </AnimatePresence>
 
-        {/* 第四行 (Next Stop) */}
+        {/* 第四行 (Next Stop) - 💡 嚴格執行您的優先序邏輯 */}
         {showNextTransport && (canEdit || !!item.next_transport_mode) && (isCardExpanded || !isPast) && (
           <button 
             type="button" disabled={!canEdit}
@@ -279,14 +262,31 @@ export function ItineraryCard({
             )}
           >
             <span className={clsx("text-[9px] font-black uppercase tracking-[0.2em]", isCircuitBreaker ? "text-white" : "text-zinc-500")}>Next Stop</span>
+            
             {item.next_transport_mode ? (
               <div className="flex items-center gap-2">
-                <div className={isCircuitBreaker ? "text-white" : "text-orange-500"}>{getTransportIcon()}</div>
-                <div className={clsx("flex items-center gap-1 text-[11px] font-black tracking-tight", isCircuitBreaker ? "text-white" : "text-zinc-200")}>
-                  {item.next_transport_mode === 'auto' ? (
-                    <>{(item as any).next_transport_auto_time ? `${(item as any).next_transport_auto_time}m` : 'Auto'}<Sparkles size={9} /></>
+                {/* 💡 恢復橘色外觀 */}
+                <div className={isCircuitBreaker ? "text-white" : "text-orange-500"}>
+                  {getTransportIcon()}
+                </div>
+                
+                <div className={clsx(
+                  "flex items-center gap-1 text-[11px] font-black tracking-tight", 
+                  isCircuitBreaker ? "text-white" : "text-orange-500"
+                )}>
+                  {/* 💡 優先序判斷實作 */}
+                  {manualVal > 0 ? (
+                    // 優先序 1: 手動設定值
+                    `${manualVal}m`
+                  ) : autoVal > 0 ? (
+                    // 優先序 2: manualVal 為 0 且 autoVal 有值，顯示 AI 數值
+                    <>
+                      {autoVal}m
+                      <Sparkles size={9} className="animate-pulse" />
+                    </>
                   ) : (
-                    item.next_transport_time?.replace(' min', 'm') || 'Set'
+                    // 優先序 3: 全都沒填 (或新建立) 顯示 Auto
+                    'Auto'
                   )}
                 </div>
               </div>
