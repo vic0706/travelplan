@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { MapPin, Car, Train, Bus, AlertTriangle, Star, Plus, Footprints, Bike, Navigation2, Lock, Sparkles, Clock, X } from 'lucide-react';
+import { MapPin, Car, Train, Bus, AlertTriangle, Star, Plus, Footprints, Bike, Navigation2, Sparkles, Clock, X, Asterisk } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Itinerary } from '../types';
 import { DynamicIcon } from './DynamicIcon';
@@ -61,11 +61,8 @@ export function ItineraryCard({
 
   const closedWarning = checkIsClosed(item.date, item.opening_hours);
   const hasWarning = !!closedWarning || !!item.sync_conflict_warning || !!isConflicted;
-
-  // 💡 邏輯：判定是否有足夠資料需要「右滑」(排除只有星星的情況)
   const hasDetailContent = tags.length > 0 || subItems.length > 0 || !!item.notes || hasWarning;
 
-  // 💡 核心修正：補回漏掉的 isCircuitBreaker 宣告
   const isCircuitBreaker = canEdit && (!!item.start_time) && (!item.next_transport_mode || item.next_transport_mode === '');
 
   useEffect(() => {
@@ -96,8 +93,8 @@ export function ItineraryCard({
   const autoVal = Math.round(Number((item as any).next_transport_auto_time || 0));
 
   const handleDragEnd = (e: any, info: any) => {
-    const swipeThreshold = 50;
-    const velocityThreshold = 500;
+    const swipeThreshold = 30; // 降低門檻，更好滑
+    const velocityThreshold = 400;
     const maxIndex = expandedSubIdx !== null ? 2 : (hasDetailContent ? 1 : 0);
 
     let newIndex = viewIndex;
@@ -132,7 +129,6 @@ export function ItineraryCard({
                   {item.start_time} — {item.end_time}
                 </span>
               )}
-              {item.is_time_fixed === 1 && <Lock size={10} className="text-zinc-600" />}
               {item.start_time && !item.is_time_fixed && !isPast && <Sparkles size={10} className="text-orange-500/60" />}
             </div>
           </div>
@@ -148,13 +144,13 @@ export function ItineraryCard({
           </h4>
         </div>
 
-        {/* Dynamic Image Section */}
+        {/* Swipe Area */}
         <AnimatePresence>
           {isCardExpanded && item.image_url && (
             <motion.div initial={{ height: 0, opacity: 0 }} animate={{ height: 'auto', opacity: 1 }} exit={{ height: 0, opacity: 0 }} className="relative">
               <div className="relative w-full aspect-[21/9] bg-zinc-900 overflow-hidden cursor-grab active:cursor-grabbing">
                 
-                {/* 💡 背景照片固定，不隨容器滑動 */}
+                {/* Fixed Background Image */}
                 <img 
                   src={item.image_url} 
                   alt="place" 
@@ -164,20 +160,20 @@ export function ItineraryCard({
                   )} 
                 />
 
-                {/* 💡 滑動內容層：寬度維持 100%，使用絕對定位排列頁面 */}
                 <motion.div 
                   drag={hasDetailContent ? "x" : false}
                   dragConstraints={{ left: 0, right: 0 }}
-                  dragElastic={0.2}
+                  dragElastic={0.15}
                   onDragEnd={handleDragEnd}
                   animate={{ x: `-${viewIndex * 100}%` }}
-                  transition={{ type: "spring", stiffness: 300, damping: 32 }}
+                  // 💡 優化滑動彈性，更有 iOS 感
+                  transition={{ type: "spring", stiffness: 350, damping: 35, mass: 0.8 }}
                   className="absolute inset-0 w-full h-full z-10"
                 >
-                  {/* Page 0: 透明 (點擊照片直接跳到 Page 1) */}
+                  {/* Page 0: Photo (Click to jump to Page 1) */}
                   <div className="absolute inset-0 left-0 w-full h-full" onClick={() => hasDetailContent && setViewIndex(1)} />
 
-                  {/* Page 1: 摘要清單 (毛玻璃效果) */}
+                  {/* Page 1: Summary List */}
                   <div className="absolute inset-0 left-[100%] w-full h-full bg-black/40 backdrop-blur-md p-4 overflow-y-auto custom-scrollbar flex flex-col gap-3">
                     <div className="flex flex-wrap items-center gap-2">
                       {item.rating && (
@@ -191,24 +187,25 @@ export function ItineraryCard({
                       ))}
                     </div>
 
+                    {/* Sub-items list (💡 Click to Page 2) */}
                     {subItems.length > 0 && (
                       <div className="flex flex-col gap-1.5">
                         {subItems.map((sub: any, idx: number) => (
                           <div 
                             key={idx} 
-                            onClick={(e) => { if (sub.notes) { e.stopPropagation(); setExpandedSubIdx(idx); } }}
+                            onClick={(e) => { if (sub.notes || sub.tags?.length) { e.stopPropagation(); setExpandedSubIdx(idx); } }}
                             className={clsx(
                               "flex items-center justify-between p-2.5 rounded-xl border transition-all",
-                              sub.notes ? "bg-white/10 border-white/10 hover:bg-white/20 cursor-pointer" : "bg-white/5 border-white/5 opacity-80"
+                              sub.notes || sub.tags?.length ? "bg-white/10 border-white/10 hover:bg-white/20 cursor-pointer" : "bg-white/5 border-white/5 opacity-80"
                             )}
                           >
                             <div className="flex items-center gap-2.5 overflow-hidden">
                               <span className="text-[9px] text-zinc-400 font-mono shrink-0">{sub.start_time}</span>
                               <span className="text-[12px] font-bold text-zinc-200 truncate">{sub.title}</span>
                             </div>
-                            {sub.notes && (
-                              <div className="flex items-center gap-1 text-orange-500 animate-pulse">
-                                <Sparkles size={10} /><span className="text-[8px] font-black uppercase tracking-tighter">Note</span>
+                            {(sub.notes || sub.tags?.length) && (
+                              <div className="text-orange-500">
+                                <Asterisk size={14} strokeWidth={3} />
                               </div>
                             )}
                           </div>
@@ -223,29 +220,43 @@ export function ItineraryCard({
                     </div>
                   </div>
 
-                  {/* Page 2: 子項目詳細備註 (模糊背景) */}
-                  <div className="absolute inset-0 left-[200%] w-full h-full bg-black/60 backdrop-blur-md p-5 flex flex-col gap-4">
+                  {/* Page 2: Sub-item Details (💡 Left: Time, Right: X) */}
+                  <div className="absolute inset-0 left-[200%] w-full h-full bg-black/60 backdrop-blur-md p-5 flex flex-col gap-3">
                     {expandedSubIdx !== null && subItems[expandedSubIdx] && (
                       <>
-                        <div className="flex items-center justify-between border-b border-white/10 pb-3">
-                          <div className="bg-white/10 px-2 py-1 rounded-lg flex items-center gap-2">
+                        <div className="flex items-center justify-between border-b border-white/10 pb-2.5">
+                          {/* Left: Time (High Contrast) */}
+                          <div className="flex items-center gap-2">
                             <Clock size={12} className="text-zinc-400" />
-                            <span className="text-[11px] text-zinc-200 font-mono font-bold">
+                            <span className="text-[11px] text-white font-mono font-black">
                               {subItems[expandedSubIdx].start_time} — {subItems[expandedSubIdx].end_time}
                             </span>
                           </div>
+                          {/* Right: X Button */}
                           <button 
                             onClick={(e) => { e.stopPropagation(); setViewIndex(1); setExpandedSubIdx(null); }} 
-                            className="p-1.5 bg-white/10 hover:bg-white/20 rounded-full text-zinc-400 hover:text-white transition-colors"
+                            className="p-1.5 bg-zinc-800/80 hover:bg-zinc-700 rounded-full text-zinc-400 hover:text-white transition-colors"
                           >
                             <X size={16} />
                           </button>
                         </div>
-                        <div className="flex-1 overflow-y-auto custom-scrollbar pt-1">
-                          <h5 className="text-[16px] font-black text-white mb-3 tracking-tight">{subItems[expandedSubIdx].title}</h5>
+                        <div className="flex-1 overflow-y-auto custom-scrollbar">
+                          <h5 className="text-[16px] font-black text-white mb-2 tracking-tight">{subItems[expandedSubIdx].title}</h5>
+                          
+                          {/* Sub-item Tags */}
+                          {subItems[expandedSubIdx].tags && subItems[expandedSubIdx].tags.length > 0 && (
+                            <div className="flex flex-wrap gap-1 mb-3">
+                              {subItems[expandedSubIdx].tags.map((t: string) => (
+                                <span key={t} className="text-[8px] font-black text-orange-400 bg-orange-400/10 px-1.5 py-0.5 rounded border border-orange-400/20">
+                                  #{t}
+                                </span>
+                              ))}
+                            </div>
+                          )}
+
                           <div className="bg-white/5 rounded-2xl p-4 border border-white/5">
-                            <p className="text-zinc-300 text-[13px] leading-relaxed italic whitespace-pre-wrap">
-                              {subItems[expandedSubIdx].notes || "No additional notes recorded."}
+                            <p className="text-zinc-200 text-[13px] leading-relaxed italic whitespace-pre-wrap">
+                              {subItems[expandedSubIdx].notes || "No notes recorded."}
                             </p>
                           </div>
                         </div>
@@ -286,21 +297,19 @@ export function ItineraryCard({
             
             {item.next_transport_mode ? (
               <div className="flex items-center gap-2">
-                <div className={isCircuitBreaker ? "text-white" : "text-orange-500"}>
-                  {getTransportIcon()}
-                </div>
-                <div className={clsx("flex items-center gap-1 text-[11px] font-black tracking-tight", isCircuitBreaker ? "text-white" : "text-orange-500")}>
+                <div className="text-orange-500">{getTransportIcon()}</div>
+                <div className="flex items-center gap-1 text-[11px] font-black tracking-tight text-orange-500">
                   {manualVal > 0 ? (
                     `${manualVal}m`
                   ) : autoVal > 0 ? (
-                    <>{autoVal}m<Sparkles size={9} className="animate-pulse" /></>
+                    <>{autoVal}m<Sparkles size={9} /></>
                   ) : (
                     'Auto'
                   )}
                 </div>
               </div>
             ) : (
-              <div className={clsx("flex items-center gap-1.5 opacity-60", isCircuitBreaker ? "text-white" : "text-zinc-500")}>
+              <div className="flex items-center gap-1.5 opacity-60 text-zinc-500">
                 <Plus size={12} /><span className="text-[9px] font-bold uppercase">Add</span>
               </div>
             )}
