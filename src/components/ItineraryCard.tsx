@@ -63,6 +63,7 @@ export function ItineraryCard({
   const hasWarning = !!closedWarning || !!item.sync_conflict_warning || !!isConflicted;
   const hasDetailContent = tags.length > 0 || subItems.length > 0 || !!item.notes || hasWarning;
 
+  // 💡 邏輯：判定是否需要紅色警告樣式
   const isCircuitBreaker = canEdit && (!!item.start_time) && (!item.next_transport_mode || item.next_transport_mode === '');
 
   useEffect(() => {
@@ -92,8 +93,9 @@ export function ItineraryCard({
   const manualVal = parseInt(item.next_transport_time?.toString().replace(/\D/g, '') || '0', 10);
   const autoVal = Math.round(Number((item as any).next_transport_auto_time || 0));
 
+  // 💡 核心滑動邏輯 (物理優化)
   const handleDragEnd = (e: any, info: any) => {
-    const swipeThreshold = 30; // 降低門檻，更好滑
+    const swipeThreshold = 30; // 降低靈敏度門檻
     const velocityThreshold = 400;
     const maxIndex = expandedSubIdx !== null ? 2 : (hasDetailContent ? 1 : 0);
 
@@ -129,6 +131,7 @@ export function ItineraryCard({
                   {item.start_time} — {item.end_time}
                 </span>
               )}
+              {/* 💡 移除鎖頭，AI 星星恆亮 */}
               {item.start_time && !item.is_time_fixed && !isPast && <Sparkles size={10} className="text-orange-500/60" />}
             </div>
           </div>
@@ -150,15 +153,8 @@ export function ItineraryCard({
             <motion.div initial={{ height: 0, opacity: 0 }} animate={{ height: 'auto', opacity: 1 }} exit={{ height: 0, opacity: 0 }} className="relative">
               <div className="relative w-full aspect-[21/9] bg-zinc-900 overflow-hidden cursor-grab active:cursor-grabbing">
                 
-                {/* Fixed Background Image */}
-                <img 
-                  src={item.image_url} 
-                  alt="place" 
-                  className={clsx(
-                    "absolute inset-0 w-full h-full object-cover z-0 pointer-events-none transition-opacity duration-500",
-                    isPast ? "opacity-30" : "opacity-80"
-                  )} 
-                />
+                {/* 背景照片固定 */}
+                <img src={item.image_url} alt="place" className={clsx("absolute inset-0 w-full h-full object-cover z-0 transition-opacity duration-500", isPast ? "opacity-30" : "opacity-80")} />
 
                 <motion.div 
                   drag={hasDetailContent ? "x" : false}
@@ -166,14 +162,14 @@ export function ItineraryCard({
                   dragElastic={0.15}
                   onDragEnd={handleDragEnd}
                   animate={{ x: `-${viewIndex * 100}%` }}
-                  // 💡 優化滑動彈性，更有 iOS 感
-                  transition={{ type: "spring", stiffness: 350, damping: 35, mass: 0.8 }}
+                  // 💡 iOS 質感彈簧參數
+                  transition={{ type: "spring", stiffness: 280, damping: 30, mass: 1.2 }}
                   className="absolute inset-0 w-full h-full z-10"
                 >
-                  {/* Page 0: Photo (Click to jump to Page 1) */}
+                  {/* Page 0: 照片層 (點擊跳轉 Page 1) */}
                   <div className="absolute inset-0 left-0 w-full h-full" onClick={() => hasDetailContent && setViewIndex(1)} />
 
-                  {/* Page 1: Summary List */}
+                  {/* Page 1: 摘要層 (點擊子項目跳轉 Page 2) */}
                   <div className="absolute inset-0 left-[100%] w-full h-full bg-black/40 backdrop-blur-md p-4 overflow-y-auto custom-scrollbar flex flex-col gap-3">
                     <div className="flex flex-wrap items-center gap-2">
                       {item.rating && (
@@ -187,13 +183,12 @@ export function ItineraryCard({
                       ))}
                     </div>
 
-                    {/* Sub-items list (💡 Click to Page 2) */}
                     {subItems.length > 0 && (
                       <div className="flex flex-col gap-1.5">
                         {subItems.map((sub: any, idx: number) => (
                           <div 
                             key={idx} 
-                            onClick={(e) => { if (sub.notes || sub.tags?.length) { e.stopPropagation(); setExpandedSubIdx(idx); } }}
+                            onClick={(e) => { if (sub.notes || sub.tags?.length) { e.stopPropagation(); setExpandedSubIdx(idx); setViewIndex(2); } }}
                             className={clsx(
                               "flex items-center justify-between p-2.5 rounded-xl border transition-all",
                               sub.notes || sub.tags?.length ? "bg-white/10 border-white/10 hover:bg-white/20 cursor-pointer" : "bg-white/5 border-white/5 opacity-80"
@@ -203,11 +198,7 @@ export function ItineraryCard({
                               <span className="text-[9px] text-zinc-400 font-mono shrink-0">{sub.start_time}</span>
                               <span className="text-[12px] font-bold text-zinc-200 truncate">{sub.title}</span>
                             </div>
-                            {(sub.notes || sub.tags?.length) && (
-                              <div className="text-orange-500">
-                                <Asterisk size={14} strokeWidth={3} />
-                              </div>
-                            )}
+                            {(sub.notes || sub.tags?.length) && <div className="text-orange-500"><Asterisk size={14} strokeWidth={3} /></div>}
                           </div>
                         ))}
                       </div>
@@ -220,19 +211,18 @@ export function ItineraryCard({
                     </div>
                   </div>
 
-                  {/* Page 2: Sub-item Details (💡 Left: Time, Right: X) */}
-                  <div className="absolute inset-0 left-[200%] w-full h-full bg-black/60 backdrop-blur-md p-5 flex flex-col gap-3">
+                  {/* Page 2: 子項目詳情 (支援上下滑動，防止點擊跳轉) */}
+                  <div className="absolute inset-0 left-[200%] w-full h-full bg-black/60 backdrop-blur-md flex flex-col">
                     {expandedSubIdx !== null && subItems[expandedSubIdx] && (
-                      <>
-                        <div className="flex items-center justify-between border-b border-white/10 pb-2.5">
-                          {/* Left: Time (High Contrast) */}
-                          <div className="flex items-center gap-2">
+                      <div className="h-full flex flex-col p-5">
+                        {/* 緊湊 Header: 左時間、右 X */}
+                        <div className="flex items-center justify-between border-b border-white/10 pb-2.5 mb-3 shrink-0">
+                          <div className="flex items-center gap-2 bg-white/10 px-2 py-1 rounded-lg">
                             <Clock size={12} className="text-zinc-400" />
                             <span className="text-[11px] text-white font-mono font-black">
                               {subItems[expandedSubIdx].start_time} — {subItems[expandedSubIdx].end_time}
                             </span>
                           </div>
-                          {/* Right: X Button */}
                           <button 
                             onClick={(e) => { e.stopPropagation(); setViewIndex(1); setExpandedSubIdx(null); }} 
                             className="p-1.5 bg-zinc-800/80 hover:bg-zinc-700 rounded-full text-zinc-400 hover:text-white transition-colors"
@@ -240,16 +230,15 @@ export function ItineraryCard({
                             <X size={16} />
                           </button>
                         </div>
-                        <div className="flex-1 overflow-y-auto custom-scrollbar">
-                          <h5 className="text-[16px] font-black text-white mb-2 tracking-tight">{subItems[expandedSubIdx].title}</h5>
+
+                        {/* 內容區：可上下滑動 */}
+                        <div className="flex-1 overflow-y-auto custom-scrollbar pr-1">
+                          <h5 className="text-[16px] font-black text-white mb-2 tracking-tight leading-tight">{subItems[expandedSubIdx].title}</h5>
                           
-                          {/* Sub-item Tags */}
                           {subItems[expandedSubIdx].tags && subItems[expandedSubIdx].tags.length > 0 && (
-                            <div className="flex flex-wrap gap-1 mb-3">
+                            <div className="flex flex-wrap gap-1 mb-4">
                               {subItems[expandedSubIdx].tags.map((t: string) => (
-                                <span key={t} className="text-[8px] font-black text-orange-400 bg-orange-400/10 px-1.5 py-0.5 rounded border border-orange-400/20">
-                                  #{t}
-                                </span>
+                                <span key={t} className="text-[8px] font-black text-orange-400 bg-orange-400/10 px-1.5 py-0.5 rounded border border-orange-400/20">#{t}</span>
                               ))}
                             </div>
                           )}
@@ -260,7 +249,7 @@ export function ItineraryCard({
                             </p>
                           </div>
                         </div>
-                      </>
+                      </div>
                     )}
                   </div>
                 </motion.div>
@@ -282,7 +271,7 @@ export function ItineraryCard({
           )}
         </AnimatePresence>
 
-        {/* Footer: Next Transport */}
+        {/* Footer: Next Stop (恆亮橘色) */}
         {showNextTransport && (canEdit || !!item.next_transport_mode) && (isCardExpanded || !isPast) && (
           <button 
             type="button" disabled={!canEdit}
@@ -299,19 +288,11 @@ export function ItineraryCard({
               <div className="flex items-center gap-2">
                 <div className="text-orange-500">{getTransportIcon()}</div>
                 <div className="flex items-center gap-1 text-[11px] font-black tracking-tight text-orange-500">
-                  {manualVal > 0 ? (
-                    `${manualVal}m`
-                  ) : autoVal > 0 ? (
-                    <>{autoVal}m<Sparkles size={9} /></>
-                  ) : (
-                    'Auto'
-                  )}
+                  {manualVal > 0 ? `${manualVal}m` : autoVal > 0 ? <>{autoVal}m<Sparkles size={9} /></> : 'Auto'}
                 </div>
               </div>
             ) : (
-              <div className="flex items-center gap-1.5 opacity-60 text-zinc-500">
-                <Plus size={12} /><span className="text-[9px] font-bold uppercase">Add</span>
-              </div>
+              <div className="flex items-center gap-1.5 opacity-60 text-zinc-500"><Plus size={12} /><span className="text-[9px] font-bold uppercase">Add</span></div>
             )}
           </button>
         )}
