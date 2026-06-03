@@ -7,6 +7,18 @@ import { db } from '../db';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { apiFetch, safeJson } from '../utils/api';
 
+// ✅ 根據行程標題產生 Unsplash 關鍵字封面圖
+// 優先使用用戶上傳的 cover_image_url；若無，則用標題作為 Unsplash 搜尋關鍵字
+// 加上 trip.id 作為 seed 確保同一 trip 每次拿到相同圖片
+function getTripCoverImage(trip: any, width = 800, height = 600): string {
+  if (trip.cover_image_url && typeof trip.cover_image_url === 'string' && trip.cover_image_url.startsWith('http')) {
+    return trip.cover_image_url;
+  }
+  // 用標題當關鍵字，去掉中文字留英文部分，或直接用 travel 作 fallback
+  const keyword = encodeURIComponent((trip.title || 'travel').trim());
+  return `https://source.unsplash.com/${width}x${height}/?${keyword},travel`;
+}
+
 export function Home() {
   const trips = useLiveQuery(() => db.trips.orderBy('start_date').reverse().toArray());
   const { user, _hasHydrated, token, setCreateTripModalOpen } = useAppStore();
@@ -64,7 +76,7 @@ export function Home() {
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
         {Array.isArray(trips) && trips.length > 0 ? (
           trips.map(trip => {
-            const isMember = user && trip.members?.some(member => member.user_id === user.id);
+            const isMember = user && trip.members?.some((member: any) => member.user_id === user.id);
             const canView = trip.is_public || isMember || user?.role === 'Admin';
             if (!canView) return null;
 
@@ -72,7 +84,8 @@ export function Home() {
             const validEndDate = trip.end_date ? parseISO(trip.end_date) : null;
             const days = (validStartDate && validEndDate) ? differenceInDays(validEndDate, validStartDate) + 1 : 0;
             const displayStartDate = validStartDate ? format(validStartDate, 'MMM d, yyyy') : 'Date TBD';
-            const imageUrl = trip.cover_image_url || `https://picsum.photos/seed/${trip.id}/800/600`;
+            // ✅ 改用 Unsplash，以標題作為關鍵字
+            const imageUrl = getTripCoverImage(trip, 800, 600);
             
             return (
               <div

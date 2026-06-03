@@ -2,7 +2,7 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useAppStore } from '../store';
 import { format, parseISO, addDays, differenceInDays, isSameDay, isPast, addMinutes } from 'date-fns';
-import { Map, Info, Wallet, ArrowLeft, Calendar, Settings, Edit3, ChevronsUpDown, ChevronsDownUp, Unlock, Plus, DollarSign, Loader2, LockIcon } from 'lucide-react';
+import { Map, Info, Wallet, ArrowLeft, Calendar, Settings, Edit3, ChevronsUpDown, ChevronsDownUp, Unlock, Plus, DollarSign, Loader2, LockIcon, ImageIcon } from 'lucide-react';
 import { Trip, Itinerary, Expense, User, Booking } from '../types';
 import { clsx } from 'clsx';
 import { db } from '../db';
@@ -57,6 +57,16 @@ const safeParse = (dateStr: any) => {
   }
 };
 
+// ✅ 根據行程標題產生 Unsplash 關鍵字封面圖
+// 優先使用用戶上傳的 cover_image_url；若無，則用標題作為 Unsplash 搜尋關鍵字
+function getTripCoverImage(trip: any): string {
+  if (trip?.cover_image_url && typeof trip.cover_image_url === 'string' && trip.cover_image_url.startsWith('http')) {
+    return trip.cover_image_url;
+  }
+  const keyword = encodeURIComponent((trip?.title || 'travel').trim());
+  return `https://source.unsplash.com/1920x1080/?${keyword},travel`;
+}
+
 export function TripDetails() {
   const { id } = useParams();
   const navigate = useNavigate();
@@ -78,6 +88,9 @@ export function TripDetails() {
   const [expandSignal, setExpandSignal] = useState(0);
   const [collapseSignal, setCollapseSignal] = useState(0);
 
+  // ✅ 封面圖預設縮起，節省行程空間
+  const [isCoverVisible, setIsCoverVisible] = useState(false);
+
   const toggleExpandAll = () => {
     const nextState = !isAllExpanded;
     setIsAllExpanded(nextState);
@@ -94,17 +107,14 @@ export function TripDetails() {
     if (trip?.start_date && trip?.end_date) {
       const todayStr = format(new Date(), 'yyyy-MM-dd');
       
-      // 如果「今天」的日期字串大於等於開始日，且小於等於結束日
       if (todayStr >= trip.start_date && todayStr <= trip.end_date) {
-        // 將 selectedDate 設為「今天」
         const todayParsed = safeParse(todayStr);
         if (todayParsed) {
           setSelectedDate(todayParsed);
-          return; // 成功跳到今天就結束
+          return;
         }
       }
       
-      // 如果今天不在旅程區間內，就預設跳到「旅程的第一天」
       const parsedStart = safeParse(trip.start_date);
       if (parsedStart) setSelectedDate(parsedStart);
     }
@@ -202,10 +212,8 @@ export function TripDetails() {
   const hasEditPermission = !!(isMember || isAdmin);
   const canEdit = hasEditPermission && isEditMode;
 
-  // 💡 權限檢查：只有「公開行程」或是「受邀成員/管理員」才能看到內容
   const hasAccess = trip?.is_public === 1 || hasEditPermission;
 
-  // 🚨 這邊必須留著做路由跳轉，但不能 early return 擋住 Hook
   useEffect(() => {
     if (trip && !hasAccess) {
       navigate('/', { replace: true });
@@ -217,14 +225,12 @@ export function TripDetails() {
   const daysCount = (validTripStartDate && validTripEndDate) ? differenceInDays(validTripEndDate, validTripStartDate) + 1 : 0;
   const dates = Array.from({ length: daysCount }).map((_, i) => addDays(validTripStartDate || new Date(), i));
 
-  const tripCoverImageUrl = trip?.cover_image_url && typeof trip.cover_image_url === 'string' && trip.cover_image_url.startsWith('http') 
-    ? trip.cover_image_url 
-    : `https://picsum.photos/seed/${trip?.id}/1920/1080`;
+  // ✅ 改用 Unsplash，以標題作為關鍵字
+  const tripCoverImageUrl = getTripCoverImage(trip);
 
   const filteredItineraries = useMemo(() => {
     if (!itineraries) return [];
 
-    // 💡 定義時段優先級權重 (越小越前面)
     const prefWeight: Record<string, number> = {
       'anytime': 0,
       'morning': 1,
@@ -243,29 +249,24 @@ export function TripDetails() {
         const hasTimeA = !!a.start_time && a.start_time.trim() !== '';
         const hasTimeB = !!b.start_time && b.start_time.trim() !== '';
 
-        // 1. 優先級一：已排定時間 vs 未排定時間
-        if (hasTimeA && !hasTimeB) return -1; // 有時間的在上
-        if (!hasTimeA && hasTimeB) return 1;  // 沒時間的在下 (沉底)
+        if (hasTimeA && !hasTimeB) return -1;
+        if (!hasTimeA && hasTimeB) return 1;
 
-        // 2. 優先級二：如果兩者都有時間，按時間早晚排
         if (hasTimeA && hasTimeB) {
           return a.start_time.localeCompare(b.start_time);
         }
 
-        // 3. 優先級三：如果兩者都沒時間 (AI 待處理)，按「時段偏好」排序
         const weightA = prefWeight[a.time_preference || 'anytime'] ?? 0;
         const weightB = prefWeight[b.time_preference || 'anytime'] ?? 0;
 
         if (weightA !== weightB) {
-          return weightA - weightB; // 按 不限 > 上午 > 下午 > 晚上 排
+          return weightA - weightB;
         }
 
-        // 4. 優先級四：時段也一樣的話，按 ID 排序維持穩定
         return (a.id || 0) - (b.id || 0);
       });
   }, [itineraries, selectedDate]);
 
-  // 💡 修正 Hook 錯誤：這裡的 useMemo 會被順利執行到
   const conflictedIdsInView = useMemo(() => {
     const conflicts = new Set<number>();
     if (!selectedDate) return conflicts;
@@ -358,7 +359,6 @@ export function TripDetails() {
     return ['ALL', ...Array.from(cats)];
   }, [bookings]);
 
-  // 🚨 修正 Hook 錯誤：這裡才是放置「載入中或無權限」阻擋畫面的正確位置
   if (!trip || !hasAccess) {
     return (
       <div className="flex items-center justify-center h-screen bg-black">
@@ -370,36 +370,72 @@ export function TripDetails() {
   return (
     <div className="flex flex-col h-screen bg-black overflow-hidden overscroll-none">
       <div className="shrink-0 z-30 bg-black relative shadow-xl">
-        <div className="relative h-64 w-full overflow-hidden">
-          <img src={tripCoverImageUrl} alt={trip.title} className="w-full h-full object-cover" referrerPolicy="no-referrer" />
-          <div className="absolute top-0 left-0 right-0 h-32 bg-gradient-to-b from-black/80 via-black/40 to-transparent pointer-events-none"></div>
-          <div className="absolute bottom-0 left-0 right-0 h-32 bg-gradient-to-t from-black via-black/50 to-transparent pointer-events-none"></div>
-          
-          <button 
-            onClick={() => navigate('/')} 
-            className="absolute left-4 p-2 bg-black/30 backdrop-blur-md rounded-full text-white hover:bg-black/50 transition-colors z-20 border border-white/10" 
-            style={{ top: 'max(1rem, env(safe-area-inset-top))' }}
+
+        {/* ✅ 固定 header bar：返回按鈕 + 封面圖 toggle + 鎖頭按鈕 */}
+        <div
+          className="flex items-center justify-between px-4 bg-black"
+          style={{ paddingTop: 'max(1rem, env(safe-area-inset-top))' }}
+        >
+          {/* 返回按鈕 */}
+          <button
+            onClick={() => navigate('/')}
+            className="p-2 bg-zinc-900/80 backdrop-blur-md rounded-full text-white hover:bg-zinc-800 transition-colors border border-white/10"
           >
             <ArrowLeft size={20} />
           </button>
-          
-          {hasEditPermission && (
-            <button 
-              onClick={handleToggleEditMode} 
-              className={clsx("absolute right-4 p-2 backdrop-blur-md rounded-full transition-all z-20 border border-white/10 shadow-lg", isEditMode ? "bg-orange-500 text-white" : "bg-black/50 text-white hover:bg-orange-500 transition-all")} 
-              style={{ top: 'max(1rem, env(safe-area-inset-top))' }}
-            >
-              {isEditMode ? <Unlock size={20} /> : <Edit3 size={20} />}
-            </button>
-          )}
 
-          <div className="absolute bottom-0 left-0 right-0 p-4 z-10">
-            <h1 className="text-3xl font-bold text-white mb-1 drop-shadow-lg tracking-tight">{trip.title}</h1>
-            <div className="flex items-center gap-3 text-zinc-200 text-sm font-medium">
-              <div className="flex items-center gap-1.5 bg-black/30 backdrop-blur-sm px-2 py-1 rounded-lg border border-white/10">
-                <Calendar size={14} className="text-orange-500" />
-                <span>{validTripStartDate ? format(validTripStartDate, 'MMM d') : ''} - {validTripEndDate ? format(validTripEndDate, 'MMM d, yyyy') : ''}</span>
-              </div>
+          {/* 右側按鈕組 */}
+          <div className="flex items-center gap-2">
+            {/* ✅ 封面圖 toggle 按鈕 */}
+            <button
+              onClick={() => setIsCoverVisible(v => !v)}
+              className={clsx(
+                "p-2 backdrop-blur-md rounded-full transition-all border border-white/10 shadow-lg",
+                isCoverVisible
+                  ? "bg-orange-500 text-white"
+                  : "bg-zinc-900/80 text-zinc-400 hover:text-white hover:bg-zinc-800"
+              )}
+              title={isCoverVisible ? '隱藏封面圖' : '顯示封面圖'}
+            >
+              <ImageIcon size={20} />
+            </button>
+
+            {/* 鎖頭按鈕 */}
+            {hasEditPermission && (
+              <button
+                onClick={handleToggleEditMode}
+                className={clsx(
+                  "p-2 backdrop-blur-md rounded-full transition-all border border-white/10 shadow-lg",
+                  isEditMode
+                    ? "bg-orange-500 text-white"
+                    : "bg-zinc-900/80 text-white hover:bg-orange-500"
+                )}
+              >
+                {isEditMode ? <Unlock size={20} /> : <Edit3 size={20} />}
+              </button>
+            )}
+          </div>
+        </div>
+
+        {/* ✅ 封面圖：預設縮起，點擊 toggle 按鈕後展開，動畫過渡 */}
+        <div
+          className={clsx(
+            "relative w-full overflow-hidden transition-all duration-300 ease-in-out",
+            isCoverVisible ? "h-56 opacity-100" : "h-0 opacity-0"
+          )}
+        >
+          <img src={tripCoverImageUrl} alt={trip.title} className="w-full h-full object-cover" referrerPolicy="no-referrer" />
+          <div className="absolute top-0 left-0 right-0 h-20 bg-gradient-to-b from-black/60 via-black/20 to-transparent pointer-events-none"></div>
+          <div className="absolute bottom-0 left-0 right-0 h-20 bg-gradient-to-t from-black via-black/40 to-transparent pointer-events-none"></div>
+        </div>
+
+        {/* 行程標題 + 日期（永遠顯示，不隨封面圖隱藏） */}
+        <div className="px-4 py-3 bg-black">
+          <h1 className="text-2xl font-bold text-white leading-tight tracking-tight">{trip.title}</h1>
+          <div className="flex items-center gap-2 mt-1 text-zinc-400 text-sm font-medium">
+            <div className="flex items-center gap-1.5 bg-zinc-900/80 px-2 py-1 rounded-lg border border-zinc-800">
+              <Calendar size={13} className="text-orange-500" />
+              <span>{validTripStartDate ? format(validTripStartDate, 'MMM d') : ''} - {validTripEndDate ? format(validTripEndDate, 'MMM d, yyyy') : ''}</span>
             </div>
           </div>
         </div>

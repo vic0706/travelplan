@@ -38,7 +38,6 @@ export function LocationPicker({ isOpen, onClose, onSelect, groupedCities }: Loc
 
       setIsSearching(true);
       try {
-        // ✅ 修正：apiFetch 回傳 Response，需要 .json() 才能拿到資料
         const res = await apiFetch(`/api/places/autocomplete?q=${encodeURIComponent(searchQuery)}`);
         if (res.ok) {
           const data = await res.json();
@@ -61,7 +60,6 @@ export function LocationPicker({ isOpen, onClose, onSelect, groupedCities }: Loc
   const handlePlaceSelect = async (prediction: any) => {
     setIsSearching(true);
     try {
-      // ✅ 修正：apiFetch 回傳 Response，需要 .json() 才能拿到資料
       const res = await apiFetch(`/api/places/details?placeId=${prediction.place_id}`);
       if (!res.ok) throw new Error('Failed to fetch place details');
       const details = await res.json();
@@ -94,7 +92,8 @@ export function LocationPicker({ isOpen, onClose, onSelect, groupedCities }: Loc
             <div className="p-6 border-b border-zinc-900 bg-zinc-950/50 backdrop-blur-md sticky top-0 z-10">
               <div className="flex items-center justify-between mb-6">
                 <h2 className="text-xl font-black text-white tracking-tight">SEARCH LOCATION</h2>
-                <button onClick={onClose} className="p-2 hover:bg-zinc-900 rounded-full text-zinc-400 transition-colors"><X size={20} /></button>
+                {/* ✅ 修正：加上 type="button" 防止觸發 form submit */}
+                <button type="button" onClick={onClose} className="p-2 hover:bg-zinc-900 rounded-full text-zinc-400 transition-colors"><X size={20} /></button>
               </div>
 
               <div className="relative group">
@@ -123,7 +122,8 @@ export function LocationPicker({ isOpen, onClose, onSelect, groupedCities }: Loc
                         <Globe size={12} /> Local Cities
                       </div>
                       {localMatches.map(city => (
-                        <button key={city.id} onClick={() => { onSelect(city); onClose(); }} className="w-full p-4 bg-zinc-900/50 border border-zinc-900 rounded-2xl flex items-center gap-4 hover:border-orange-500 transition-all group">
+                        // ✅ 修正：加上 type="button"
+                        <button type="button" key={city.id} onClick={() => { onSelect(city); onClose(); }} className="w-full p-4 bg-zinc-900/50 border border-zinc-900 rounded-2xl flex items-center gap-4 hover:border-orange-500 transition-all group">
                           <div className="w-10 h-10 rounded-xl bg-orange-500/10 flex items-center justify-center text-orange-500"><Globe size={20} /></div>
                           <div className="text-left">
                             <div className="text-white font-bold">{city.name}</div>
@@ -141,7 +141,8 @@ export function LocationPicker({ isOpen, onClose, onSelect, groupedCities }: Loc
                     </div>
                     {predictions.length > 0 ? (
                       predictions.map((p) => (
-                        <button key={p.place_id} onClick={() => handlePlaceSelect(p)} className="w-full p-4 bg-zinc-900/30 border border-zinc-900 rounded-2xl flex items-center gap-4 hover:bg-zinc-900 hover:border-zinc-700 transition-all group">
+                        // ✅ 修正：加上 type="button"
+                        <button type="button" key={p.place_id} onClick={() => handlePlaceSelect(p)} className="w-full p-4 bg-zinc-900/30 border border-zinc-900 rounded-2xl flex items-center gap-4 hover:bg-zinc-900 hover:border-zinc-700 transition-all group">
                           <div className="w-10 h-10 rounded-xl bg-zinc-800 flex items-center justify-center text-zinc-500 group-hover:text-orange-500"><MapPin size={20} /></div>
                           <div className="text-left flex-1 min-w-0">
                             <div className="text-white font-bold truncate">{p.structured_formatting.main_text}</div>
@@ -162,7 +163,8 @@ export function LocationPicker({ isOpen, onClose, onSelect, groupedCities }: Loc
                     <div className="px-2 text-[10px] font-black text-zinc-500 uppercase tracking-[0.2em]">Browse Countries</div>
                     <div className="grid grid-cols-1 gap-2">
                       {Object.keys(groupedCities).sort().map(country => (
-                        <button key={country} onClick={() => setSelectedCountry(country)} className="w-full p-4 bg-zinc-900/50 border border-zinc-900 rounded-2xl flex items-center justify-between hover:border-zinc-700 transition-all group">
+                        // ✅ 修正：加上 type="button"
+                        <button type="button" key={country} onClick={() => setSelectedCountry(country)} className="w-full p-4 bg-zinc-900/50 border border-zinc-900 rounded-2xl flex items-center justify-between hover:border-zinc-700 transition-all group">
                           <div className="flex items-center gap-3">
                             <Globe size={18} className="text-zinc-500 group-hover:text-orange-500" />
                             <span className="text-white font-bold text-sm">{country}</span>
@@ -174,10 +176,12 @@ export function LocationPicker({ isOpen, onClose, onSelect, groupedCities }: Loc
                   </div>
                 ) : (
                   <div className="space-y-4">
-                    <button onClick={() => setSelectedCountry(null)} className="flex items-center gap-2 text-orange-500 text-xs font-black px-1 uppercase tracking-widest"><ArrowLeft size={14} /> Back to Countries</button>
+                    {/* ✅ 修正：加上 type="button" */}
+                    <button type="button" onClick={() => setSelectedCountry(null)} className="flex items-center gap-2 text-orange-500 text-xs font-black px-1 uppercase tracking-widest"><ArrowLeft size={14} /> Back to Countries</button>
                     <div className="grid grid-cols-2 gap-3">
                       {groupedCities[selectedCountry].map(city => (
-                        <button key={city.id} onClick={() => { onSelect(city); onClose(); }} className="p-4 bg-zinc-900 border border-zinc-800 rounded-2xl text-left hover:border-orange-500 transition-all group">
+                        // ✅ 修正：加上 type="button"
+                        <button type="button" key={city.id} onClick={() => { onSelect(city); onClose(); }} className="p-4 bg-zinc-900 border border-zinc-800 rounded-2xl text-left hover:border-orange-500 transition-all group">
                           <MapPin size={16} className="text-zinc-600 group-hover:text-orange-500 mb-2 transition-colors" />
                           <div className="text-white font-bold text-sm truncate">{city.name}</div>
                         </button>
