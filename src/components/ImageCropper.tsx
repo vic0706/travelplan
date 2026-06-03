@@ -39,7 +39,6 @@ export async function uploadImageToSupabase(fileOrBlob: File | Blob, folder: str
   formData.append('file', fileOrBlob);
   formData.append('folder', folder);
 
-  // 💡 確保這裡呼叫的是最新的 media 路由
   const response = await fetch('/api/media/upload', {
     method: 'POST',
     body: formData
@@ -50,7 +49,15 @@ export async function uploadImageToSupabase(fileOrBlob: File | Blob, folder: str
   return data.publicUrl;
 }
 
-export function ImageCropper({ image, aspect, onCropComplete, onCancel }: any) {
+// ✅ 修正：加上明確的 TypeScript interface，prop 統一命名為 imageSrc
+interface ImageCropperProps {
+  imageSrc: string;
+  aspect: number;
+  onCropComplete: (blob: Blob) => void;
+  onCancel: () => void;
+}
+
+export function ImageCropper({ imageSrc, aspect, onCropComplete, onCancel }: ImageCropperProps) {
   const [crop, setCrop] = useState({ x: 0, y: 0 });
   const [zoom, setZoom] = useState(1);
   const [croppedAreaPixels, setCroppedAreaPixels] = useState(null);
@@ -62,7 +69,8 @@ export function ImageCropper({ image, aspect, onCropComplete, onCancel }: any) {
   const handleConfirm = async () => {
     if (!croppedAreaPixels) return;
     try {
-      const croppedImageBlob = await getCroppedImg(image, croppedAreaPixels);
+      // ✅ 修正：使用 imageSrc 而非舊的 image
+      const croppedImageBlob = await getCroppedImg(imageSrc, croppedAreaPixels);
       onCropComplete(croppedImageBlob);
     } catch (e) {
       console.error('Crop error:', e);
@@ -72,16 +80,15 @@ export function ImageCropper({ image, aspect, onCropComplete, onCancel }: any) {
   return (
     <div className="absolute inset-0 flex flex-col">
       <div className="flex-1 relative w-full h-full">
-        {/* 💡 react-easy-crop 會自動撐滿具有 relative 的父容器 */}
         <Cropper
-          image={image}
+          image={imageSrc}  // ✅ 修正：Cropper 元件的 image prop 也改用 imageSrc
           crop={crop}
           zoom={zoom}
           aspect={aspect}
           onCropChange={setCrop}
           onZoomChange={setZoom}
           onCropComplete={onCropCompleteInternal}
-          objectFit="contain" // 防止因為長寬比例極端導致的破圖
+          objectFit="contain"
         />
       </div>
       

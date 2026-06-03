@@ -1,9 +1,9 @@
-import React, { useState, useMemo, useEffect } from 'react';
+import React, { useState, useMemo } from 'react';
 import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip, Legend } from 'recharts';
 import { Expense, User } from '../types';
 import { motion, AnimatePresence } from 'framer-motion';
 import { X, Wallet, ArrowRight, Copy, Check } from 'lucide-react';
-import { apiFetch } from '../utils/api';
+import { useAppStore } from '../store'; // ✅ 修正：從 store 取 categories，移除 apiFetch
 
 interface FinanceOverviewProps {
   expenses: Expense[];
@@ -14,28 +14,14 @@ interface FinanceOverviewProps {
 export function FinanceOverview({ expenses, members, currency }: FinanceOverviewProps) {
   const [showSplitModal, setShowSplitModal] = useState(false);
   const [copiedText, setCopiedText] = useState<string | null>(null);
-  const [categories, setCategories] = useState<any[]>([]);
 
-  useEffect(() => {
-    const fetchCategories = async () => {
-      try {
-        const res = await apiFetch('/api/settings/categories');
-        if (res.ok) {
-          setCategories(await res.json());
-        }
-      } catch (err) {
-        console.error('Failed to fetch categories', err);
-      }
-    };
-    fetchCategories();
-  }, []);
+  // ✅ 修正：直接從 store 取，App.tsx 已全局初始化，不需要再 fetch
+  const { categories } = useAppStore();
 
-  // 1. Calculate Total
   const totalAmount = useMemo(() => {
     return expenses.reduce((sum, exp) => sum + exp.amount, 0);
   }, [expenses]);
 
-  // 2. Calculate Category Data
   const categoryData = useMemo(() => {
     const data: Record<string, number> = {};
     expenses.forEach(exp => {
@@ -44,16 +30,15 @@ export function FinanceOverview({ expenses, members, currency }: FinanceOverview
     });
     
     return Object.entries(data).map(([name, value]) => {
-      const catDef = categories.find(c => c.name === name);
+      const catDef = categories.find((c: any) => c.name === name);
       return {
         name,
         value,
-        color: catDef?.color || '#808080' // Default gray if not found
+        color: catDef?.color || '#808080'
       };
     }).sort((a, b) => b.value - a.value);
   }, [expenses, categories]);
 
-  // 3. Calculate Debts (Simplified Split Logic)
   const debts = useMemo(() => {
     const balances: Record<number, number> = {};
     members.forEach(m => balances[m.id] = 0);
@@ -64,40 +49,33 @@ export function FinanceOverview({ expenses, members, currency }: FinanceOverview
       if (splitAmong.length === 0) return;
 
       const amountPerPerson = exp.amount / splitAmong.length;
-
-      // Payer gets positive balance (owed money)
       balances[paidBy] = (balances[paidBy] || 0) + exp.amount;
-
-      // Split members get negative balance (owe money)
       splitAmong.forEach(memberId => {
         balances[memberId] = (balances[memberId] || 0) - amountPerPerson;
       });
     });
 
-    // Calculate transfers
     const debtors: { id: number, amount: number }[] = [];
     const creditors: { id: number, amount: number }[] = [];
 
     Object.entries(balances).forEach(([id, amount]) => {
-      if (amount < -0.01) debtors.push({ id: Number(id), amount: amount }); // Negative amount
-      if (amount > 0.01) creditors.push({ id: Number(id), amount: amount });
+      if (amount < -0.01) debtors.push({ id: Number(id), amount });
+      if (amount > 0.01) creditors.push({ id: Number(id), amount });
     });
 
-    debtors.sort((a, b) => a.amount - b.amount); // Most negative first
-    creditors.sort((a, b) => b.amount - a.amount); // Most positive first
+    debtors.sort((a, b) => a.amount - b.amount);
+    creditors.sort((a, b) => b.amount - a.amount);
 
     const transfers: { from: number, to: number, amount: number }[] = [];
-    let i = 0; // debtor index
-    let j = 0; // creditor index
+    let i = 0;
+    let j = 0;
 
     while (i < debtors.length && j < creditors.length) {
       const debtor = debtors[i];
       const creditor = creditors[j];
-
       const amount = Math.min(Math.abs(debtor.amount), creditor.amount);
       
       transfers.push({ from: debtor.id, to: creditor.id, amount });
-
       debtor.amount += amount;
       creditor.amount -= amount;
 
@@ -147,17 +125,9 @@ export function FinanceOverview({ expenses, members, currency }: FinanceOverview
       {/* Chart */}
       {categoryData.length > 0 && (
         <div className="bg-zinc-900 border border-zinc-800 p-4 rounded-3xl h-64">
-           <ResponsiveContainer width="100%" height="100%">
+          <ResponsiveContainer width="100%" height="100%">
             <PieChart>
-              <Pie
-                data={categoryData}
-                cx="50%"
-                cy="50%"
-                innerRadius={60}
-                outerRadius={80}
-                paddingAngle={5}
-                dataKey="value"
-              >
+              <Pie data={categoryData} cx="50%" cy="50%" innerRadius={60} outerRadius={80} paddingAngle={5} dataKey="value">
                 {categoryData.map((entry, index) => (
                   <Cell key={`cell-${index}`} fill={entry.color} stroke="rgba(0,0,0,0.5)" strokeWidth={2} />
                 ))}
@@ -167,13 +137,7 @@ export function FinanceOverview({ expenses, members, currency }: FinanceOverview
                 itemStyle={{ color: '#fff' }}
                 formatter={(value: number) => `${currency} ${value.toLocaleString()}`}
               />
-              <Legend 
-                verticalAlign="middle" 
-                align="right"
-                layout="vertical"
-                iconType="circle"
-                wrapperStyle={{ fontSize: '12px', color: '#a1a1aa' }}
-              />
+              <Legend verticalAlign="middle" align="right" layout="vertical" iconType="circle" wrapperStyle={{ fontSize: '12px', color: '#a1a1aa' }} />
             </PieChart>
           </ResponsiveContainer>
         </div>
@@ -183,25 +147,13 @@ export function FinanceOverview({ expenses, members, currency }: FinanceOverview
       <AnimatePresence>
         {showSplitModal && (
           <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-            <motion.div
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              exit={{ opacity: 0 }}
-              onClick={() => setShowSplitModal(false)}
-              className="absolute inset-0 bg-black/80 backdrop-blur-sm"
-            />
-            <motion.div
-              initial={{ scale: 0.95, opacity: 0, y: 20 }}
-              animate={{ scale: 1, opacity: 1, y: 0 }}
-              exit={{ scale: 0.95, opacity: 0, y: 20 }}
-              className="relative w-full max-w-md bg-zinc-900 border border-zinc-800 rounded-3xl shadow-2xl overflow-hidden max-h-[85vh] flex flex-col"
-            >
+            <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+              onClick={() => setShowSplitModal(false)} className="absolute inset-0 bg-black/80 backdrop-blur-sm" />
+            <motion.div initial={{ scale: 0.95, opacity: 0, y: 20 }} animate={{ scale: 1, opacity: 1, y: 0 }} exit={{ scale: 0.95, opacity: 0, y: 20 }}
+              className="relative w-full max-w-md bg-zinc-900 border border-zinc-800 rounded-3xl shadow-2xl overflow-hidden max-h-[85vh] flex flex-col">
               <div className="p-6 border-b border-zinc-800 flex items-center justify-between bg-zinc-900 z-10">
                 <h2 className="text-xl font-bold text-white">Settlement Plan</h2>
-                <button
-                  onClick={() => setShowSplitModal(false)}
-                  className="p-2 hover:bg-zinc-800 rounded-full transition-colors text-zinc-400 hover:text-white"
-                >
+                <button onClick={() => setShowSplitModal(false)} className="p-2 hover:bg-zinc-800 rounded-full transition-colors text-zinc-400 hover:text-white">
                   <X size={20} />
                 </button>
               </div>
@@ -245,45 +197,35 @@ export function FinanceOverview({ expenses, members, currency }: FinanceOverview
                           </span>
                         </div>
 
-                        {/* Payment Info */}
                         {paymentInfo && (
                           <div className="space-y-2 text-sm bg-zinc-900/50 p-3 rounded-xl">
                             <p className="text-xs font-bold text-zinc-500 uppercase tracking-wider mb-2">
                               Payment Details for {toUser?.name}
                             </p>
-                            
                             {paymentInfo.cash && (
                               <div className="flex items-center gap-2 text-zinc-300">
                                 <span className="w-2 h-2 rounded-full bg-green-500"></span>
                                 Accepts Cash
                               </div>
                             )}
-
                             {paymentInfo.linepay && (
                               <div className="flex items-center justify-between bg-zinc-800 p-2 rounded-lg">
                                 <div className="truncate flex-1 mr-2">
                                   <span className="text-zinc-500 text-xs block">LINE Pay</span>
                                   <span className="text-white">{paymentInfo.linepay}</span>
                                 </div>
-                                <button 
-                                  onClick={() => handleCopy(paymentInfo.linepay)}
-                                  className="p-1.5 hover:bg-zinc-700 rounded-lg text-zinc-400 hover:text-white"
-                                >
+                                <button onClick={() => handleCopy(paymentInfo.linepay)} className="p-1.5 hover:bg-zinc-700 rounded-lg text-zinc-400 hover:text-white">
                                   {copiedText === paymentInfo.linepay ? <Check size={14} className="text-green-500" /> : <Copy size={14} />}
                                 </button>
                               </div>
                             )}
-
                             {paymentInfo.bank_accounts?.map((bank: any, i: number) => (
                               <div key={i} className="flex items-center justify-between bg-zinc-800 p-2 rounded-lg">
                                 <div className="truncate flex-1 mr-2">
                                   <span className="text-zinc-500 text-xs block">Bank {bank.bank_code}</span>
                                   <span className="text-white font-mono">{bank.account}</span>
                                 </div>
-                                <button 
-                                  onClick={() => handleCopy(bank.account)}
-                                  className="p-1.5 hover:bg-zinc-700 rounded-lg text-zinc-400 hover:text-white"
-                                >
+                                <button onClick={() => handleCopy(bank.account)} className="p-1.5 hover:bg-zinc-700 rounded-lg text-zinc-400 hover:text-white">
                                   {copiedText === bank.account ? <Check size={14} className="text-green-500" /> : <Copy size={14} />}
                                 </button>
                               </div>

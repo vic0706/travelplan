@@ -7,28 +7,28 @@ import { useAppStore } from '../store';
 interface LocationPickerProps {
   isOpen: boolean;
   onClose: () => void;
-  onSelect: (location: any) => void; // 💡 修改為回傳完整物件
+  onSelect: (location: any) => void;
   groupedCities: Record<string, any[]>;
 }
 
 export function LocationPicker({ isOpen, onClose, onSelect, groupedCities }: LocationPickerProps) {
   const [searchQuery, setSearchQuery] = useState('');
   const [isSearching, setIsSearching] = useState(false);
-  const [predictions, setPredictions] = useState<any[]>([]); // Google 建議清單
+  const [predictions, setPredictions] = useState<any[]>([]);
   const [selectedCountry, setSelectedCountry] = useState<string | null>(null);
 
-  // 1. 本地城市篩選 (原本的邏輯)
+  // 1. 本地城市篩選
   const localMatches = useMemo(() => {
     const query = searchQuery.trim().toLowerCase();
     if (!query || query.length < 1) return [];
     const allCities = Object.values(groupedCities).flat();
-    return allCities.filter(city => 
-      city.name.toLowerCase().includes(query) || 
+    return allCities.filter(city =>
+      city.name.toLowerCase().includes(query) ||
       (city.country && city.country.toLowerCase().includes(query))
-    ).slice(0, 3); // 只顯示前三個本地匹配
+    ).slice(0, 3);
   }, [searchQuery, groupedCities]);
 
-  // 2. 🚀 Google Places Autocomplete (即時搜尋建議)
+  // 2. Google Places Autocomplete
   useEffect(() => {
     const timer = setTimeout(async () => {
       if (searchQuery.trim().length < 2) {
@@ -38,34 +38,41 @@ export function LocationPicker({ isOpen, onClose, onSelect, groupedCities }: Loc
 
       setIsSearching(true);
       try {
-        // 💡 呼叫後端代理的 Autocomplete API
-        const data = await apiFetch(`/api/places/autocomplete?q=${encodeURIComponent(searchQuery)}`);
-        setPredictions(data || []);
+        // ✅ 修正：apiFetch 回傳 Response，需要 .json() 才能拿到資料
+        const res = await apiFetch(`/api/places/autocomplete?q=${encodeURIComponent(searchQuery)}`);
+        if (res.ok) {
+          const data = await res.json();
+          setPredictions(Array.isArray(data) ? data : []);
+        } else {
+          setPredictions([]);
+        }
       } catch (e) {
         console.error('Google Search Failed', e);
+        setPredictions([]);
       } finally {
         setIsSearching(false);
       }
-    }, 500); // 500ms debounce 節省 API 次數
+    }, 500);
 
     return () => clearTimeout(timer);
   }, [searchQuery]);
 
-  // 3. 🎯 核心邏輯：選中 Google 地點後即時抓取座標
+  // 3. 選中 Google 地點後即時抓取座標
   const handlePlaceSelect = async (prediction: any) => {
     setIsSearching(true);
     try {
-      // 💡 立刻呼叫 Details API 取得座標與地址
-      const details = await apiFetch(`/api/places/details?placeId=${prediction.place_id}`);
-      
-      // 💡 回傳「完整體」資料給前端表單，包含 lat, lng
+      // ✅ 修正：apiFetch 回傳 Response，需要 .json() 才能拿到資料
+      const res = await apiFetch(`/api/places/details?placeId=${prediction.place_id}`);
+      if (!res.ok) throw new Error('Failed to fetch place details');
+      const details = await res.json();
+
       onSelect({
         name: prediction.structured_formatting.main_text,
         address: prediction.structured_formatting.secondary_text,
         google_place_id: prediction.place_id,
         lat: details.location?.latitude,
         lng: details.location?.longitude,
-        photo_reference: details.photos?.[0]?.name // 存下照片代碼，供後端後續轉網址
+        photo_reference: details.photos?.[0]?.name
       });
       onClose();
     } catch (e) {
@@ -109,11 +116,11 @@ export function LocationPicker({ isOpen, onClose, onSelect, groupedCities }: Loc
               
               {searchQuery ? (
                 <div className="space-y-6">
-                  {/* --- 本地城市匹配 --- */}
+                  {/* 本地城市匹配 */}
                   {localMatches.length > 0 && (
                     <div className="space-y-2">
                       <div className="px-2 text-[10px] font-black text-zinc-500 uppercase tracking-[0.2em] flex items-center gap-2">
-                        <Database size={12} /> Local Cities
+                        <Globe size={12} /> Local Cities
                       </div>
                       {localMatches.map(city => (
                         <button key={city.id} onClick={() => { onSelect(city); onClose(); }} className="w-full p-4 bg-zinc-900/50 border border-zinc-900 rounded-2xl flex items-center gap-4 hover:border-orange-500 transition-all group">
@@ -127,7 +134,7 @@ export function LocationPicker({ isOpen, onClose, onSelect, groupedCities }: Loc
                     </div>
                   )}
 
-                  {/* --- Google Places 建議 (主要用於活動) --- */}
+                  {/* Google Places 建議 */}
                   <div className="space-y-2">
                     <div className="px-2 text-[10px] font-black text-orange-500 uppercase tracking-[0.2em] flex items-center gap-2">
                       <Sparkles size={12} /> Google Maps Places
@@ -149,7 +156,7 @@ export function LocationPicker({ isOpen, onClose, onSelect, groupedCities }: Loc
                   </div>
                 </div>
               ) : (
-                /* --- 原本的按國家/城市瀏覽邏輯 (Query 為空時顯示) --- */
+                /* 按國家/城市瀏覽 */
                 !selectedCountry ? (
                   <div className="space-y-4">
                     <div className="px-2 text-[10px] font-black text-zinc-500 uppercase tracking-[0.2em]">Browse Countries</div>
