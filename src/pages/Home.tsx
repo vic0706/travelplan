@@ -1,22 +1,20 @@
 import React, { useEffect, useState } from 'react';
 import { useAppStore } from '../store';
 import { useNavigate } from 'react-router-dom';
-import { Plus, Calendar, Loader2 } from 'lucide-react';
+import { Calendar, Loader2 } from 'lucide-react';
 import { format, differenceInDays, parseISO } from 'date-fns';
 import { db } from '../db';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { apiFetch, safeJson } from '../utils/api';
 
-// ✅ 根據行程標題產生 Unsplash 關鍵字封面圖
-// 優先使用用戶上傳的 cover_image_url；若無，則用標題作為 Unsplash 搜尋關鍵字
-// 加上 trip.id 作為 seed 確保同一 trip 每次拿到相同圖片
+// ✅ 使用 picsum.photos 替代 Unsplash (source.unsplash.com 已棄用)
+// 用 trip.id 作為 seed 確保同一 trip 每次拿到相同圖片
 function getTripCoverImage(trip: any, width = 800, height = 600): string {
   if (trip.cover_image_url && typeof trip.cover_image_url === 'string' && trip.cover_image_url.startsWith('http')) {
     return trip.cover_image_url;
   }
-  // 用標題當關鍵字，去掉中文字留英文部分，或直接用 travel 作 fallback
-  const keyword = encodeURIComponent((trip.title || 'travel').trim());
-  return `https://source.unsplash.com/${width}x${height}/?${keyword},travel`;
+  const seed = trip.id || 1;
+  return `https://picsum.photos/seed/${seed}/${width}/${height}`;
 }
 
 export function Home() {
@@ -84,7 +82,6 @@ export function Home() {
             const validEndDate = trip.end_date ? parseISO(trip.end_date) : null;
             const days = (validStartDate && validEndDate) ? differenceInDays(validEndDate, validStartDate) + 1 : 0;
             const displayStartDate = validStartDate ? format(validStartDate, 'MMM d, yyyy') : 'Date TBD';
-            // ✅ 改用 Unsplash，以標題作為關鍵字
             const imageUrl = getTripCoverImage(trip, 800, 600);
             
             return (
@@ -116,15 +113,7 @@ export function Home() {
         )}
       </div>
 
-      {/* 💡 首頁懸浮按鈕：開啟全域 Modal */}
-      {user?.role === 'Admin' && (
-        <button
-          onClick={() => setCreateTripModalOpen(true)}
-          className="fixed bottom-24 right-6 w-14 h-14 bg-orange-500 text-white rounded-full shadow-2xl flex items-center justify-center hover:bg-orange-600 transition-all active:scale-95 z-40 border-4 border-black"
-        >
-          <Plus size={32} />
-        </button>
-      )}
+      {/* ✅ 移除首頁懸浮 + 按鈕，右上角選單已有 ADD NEW TRIP */}
     </div>
   );
 }

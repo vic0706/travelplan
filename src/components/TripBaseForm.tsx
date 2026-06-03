@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useAppStore, User } from '../store';
 import { Image as ImageIcon, MapPin, Users, Loader2, Check, Globe, ChevronDown, ChevronUp, Lock as LockIcon } from 'lucide-react';
 import { ImageCropper, uploadImageToSupabase } from './ImageCropper';
@@ -27,6 +27,10 @@ interface TripBaseFormProps {
   submitText: string;
   loading?: boolean;
   extraButtons?: React.ReactNode;
+  /** 當提供此 callback 時，表單資料每次變更後會 debounce 1.2s 自動呼叫 */
+  onChange?: (data: TripFormData) => void;
+  /** 設為 true 可隱藏 Submit 按鈕（配合 onChange 自動儲存使用） */
+  hideSubmit?: boolean;
 }
 
 const COMMON_CURRENCIES = ['TWD', 'JPY', 'USD', 'KRW', 'EUR', 'GBP', 'AUD', 'THB', 'VND', 'HKD', 'CNY'];
@@ -48,7 +52,7 @@ const parseInitialMembers = (membersData: any, currentUserId?: number) => {
   return membersData.map(m => (typeof m === 'object' && m !== null ? m.user_id : m));
 };
 
-export function TripBaseForm({ initialData, onSubmit, onCancel, submitText, loading = false, extraButtons }: TripBaseFormProps) {
+export function TripBaseForm({ initialData, onSubmit, onCancel, submitText, loading = false, extraButtons, onChange, hideSubmit = false }: TripBaseFormProps) {
   const { cities, user } = useAppStore();
 
   const [formData, setFormData] = useState<TripFormData>({
@@ -69,6 +73,31 @@ export function TripBaseForm({ initialData, onSubmit, onCancel, submitText, load
 
   const [isCurrencyOpen, setIsCurrencyOpen] = useState(false);
   const [isMembersOpen, setIsMembersOpen] = useState(false);
+
+  // ✅ Auto-save: 使用 ref 追蹤最新 onChange，避免 stale closure
+  const onChangeRef = useRef(onChange);
+  useEffect(() => { onChangeRef.current = onChange; }, [onChange]);
+
+  // ✅ Auto-save: 跳過第一次 render，之後每次 formData 變化 debounce 1.2s 後呼叫 onChange
+  const isFirstRender = useRef(true);
+  const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => {
+    if (isFirstRender.current) {
+      isFirstRender.current = false;
+      return;
+    }
+    if (!onChangeRef.current) return;
+
+    if (debounceRef.current) clearTimeout(debounceRef.current);
+    debounceRef.current = setTimeout(() => {
+      onChangeRef.current?.(formData);
+    }, 1200);
+
+    return () => {
+      if (debounceRef.current) clearTimeout(debounceRef.current);
+    };
+  }, [formData]);
 
   useEffect(() => {
     const fetchUsers = async () => {
@@ -358,27 +387,29 @@ export function TripBaseForm({ initialData, onSubmit, onCancel, submitText, load
         </button>
       </div>
 
-      {/* Action Buttons */}
-      <div className="flex flex-col gap-3 pt-6 border-t border-zinc-800">
-        
-        <div className="flex gap-3">
-          {onCancel && (
-            <button type="button" onClick={onCancel} className="flex-1 bg-zinc-800 hover:bg-zinc-700 text-white font-bold rounded-xl px-4 py-3.5 transition-colors">
-              Cancel
-            </button>
+      {/* ✅ Action Buttons - 當 hideSubmit=true 時隱藏 Submit 按鈕 */}
+      {(!hideSubmit || extraButtons) && (
+        <div className={`flex flex-col gap-3 ${!hideSubmit ? 'pt-6 border-t border-zinc-800' : ''}`}>
+          {!hideSubmit && (
+            <div className="flex gap-3">
+              {onCancel && (
+                <button type="button" onClick={onCancel} className="flex-1 bg-zinc-800 hover:bg-zinc-700 text-white font-bold rounded-xl px-4 py-3.5 transition-colors">
+                  Cancel
+                </button>
+              )}
+              <button type="submit" disabled={loading || uploading} className="flex-[2] bg-orange-500 hover:bg-orange-600 disabled:opacity-50 text-white font-black uppercase tracking-widest text-sm rounded-xl px-4 py-3.5 transition-colors shadow-lg shadow-orange-500/20 flex items-center justify-center gap-2">
+                {loading ? <Loader2 className="animate-spin" size={20} /> : submitText}
+              </button>
+            </div>
           )}
-          <button type="submit" disabled={loading || uploading} className="flex-[2] bg-orange-500 hover:bg-orange-600 disabled:opacity-50 text-white font-black uppercase tracking-widest text-sm rounded-xl px-4 py-3.5 transition-colors shadow-lg shadow-orange-500/20 flex items-center justify-center gap-2">
-            {loading ? <Loader2 className="animate-spin" size={20} /> : submitText}
-          </button>
+
+          {extraButtons && (
+            <div className={hideSubmit ? '' : 'w-full mt-2'}>
+              {extraButtons}
+            </div>
+          )}
         </div>
-
-        {extraButtons && (
-          <div className="w-full mt-2">
-            {extraButtons}
-          </div>
-        )}
-
-      </div>
+      )}
 
       <LocationPicker
         isOpen={isLocationPickerOpen}
