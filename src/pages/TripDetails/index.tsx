@@ -645,8 +645,8 @@ export function TripDetails() {
         )}
 
         {isBookingFormOpen && (
-          <div className="fixed inset-0 z-[100] flex items-end justify-center bg-black/80 backdrop-blur-sm sm:items-center p-4">
-            <motion.div initial={{ y: '100%' }} animate={{ y: 0 }} exit={{ y: '100%' }} className="w-full max-w-md bg-zinc-900 rounded-3xl p-6 shadow-2xl max-h-[90vh] overflow-y-auto">
+          <div className="fixed inset-0 z-[100] bg-zinc-950">
+            <motion.div initial={{ y: '100%' }} animate={{ y: 0 }} exit={{ y: '100%' }} transition={{ type: 'spring', stiffness: 340, damping: 36 }} className="w-full h-full">
               <BookingForm
                 initialData={editingBooking}
                 onSubmit={async (data) => {
@@ -659,15 +659,8 @@ export function TripDetails() {
                   } catch (e) { alert('Failed to save booking'); }
                 }}
                 onCancel={() => { setIsBookingFormOpen(false); setEditingBooking(null); }}
+                onDelete={editingBooking ? () => handleDeleteBooking(editingBooking.id) : undefined}
               />
-              {editingBooking && (
-                <div className="mt-4 pt-4 border-t border-zinc-800">
-                  <button onClick={() => handleDeleteBooking(editingBooking.id)}
-                    className="w-full py-3 text-red-500 bg-red-500/10 hover:bg-red-500/20 font-bold rounded-xl transition-colors">
-                    Delete Booking
-                  </button>
-                </div>
-              )}
             </motion.div>
           </div>
         )}

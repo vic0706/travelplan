@@ -1,13 +1,18 @@
 export function generateDesiredAccommodationItems(b: any, bookingId: string | number, hotelImage: string) {
   const desiredItems: any[] = [];
-  const startDate = new Date(b.check_in_date), endDate = new Date(b.check_out_date);
-  const checkInTime = b.check_in_time || '16:00', checkOutTime = b.check_out_time || '11:00';
-  const dailyStartTime = b.daily_start_time || '08:00', dailyEndTime = b.daily_end_time || '22:00';
+  const startDate = new Date(b.check_in_date || b.start_date);
+  const endDate = new Date(b.check_out_date || b.end_date);
+  const checkInTime = b.check_in_time || b.start_time || '16:00';
+  const checkOutTime = b.check_out_time || b.end_time || '11:00';
+  const details = typeof b.details === 'string' ? JSON.parse(b.details || '{}') : (b.details || {});
+  const dailyStartTime = b.daily_start_time || details.daily_start_time || '08:00';
+  const dailyEndTime = b.daily_end_time || details.daily_end_time || '22:00';
   const currentDate = new Date(startDate);
   const notesWithOrder = b.order_id ? `Order ID: ${b.order_id}\n${b.notes || ''}` : (b.notes || '');
   while (currentDate <= endDate) {
     const dateStr = currentDate.toISOString().split('T')[0];
-    const isCheckInDay = dateStr === b.check_in_date, isCheckOutDay = dateStr === b.check_out_date;
+    const isCheckInDay = dateStr === (b.check_in_date || b.start_date);
+    const isCheckOutDay = dateStr === (b.check_out_date || b.end_date);
     const itemName = b.name || b.hotel_name;
     if (isCheckInDay) {
       desiredItems.push({ date: dateStr, start_time: checkInTime, end_time: checkInTime, title: `Check-in ${itemName}`, notes: notesWithOrder, image_url: hotelImage, address: b.start_location || '', matchType: 'Check-in' });

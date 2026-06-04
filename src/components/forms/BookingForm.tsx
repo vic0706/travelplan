@@ -1,29 +1,25 @@
 import React, { useState } from 'react';
 import { useAppStore } from '../../store';
-import { X, MapPin, Calendar, Loader2, Plane, Train, Ship, Car, Bed, UtensilsCrossed, Ticket, MoreHorizontal, ArrowLeft } from 'lucide-react';
+import { X, MapPin, Loader2, Plane, Train, Ship, Car, Bed, ArrowLeft, Trash2 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { LocationPicker } from '../pickers/LocationPicker';
-import { TimePicker } from '../pickers/TimePicker';
-import { DatePicker } from '../pickers/DatePicker';
+import { DateRangePicker } from '../pickers/DateRangePicker';
 import { BookingCategory } from '../../types';
 import { clsx } from 'clsx';
 import { format, parseISO } from 'date-fns';
 
-// ── Category 定義（大圖示 + 顏色 + 描述）───────────────────────────────
 const BOOKING_CATEGORIES: {
   id: BookingCategory;
   label: string;
   icon: React.ElementType;
-  color: string;
-  bg: string;
   description: string;
 }[] = [
-  { id: 'HOTEL',            label: 'Hotel',     icon: Bed,              color: 'text-purple-400', bg: 'bg-purple-500/15 border-purple-500/30', description: 'Accommodation & stays' },
-  { id: 'FLIGHT',           label: 'Flight',    icon: Plane,            color: 'text-sky-400',    bg: 'bg-sky-500/15 border-sky-500/30',       description: 'Flights & air travel' },
-  { id: 'TRAIN',            label: 'Train',     icon: Train,            color: 'text-green-400',  bg: 'bg-green-500/15 border-green-500/30',   description: 'Train & rail travel' },
-  { id: 'FERRY',            label: 'Ferry',     icon: Ship,             color: 'text-blue-400',   bg: 'bg-blue-500/15 border-blue-500/30',     description: 'Ferry & boat travel' },
-  { id: 'RENTAL',           label: 'Rental',    icon: Car,              color: 'text-orange-400', bg: 'bg-orange-500/15 border-orange-500/30', description: 'Car & vehicle rental' },
-  { id: 'PRIVATE_TRANSFER', label: 'Transfer',  icon: Car,              color: 'text-yellow-400', bg: 'bg-yellow-500/15 border-yellow-500/30', description: 'Private car / taxi' },
+  { id: 'HOTEL',            label: 'Hotel',    icon: Bed,   description: '住宿與飯店' },
+  { id: 'FLIGHT',           label: 'Flight',   icon: Plane, description: '機票與航班' },
+  { id: 'TRAIN',            label: 'Train',    icon: Train, description: '火車與鐵路' },
+  { id: 'FERRY',            label: 'Ferry',    icon: Ship,  description: '渡輪與船票' },
+  { id: 'RENTAL',           label: 'Rental',   icon: Car,   description: '租車' },
+  { id: 'PRIVATE_TRANSFER', label: 'Transfer', icon: Car,   description: '接送服務' },
 ];
 
 interface BookingFormData {
@@ -36,6 +32,9 @@ interface BookingFormData {
   start_time: string;
   end_date: string;
   end_time: string;
+  pre_start_time: string;
+  daily_start_time: string;
+  daily_end_time: string;
   start_location: string;
   end_location: string;
   notes: string;
@@ -48,13 +47,26 @@ interface BookingFormProps {
   initialData?: any;
   onSubmit: (data: BookingFormData) => Promise<void>;
   onCancel: () => void;
+  onDelete?: () => void;
   loading?: boolean;
 }
 
-export function BookingForm({ initialData, onSubmit, onCancel, loading = false }: BookingFormProps) {
+// Required field label
+const Req = () => <span className="text-orange-500 ml-0.5">*</span>;
+
+// Field label
+const FieldLabel = ({ children, required }: { children: React.ReactNode; required?: boolean }) => (
+  <label className="block text-[10px] font-bold text-zinc-500 uppercase tracking-wider mb-1.5">
+    {children}{required && <Req />}
+  </label>
+);
+
+// Input style
+const inputCls = 'w-full bg-zinc-800/80 border border-zinc-700 rounded-xl px-4 py-3 text-white text-sm focus:outline-none focus:border-orange-500 transition-colors placeholder:text-zinc-600';
+
+export function BookingForm({ initialData, onSubmit, onCancel, onDelete, loading = false }: BookingFormProps) {
   const { cities } = useAppStore();
 
-  // ── Step 1: 選 Category（新增時顯示，編輯時直接跳到 Step 2）
   const [step, setStep] = useState<'pick-category' | 'fill-form'>(
     initialData ? 'fill-form' : 'pick-category'
   );
@@ -69,6 +81,9 @@ export function BookingForm({ initialData, onSubmit, onCancel, loading = false }
     start_time: initialData?.start_time || '',
     end_date: initialData?.end_date || '',
     end_time: initialData?.end_time || '',
+    pre_start_time: initialData?.pre_start_time || '',
+    daily_start_time: initialData?.daily_start_time || '08:00',
+    daily_end_time: initialData?.daily_end_time || '22:00',
     start_location: initialData?.start_location || '',
     end_location: initialData?.end_location || '',
     notes: initialData?.notes || '',
@@ -78,8 +93,7 @@ export function BookingForm({ initialData, onSubmit, onCancel, loading = false }
   });
 
   const [isCityPickerOpen, setIsCityPickerOpen] = useState(false);
-  const [isStartDatePickerOpen, setIsStartDatePickerOpen] = useState(false);
-  const [isEndDatePickerOpen, setIsEndDatePickerOpen] = useState(false);
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -93,51 +107,61 @@ export function BookingForm({ initialData, onSubmit, onCancel, loading = false }
   }, {} as Record<string, typeof cities>);
 
   const selectedCatDef = BOOKING_CATEGORIES.find(c => c.id === formData.category);
+  const CatIcon = selectedCatDef?.icon || Bed;
+  const isHotel = formData.category === 'HOTEL';
+  const isTransport = ['FLIGHT', 'TRAIN', 'FERRY'].includes(formData.category);
+  const isRental = ['RENTAL', 'PRIVATE_TRANSFER'].includes(formData.category);
+
+  // Date range value for picker
+  const dateRangeValue = {
+    start_date: formData.start_date ? parseISO(formData.start_date) : null,
+    end_date: formData.end_date ? parseISO(formData.end_date) : null,
+    start_time: formData.start_time,
+    end_time: formData.end_time,
+    pre_start_time: formData.pre_start_time,
+    daily_start_time: formData.daily_start_time,
+    daily_end_time: formData.daily_end_time,
+  };
 
   // ══════════════════════════════════════════════════
-  // STEP 1 — 選擇 Category
+  // STEP 1 — 選擇類別
   // ══════════════════════════════════════════════════
   if (step === 'pick-category') {
     return (
-      <div className="flex flex-col">
-        {/* 標頭 */}
-        <div className="flex items-center justify-between mb-6">
-          <h2 className="text-xl font-black text-white tracking-tight">New Booking</h2>
-          <button type="button" onClick={onCancel} className="p-2 text-zinc-400 hover:text-white transition-colors">
-            <X size={20} />
+      <div className="flex flex-col h-full bg-zinc-950">
+        {/* Sticky header */}
+        <div className="shrink-0 px-5 pt-5 pb-4 border-b border-zinc-800 flex items-center justify-between" style={{ paddingTop: 'max(1.25rem, env(safe-area-inset-top))' }}>
+          <h2 className="text-base font-black text-white">新增預訂</h2>
+          <button type="button" onClick={onCancel} className="p-2 text-zinc-400 hover:text-white bg-zinc-800 rounded-full transition-colors">
+            <X size={18} />
           </button>
         </div>
 
-        <p className="text-xs font-bold text-zinc-500 uppercase tracking-widest mb-4">Select Category</p>
-
-        {/* 大方塊 Grid */}
-        <div className="grid grid-cols-2 gap-3">
-          {BOOKING_CATEGORIES.map(cat => {
-            const Icon = cat.icon;
-            return (
-              <motion.button
-                key={cat.id}
-                type="button"
-                whileTap={{ scale: 0.97 }}
-                onClick={() => {
-                  setFormData(prev => ({ ...prev, category: cat.id }));
-                  setStep('fill-form');
-                }}
-                className={clsx(
-                  'flex flex-col items-start gap-3 p-5 rounded-3xl border-2 transition-all text-left',
-                  cat.bg
-                )}
-              >
-                <div className={clsx('p-2.5 rounded-2xl bg-black/20', cat.color)}>
-                  <Icon size={28} strokeWidth={1.8} />
-                </div>
-                <div>
-                  <div className={clsx('text-base font-black', cat.color)}>{cat.label}</div>
-                  <div className="text-[11px] text-zinc-400 mt-0.5 leading-snug">{cat.description}</div>
-                </div>
-              </motion.button>
-            );
-          })}
+        {/* Content */}
+        <div className="flex-1 overflow-y-auto px-5 py-5">
+          <p className="text-[10px] font-bold text-zinc-500 uppercase tracking-widest mb-4">選擇預訂類別</p>
+          <div className="grid grid-cols-2 gap-3">
+            {BOOKING_CATEGORIES.map(cat => {
+              const Icon = cat.icon;
+              return (
+                <motion.button
+                  key={cat.id}
+                  type="button"
+                  whileTap={{ scale: 0.97 }}
+                  onClick={() => { setFormData(prev => ({ ...prev, category: cat.id })); setStep('fill-form'); }}
+                  className="flex flex-col items-start gap-3 p-5 rounded-3xl border-2 border-zinc-800 bg-zinc-900 hover:border-orange-500/50 hover:bg-orange-500/5 transition-all text-left"
+                >
+                  <div className="p-2.5 rounded-2xl bg-orange-500/10 text-orange-400">
+                    <Icon size={26} strokeWidth={1.8} />
+                  </div>
+                  <div>
+                    <div className="text-sm font-black text-white">{cat.label}</div>
+                    <div className="text-[11px] text-zinc-500 mt-0.5">{cat.description}</div>
+                  </div>
+                </motion.button>
+              );
+            })}
+          </div>
         </div>
       </div>
     );
@@ -147,221 +171,212 @@ export function BookingForm({ initialData, onSubmit, onCancel, loading = false }
   // STEP 2 — 填寫表單
   // ══════════════════════════════════════════════════
   return (
-    <form onSubmit={handleSubmit} className="flex flex-col gap-5">
-      {/* 標頭：可返回 Category 選擇（新增模式），編輯模式不顯示返回 */}
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-3">
-          {!initialData && (
-            <button
-              type="button"
-              onClick={() => setStep('pick-category')}
-              className="p-2 bg-zinc-800 rounded-full text-zinc-400 hover:text-white transition-colors"
-            >
-              <ArrowLeft size={16} />
-            </button>
-          )}
-          {/* 顯示選中的 Category */}
-          {selectedCatDef && (
-            <div className="flex items-center gap-2">
-              <div className={clsx('p-1.5 rounded-xl', selectedCatDef.bg, selectedCatDef.color)}>
-                <selectedCatDef.icon size={18} strokeWidth={2} />
-              </div>
-              <span className={clsx('text-base font-black', selectedCatDef.color)}>{selectedCatDef.label}</span>
-            </div>
-          )}
-        </div>
-        <button type="button" onClick={onCancel} className="p-2 text-zinc-400 hover:text-white transition-colors">
-          <X size={20} />
-        </button>
-      </div>
+    <form onSubmit={handleSubmit} className="flex flex-col h-full bg-zinc-950">
 
-      {/* 如果編輯模式：讓用戶切換 Category（橫排小按鈕） */}
-      {initialData && (
-        <div>
-          <label className="block text-xs font-bold text-zinc-500 uppercase tracking-wider mb-2">Category</label>
-          <div className="flex gap-2 overflow-x-auto no-scrollbar pb-1">
+      {/* ── Sticky 頂部 ──────────────────────────────────── */}
+      <div className="shrink-0 px-4 border-b border-zinc-800 bg-zinc-950" style={{ paddingTop: 'max(1rem, env(safe-area-inset-top))' }}>
+        {/* 返回 / 類別 / 關閉 */}
+        <div className="flex items-center justify-between py-3">
+          <div className="flex items-center gap-3">
+            {!initialData && (
+              <button type="button" onClick={() => setStep('pick-category')}
+                className="p-2 bg-zinc-800 rounded-full text-zinc-400 hover:text-white transition-colors">
+                <ArrowLeft size={16} />
+              </button>
+            )}
+            <div className="flex items-center gap-2.5">
+              <div className="p-2 rounded-xl bg-orange-500/10 text-orange-400">
+                <CatIcon size={18} strokeWidth={2} />
+              </div>
+              <span className="text-base font-black text-white">{selectedCatDef?.label}</span>
+            </div>
+          </div>
+          <button type="button" onClick={onCancel} className="p-2 text-zinc-400 hover:text-white bg-zinc-800 rounded-full transition-colors">
+            <X size={18} />
+          </button>
+        </div>
+
+        {/* 編輯時顯示切換類別 */}
+        {initialData && (
+          <div className="flex gap-2 overflow-x-auto no-scrollbar pb-3">
             {BOOKING_CATEGORIES.map(cat => {
               const Icon = cat.icon;
               return (
                 <button key={cat.id} type="button"
-                  onClick={() => setFormData({ ...formData, category: cat.id })}
+                  onClick={() => setFormData(prev => ({ ...prev, category: cat.id }))}
                   className={clsx(
-                    'flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-bold transition-all border whitespace-nowrap shrink-0',
+                    'flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold transition-all border whitespace-nowrap shrink-0',
                     formData.category === cat.id
                       ? 'bg-orange-500 border-orange-500 text-white shadow-lg shadow-orange-500/20'
                       : 'bg-zinc-800 border-zinc-700 text-zinc-400 hover:border-zinc-500'
                   )}>
-                  <Icon size={13} />{cat.label}
+                  <Icon size={12} />{cat.label}
                 </button>
               );
             })}
           </div>
-        </div>
-      )}
-
-      {/* Title */}
-      <div>
-        <label className="block text-xs font-bold text-zinc-500 uppercase tracking-wider mb-2">Title *</label>
-        <input
-          type="text" required
-          value={formData.title}
-          onChange={e => setFormData({ ...formData, title: e.target.value })}
-          className="w-full bg-zinc-800 border border-zinc-700 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-orange-500 transition-colors"
-          placeholder={formData.category === 'HOTEL' ? 'Hotel Name' : formData.category === 'FLIGHT' ? 'e.g. CI100' : 'Booking Title'}
-        />
+        )}
       </div>
 
-      {/* Provider */}
-      <div className="grid grid-cols-2 gap-3">
+      {/* ── 可捲動內容 ───────────────────────────────────── */}
+      <div className="flex-1 overflow-y-auto px-4 py-5 space-y-5 custom-scrollbar">
+
+        {/* 標題 */}
         <div>
-          <label className="block text-xs font-bold text-zinc-500 uppercase tracking-wider mb-2">Provider</label>
+          <FieldLabel required>標題</FieldLabel>
           <input
-            type="text"
-            value={formData.provider}
-            onChange={e => setFormData({ ...formData, provider: e.target.value })}
-            className="w-full bg-zinc-800 border border-zinc-700 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-orange-500 transition-colors"
-            placeholder={formData.category === 'HOTEL' ? 'Hilton' : formData.category === 'FLIGHT' ? 'China Airlines' : 'Provider'}
+            type="text" required
+            value={formData.title}
+            onChange={e => setFormData(prev => ({ ...prev, title: e.target.value }))}
+            className={inputCls}
+            placeholder={isHotel ? '飯店名稱' : isTransport ? '航班 / 車次編號' : '預訂名稱'}
           />
         </div>
-        <div>
-          <label className="block text-xs font-bold text-zinc-500 uppercase tracking-wider mb-2">Order / Conf #</label>
-          <input
-            type="text"
-            value={formData.order_id}
-            onChange={e => setFormData({ ...formData, order_id: e.target.value })}
-            className="w-full bg-zinc-800 border border-zinc-700 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-orange-500 transition-colors"
-            placeholder="e.g. ABC123"
-          />
-        </div>
-      </div>
 
-      {/* Location */}
-      <div>
-        <label className="block text-xs font-bold text-zinc-500 uppercase tracking-wider mb-2">Location & City</label>
-        <button
-          type="button"
-          onClick={() => setIsCityPickerOpen(true)}
-          className="w-full bg-zinc-800 border border-zinc-700 rounded-xl px-4 py-3 flex items-center justify-between text-zinc-400 hover:border-zinc-500 transition-colors"
-        >
-          <div className="flex items-center gap-3">
-            <MapPin size={18} className="text-orange-500" />
-            <span className={formData.city_id ? 'text-white' : ''}>
-              {formData.city_id ? cities.find(c => String(c.id) === formData.city_id)?.name : 'Select City or Search Place...'}
-            </span>
-          </div>
-          {formData.google_place_id && (
-            <span className="text-[10px] bg-blue-500/20 text-blue-400 px-2 py-0.5 rounded-full font-bold">Google</span>
-          )}
-        </button>
-      </div>
-
-      {/* Start & End location text (flight/train) */}
-      {['FLIGHT', 'TRAIN', 'FERRY', 'RENTAL', 'PRIVATE_TRANSFER'].includes(formData.category) && (
+        {/* 服務商 + 訂單號 */}
         <div className="grid grid-cols-2 gap-3">
           <div>
-            <label className="block text-xs font-bold text-zinc-500 uppercase tracking-wider mb-2">
-              {formData.category === 'HOTEL' ? 'Address' : 'From'}
-            </label>
-            <input type="text" value={formData.start_location}
-              onChange={e => setFormData({ ...formData, start_location: e.target.value })}
-              className="w-full bg-zinc-800 border border-zinc-700 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-orange-500 transition-colors text-sm"
-              placeholder={formData.category === 'FLIGHT' ? 'TPE' : 'Departure'} />
+            <FieldLabel>服務商</FieldLabel>
+            <input type="text" value={formData.provider}
+              onChange={e => setFormData(prev => ({ ...prev, provider: e.target.value }))}
+              className={inputCls}
+              placeholder={isHotel ? 'Hilton' : isTransport ? 'China Airlines' : '服務商'} />
           </div>
           <div>
-            <label className="block text-xs font-bold text-zinc-500 uppercase tracking-wider mb-2">To</label>
-            <input type="text" value={formData.end_location}
-              onChange={e => setFormData({ ...formData, end_location: e.target.value })}
-              className="w-full bg-zinc-800 border border-zinc-700 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-orange-500 transition-colors text-sm"
-              placeholder={formData.category === 'FLIGHT' ? 'NRT' : 'Arrival'} />
+            <FieldLabel>確認編號</FieldLabel>
+            <input type="text" value={formData.order_id}
+              onChange={e => setFormData(prev => ({ ...prev, order_id: e.target.value }))}
+              className={inputCls} placeholder="e.g. ABC123" />
           </div>
         </div>
-      )}
-      {formData.category === 'HOTEL' && (
-        <div>
-          <label className="block text-xs font-bold text-zinc-500 uppercase tracking-wider mb-2">Address</label>
-          <input type="text" value={formData.start_location}
-            onChange={e => setFormData({ ...formData, start_location: e.target.value })}
-            className="w-full bg-zinc-800 border border-zinc-700 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-orange-500 transition-colors"
-            placeholder="Hotel address" />
-        </div>
-      )}
 
-      {/* Dates & Times */}
-      <div className="grid grid-cols-2 gap-3">
+        {/* 日期與時間 */}
         <div>
-          <label className="block text-xs font-bold text-zinc-500 uppercase tracking-wider mb-2">
-            {formData.category === 'HOTEL' ? 'Check-in' : 'Start Date'}
-          </label>
-          <button type="button" onClick={() => setIsStartDatePickerOpen(true)}
-            className="w-full bg-zinc-800 border border-zinc-700 rounded-xl px-4 py-3 flex items-center gap-2 text-sm text-white hover:border-zinc-500 transition-colors">
-            <Calendar size={15} className="text-orange-500 shrink-0" />
-            <span className={formData.start_date ? 'text-white' : 'text-zinc-500'}>
-              {formData.start_date ? format(parseISO(formData.start_date), 'MMM d, yyyy') : 'Select date'}
+          <FieldLabel required>日期與時間</FieldLabel>
+          <DateRangePicker
+            category={formData.category}
+            value={dateRangeValue}
+            onChange={r => setFormData(prev => ({
+              ...prev,
+              start_date: r.start_date ? format(r.start_date, 'yyyy-MM-dd') : '',
+              end_date: r.end_date ? format(r.end_date, 'yyyy-MM-dd') : '',
+              start_time: r.start_time,
+              end_time: r.end_time,
+              pre_start_time: r.pre_start_time || '',
+              daily_start_time: r.daily_start_time || '08:00',
+              daily_end_time: r.daily_end_time || '22:00',
+            }))}
+          />
+        </div>
+
+        {/* 地點 */}
+        <div>
+          <FieldLabel>城市 / 地點</FieldLabel>
+          <button type="button" onClick={() => setIsCityPickerOpen(true)}
+            className={clsx(inputCls, 'flex items-center gap-3 text-left')}>
+            <MapPin size={16} className="text-orange-500 shrink-0" />
+            <span className={formData.city_id ? 'text-white' : 'text-zinc-600'}>
+              {formData.city_id ? cities.find(c => String(c.id) === formData.city_id)?.name : '選擇城市或地點...'}
             </span>
+            {formData.google_place_id && (
+              <span className="ml-auto text-[10px] bg-orange-500/15 text-orange-400 px-2 py-0.5 rounded-full font-bold shrink-0">Google</span>
+            )}
           </button>
         </div>
+
+        {/* 出發地 / 目的地 (交通類) */}
+        {(isTransport || isRental) && (
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <FieldLabel>{isTransport ? '出發地' : '取車地點'}</FieldLabel>
+              <input type="text" value={formData.start_location}
+                onChange={e => setFormData(prev => ({ ...prev, start_location: e.target.value }))}
+                className={inputCls}
+                placeholder={formData.category === 'FLIGHT' ? 'TPE' : '出發地'} />
+            </div>
+            <div>
+              <FieldLabel>{isTransport ? '目的地' : '還車地點'}</FieldLabel>
+              <input type="text" value={formData.end_location}
+                onChange={e => setFormData(prev => ({ ...prev, end_location: e.target.value }))}
+                className={inputCls}
+                placeholder={formData.category === 'FLIGHT' ? 'NRT' : '目的地'} />
+            </div>
+          </div>
+        )}
+
+        {/* 地址 (HOTEL) */}
+        {isHotel && (
+          <div>
+            <FieldLabel>飯店地址</FieldLabel>
+            <input type="text" value={formData.start_location}
+              onChange={e => setFormData(prev => ({ ...prev, start_location: e.target.value }))}
+              className={inputCls} placeholder="飯店地址" />
+          </div>
+        )}
+
+        {/* 備註 */}
         <div>
-          <label className="block text-xs font-bold text-zinc-500 uppercase tracking-wider mb-2">
-            {formData.category === 'HOTEL' ? 'Check-out' : 'End Date'}
-          </label>
-          <button type="button" onClick={() => setIsEndDatePickerOpen(true)}
-            className="w-full bg-zinc-800 border border-zinc-700 rounded-xl px-4 py-3 flex items-center gap-2 text-sm text-white hover:border-zinc-500 transition-colors">
-            <Calendar size={15} className="text-orange-500 shrink-0" />
-            <span className={formData.end_date ? 'text-white' : 'text-zinc-500'}>
-              {formData.end_date ? format(parseISO(formData.end_date), 'MMM d, yyyy') : 'Select date'}
-            </span>
-          </button>
+          <FieldLabel>備註</FieldLabel>
+          <textarea
+            value={formData.notes}
+            onChange={e => setFormData(prev => ({ ...prev, notes: e.target.value }))}
+            className={clsx(inputCls, 'h-20 resize-none')}
+            placeholder="確認編號、特別要求..."
+          />
         </div>
-        <div>
-          <label className="block text-xs font-bold text-zinc-500 uppercase tracking-wider mb-2">Start Time</label>
-          <TimePicker value={formData.start_time} onChange={time => setFormData({ ...formData, start_time: time })} />
-        </div>
-        <div>
-          <label className="block text-xs font-bold text-zinc-500 uppercase tracking-wider mb-2">End Time</label>
-          <TimePicker value={formData.end_time} onChange={time => setFormData({ ...formData, end_time: time })} />
-        </div>
+
+        {/* 刪除 */}
+        {initialData && onDelete && (
+          <div className="pt-2 border-t border-zinc-800">
+            <button type="button" onClick={() => setShowDeleteConfirm(true)}
+              className="w-full py-3 bg-red-500/10 hover:bg-red-500/20 text-red-500 font-bold rounded-2xl transition-colors flex items-center justify-center gap-2 border border-red-500/20 text-sm">
+              <Trash2 size={16} />刪除預訂
+            </button>
+          </div>
+        )}
       </div>
 
-      {/* Notes */}
-      <div>
-        <label className="block text-xs font-bold text-zinc-500 uppercase tracking-wider mb-2">Notes</label>
-        <textarea
-          value={formData.notes}
-          onChange={e => setFormData({ ...formData, notes: e.target.value })}
-          className="w-full bg-zinc-800 border border-zinc-700 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-orange-500 transition-colors h-20 resize-none text-sm"
-          placeholder="Booking confirmation numbers, details..."
-        />
-      </div>
-
-      {/* Submit */}
-      <div className="flex gap-3 pt-2 border-t border-zinc-800">
+      {/* ── Sticky 底部 ──────────────────────────────────── */}
+      <div className="shrink-0 px-4 py-4 border-t border-zinc-800 bg-zinc-950 flex gap-3" style={{ paddingBottom: 'max(1rem, env(safe-area-inset-bottom))' }}>
         <button type="button" onClick={onCancel}
-          className="flex-1 bg-zinc-800 hover:bg-zinc-700 text-white font-bold rounded-xl px-4 py-3.5 transition-colors">
-          Cancel
+          className="flex-1 bg-zinc-800 hover:bg-zinc-700 text-white font-bold rounded-2xl px-4 py-3.5 transition-colors text-sm">
+          取消
         </button>
         <button type="submit" disabled={loading}
-          className="flex-[2] bg-orange-500 hover:bg-orange-600 disabled:opacity-50 text-white font-bold rounded-xl px-4 py-3.5 transition-colors shadow-lg shadow-orange-500/20 flex items-center justify-center gap-2">
-          {loading ? <Loader2 className="animate-spin" size={20} /> : 'Save Booking'}
+          className="flex-[2] bg-orange-500 hover:bg-orange-600 disabled:opacity-50 text-white font-bold rounded-2xl px-4 py-3.5 transition-colors shadow-lg shadow-orange-500/20 flex items-center justify-center gap-2 text-sm">
+          {loading ? <Loader2 className="animate-spin" size={18} /> : '儲存預訂'}
         </button>
       </div>
+
+      {/* 刪除確認 */}
+      <AnimatePresence>
+        {showDeleteConfirm && (
+          <div className="fixed inset-0 z-[200] flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm">
+            <motion.div initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.95 }}
+              className="bg-zinc-900 border border-zinc-800 rounded-3xl p-6 w-full max-w-sm shadow-2xl">
+              <h3 className="text-lg font-bold text-white mb-2">刪除預訂？</h3>
+              <p className="text-zinc-400 mb-6 text-sm">確定要刪除這筆預訂嗎？相關行程卡片也會一併刪除。</p>
+              <div className="flex gap-3">
+                <button type="button" onClick={() => setShowDeleteConfirm(false)} className="flex-1 px-4 py-3 rounded-xl font-medium text-zinc-400 hover:bg-zinc-800 transition-colors">取消</button>
+                <button type="button" onClick={() => { setShowDeleteConfirm(false); onDelete?.(); }} className="flex-1 px-4 py-3 rounded-xl font-bold bg-red-500 text-white hover:bg-red-600 transition-colors">刪除</button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
 
       <LocationPicker
         isOpen={isCityPickerOpen}
         onClose={() => setIsCityPickerOpen(false)}
-        onSelect={(res) => setFormData({
-          ...formData,
-          city_id: res.id ? String(res.id) : formData.city_id,
-          title: res.google_place_id ? res.name : formData.title,
-          start_location: res.address || formData.start_location,
+        onSelect={res => setFormData(prev => ({
+          ...prev,
+          city_id: res.id ? String(res.id) : prev.city_id,
+          title: res.google_place_id ? res.name : prev.title,
+          start_location: res.address || prev.start_location,
           google_place_id: res.google_place_id || ''
-        })}
+        }))}
         groupedCities={groupedCities}
       />
-
-      <DatePicker isOpen={isStartDatePickerOpen} onClose={() => setIsStartDatePickerOpen(false)}
-        onSelect={date => setFormData({ ...formData, start_date: date })} initialDate={formData.start_date} />
-      <DatePicker isOpen={isEndDatePickerOpen} onClose={() => setIsEndDatePickerOpen(false)}
-        onSelect={date => setFormData({ ...formData, end_date: date })} initialDate={formData.end_date} />
     </form>
   );
 }
