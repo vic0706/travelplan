@@ -307,165 +307,84 @@ export function TripDetails() {
     <div className="flex flex-col h-screen bg-black overflow-hidden overscroll-none">
 
       {/* ══════════════════════════════════════════════════
-          HEADER SECTION
-          - 封面圖展開時：圖片全寬，標題/按鈕浮在圖片上
-          - 封面圖收起時：純黑 header bar，兩行佈局
+          HEADER — 單一 motion.div 平滑 fold 動畫
       ══════════════════════════════════════════════════ */}
-      <div className="shrink-0 z-30 relative w-full">
-        <AnimatePresence initial={false}>
-          {isCoverExpanded ? (
-            /* ─── 展開狀態：封面圖全寬，所有元素浮層 ─── */
-            <motion.div
-              key="expanded"
-              initial={{ height: 0, opacity: 0 }}
-              animate={{ height: 220, opacity: 1 }}
-              exit={{ height: 0, opacity: 0 }}
-              transition={{ duration: 0.32, ease: 'easeInOut' }}
-              className="relative w-full overflow-hidden"
-              style={{ paddingTop: 'env(safe-area-inset-top)' }}
+      <motion.div
+        className="shrink-0 z-30 relative w-full overflow-hidden"
+        animate={{ height: isCoverExpanded ? 220 : 110 }}
+        transition={{ duration: 0.38, ease: [0.4, 0, 0.2, 1] }}
+        style={{ paddingTop: 'env(safe-area-inset-top)' }}
+      >
+        {/* 封面圖：object-bottom 讓底部固定，fold 時頂部消失 */}
+        <img
+          src={tripCoverImageUrl}
+          alt={trip.title}
+          className="absolute inset-0 w-full h-full object-cover object-bottom"
+          referrerPolicy="no-referrer"
+        />
+        {/* 漸層遮罩 */}
+        <div className="absolute inset-0 bg-gradient-to-b from-black/65 via-transparent to-black/80 pointer-events-none" />
+
+        {/* 頂部工具列 */}
+        <div className="absolute top-0 left-0 right-0 flex items-center justify-between px-4 pt-3">
+          <button
+            onClick={() => navigate('/')}
+            className="p-2 bg-black/40 backdrop-blur-md rounded-full text-white border border-white/20"
+          >
+            <ArrowLeft size={20} />
+          </button>
+          <div className="flex items-center gap-2">
+            {/* Camera toggle — 展開/摺疊照片 */}
+            <motion.button
+              onClick={() => setIsCoverExpanded(v => !v)}
+              animate={isCoverExpanded
+                ? { backgroundColor: 'rgba(249,115,22,0.82)', borderColor: 'rgba(251,146,60,0.5)' }
+                : { backgroundColor: 'rgba(0,0,0,0.40)', borderColor: 'rgba(255,255,255,0.20)' }
+              }
+              transition={{ duration: 0.22 }}
+              className="p-2 backdrop-blur-md rounded-full text-white border"
             >
-              {/* 封面圖 */}
-              <img
-                src={tripCoverImageUrl}
-                alt={trip.title}
-                className="absolute inset-0 w-full h-full object-cover"
-                referrerPolicy="no-referrer"
-              />
-              {/* 漸層遮罩：上下皆深 */}
-              <div className="absolute inset-0 bg-gradient-to-b from-black/70 via-transparent to-black/80 pointer-events-none" />
-
-              {/* 頂部工具列（浮在圖上） */}
-              <div className="absolute top-0 left-0 right-0 flex items-center justify-between px-4 pt-3">
-                <button
-                  onClick={() => navigate('/')}
-                  className="p-2 bg-black/40 backdrop-blur-md rounded-full text-white border border-white/20"
-                >
-                  <ArrowLeft size={20} />
-                </button>
-                <div className="flex items-center gap-2">
-                  {/* 相片收起按鈕 */}
-                  <button
-                    onClick={() => setIsCoverExpanded(false)}
-                    className="p-2 bg-orange-500/80 backdrop-blur-md rounded-full text-white border border-orange-400/40"
-                    title="Hide cover"
-                  >
-                    <Camera size={18} />
-                  </button>
-                  {hasEditPermission && (
-                    <button
-                      onClick={() => setIsEditMode(v => !v)}
-                      className={clsx(
-                        'p-2 rounded-full transition-all border backdrop-blur-md',
-                        isEditMode
-                          ? 'bg-orange-500 text-white border-orange-500'
-                          : 'bg-black/40 text-white border-white/20'
-                      )}
-                    >
-                      {isEditMode ? <Unlock size={18} /> : <Edit3 size={18} />}
-                    </button>
-                  )}
-                </div>
-              </div>
-
-              {/* 底部：行程標題 + 天氣（浮在圖片上） */}
-              <div className="absolute bottom-0 left-0 right-0 px-4 pb-3 flex items-end justify-between">
-                <h1
-                  className="flex-1 text-xl font-black text-white truncate tracking-tight drop-shadow-[0_2px_8px_rgba(0,0,0,0.8)] mr-3"
-                  title={trip.title}
-                >
-                  {trip.title}
-                </h1>
-                {/* 天氣（點擊顯示 weather forecast） */}
-                {selectedDateWeather && (
-                  <button
-                    onClick={() => setIsWeatherVisible(true)}
-                    className="shrink-0 flex items-center gap-1.5 bg-black/40 backdrop-blur-md rounded-2xl px-3 py-2 border border-white/10 hover:bg-black/60 transition-all active:scale-95"
-                  >
-                    {getWeatherIcon(selectedDateWeather.weather_code, 20)}
-                    <span className="text-[11px] font-bold text-white leading-none">{selectedDateWeather.min_temp}°</span>
-                    <span className="text-[9px] text-zinc-300 leading-none">/</span>
-                    <span className="text-[11px] font-bold text-orange-300 leading-none">{selectedDateWeather.max_temp}°</span>
-                  </button>
+              <Camera size={18} />
+            </motion.button>
+            {hasEditPermission && (
+              <button
+                onClick={() => setIsEditMode(v => !v)}
+                className={clsx(
+                  'p-2 rounded-full transition-all border backdrop-blur-md',
+                  isEditMode
+                    ? 'bg-orange-500 text-white border-orange-500'
+                    : 'bg-black/40 text-white border-white/20'
                 )}
-              </div>
-            </motion.div>
-          ) : (
-            /* ─── 收起狀態：照片下半部 + 標題浮層 ─── */
-            <motion.div
-              key="collapsed"
-              initial={{ height: 0, opacity: 0 }}
-              animate={{ height: 110, opacity: 1 }}
-              exit={{ height: 0, opacity: 0 }}
-              transition={{ duration: 0.32, ease: 'easeInOut' }}
-              className="relative w-full overflow-hidden"
-              style={{ paddingTop: 'env(safe-area-inset-top)' }}
+              >
+                {isEditMode ? <Unlock size={18} /> : <Edit3 size={18} />}
+              </button>
+            )}
+          </div>
+        </div>
+
+        {/* 底部：標題 + 天氣 */}
+        <div className="absolute bottom-0 left-0 right-0 px-4 pb-3 flex items-end justify-between">
+          <motion.h1
+            animate={{ fontSize: isCoverExpanded ? '1.25rem' : '1rem' }}
+            transition={{ duration: 0.38, ease: [0.4, 0, 0.2, 1] }}
+            className="flex-1 font-black text-white truncate tracking-tight drop-shadow-[0_2px_8px_rgba(0,0,0,0.8)] mr-3"
+            title={trip.title}
+          >
+            {trip.title}
+          </motion.h1>
+          {selectedDateWeather && (
+            <button
+              onClick={() => setIsWeatherVisible(true)}
+              className="shrink-0 flex items-center gap-1.5 bg-black/40 backdrop-blur-md rounded-xl px-2.5 py-1.5 border border-white/15 hover:bg-black/60 transition-all active:scale-95"
             >
-              {/* 封面圖，顯示下半部 */}
-              <img
-                src={tripCoverImageUrl}
-                alt={trip.title}
-                className="absolute inset-0 w-full h-full object-cover object-bottom"
-                referrerPolicy="no-referrer"
-              />
-              {/* 漸層遮罩 */}
-              <div className="absolute inset-0 bg-gradient-to-b from-black/60 via-black/20 to-black/80 pointer-events-none" />
-
-              {/* 頂部工具列 */}
-              <div className="absolute top-0 left-0 right-0 flex items-center justify-between px-4 pt-3">
-                <button
-                  onClick={() => navigate('/')}
-                  className="p-2 bg-black/40 backdrop-blur-md rounded-full text-white border border-white/20"
-                >
-                  <ArrowLeft size={20} />
-                </button>
-                <div className="flex items-center gap-2">
-                  <button
-                    onClick={() => setIsCoverExpanded(true)}
-                    className="p-2 bg-black/40 backdrop-blur-md rounded-full text-zinc-300 hover:text-white border border-white/20 transition-all"
-                    title="Expand cover photo"
-                  >
-                    <Camera size={18} />
-                  </button>
-                  {hasEditPermission && (
-                    <button
-                      onClick={() => setIsEditMode(v => !v)}
-                      className={clsx(
-                        'p-2 rounded-full transition-all border backdrop-blur-md',
-                        isEditMode
-                          ? 'bg-orange-500 text-white border-orange-500'
-                          : 'bg-black/40 text-zinc-300 hover:text-white border-white/20'
-                      )}
-                    >
-                      {isEditMode ? <Unlock size={18} /> : <Edit3 size={18} />}
-                    </button>
-                  )}
-                </div>
-              </div>
-
-              {/* 底部：標題 + 天氣 */}
-              <div className="absolute bottom-0 left-0 right-0 px-4 pb-2 flex items-end justify-between">
-                <h1
-                  className="flex-1 text-base font-black text-white truncate tracking-tight drop-shadow-[0_2px_8px_rgba(0,0,0,0.8)] mr-3"
-                  title={trip.title}
-                >
-                  {trip.title}
-                </h1>
-                {selectedDateWeather && (
-                  <button
-                    onClick={() => setIsWeatherVisible(true)}
-                    className="shrink-0 flex items-center gap-1.5 bg-black/40 backdrop-blur-md rounded-xl px-2.5 py-1.5 border border-white/15 hover:bg-black/60 transition-all active:scale-95"
-                  >
-                    {getWeatherIcon(selectedDateWeather.weather_code, 16)}
-                    <span className="text-[11px] font-bold text-white leading-none">{selectedDateWeather.min_temp}°</span>
-                    <span className="text-[9px] text-zinc-300 leading-none">/</span>
-                    <span className="text-[11px] font-bold text-orange-300 leading-none">{selectedDateWeather.max_temp}°</span>
-                  </button>
-                )}
-              </div>
-            </motion.div>
+              {getWeatherIcon(selectedDateWeather.weather_code, 16)}
+              <span className="text-[11px] font-bold text-white leading-none">{selectedDateWeather.min_temp}°</span>
+              <span className="text-[9px] text-zinc-300 leading-none">/</span>
+              <span className="text-[11px] font-bold text-orange-300 leading-none">{selectedDateWeather.max_temp}°</span>
+            </button>
           )}
-        </AnimatePresence>
-      </div>
+        </div>
+      </motion.div>
 
       {/* ── 日期列 ───────────────────────────────────────────────────── */}
       {(activeTab === 'itinerary' || activeTab === 'finance') && (

@@ -417,50 +417,82 @@ export function ItineraryForm({ tripId, date, onSuccess, onCancel, initialData }
         </div>
 
         {/* ─ 位置地址 ─ */}
-        <div className="space-y-1.5 relative">
-          <div className="flex items-center justify-between">
-            <label className="text-[10px] font-bold text-zinc-500 uppercase tracking-widest">位置地址</label>
-            {formData.lat && (
-              <div className="flex items-center gap-1 px-2 py-0.5 bg-green-500/10 rounded-full border border-green-500/20">
-                <Sparkles size={8} className="text-green-500" />
-                <span className="text-[8px] font-black text-green-500 uppercase tracking-widest">GPS 已取得</span>
-              </div>
-            )}
-          </div>
-          <div className="relative flex items-center">
-            <MapPin size={15} className={clsx('absolute left-3.5 z-10 transition-colors', isSearching ? 'text-orange-500 animate-pulse' : 'text-zinc-600')} />
+        <div className="space-y-2 relative">
+          <label className="text-[10px] font-bold text-zinc-500 uppercase tracking-widest">位置地址</label>
+
+          {/* 搜尋輸入框 */}
+          <div className={clsx(
+            'flex items-center gap-2 bg-[#242426] border rounded-2xl px-3.5 py-3 transition-all',
+            isSearching ? 'border-orange-500/60' : 'border-zinc-800 focus-within:border-orange-500/80'
+          )}>
+            <MapPin
+              size={16}
+              className={clsx('shrink-0 transition-colors', isSearching ? 'text-orange-500 animate-pulse' : 'text-zinc-500')}
+            />
             <input
               type="text"
               value={formData.address}
               onChange={e => { setFormData(prev => ({ ...prev, address: e.target.value })); setIsLocationManuallyEdited(true); }}
-              className="w-full bg-[#242426] border border-zinc-800 rounded-2xl pl-10 pr-11 py-3 text-white text-sm focus:border-orange-500 outline-none placeholder:text-zinc-600"
-              placeholder="搜尋地點..."
+              className="flex-1 bg-transparent text-white text-sm outline-none placeholder:text-zinc-600 min-w-0"
+              placeholder="搜尋地點、景點..."
             />
-            <button
-              type="button"
-              onClick={handleFetchDetails}
-              disabled={!formData.google_place_id}
-              className={clsx('absolute right-2.5 p-1.5 rounded-xl transition-all', formData.google_place_id ? 'bg-zinc-800 text-orange-500 hover:bg-orange-500 hover:text-white' : 'text-zinc-700 cursor-not-allowed')}
-            >
-              {isSearching ? <Loader2 size={13} className="animate-spin" /> : <Search size={13} />}
-            </button>
+            {isSearching
+              ? <Loader2 size={14} className="animate-spin text-orange-500 shrink-0" />
+              : formData.address
+                ? <button type="button" onClick={() => { setFormData(prev => ({ ...prev, address: '', google_place_id: '', lat: null, lng: null })); setSuggestions([]); setIsLocationManuallyEdited(false); }}
+                    className="shrink-0 p-0.5 text-zinc-600 hover:text-zinc-300 transition-colors">
+                    <X size={14} />
+                  </button>
+                : <Search size={14} className="shrink-0 text-zinc-700" />
+            }
           </div>
+
+          {/* GPS 取得詳細資訊 */}
+          <AnimatePresence>
+            {formData.google_place_id && !formData.lat && (
+              <motion.button
+                type="button"
+                onClick={handleFetchDetails}
+                initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: 'auto' }} exit={{ opacity: 0, height: 0 }}
+                className="w-full flex items-center justify-center gap-2 py-2.5 bg-orange-500/8 text-orange-400 rounded-xl text-xs font-bold border border-orange-500/20 hover:bg-orange-500/15 transition-all"
+              >
+                <Sparkles size={12} />
+                取得地點詳細資訊 (GPS、評分、開放時間)
+              </motion.button>
+            )}
+            {formData.lat && (
+              <motion.div
+                initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+                className="flex items-center gap-1.5 px-3 py-1.5 bg-green-500/8 rounded-xl border border-green-500/20 w-fit"
+              >
+                <Sparkles size={10} className="text-green-400" />
+                <span className="text-[10px] font-black text-green-400 uppercase tracking-widest">GPS 已取得</span>
+              </motion.div>
+            )}
+          </AnimatePresence>
+
+          {/* 搜尋建議 */}
           <AnimatePresence>
             {suggestions.length > 0 && (
-              <motion.div initial={{ opacity: 0, y: -8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -8 }}
-                className="absolute left-0 top-full z-[999] w-full mt-1.5 bg-zinc-900 border border-zinc-800 rounded-2xl overflow-hidden shadow-2xl">
-                <div className="max-h-[180px] overflow-y-auto custom-scrollbar">
-                  {suggestions.map((s, i) => (
-                    <button key={i} type="button" onClick={() => handleSuggestionSelect(s)}
-                      className="w-full px-4 py-2.5 flex items-start gap-2.5 hover:bg-zinc-800 text-left border-b border-zinc-800/50 last:border-0 group">
-                      <MapPin size={13} className="mt-0.5 text-zinc-600 group-hover:text-orange-500 shrink-0" />
-                      <div className="flex-1 min-w-0">
-                        <div className="text-xs font-bold text-white truncate">{s.structured_formatting.main_text}</div>
-                        <div className="text-[10px] text-zinc-500 truncate">{s.structured_formatting.secondary_text}</div>
-                      </div>
-                    </button>
-                  ))}
-                </div>
+              <motion.div
+                initial={{ opacity: 0, y: -6 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -6 }}
+                className="absolute left-0 z-[999] w-full bg-[#1c1c1e] border border-zinc-700/80 rounded-2xl overflow-hidden shadow-[0_16px_40px_rgba(0,0,0,0.6)]"
+                style={{ top: 'calc(100% + 6px)' }}
+              >
+                {suggestions.map((s, i) => (
+                  <button key={i} type="button" onClick={() => handleSuggestionSelect(s)}
+                    className="w-full px-4 py-3 flex items-center gap-3 hover:bg-orange-500/8 text-left border-b border-zinc-800/60 last:border-0 group transition-colors">
+                    <div className="w-7 h-7 rounded-lg bg-zinc-800 flex items-center justify-center shrink-0 group-hover:bg-orange-500/15 transition-colors">
+                      <MapPin size={13} className="text-zinc-500 group-hover:text-orange-400 transition-colors" />
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <div className="text-xs font-bold text-white truncate">{s.structured_formatting?.main_text || s.description}</div>
+                      {s.structured_formatting?.secondary_text && (
+                        <div className="text-[10px] text-zinc-500 truncate mt-0.5">{s.structured_formatting.secondary_text}</div>
+                      )}
+                    </div>
+                  </button>
+                ))}
               </motion.div>
             )}
           </AnimatePresence>
