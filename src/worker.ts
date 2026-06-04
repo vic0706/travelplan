@@ -76,28 +76,36 @@ app.get('/api/settings/categories', async (c) => {
 app.get('/api/places/autocomplete', async (c) => {
   const q = c.req.query('q');
   if (!q) return c.json([]);
-  
+
+  const cacheKey = `autocomplete:${q.toLowerCase().trim()}`;
+  const cached = await c.env.KV.get(cacheKey, 'json') as any;
+  if (cached) return c.json(cached);
+
   try {
-    // 使用 Google Maps Autocomplete API
     const url = `https://maps.googleapis.com/maps/api/place/autocomplete/json?input=${encodeURIComponent(q)}&language=zh-TW&key=${c.env.GOOGLE_MAPS_API_KEY}`;
     const res = await fetch(url);
     const data = await res.json() as any;
-    
-    // 回傳 predictions 陣列給前端
-    return c.json(data.predictions || []);
+    const predictions = data.predictions || [];
+    await c.env.KV.put(cacheKey, JSON.stringify(predictions), { expirationTtl: 21600 }); // 6 小時
+    return c.json(predictions);
   } catch (error) {
     return c.json({ error: 'Failed to fetch autocomplete' }, 500);
   }
 });
 
-// 2. 取得地點詳細座標與照片 (Details)
-// 2. 取得地點詳細座標與照片 (Details)
 app.get('/api/places/details', async (c) => {
   const placeId = c.req.query('placeId');
   if (!placeId) return c.json({ error: 'Missing placeId' }, 400);
 
+  // 與 syncPlaceDetails 共用同一個 KV key，避免重複燒 quota
+  const cacheKey = `place_details_v2:${placeId}`;
+  const cachedRaw = await c.env.KV.get(cacheKey, 'json') as any;
+  if (cachedRaw) {
+    // 快取命中：直接回傳，加上 from_cache 標記讓前端可顯示識別
+    return c.json({ ...cachedRaw, from_cache: true });
+  }
+
   try {
-    // 💡 魔法 A：擴充 FieldMask，一口氣把評分、營業時間、照片都拿回來
     const url = `https://places.googleapis.com/v1/places/${placeId}`;
     const res = await fetch(url, {
       headers: {
@@ -105,26 +113,24 @@ app.get('/api/places/details', async (c) => {
         'X-Goog-FieldMask': 'id,location,photos,displayName,formattedAddress,rating,userRatingCount,regularOpeningHours,websiteUri,internationalPhoneNumber,businessStatus'
       }
     });
-    
+
     const data = await res.json() as any;
 
-    // 💡 魔法 B：把 Google 的「照片代碼」換成「真正的圖片網址」
     let photoUri = null;
     if (data.photos && data.photos.length > 0) {
-      const photoName = data.photos[0].name; // 長得像 places/XXX/photos/YYY
+      const photoName = data.photos[0].name;
       const mediaRes = await fetch(`https://places.googleapis.com/v1/${photoName}/media?key=${c.env.GOOGLE_MAPS_API_KEY}&maxWidthPx=800&skipHttpRedirect=true`);
       if (mediaRes.ok) {
         const mediaData = await mediaRes.json() as any;
-        photoUri = mediaData.photoUri; // 拿到可以直接 img src 的網址！
+        photoUri = mediaData.photoUri;
       }
     }
 
-    // 將資料與真實圖片網址合併回傳給前端
-    return c.json({
-      ...data,
-      actual_photo_url: photoUri
-    });
+    const result = { ...data, actual_photo_url: photoUri };
+    // 寫入 KV，TTL 7 天（syncPlaceDetails 也讀這個 key）
+    await c.env.KV.put(cacheKey, JSON.stringify(result), { expirationTtl: 604800 });
 
+    return c.json({ ...result, from_cache: false });
   } catch (error) {
     return c.json({ error: 'Failed to fetch place details' }, 500);
   }

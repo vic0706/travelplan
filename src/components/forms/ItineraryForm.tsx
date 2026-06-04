@@ -53,6 +53,16 @@ export function ItineraryForm({ tripId, date, onSuccess, onCancel, initialData }
 
   // Autocomplete 相關狀態
   const [suggestions, setSuggestions] = useState<any[]>([]);
+  const [knownPlaceIds, setKnownPlaceIds] = useState<Set<string>>(new Set());
+
+  // 載入 IndexedDB 中已使用過的 place_id
+  useEffect(() => {
+    import('../../db').then(({ db }) => {
+      db.itineraries.toArray().then(items => {
+        setKnownPlaceIds(new Set(items.map(i => i.google_place_id).filter(Boolean) as string[]));
+      });
+    });
+  }, []);
   const [isSearching, setIsSearching] = useState(false);
   const sessionToken = useRef(Math.random().toString(36).substring(2));
 
@@ -344,7 +354,12 @@ export function ItineraryForm({ tripId, date, onSuccess, onCancel, initialData }
                     <button key={idx} type="button" onClick={() => handleSuggestionSelect(s)} className="w-full px-4 py-3 flex items-start gap-3 hover:bg-zinc-800 text-left border-b border-zinc-800/50 last:border-0 group">
                       <MapPin size={14} className="mt-0.5 text-zinc-600 group-hover:text-orange-500 shrink-0" />
                       <div className="flex-1 min-w-0">
-                        <div className="text-xs font-bold text-white truncate">{s.structured_formatting.main_text}</div>
+                        <div className="text-xs font-bold text-white truncate flex items-center gap-1.5">
+                          {s.structured_formatting.main_text}
+                          {knownPlaceIds.has(s.place_id) && (
+                            <span className="inline-flex items-center gap-0.5 bg-orange-500/15 text-orange-400 text-[8px] font-black px-1 py-0.5 rounded-full border border-orange-500/20 shrink-0">⚡已知</span>
+                          )}
+                        </div>
                         <div className="text-[10px] text-zinc-500 truncate">{s.structured_formatting.secondary_text}</div>
                       </div>
                     </button>

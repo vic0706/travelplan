@@ -1,8 +1,9 @@
 import React, { useState, useMemo, useEffect } from 'react';
-import { X, Search, MapPin, Loader2, Globe, ChevronRight, ArrowLeft, Plus, Sparkles } from 'lucide-react';
+import { X, Search, MapPin, Loader2, Globe, ChevronRight, ArrowLeft, Plus, Sparkles, Zap } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { apiFetch } from '../../utils/api';
 import { useAppStore } from '../../store';
+import { db } from '../../db';
 
 interface LocationPickerProps {
   isOpen: boolean;
@@ -16,6 +17,16 @@ export function LocationPicker({ isOpen, onClose, onSelect, groupedCities }: Loc
   const [isSearching, setIsSearching] = useState(false);
   const [predictions, setPredictions] = useState<any[]>([]);
   const [selectedCountry, setSelectedCountry] = useState<string | null>(null);
+  const [knownPlaceIds, setKnownPlaceIds] = useState<Set<string>>(new Set());
+
+  // 從 IndexedDB 載入所有已使用過的 google_place_id（用於顯示 ⚡ 識別）
+  useEffect(() => {
+    if (!isOpen) return;
+    db.itineraries.toArray().then(items => {
+      const ids = new Set(items.map(i => i.google_place_id).filter(Boolean) as string[]);
+      setKnownPlaceIds(ids);
+    });
+  }, [isOpen]);
 
   // 1. 本地城市篩選
   const localMatches = useMemo(() => {
@@ -145,10 +156,21 @@ export function LocationPicker({ isOpen, onClose, onSelect, groupedCities }: Loc
                         <button type="button" key={p.place_id} onClick={() => handlePlaceSelect(p)} className="w-full p-4 bg-zinc-900/30 border border-zinc-900 rounded-2xl flex items-center gap-4 hover:bg-zinc-900 hover:border-zinc-700 transition-all group">
                           <div className="w-10 h-10 rounded-xl bg-zinc-800 flex items-center justify-center text-zinc-500 group-hover:text-orange-500"><MapPin size={20} /></div>
                           <div className="text-left flex-1 min-w-0">
-                            <div className="text-white font-bold truncate">{p.structured_formatting.main_text}</div>
+                            <div className="text-white font-bold truncate flex items-center gap-2">
+                              {p.structured_formatting.main_text}
+                              {knownPlaceIds.has(p.place_id) && (
+                                <span className="inline-flex items-center gap-0.5 bg-orange-500/15 text-orange-400 text-[9px] font-black px-1.5 py-0.5 rounded-full border border-orange-500/20 shrink-0">
+                                  <Zap size={8} strokeWidth={3} />已知
+                                </span>
+                              )}
+                            </div>
                             <div className="text-zinc-500 text-xs truncate">{p.structured_formatting.secondary_text}</div>
                           </div>
-                          <Plus size={18} className="text-zinc-700 group-hover:text-orange-500" />
+                          {knownPlaceIds.has(p.place_id) ? (
+                            <Zap size={16} className="text-orange-400 shrink-0" />
+                          ) : (
+                            <Plus size={18} className="text-zinc-700 group-hover:text-orange-500 shrink-0" />
+                          )}
                         </button>
                       ))
                     ) : (
