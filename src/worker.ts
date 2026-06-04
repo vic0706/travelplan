@@ -86,7 +86,7 @@ app.get('/api/places/autocomplete', async (c) => {
     const res = await fetch(url);
     const data = await res.json() as any;
     const predictions = data.predictions || [];
-    await c.env.KV.put(cacheKey, JSON.stringify(predictions), { expirationTtl: 21600 }); // 6 小時
+    await c.env.KV.put(cacheKey, JSON.stringify(predictions), { expirationTtl: 86400 }); // 1 天
     return c.json(predictions);
   } catch (error) {
     return c.json({ error: 'Failed to fetch autocomplete' }, 500);
