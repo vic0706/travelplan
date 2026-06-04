@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { X, Footprints, Bus, Car, Bike, Clock, Loader2, Sparkles } from 'lucide-react';
 import { clsx } from 'clsx';
-import { Itinerary } from '../types';
+import { Itinerary } from '../../types';
 import { motion } from 'framer-motion';
 
 interface NextTransportFormProps {

@@ -1,6 +1,10 @@
 import { Hono } from 'hono';
 import { Env } from '../worker';
-import { checkTripAccess, getWeatherForDate, syncPlaceDetails, optimizeDailyItinerary, searchUnsplash } from '../utils/workerUtils';
+import { checkTripAccess } from '../utils/workerUtils';
+import { getWeatherForDate } from '../utils/weather';
+import { syncPlaceDetails } from '../utils/places';
+import { optimizeDailyItinerary } from '../utils/optimizer';
+import { searchUnsplash } from '../utils/unsplash';
 
 const trips = new Hono<{ Bindings: Env; Variables: { user: any } }>();
 

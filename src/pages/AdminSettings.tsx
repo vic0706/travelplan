@@ -2,9 +2,9 @@ import React, { useEffect, useState } from 'react';
 import { useAppStore } from '../store';
 import { Save, Database, Loader2, Plus, Trash2, Tag, ArrowLeft, Image as ImageIcon, ChevronRight } from 'lucide-react';
 import { apiFetch } from '../utils/api';
-import { ImageCropper, uploadImageToSupabase } from '../components/ImageCropper';
+import { ImageCropper, uploadImageToSupabase } from '../components/widgets/ImageCropper';
 import { motion, AnimatePresence } from 'framer-motion';
-import { DynamicIcon } from '../components/DynamicIcon';
+import { DynamicIcon } from '../components/common/DynamicIcon';
 
 export function AdminSettings() {
   const { user } = useAppStore();

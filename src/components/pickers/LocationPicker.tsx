@@ -1,8 +1,8 @@
 import React, { useState, useMemo, useEffect } from 'react';
 import { X, Search, MapPin, Loader2, Globe, ChevronRight, ArrowLeft, Plus, Sparkles } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { apiFetch } from '../utils/api';
-import { useAppStore } from '../store';
+import { apiFetch } from '../../utils/api';
+import { useAppStore } from '../../store';
 
 interface LocationPickerProps {
   isOpen: boolean;

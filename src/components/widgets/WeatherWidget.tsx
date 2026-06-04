@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { Cloud, CloudDrizzle, CloudFog, CloudLightning, CloudRain, CloudSnow, Sun, Loader2, ChevronDown, ChevronUp, X } from 'lucide-react';
-import { apiFetch, safeJson } from '../utils/api';
+import { apiFetch, safeJson } from '../../utils/api';
 import { format, isSameDay, isBefore, startOfDay } from 'date-fns';
 
 interface WeatherWidgetProps {

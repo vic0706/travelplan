@@ -1,11 +1,11 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { useAppStore } from '../store';
+import { useAppStore } from '../../store';
 import { useNavigate } from 'react-router-dom';
 import { LogOut, Settings, Users, RefreshCw, User as UserIcon, Plus, Loader2, Camera } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { clsx } from 'clsx';
-import { ImageCropper, uploadImageToSupabase } from './ImageCropper';
-import { apiFetch } from '../utils/api';
+import { ImageCropper, uploadImageToSupabase } from '../widgets/ImageCropper';
+import { apiFetch } from '../../utils/api';
 
 export function TopAppBar() {
   const { user, isUserMenuOpen, setLoginModalOpen, setUserMenuOpen, logout, setCreateTripModalOpen, setUser } = useAppStore();

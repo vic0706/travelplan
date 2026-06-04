@@ -1,9 +1,9 @@
 import React, { useState } from 'react';
 import { Loader2, Cpu, Wand2, Trash2, AlertTriangle, Check } from 'lucide-react';
 import { TripBaseForm, TripFormData } from './TripBaseForm';
-import { apiFetch } from '../utils/api';
-import { Trip } from '../types';
-import { ConfirmDialog } from './ConfirmDialog';
+import { apiFetch } from '../../utils/api';
+import { Trip } from '../../types';
+import { ConfirmDialog } from '../common/ConfirmDialog';
 import { motion, AnimatePresence } from 'framer-motion';
 
 interface TripSettingsFormProps {

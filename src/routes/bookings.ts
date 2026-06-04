@@ -1,7 +1,9 @@
 // Bookings [cite: 282-325]
 import { Hono } from 'hono';
 import { Env } from '../worker';
-import { checkTripAccess, searchUnsplash, generateDesiredAccommodationItems } from '../utils/workerUtils';
+import { checkTripAccess } from '../utils/workerUtils';
+import { searchUnsplash } from '../utils/unsplash';
+import { generateDesiredAccommodationItems } from '../utils/bookingItems';
 
 const bookings = new Hono<{ Bindings: Env }>();
 
