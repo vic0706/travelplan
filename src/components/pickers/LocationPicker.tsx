@@ -86,27 +86,29 @@ export function LocationPicker({ isOpen, onClose, onSelect, groupedCities }: Loc
         <div className="fixed inset-0 z-[200] flex items-end sm:items-center justify-center p-0 sm:p-4">
           <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={onClose} className="absolute inset-0 bg-black/80 backdrop-blur-sm" />
           
-          <motion.div initial={{ y: "100%" }} animate={{ y: 0 }} exit={{ y: "100%" }} className="relative w-full max-w-lg bg-zinc-950 border-t sm:border border-zinc-800 rounded-t-[32px] sm:rounded-[32px] overflow-hidden flex flex-col max-h-[90vh]">
-            
+          <motion.div initial={{ y: "100%" }} animate={{ y: 0 }} exit={{ y: "100%" }} className="relative w-full max-w-lg bg-[#1c1c1e] border-t border-zinc-800/80 rounded-t-[32px] overflow-hidden flex flex-col max-h-[90vh]">
+
             {/* Header & Search */}
-            <div className="p-6 border-b border-zinc-900 bg-zinc-950/50 backdrop-blur-md sticky top-0 z-10">
-              <div className="flex items-center justify-between mb-6">
-                <h2 className="text-xl font-black text-white tracking-tight">SEARCH LOCATION</h2>
-                {/* ✅ 修正：加上 type="button" 防止觸發 form submit */}
-                <button type="button" onClick={onClose} className="p-2 hover:bg-zinc-900 rounded-full text-zinc-400 transition-colors"><X size={20} /></button>
+            <div className="p-5 border-b border-zinc-800/60 bg-[#1c1c1e]/95 backdrop-blur-md sticky top-0 z-10">
+              <div className="flex items-center justify-between mb-4">
+                <h2 className="text-sm font-black text-white uppercase tracking-widest">搜尋地點</h2>
+                <button type="button" onClick={onClose} className="p-2 bg-[#242426] rounded-full text-zinc-400 hover:text-white transition-colors border border-zinc-800"><X size={17} /></button>
               </div>
 
-              <div className="relative group">
-                <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-zinc-500 group-focus-within:text-orange-500 transition-colors" size={20} />
+              <div className={`flex items-center gap-2.5 bg-[#242426] border rounded-2xl px-3.5 py-3 transition-all ${isSearching ? 'border-orange-500/50' : 'border-zinc-800 focus-within:border-orange-500/60'}`}>
+                <Search className="text-zinc-500 shrink-0" size={16} />
                 <input
                   autoFocus
                   type="text"
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
-                  placeholder="搜尋景點、餐廳、飯店或城市..."
-                  className="w-full bg-zinc-900 border border-zinc-800 text-white pl-12 pr-4 py-4 rounded-2xl focus:outline-none focus:ring-2 focus:ring-orange-500/50 focus:border-orange-500 transition-all text-lg font-medium"
+                  placeholder="搜尋景點、城市..."
+                  className="flex-1 bg-transparent text-white outline-none text-sm placeholder:text-zinc-600"
                 />
-                {isSearching && <Loader2 className="absolute right-4 top-1/2 -translate-y-1/2 text-orange-500 animate-spin" size={20} />}
+                {isSearching
+                  ? <Loader2 className="text-orange-500 animate-spin shrink-0" size={15} />
+                  : searchQuery && <button type="button" onClick={() => setSearchQuery('')} className="text-zinc-600 hover:text-zinc-300 shrink-0"><X size={14} /></button>
+                }
               </div>
             </div>
 

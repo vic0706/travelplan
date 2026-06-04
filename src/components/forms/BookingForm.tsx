@@ -126,8 +126,8 @@ export function BookingForm({ initialData, onSubmit, onCancel, onDelete, loading
   // ── STEP 1: 選擇類別 ────────────────────────────────────────────────
   if (step === 'pick-category') {
     return (
-      <div className="flex flex-col h-full bg-[#1c1c1e]">
-        <div className="shrink-0 px-5 border-b border-zinc-800/80 flex items-center justify-between" style={{ paddingTop: 'max(1.25rem, env(safe-area-inset-top))', paddingBottom: '1rem' }}>
+      <div className="flex flex-col bg-[#1c1c1e] rounded-t-[32px] overflow-hidden" style={{ maxHeight: '92vh' }}>
+        <div className="shrink-0 px-5 border-b border-zinc-800/80 flex items-center justify-between" style={{ paddingTop: '1.25rem', paddingBottom: '1rem' }}>
           <h2 className="text-base font-black text-white uppercase tracking-widest">新增預訂</h2>
           <button type="button" onClick={onCancel} className="p-2 text-zinc-400 hover:text-white bg-[#242426] rounded-full transition-colors border border-zinc-800">
             <X size={17} />
@@ -163,10 +163,10 @@ export function BookingForm({ initialData, onSubmit, onCancel, onDelete, loading
 
   // ── STEP 2: 填寫表單 ─────────────────────────────────────────────────
   return (
-    <form onSubmit={handleSubmit} className="flex flex-col h-full bg-[#1c1c1e]">
+    <form onSubmit={handleSubmit} className="flex flex-col bg-[#1c1c1e] rounded-t-[32px] overflow-hidden" style={{ maxHeight: '92vh' }}>
 
       {/* Sticky 頂部 */}
-      <div className="shrink-0 px-5 border-b border-zinc-800/80 bg-[#1c1c1e]" style={{ paddingTop: 'max(1rem, env(safe-area-inset-top))' }}>
+      <div className="shrink-0 px-5 border-b border-zinc-800/80 bg-[#1c1c1e]" style={{ paddingTop: '1rem' }}>
         <div className="flex items-center justify-between py-3.5">
           <div className="flex items-center gap-3">
             {!initialData && (

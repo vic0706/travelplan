@@ -706,18 +706,34 @@ export function ItineraryForm({ tripId, date, onSuccess, onCancel, initialData }
                 <input type="text" required value={subTitle} onChange={e => setSubTitle(e.target.value)}
                   placeholder="子行程名稱"
                   className="w-full bg-[#242426] border border-zinc-800 rounded-xl px-3.5 py-2.5 text-white text-sm outline-none focus:border-orange-500" />
-                <div className="grid grid-cols-2 gap-2.5">
-                  <div className="bg-[#242426] border border-zinc-800 rounded-xl px-3 py-2.5">
-                    <span className="block text-[9px] text-zinc-500 font-bold mb-1 uppercase">開始</span>
-                    <TimeInput value={subStartTime} onChange={setSubStartTime}
-                      className="w-full bg-transparent text-white font-mono text-sm outline-none" />
+
+                {/* 4-3: 智慧排程模式下禁用時間選擇 */}
+                {!isTimeFixed ? (
+                  <div className="bg-orange-500/5 border border-orange-500/20 rounded-xl px-3.5 py-2.5 text-center">
+                    <p className="text-[10px] text-orange-400 font-bold uppercase tracking-widest">智慧排程模式</p>
+                    <p className="text-[9px] text-zinc-500 mt-0.5">請先切換至「固定時間」模式才能設定子行程時間</p>
                   </div>
-                  <div className="bg-[#242426] border border-zinc-800 rounded-xl px-3 py-2.5">
-                    <span className="block text-[9px] text-zinc-500 font-bold mb-1 uppercase">結束</span>
-                    <TimeInput value={subEndTime} onChange={setSubEndTime}
-                      className="w-full bg-transparent text-white font-mono text-sm outline-none" />
+                ) : (
+                  <div className="grid grid-cols-2 gap-2.5">
+                    <div className="bg-[#242426] border border-zinc-800 rounded-xl px-3 py-2.5">
+                      <span className="block text-[9px] text-zinc-500 font-bold mb-1 uppercase">開始</span>
+                      <TimeInput value={subStartTime} onChange={setSubStartTime}
+                        className="w-full bg-transparent text-white font-mono text-sm outline-none" />
+                      {formData.start_time && subStartTime && subStartTime < formData.start_time && (
+                        <span className="text-[8px] text-red-400 font-bold">早於活動開始</span>
+                      )}
+                    </div>
+                    <div className="bg-[#242426] border border-zinc-800 rounded-xl px-3 py-2.5">
+                      <span className="block text-[9px] text-zinc-500 font-bold mb-1 uppercase">結束</span>
+                      <TimeInput value={subEndTime} onChange={setSubEndTime}
+                        className="w-full bg-transparent text-white font-mono text-sm outline-none" />
+                      {formData.end_time && subEndTime && subEndTime > formData.end_time && (
+                        <span className="text-[8px] text-red-400 font-bold">晚於活動結束</span>
+                      )}
+                    </div>
                   </div>
-                </div>
+                )}
+
                 <textarea value={subNotes} onChange={e => setSubNotes(e.target.value)}
                   placeholder="備註..."
                   className="w-full bg-[#242426] border border-zinc-800 rounded-xl px-3.5 py-2.5 text-white text-xs outline-none min-h-[60px] focus:border-orange-500" />
@@ -725,7 +741,7 @@ export function ItineraryForm({ tripId, date, onSuccess, onCancel, initialData }
                   type="button"
                   disabled={!subTitle}
                   onClick={() => {
-                    const newItem = { id: editingSubItem?.id || Date.now().toString(), title: subTitle, start_time: subStartTime, end_time: subEndTime, notes: subNotes };
+                    const newItem = { id: editingSubItem?.id || Date.now().toString(), title: subTitle, start_time: isTimeFixed ? subStartTime : '', end_time: isTimeFixed ? subEndTime : '', notes: subNotes };
                     if (editingSubItem) setSubItems(subItems.map(i => i.id === editingSubItem.id ? newItem : i));
                     else setSubItems([...subItems, newItem].sort((a, b) => a.start_time.localeCompare(b.start_time)));
                     setIsSubItemModalOpen(false);

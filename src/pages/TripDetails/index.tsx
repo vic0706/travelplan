@@ -564,8 +564,9 @@ export function TripDetails() {
         )}
 
         {isBookingFormOpen && (
-          <div className="fixed inset-0 z-[100] bg-zinc-950">
-            <motion.div initial={{ y: '100%' }} animate={{ y: 0 }} exit={{ y: '100%' }} transition={{ type: 'spring', stiffness: 340, damping: 36 }} className="w-full h-full">
+          <div className="fixed inset-0 z-[100] flex items-end justify-center bg-black/80 backdrop-blur-sm">
+            <motion.div initial={{ y: '100%' }} animate={{ y: 0 }} exit={{ y: '100%' }} transition={{ type: 'spring', stiffness: 340, damping: 36 }}
+              className="w-full max-w-lg flex flex-col" style={{ maxHeight: '92vh' }}>
               <BookingForm
                 initialData={editingBooking}
                 onSubmit={async (data) => {
