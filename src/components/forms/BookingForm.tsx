@@ -246,7 +246,7 @@ export function BookingForm({ initialData, onSubmit, onCancel, loading = false }
           <div className="flex items-center gap-3">
             <MapPin size={18} className="text-orange-500" />
             <span className={formData.city_id ? 'text-white' : ''}>
-              {formData.city_id ? cities.find(c => String(c.id) === formData.city_id)?.name : 'Select City or Search Place...'}
+              {formData.city_id ? cities.find(c => String(c.id) === formData.city_id)?.name : '選擇城市...'}
             </span>
           </div>
           {formData.google_place_id && (
@@ -296,7 +296,7 @@ export function BookingForm({ initialData, onSubmit, onCancel, loading = false }
             className="w-full bg-zinc-800 border border-zinc-700 rounded-xl px-4 py-3 flex items-center gap-2 text-sm text-white hover:border-zinc-500 transition-colors">
             <Calendar size={15} className="text-orange-500 shrink-0" />
             <span className={formData.start_date ? 'text-white' : 'text-zinc-500'}>
-              {formData.start_date ? format(parseISO(formData.start_date), 'MMM d, yyyy') : 'Select date'}
+              {formData.start_date ? format(parseISO(formData.start_date), 'MMM d, yyyy') : '選擇日期'}
             </span>
           </button>
         </div>
@@ -308,7 +308,7 @@ export function BookingForm({ initialData, onSubmit, onCancel, loading = false }
             className="w-full bg-zinc-800 border border-zinc-700 rounded-xl px-4 py-3 flex items-center gap-2 text-sm text-white hover:border-zinc-500 transition-colors">
             <Calendar size={15} className="text-orange-500 shrink-0" />
             <span className={formData.end_date ? 'text-white' : 'text-zinc-500'}>
-              {formData.end_date ? format(parseISO(formData.end_date), 'MMM d, yyyy') : 'Select date'}
+              {formData.end_date ? format(parseISO(formData.end_date), 'MMM d, yyyy') : '選擇日期'}
             </span>
           </button>
         </div>
@@ -341,7 +341,7 @@ export function BookingForm({ initialData, onSubmit, onCancel, loading = false }
         </button>
         <button type="submit" disabled={loading}
           className="flex-[2] bg-orange-500 hover:bg-orange-600 disabled:opacity-50 text-white font-bold rounded-xl px-4 py-3.5 transition-colors shadow-lg shadow-orange-500/20 flex items-center justify-center gap-2">
-          {loading ? <Loader2 className="animate-spin" size={20} /> : 'Save Booking'}
+          {loading ? <Loader2 className="animate-spin" size={20} /> : '儲存訂票'}
         </button>
       </div>
 

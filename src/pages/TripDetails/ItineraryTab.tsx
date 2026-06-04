@@ -71,7 +71,7 @@ export function ItineraryTab({
           })
         ) : (
           <div className="text-center py-12 text-zinc-500 border border-dashed border-zinc-800 rounded-3xl">
-            <p>No activities for this day.</p>
+            <p>這天還沒有活動</p>
           </div>
         )}
 
@@ -80,7 +80,7 @@ export function ItineraryTab({
             onClick={onAddActivity}
             className="w-full mt-6 py-4 border-2 border-dashed border-zinc-800 rounded-3xl flex items-center justify-center gap-2 text-zinc-500 hover:text-orange-500 hover:border-orange-500/50 hover:bg-orange-500/5 transition-all"
           >
-            <Plus size={20} /><span className="font-medium">Add Activity</span>
+            <Plus size={20} /><span className="font-medium">＋ 新增活動</span>
           </button>
         )}
       </div>

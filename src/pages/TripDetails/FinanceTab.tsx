@@ -1,5 +1,5 @@
 import React from 'react';
-import { Plus, DollarSign } from 'lucide-react';
+import { Plus } from 'lucide-react';
 import { clsx } from 'clsx';
 import { Expense } from '../../types';
 
@@ -20,9 +20,9 @@ export function FinanceTab({
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between px-2">
-        <h3 className="text-lg font-bold text-white">Daily Expenses</h3>
+        <h3 className="text-lg font-bold text-white">每日支出</h3>
         <div className="text-right">
-          <div className="text-[10px] text-zinc-500 font-bold uppercase tracking-widest mb-0.5">Daily Total</div>
+          <div className="text-[10px] text-zinc-500 font-bold uppercase tracking-widest mb-0.5">當日合計</div>
           <div className="text-xl font-bold text-white font-mono">
             {currency} {dailyTotal.toLocaleString()}
           </div>
@@ -40,14 +40,12 @@ export function FinanceTab({
             )}
           >
             <div className="flex items-center gap-4">
-              <div className="w-12 h-12 rounded-full bg-zinc-800 flex items-center justify-center shrink-0">
-                <DollarSign className="text-zinc-400" size={20} />
+              <div className="w-12 h-12 rounded-full bg-zinc-800 flex items-center justify-center shrink-0 text-zinc-400 text-xl font-bold">
+                $
               </div>
               <div>
                 <h4 className="text-white font-medium">{expense.item_name}</h4>
-                <p className="text-xs text-zinc-500 mt-1 uppercase tracking-wider">
-                  Paid by {getUserNameById(expense.payer_id)}
-                </p>
+                <p className="text-xs text-zinc-500 mt-1">由 {getUserNameById(expense.payer_id)} 付款</p>
               </div>
             </div>
             <div className="text-right">
@@ -58,7 +56,7 @@ export function FinanceTab({
         ))
       ) : (
         <div className="text-center py-12 text-zinc-500 border border-dashed border-zinc-800 rounded-3xl">
-          <p>No expenses recorded for this day.</p>
+          <p>這天還沒有記帳</p>
         </div>
       )}
 
@@ -67,7 +65,7 @@ export function FinanceTab({
           onClick={onAddExpense}
           className="w-full mt-6 py-4 border-2 border-dashed border-zinc-800 rounded-3xl flex items-center justify-center gap-2 text-zinc-500 hover:text-orange-500 hover:border-orange-500/50 hover:bg-orange-500/5 transition-all"
         >
-          <Plus size={20} /><span className="font-medium">Add Expense</span>
+          <Plus size={20} /><span className="font-medium">＋ 新增記帳</span>
         </button>
       )}
     </div>

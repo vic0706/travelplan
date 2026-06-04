@@ -71,7 +71,7 @@ export function CreateTripModal({ isOpen = true, onClose, onSuccess }: CreateTri
           onClick={(e) => e.stopPropagation()} // 防止點擊彈窗內部時觸發到背景的關閉
         >
           <div className="p-6 border-b border-zinc-800 flex justify-between items-center bg-zinc-900/50 shrink-0">
-            <h2 className="text-xl font-bold text-white">Create New Trip</h2>
+            <h2 className="text-xl font-bold text-white">建立新行程</h2>
             {/* 3. 強化版 X 關閉按鈕 */}
             <button 
               type="button"
@@ -90,7 +90,7 @@ export function CreateTripModal({ isOpen = true, onClose, onSuccess }: CreateTri
             <TripBaseForm 
               onSubmit={handleSubmit}
               onCancel={onClose}
-              submitText="Create Trip"
+              submitText="建立行程"
               loading={loading}
             />
           </div>

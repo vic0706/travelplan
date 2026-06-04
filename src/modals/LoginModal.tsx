@@ -76,7 +76,7 @@ export function LoginModal({ onClose }: LoginModalProps) {
         login(data.user, data.token);
         onClose();
       } else {
-        setErrorMsg('Login failed: Invalid response');
+        setErrorMsg('登入失敗：伺服器回應異常');
       }
     } catch (error: any) {
       console.error(error);
@@ -95,7 +95,7 @@ export function LoginModal({ onClose }: LoginModalProps) {
         </button>
         
         <h2 className="text-2xl font-semibold text-white mb-6 text-center">
-          {selectedUser ? 'Welcome Back' : 'Login'}
+          {selectedUser ? '歡迎回來' : '登入'}
         </h2>
 
         {errorMsg && (
@@ -133,7 +133,7 @@ export function LoginModal({ onClose }: LoginModalProps) {
             </div>
           ) : (
             <div className="text-center py-8 text-zinc-500 text-sm italic">
-              Loading users...
+              載入中...
             </div>
           )
         ) : (
@@ -187,7 +187,7 @@ export function LoginModal({ onClose }: LoginModalProps) {
                 disabled={loading || !password}
                 className="w-full bg-orange-500 hover:bg-orange-600 disabled:opacity-30 disabled:cursor-not-allowed text-white font-bold rounded-xl px-4 py-3.5 transition-all shadow-lg shadow-orange-500/20 active:scale-95 text-lg"
               >
-                {loading ? 'Signing In...' : 'Sign In'}
+                {loading ? '登入中...' : '登入'}
               </button>
             </form>
           </div>

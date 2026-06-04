@@ -67,7 +67,7 @@ export function Home() {
     <div className="flex-1 overflow-y-auto p-4 space-y-6 pb-24 bg-black min-h-screen">
       {error && (
         <div className="bg-red-500/10 border border-red-500/20 rounded-xl p-4 text-red-500 text-sm mb-4">
-          Failed to load trips: {error}
+          行程載入失敗：{error}
         </div>
       )}
 
@@ -93,7 +93,7 @@ export function Home() {
                 <div className="aspect-[4/3] w-full relative overflow-hidden">
                   <img src={imageUrl} alt={trip.title} className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-700" referrerPolicy="no-referrer" />
                   <div className="absolute inset-0 bg-gradient-to-t from-zinc-950 via-zinc-950/40 to-transparent"></div>
-                  <div className="absolute top-4 right-4 bg-black/60 backdrop-blur-md px-3 py-1 rounded-full text-xs font-medium text-white border border-white/10">{days} Days</div>
+                  <div className="absolute top-4 right-4 bg-black/60 backdrop-blur-md px-3 py-1 rounded-full text-xs font-medium text-white border border-white/10">{days} 天</div>
                 </div>
                 <div className="absolute bottom-0 left-0 right-0 p-6">
                   <h3 className="text-2xl font-bold text-white mb-3 leading-tight drop-shadow-lg">{trip.title}</h3>
@@ -107,7 +107,7 @@ export function Home() {
         ) : (
           !isLoading && (
             <div className="col-span-full text-center py-20 text-zinc-500 border border-dashed border-zinc-800 rounded-3xl">
-              <p>No trips found. Create one to get started!</p>
+              <p>還沒有行程，點選右上角建立新行程</p>
             </div>
           )
         )}

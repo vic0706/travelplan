@@ -138,10 +138,10 @@ export function FinanceForm({ tripId, defaultDate, currencies = ['TWD'], onSucce
 
   return (
     <>
-      <div className="bg-zinc-900 border border-zinc-800 rounded-3xl overflow-hidden shadow-2xl flex flex-col max-h-[90vh] pb-safe-bottom">
+      <div className="bg-[#1c1c1e] border border-zinc-800 rounded-[32px] overflow-hidden shadow-2xl flex flex-col max-h-[90vh]">
         {/* Header */}
         <div className="p-4 border-b border-zinc-800 flex items-center justify-between bg-zinc-900 z-10">
-          <h3 className="text-lg font-semibold text-white">{initialData ? 'Edit Expense' : 'Add Expense'}</h3>
+          <h3 className="text-lg font-semibold text-white">{initialData ? '編輯記帳' : '新增記帳'}</h3>
           <div className="flex gap-2">
             {initialData && (
               <button onClick={() => setShowDeleteConfirm(true)} className="p-2 text-red-500 hover:bg-red-500/10 rounded-full transition-colors">
@@ -158,7 +158,7 @@ export function FinanceForm({ tripId, defaultDate, currencies = ['TWD'], onSucce
           {/* Date & Category */}
           <div className="grid grid-cols-2 gap-4">
             <div className="space-y-1">
-              <label className="text-[10px] font-bold text-zinc-500 uppercase tracking-widest ml-1">Date</label>
+              <label className="text-[10px] font-bold text-zinc-500 uppercase tracking-widest ml-1">日期</label>
               <button
                 onClick={() => setIsDatePickerOpen(true)}
                 className="w-full flex items-center justify-between bg-zinc-950 border border-zinc-800 rounded-2xl px-4 py-3 text-white hover:border-orange-500 transition-colors"
@@ -171,7 +171,7 @@ export function FinanceForm({ tripId, defaultDate, currencies = ['TWD'], onSucce
             </div>
 
             <div className="space-y-1">
-              <label className="text-[10px] font-bold text-zinc-500 uppercase tracking-widest ml-1">Category</label>
+              <label className="text-[10px] font-bold text-zinc-500 uppercase tracking-widest ml-1">分類</label>
               <div className="flex flex-wrap gap-2">
                 {categories.map((c: any) => (
                   <button
@@ -194,12 +194,12 @@ export function FinanceForm({ tripId, defaultDate, currencies = ['TWD'], onSucce
 
           {/* Description */}
           <div className="space-y-1">
-            <label className="text-[10px] font-bold text-zinc-500 uppercase tracking-widest ml-1">Description</label>
+            <label className="text-[10px] font-bold text-zinc-500 uppercase tracking-widest ml-1">項目名稱</label>
             <input
               type="text"
               value={itemName}
               onChange={e => setItemName(e.target.value)}
-              placeholder="What was this for?"
+              placeholder="費用名稱"
               className="w-full bg-zinc-950 border border-zinc-800 rounded-2xl px-4 py-3 text-white text-base focus:outline-none focus:border-orange-500 placeholder:text-zinc-600"
             />
           </div>
@@ -207,7 +207,7 @@ export function FinanceForm({ tripId, defaultDate, currencies = ['TWD'], onSucce
           {/* Paid By & Split With */}
           <div className="grid grid-cols-2 gap-4">
             <div className="space-y-1">
-              <label className="text-[10px] font-bold text-zinc-500 uppercase tracking-widest ml-1">Paid By</label>
+              <label className="text-[10px] font-bold text-zinc-500 uppercase tracking-widest ml-1">付款人</label>
               <button
                 onClick={() => setIsPayerModalOpen(true)}
                 className="w-full flex items-center gap-3 bg-zinc-950 border border-zinc-800 rounded-2xl p-2 text-left hover:border-orange-500 transition-colors"
@@ -228,7 +228,7 @@ export function FinanceForm({ tripId, defaultDate, currencies = ['TWD'], onSucce
             </div>
 
             <div className="space-y-1">
-              <label className="text-[10px] font-bold text-zinc-500 uppercase tracking-widest ml-1">Split With</label>
+              <label className="text-[10px] font-bold text-zinc-500 uppercase tracking-widest ml-1">共同分攤</label>
               <button
                 onClick={() => setIsSplitModalOpen(true)}
                 className="w-full flex items-center gap-2 bg-zinc-950 border border-zinc-800 rounded-2xl p-2 text-left hover:border-orange-500 transition-colors"
@@ -249,7 +249,7 @@ export function FinanceForm({ tripId, defaultDate, currencies = ['TWD'], onSucce
                   )}
                 </div>
                 <div className="text-[10px] font-bold text-zinc-400 uppercase tracking-tighter">
-                  {splitMembers.length === members.length ? 'Everyone' : `${splitMembers.length} People`}
+                  {splitMembers.length === members.length ? '所有人' : `${splitMembers.length} 人`}
                 </div>
               </button>
             </div>
@@ -315,11 +315,11 @@ export function FinanceForm({ tripId, defaultDate, currencies = ['TWD'], onSucce
           <div className="fixed inset-0 z-[110] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm">
             <motion.div initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.95 }}
               className="bg-zinc-900 border border-zinc-800 rounded-3xl p-6 w-full max-w-sm shadow-2xl">
-              <h3 className="text-xl font-bold text-white mb-2">Delete Expense?</h3>
-              <p className="text-zinc-400 mb-6">Are you sure you want to delete <span className="text-white font-medium">{itemName}</span>? This cannot be undone.</p>
+              <h3 className="text-xl font-bold text-white mb-2">刪除記帳？</h3>
+              <p className="text-zinc-400 mb-6">確定要刪除這筆記帳嗎？此操作無法復原。</p>
               <div className="flex gap-3">
-                <button onClick={() => setShowDeleteConfirm(false)} className="flex-1 px-4 py-3 rounded-xl font-medium text-zinc-400 hover:text-white hover:bg-zinc-800 transition-colors">Cancel</button>
-                <button onClick={confirmDelete} className="flex-1 px-4 py-3 rounded-xl font-bold bg-red-500 text-white hover:bg-red-600 transition-colors shadow-lg shadow-red-500/20">Delete</button>
+                <button onClick={() => setShowDeleteConfirm(false)} className="flex-1 px-4 py-3 rounded-xl font-medium text-zinc-400 hover:text-white hover:bg-zinc-800 transition-colors">取消</button>
+                <button onClick={confirmDelete} className="flex-1 px-4 py-3 rounded-xl font-bold bg-red-500 text-white hover:bg-red-600 transition-colors shadow-lg shadow-red-500/20">刪除</button>
               </div>
             </motion.div>
           </div>
@@ -331,7 +331,7 @@ export function FinanceForm({ tripId, defaultDate, currencies = ['TWD'], onSucce
             <motion.div initial={{ opacity: 0, y: 100 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: 100 }}
               className="bg-zinc-900 border border-zinc-800 rounded-t-3xl sm:rounded-3xl p-6 w-full max-w-md shadow-2xl">
               <div className="flex justify-between items-center mb-6">
-                <h3 className="text-xl font-bold text-white">Who Paid?</h3>
+                <h3 className="text-xl font-bold text-white">誰付款？</h3>
                 <button onClick={() => setIsPayerModalOpen(false)} className="p-2 text-zinc-500 hover:text-white"><X size={20} /></button>
               </div>
               <div className="grid grid-cols-2 gap-3">
@@ -357,9 +357,9 @@ export function FinanceForm({ tripId, defaultDate, currencies = ['TWD'], onSucce
             <motion.div initial={{ opacity: 0, y: 100 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: 100 }}
               className="bg-zinc-900 border border-zinc-800 rounded-t-3xl sm:rounded-3xl p-6 w-full max-w-md shadow-2xl">
               <div className="flex justify-between items-center mb-6">
-                <h3 className="text-xl font-bold text-white">Split With</h3>
+                <h3 className="text-xl font-bold text-white">共同分攤</h3>
                 <div className="flex gap-2">
-                  <button onClick={() => setSplitMembers(members.map(m => m.id))} className="text-xs text-orange-500 font-bold uppercase tracking-wider">All</button>
+                  <button onClick={() => setSplitMembers(members.map(m => m.id))} className="text-xs text-orange-500 font-bold uppercase tracking-wider">全選</button>
                   <button onClick={() => setIsSplitModalOpen(false)} className="p-2 text-zinc-500 hover:text-white"><X size={20} /></button>
                 </div>
               </div>
@@ -391,7 +391,7 @@ export function FinanceForm({ tripId, defaultDate, currencies = ['TWD'], onSucce
             <motion.div initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.95 }}
               className="bg-zinc-900 border border-zinc-800 rounded-3xl p-6 w-full max-w-sm shadow-2xl">
               <div className="flex justify-between items-center mb-4">
-                <h3 className="text-xl font-bold text-white">Select Date</h3>
+                <h3 className="text-xl font-bold text-white">選擇日期</h3>
                 <button onClick={() => setIsDatePickerOpen(false)} className="p-2 text-zinc-500 hover:text-white"><X size={20} /></button>
               </div>
               <input 

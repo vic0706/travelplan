@@ -194,7 +194,7 @@ export function TripDetails() {
 
   const handleDeleteItinerary = async (itineraryId: number) => {
     setConfirmConfig({
-      isOpen: true, title: '刪除活動', message: '您確定要刪除此活動嗎？此操作無法復原。', confirmText: '刪除活動',
+      isOpen: true, title: '刪除活動', message: '確定要刪除此活動嗎？此操作無法復原。', confirmText: '刪除活動',
       onConfirm: async () => {
         if (!id) return;
         try {
@@ -203,14 +203,14 @@ export function TripDetails() {
           await db.itineraries.delete(itineraryId);
           setIsItineraryFormOpen(false); setEditingItinerary(null);
           setConfirmConfig(prev => ({ ...prev, isOpen: false }));
-        } catch (err) { console.error(err); alert('Failed to delete activity'); }
+        } catch (err) { console.error(err); alert('刪除活動失敗'); }
       }
     });
   };
 
   const handleDeleteBooking = async (bookingId: number) => {
     setConfirmConfig({
-      isOpen: true, title: '刪除預訂', message: '您確定要刪除此預訂資訊嗎？', confirmText: '刪除預訂',
+      isOpen: true, title: '刪除訂票', message: '確定要刪除此訂票資訊嗎？', confirmText: '刪除訂票',
       onConfirm: async () => {
         if (!id) return;
         try {
@@ -223,7 +223,7 @@ export function TripDetails() {
           if (relatedItineraries.length > 0) await db.itineraries.bulkDelete(relatedItineraries.map(i => i.id));
           setIsBookingFormOpen(false); setEditingBooking(null);
           setConfirmConfig(prev => ({ ...prev, isOpen: false }));
-        } catch (err) { console.error(err); alert('Failed to delete booking'); }
+        } catch (err) { console.error(err); alert('刪除訂票失敗'); }
       }
     });
   };
@@ -504,7 +504,7 @@ export function TripDetails() {
                 : <ChevronsUpDown size={18} strokeWidth={2.5} />
               }
               <span className="text-[8px] font-black uppercase tracking-widest mt-1 opacity-80">
-                {isAllExpanded ? 'Collapse' : 'Expand'}
+                {isAllExpanded ? '收合' : '展開'}
               </span>
             </button>
           </div>
@@ -566,7 +566,7 @@ export function TripDetails() {
                 await apiFetch(`/api/trips/${id}`, { method: 'DELETE' });
                 await db.trips.delete(Number(id));
                 navigate('/');
-              } catch (e) { showToast('Delete failed', 'error'); }
+              } catch (e) { showToast('刪除失敗', 'error'); }
             }}
             onClose={() => setActiveTab('itinerary')}
             showToast={showToast}
@@ -580,9 +580,9 @@ export function TripDetails() {
         style={{ paddingBottom: 'max(0.5rem, calc(env(safe-area-inset-bottom) + 0.5rem))' }}
       >
         {[
-          { tab: 'itinerary', icon: Map,    label: 'Itinerary' },
-          { tab: 'info',      icon: Info,   label: 'Info' },
-          { tab: 'finance',   icon: Wallet, label: 'Finance' },
+          { tab: 'itinerary', icon: Map,    label: '行程' },
+          { tab: 'info',      icon: Info,   label: '訂票' },
+          { tab: 'finance',   icon: Wallet, label: '記帳' },
         ].map(({ tab, icon: Icon, label }) => (
           <button key={tab} onClick={() => setActiveTab(tab as any)}
             className={clsx('flex flex-col items-center justify-center w-full h-14 gap-1 rounded-2xl transition-all duration-300',
@@ -675,7 +675,7 @@ export function TripDetails() {
                     const method = editingBooking ? 'PUT' : 'POST';
                     await apiFetch(endpoint, { method, body: JSON.stringify(data) });
                     setIsBookingFormOpen(false); setEditingBooking(null); refreshTripData();
-                  } catch (e) { alert('Failed to save booking'); }
+                  } catch (e) { alert('儲存訂票失敗'); }
                 }}
                 onCancel={() => { setIsBookingFormOpen(false); setEditingBooking(null); }}
               />
@@ -703,7 +703,7 @@ export function TripDetails() {
                   method: 'PUT', body: JSON.stringify({ ...editingItinerary, ...data })
                 });
                 setIsNextTransportFormOpen(false); setEditingItinerary(null); refreshTripData();
-              } catch (e) { alert('Failed to save transport'); }
+              } catch (e) { alert('儲存交通資訊失敗'); }
             }}
           />
         )}

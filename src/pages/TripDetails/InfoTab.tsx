@@ -26,18 +26,13 @@ export function InfoTab({
   return (
     <div className="space-y-6">
       <div className="bg-zinc-900 border border-zinc-800 rounded-3xl p-6 shadow-lg">
-        <h3 className="text-lg font-semibold text-white mb-6">Expenses Overview</h3>
+        <h3 className="text-lg font-semibold text-white mb-6">費用總覽</h3>
         <FinanceOverview expenses={expenses} members={tripUsers} currency={currency} />
       </div>
 
       <div className="space-y-4">
         <div className="flex items-center justify-between px-2">
-          <h4 className="text-zinc-500 text-xs font-bold uppercase tracking-widest">Bookings</h4>
-          {canEdit && (
-            <button onClick={onAddBooking} className="p-2 bg-orange-500/10 text-orange-500 rounded-full hover:bg-orange-500/20 transition-colors">
-              <Plus size={18} />
-            </button>
-          )}
+          <h4 className="text-zinc-500 text-xs font-bold uppercase tracking-widest">訂票資料</h4>
         </div>
 
         {bookings.length > 0 ? (
@@ -51,7 +46,7 @@ export function InfoTab({
                         ? 'bg-orange-500 text-white border-orange-500'
                         : 'bg-zinc-900 border-zinc-800 text-zinc-400 hover:text-white hover:bg-zinc-800'
                     )}>
-                    {cat}
+                    {cat === 'ALL' ? '全部' : cat}
                   </button>
                 ))}
               </div>
@@ -77,8 +72,17 @@ export function InfoTab({
           </>
         ) : (
           <div className="bg-zinc-900/50 border border-dashed border-zinc-800 rounded-3xl p-12 text-center text-zinc-500">
-            <p className="text-sm">No bookings added yet.</p>
+            <p className="text-sm">尚無訂票資料</p>
           </div>
+        )}
+
+        {canEdit && (
+          <button
+            onClick={onAddBooking}
+            className="w-full mt-2 py-4 border-2 border-dashed border-zinc-800 rounded-3xl flex items-center justify-center gap-2 text-zinc-500 hover:text-orange-500 hover:border-orange-500/50 hover:bg-orange-500/5 transition-all"
+          >
+            <Plus size={20} /><span className="font-medium">＋ 新增訂票</span>
+          </button>
         )}
       </div>
     </div>

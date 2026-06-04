@@ -37,7 +37,7 @@ export function TopAppBar() {
   }, [isUserMenuOpen, setUserMenuOpen]);
 
   const handleClearCache = () => {
-    if (window.confirm('Are you sure you want to clear cache and reload?')) {
+    if (window.confirm('確定要清除快取並重新載入嗎？')) {
       setIsCleaningCache(true);
       setTimeout(() => {
         localStorage.clear();
@@ -57,7 +57,7 @@ export function TopAppBar() {
     
     // Show a brief notification
     const notification = document.createElement('div');
-    notification.textContent = 'Logging out...';
+    notification.textContent = '登出中...';
     notification.className = 'fixed top-24 left-1/2 -translate-x-1/2 bg-zinc-800 text-white px-6 py-3 rounded-full shadow-2xl z-[100] animate-pulse font-medium border border-zinc-700 flex items-center gap-2';
     
     // Add icon
@@ -114,7 +114,7 @@ export function TopAppBar() {
       }
     } catch (err) {
       console.error(err);
-      alert('Failed to upload avatar');
+      alert('頭像上傳失敗');
     } finally {
       setUploadingImage(false);
     }
@@ -297,8 +297,8 @@ export function TopAppBar() {
               exit={{ opacity: 0, scale: 0.95 }}
               className="bg-zinc-900 border border-zinc-800 rounded-3xl p-6 w-full max-w-sm shadow-2xl"
             >
-              <h3 className="text-xl font-bold text-white mb-2">Sign Out?</h3>
-              <p className="text-zinc-400 mb-6">Are you sure you want to sign out of your account?</p>
+              <h3 className="text-xl font-bold text-white mb-2">確認登出？</h3>
+              <p className="text-zinc-400 mb-6">確定要登出帳號嗎？</p>
               <div className="flex gap-3">
                 <button
                   onClick={() => setShowLogoutConfirm(false)}
@@ -335,8 +335,8 @@ export function TopAppBar() {
       {isCleaningCache && (
         <div className="fixed inset-0 z-[100] bg-black/90 backdrop-blur-md flex flex-col items-center justify-center">
           <Loader2 size={48} className="text-orange-500 animate-spin mb-4" />
-          <h3 className="text-xl font-bold text-white">Cleaning Cache...</h3>
-          <p className="text-zinc-400 mt-2">The application will reload shortly.</p>
+          <h3 className="text-xl font-bold text-white">清除快取中...</h3>
+          <p className="text-zinc-400 mt-2">應用程式即將重新載入。</p>
         </div>
       )}
     </>

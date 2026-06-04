@@ -157,7 +157,7 @@ export function TripBaseForm({ initialData, onSubmit, onCancel, submitText, load
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!formData.title || !formData.start_date || !formData.end_date) {
-      alert('Please fill in all required fields.');
+      alert('請填寫所有必填欄位。');
       return;
     }
     await onSubmit(formData);
@@ -174,7 +174,7 @@ export function TripBaseForm({ initialData, onSubmit, onCancel, submitText, load
       
       {/* Cover Image */}
       <div>
-        <label className="block text-xs font-bold text-zinc-500 uppercase tracking-wider mb-2">Cover Image</label>
+        <label className="block text-xs font-bold text-zinc-500 uppercase tracking-wider mb-2">封面照片</label>
         <div className="relative aspect-[21/9] w-full bg-zinc-800 rounded-2xl overflow-hidden border border-zinc-700 group cursor-pointer">
           {formData.cover_image_url ? (
             <>
@@ -199,7 +199,7 @@ export function TripBaseForm({ initialData, onSubmit, onCancel, submitText, load
           {uploading && (
             <div className="absolute inset-0 bg-black/60 flex flex-col items-center justify-center backdrop-blur-sm z-10">
               <Loader2 className="animate-spin text-orange-500 mb-2" size={28} />
-              <span className="text-sm text-white font-medium">Uploading...</span>
+              <span className="text-sm text-white font-medium">上傳中...</span>
             </div>
           )}
         </div>
@@ -207,14 +207,14 @@ export function TripBaseForm({ initialData, onSubmit, onCancel, submitText, load
 
       {/* Trip Title */}
       <div>
-        <label className="block text-xs font-bold text-zinc-500 uppercase tracking-wider mb-2">Trip Title *</label>
+        <label className="block text-xs font-bold text-zinc-500 uppercase tracking-wider mb-2">行程名稱 *</label>
         <input
           type="text"
           required
           value={formData.title}
           onChange={e => setFormData({ ...formData, title: e.target.value })}
           className="w-full bg-zinc-800 border border-zinc-700 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-orange-500 transition-colors"
-          placeholder="e.g., Summer in Tokyo"
+          placeholder="例如：東京五日遊"
         />
       </div>
 
@@ -250,7 +250,7 @@ export function TripBaseForm({ initialData, onSubmit, onCancel, submitText, load
           <div className="flex items-center gap-3 w-full">
             <MapPin size={18} className="text-orange-500 shrink-0" />
             <span className={clsx("truncate text-sm font-medium", formData.default_city_id ? "text-white" : "text-zinc-500")}>
-              {formData.default_city_id ? cities.find(c => c.id === formData.default_city_id)?.name : 'Select city...'}
+              {formData.default_city_id ? cities.find(c => c.id === formData.default_city_id)?.name : '選擇城市...'}
             </span>
           </div>
           <ChevronDown size={16} className="text-zinc-500 shrink-0" />
@@ -317,7 +317,7 @@ export function TripBaseForm({ initialData, onSubmit, onCancel, submitText, load
         >
           <div className="flex items-center gap-2">
             <span className="bg-zinc-700 text-white text-xs font-bold px-2 py-0.5 rounded-full">{formData.members.length}</span>
-            <span className="text-sm font-medium text-zinc-300">Members Selected</span>
+            <span className="text-sm font-medium text-zinc-300">位成員已加入</span>
           </div>
           {isMembersOpen ? <ChevronUp size={16} className="text-zinc-500 shrink-0" /> : <ChevronDown size={16} className="text-zinc-500 shrink-0" />}
         </button>
@@ -373,10 +373,10 @@ export function TripBaseForm({ initialData, onSubmit, onCancel, submitText, load
             {formData.is_public ? <Globe size={20} className="text-emerald-500 shrink-0" /> : <LockIcon size={20} className="text-zinc-500 shrink-0" />}
             <div className="flex flex-col items-start text-left">
               <span className={clsx("text-sm font-bold", formData.is_public ? "text-emerald-500" : "text-zinc-300")}>
-                {formData.is_public ? 'Public Trip' : 'Private Trip'}
+                {formData.is_public ? '公開行程' : '私人行程'}
               </span>
               <span className="text-[10px] text-zinc-500 mt-0.5">
-                {formData.is_public ? 'Anyone with the link can view (Read-only)' : 'Only invited members can access'}
+                {formData.is_public ? '任何人均可查看（唯讀）' : '僅受邀成員可存取'}
               </span>
             </div>
           </div>

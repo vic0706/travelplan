@@ -232,7 +232,7 @@ export function ItineraryForm({ tripId, date, onSuccess, onCancel, initialData }
   return (
     <div className="bg-[#1c1c1e] border border-zinc-800 rounded-[32px] overflow-hidden flex flex-col w-full max-w-md mx-auto shadow-2xl relative max-h-[90vh]">
       <div className="px-6 py-4 border-b border-zinc-800 flex items-center justify-between bg-[#1c1c1e]/90 backdrop-blur-md z-20 sticky top-0">
-        <h2 className="text-lg font-bold text-white uppercase tracking-widest">{initialData ? 'Edit' : 'Add'} Activity</h2>
+        <h2 className="text-lg font-bold text-white uppercase tracking-widest">{initialData ? '編輯' : '新增'}活動</h2>
         <button type="button" onClick={onCancel} className="p-1.5 bg-zinc-800/50 rounded-full text-zinc-400 hover:text-white"><X size={18} /></button>
       </div>
 
@@ -450,7 +450,7 @@ export function ItineraryForm({ tripId, date, onSuccess, onCancel, initialData }
           <div className="fixed inset-0 z-[9999] bg-black/95 flex flex-col items-center justify-center p-4 backdrop-blur-sm">
             <div className="w-full max-w-md flex justify-between items-center mb-4 px-2"><span className="text-white font-black tracking-widest uppercase text-sm">Crop Image</span><button type="button" onClick={() => setCroppingImage(null)} className="p-2 bg-zinc-800 rounded-full text-zinc-400 hover:text-white"><X size={20} /></button></div>
             <div className="w-full max-w-md h-[60vh] relative bg-zinc-950 rounded-[32px] overflow-hidden shadow-2xl border border-zinc-800">
-              <ImageCropper image={croppingImage} aspect={21/9} onCropComplete={handleCropComplete} onCancel={() => setCroppingImage(null)} />
+              <ImageCropper imageSrc={croppingImage} aspect={21/9} onCropComplete={handleCropComplete} onCancel={() => setCroppingImage(null)} />
             </div>
           </div>
         )}
