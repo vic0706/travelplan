@@ -1,9 +1,9 @@
 import React, { useState, useEffect } from 'react';
 import { MapPin, Car, Train, Bus, AlertTriangle, Star, Plus, Footprints, Bike, Navigation2, Sparkles, Clock, X, Asterisk } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Itinerary } from '../types';
-import { DynamicIcon } from './DynamicIcon';
-import { useAppStore } from '../store';
+import { Itinerary } from '../../types';
+import { DynamicIcon } from '../common/DynamicIcon';
+import { useAppStore } from '../../store';
 import { clsx } from 'clsx';
 
 interface ItineraryCardProps {

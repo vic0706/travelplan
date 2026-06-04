@@ -1,9 +1,9 @@
 import React, { useState, useMemo } from 'react';
 import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip, Legend } from 'recharts';
-import { Expense, User } from '../types';
+import { Expense, User } from '../../types';
 import { motion, AnimatePresence } from 'framer-motion';
 import { X, Wallet, ArrowRight, Copy, Check } from 'lucide-react';
-import { useAppStore } from '../store'; // ✅ 修正：從 store 取 categories，移除 apiFetch
+import { useAppStore } from '../../store'; // ✅ 修正：從 store 取 categories，移除 apiFetch
 
 interface FinanceOverviewProps {
   expenses: Expense[];

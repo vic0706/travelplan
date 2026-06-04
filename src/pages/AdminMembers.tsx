@@ -4,7 +4,7 @@ import { Shield, User as UserIcon, Plus, X, Loader2, Edit2, Camera } from 'lucid
 import { clsx } from 'clsx';
 import { apiFetch } from '../utils/api';
 import { motion, AnimatePresence } from 'framer-motion';
-import { ImageCropper, uploadImageToSupabase } from '../components/ImageCropper';
+import { ImageCropper, uploadImageToSupabase } from '../components/widgets/ImageCropper';
 
 export function AdminMembers() {
   const [users, setUsers] = useState<any[]>([]);

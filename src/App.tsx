@@ -1,9 +1,9 @@
 import React, { useEffect } from 'react';
 import { BrowserRouter as Router, Routes, Route, useLocation, useNavigate } from 'react-router-dom';
-import { TopAppBar } from './components/TopAppBar';
-import { OfflineStatusBar } from './components/OfflineStatusBar';
-import { LoginModal } from './components/LoginModal';
-import { CreateTripModal } from './components/CreateTripModal';
+import { TopAppBar } from './components/layout/TopAppBar';
+import { OfflineStatusBar } from './components/common/OfflineStatusBar';
+import { LoginModal } from './modals/LoginModal';
+import { CreateTripModal } from './modals/CreateTripModal';
 import { Home } from './pages/Home';
 import { TripDetails } from './pages/TripDetails';
 import { AdminMembers } from './pages/AdminMembers';

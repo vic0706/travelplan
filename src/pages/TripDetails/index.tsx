@@ -1,26 +1,25 @@
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { useAppStore } from '../store';
-import { format, parseISO, addDays, differenceInDays, isSameDay, isPast, addMinutes, isBefore, startOfDay } from 'date-fns';
-import { Map, Info, Wallet, ArrowLeft, Settings, Edit3, ChevronsUpDown, ChevronsDownUp, Unlock, Plus, DollarSign, Loader2, Camera, CheckCircle2, XCircle } from 'lucide-react';
-import { Trip, Itinerary, Expense, Booking } from '../types';
+import { useAppStore } from '../../store';
+import { format, parseISO, addDays, differenceInDays, isSameDay, addMinutes, isBefore, startOfDay } from 'date-fns';
+import { Map, Info, Wallet, ArrowLeft, Settings, Edit3, ChevronsUpDown, ChevronsDownUp, Unlock, Loader2, Camera, CheckCircle2, XCircle } from 'lucide-react';
+import { Trip, Itinerary, Expense, Booking } from '../../types';
 import { clsx } from 'clsx';
-import { db } from '../db';
+import { db } from '../../db';
 import { useLiveQuery } from 'dexie-react-hooks';
-import { apiFetch } from '../utils/api';
-import { FinanceForm } from '../components/FinanceForm';
-import { NextTransportForm } from '../components/NextTransportForm';
-import { ItineraryForm } from '../components/ItineraryForm';
-import { TripSettingsForm } from '../components/TripSettingsForm';
-import { WeatherWidget, getWeatherIcon } from '../components/WeatherWidget';
-import { BookingForm } from '../components/BookingForm';
-import { FinanceOverview } from '../components/FinanceOverview';
-import { ConfirmDialog } from '../components/ConfirmDialog';
+import { apiFetch } from '../../utils/api';
+import { FinanceForm } from '../../components/forms/FinanceForm';
+import { NextTransportForm } from '../../components/forms/NextTransportForm';
+import { ItineraryForm } from '../../components/forms/ItineraryForm';
+import { TripSettingsForm } from '../../components/forms/TripSettingsForm';
+import { WeatherWidget, getWeatherIcon } from '../../components/widgets/WeatherWidget';
+import { BookingForm } from '../../components/forms/BookingForm';
+import { ConfirmDialog } from '../../components/common/ConfirmDialog';
 import { motion, AnimatePresence } from 'framer-motion';
-import { BookingCard } from '../components/BookingCard';
-import { TransportationCard } from '../components/TransportationCard';
-import { ItineraryCard } from '../components/ItineraryCard';
-import { useTripData } from '../hooks/useTripData';
+import { useTripData } from '../../hooks/useTripData';
+import { ItineraryTab } from './ItineraryTab';
+import { InfoTab } from './InfoTab';
+import { FinanceTab } from './FinanceTab';
 
 const parseTime = (timeStr: string, baseDate: Date) => {
   if (!timeStr) return baseDate;
@@ -515,176 +514,50 @@ export function TripDetails() {
       {/* ── 主要內容區 ──────────────────────────────────────────────────── */}
       <div className="flex-1 overflow-y-auto p-4 pb-32 custom-scrollbar overscroll-none">
 
-        {/* ITINERARY TAB */}
         {activeTab === 'itinerary' && (
-          <div className="space-y-6">
-            {/* WeatherWidget — 在行程列表上方，由 isFutureTrip 控制預設展開 */}
-            {id && (
-              <WeatherWidget
-                tripId={Number(id)}
-                date={selectedDate}
-                isFutureTrip={isFutureTrip}
-                expandSignal={expandSignal}
-                collapseSignal={collapseSignal}
-              />
-            )}
-
-            <div className="space-y-4">
-              {filteredItineraries.length > 0 ? (
-                filteredItineraries.map((item, index) => {
-                  if (item.type === 'TRANSPORTATION' && item.related_id) {
-                    const booking = bookings.find(b => b.id === item.related_id);
-                    if (booking) {
-                      return (
-                        <TransportationCard
-                          key={`transport-${item.id}`}
-                          item={item} booking={booking} canEdit={canEdit}
-                          isConflicted={conflictedIdsInView.has(item.id)}
-                          onEdit={() => { setEditingBooking(booking); setIsBookingFormOpen(true); }}
-                          showNextTransport={index < filteredItineraries.length - 1}
-                          onEditNextTransport={() => { setEditingItinerary(item); setIsNextTransportFormOpen(true); }}
-                          selectedDate={selectedDate || new Date()}
-                          expandSignal={expandSignal} collapseSignal={collapseSignal}
-                        />
-                      );
-                    }
-                  }
-                  return (
-                    <div key={`itinerary-${item.id}`} className="space-y-2">
-                      <ItineraryCard
-                        item={item} canEdit={canEdit}
-                        isConflicted={conflictedIdsInView.has(item.id)}
-                        onEdit={() => { setEditingItinerary(item); setIsItineraryFormOpen(true); }}
-                        showNextTransport={true}
-                        onEditNextTransport={() => { setEditingItinerary(item); setIsNextTransportFormOpen(true); }}
-                        expandSignal={expandSignal} collapseSignal={collapseSignal}
-                      />
-                    </div>
-                  );
-                })
-              ) : (
-                <div className="text-center py-12 text-zinc-500 border border-dashed border-zinc-800 rounded-3xl">
-                  <p>No activities for this day.</p>
-                </div>
-              )}
-
-              {canEdit && (
-                <button
-                  onClick={() => { setEditingItinerary(null); setIsItineraryFormOpen(true); }}
-                  className="w-full mt-6 py-4 border-2 border-dashed border-zinc-800 rounded-3xl flex items-center justify-center gap-2 text-zinc-500 hover:text-orange-500 hover:border-orange-500/50 hover:bg-orange-500/5 transition-all"
-                >
-                  <Plus size={20} /><span className="font-medium">Add Activity</span>
-                </button>
-              )}
-            </div>
-          </div>
+          <ItineraryTab
+            tripId={Number(id)}
+            selectedDate={selectedDate}
+            isFutureTrip={isFutureTrip}
+            filteredItineraries={filteredItineraries}
+            conflictedIdsInView={conflictedIdsInView}
+            bookings={bookings as Booking[]}
+            canEdit={canEdit}
+            expandSignal={expandSignal}
+            collapseSignal={collapseSignal}
+            onAddActivity={() => { setEditingItinerary(null); setIsItineraryFormOpen(true); }}
+            onEditItinerary={(item) => { setEditingItinerary(item); setIsItineraryFormOpen(true); }}
+            onEditNextTransport={(item) => { setEditingItinerary(item); setIsNextTransportFormOpen(true); }}
+            onEditBooking={(booking) => { setEditingBooking(booking); setIsBookingFormOpen(true); }}
+          />
         )}
 
-        {/* INFO TAB */}
         {activeTab === 'info' && (
-          <div className="space-y-6">
-            <div className="bg-zinc-900 border border-zinc-800 rounded-3xl p-6 shadow-lg">
-              <h3 className="text-lg font-semibold text-white mb-6">Expenses Overview</h3>
-              <FinanceOverview expenses={expenses} members={tripUsers || []} currency={trip.currencies?.[0] || 'TWD'} />
-            </div>
-            <div className="space-y-4">
-              <div className="flex items-center justify-between px-2">
-                <h4 className="text-zinc-500 text-xs font-bold uppercase tracking-widest">Bookings</h4>
-                {canEdit && (
-                  <button onClick={() => { setEditingBooking(null); setIsBookingFormOpen(true); }} className="p-2 bg-orange-500/10 text-orange-500 rounded-full hover:bg-orange-500/20 transition-colors">
-                    <Plus size={18} />
-                  </button>
-                )}
-              </div>
-              {bookings.length > 0 ? (
-                <>
-                  {availableBookingCategories.length > 2 && (
-                    <div className="flex gap-2 overflow-x-auto no-scrollbar px-2 pb-2">
-                      {availableBookingCategories.map(cat => (
-                        <button key={cat} onClick={() => setBookingFilter(cat)}
-                          className={clsx('px-4 py-1.5 rounded-full text-xs font-bold whitespace-nowrap transition-colors border',
-                            bookingFilter === cat ? 'bg-orange-500 text-white border-orange-500' : 'bg-zinc-900 border-zinc-800 text-zinc-400 hover:text-white hover:bg-zinc-800'
-                          )}>
-                          {cat}
-                        </button>
-                      ))}
-                    </div>
-                  )}
-                  <div className="grid grid-cols-1 gap-4">
-                    {bookings
-                      .filter(b => bookingFilter === 'ALL' || b.category === bookingFilter)
-                      .sort((a, b) => {
-                        const now = new Date();
-                        const dateA = parseISO(`${a.start_date}T${a.start_time}`);
-                        const dateB = parseISO(`${b.start_date}T${b.start_time}`);
-                        const aPast = isPast(dateA) && !isSameDay(dateA, now);
-                        const bPast = isPast(dateB) && !isSameDay(dateB, now);
-                        if (aPast && !bPast) return 1; if (!aPast && bPast) return -1;
-                        return dateA.getTime() - dateB.getTime();
-                      })
-                      .map(booking => (
-                        <BookingCard key={booking.id} booking={booking} canEdit={canEdit}
-                          onEdit={() => { setEditingBooking(booking); setIsBookingFormOpen(true); }} />
-                      ))}
-                  </div>
-                </>
-              ) : (
-                <div className="bg-zinc-900/50 border border-dashed border-zinc-800 rounded-3xl p-12 text-center text-zinc-500">
-                  <p className="text-sm">No bookings added yet.</p>
-                </div>
-              )}
-            </div>
-          </div>
+          <InfoTab
+            expenses={expenses as any}
+            tripUsers={tripUsers || []}
+            currency={trip.currencies?.[0] || 'TWD'}
+            bookings={bookings as Booking[]}
+            bookingFilter={bookingFilter}
+            setBookingFilter={setBookingFilter}
+            availableBookingCategories={availableBookingCategories}
+            canEdit={canEdit}
+            onAddBooking={() => { setEditingBooking(null); setIsBookingFormOpen(true); }}
+            onEditBooking={(booking) => { setEditingBooking(booking); setIsBookingFormOpen(true); }}
+          />
         )}
 
-        {/* FINANCE TAB */}
         {activeTab === 'finance' && (
-          <div className="space-y-4">
-            <div className="flex items-center justify-between px-2">
-              <h3 className="text-lg font-bold text-white">Daily Expenses</h3>
-              <div className="text-right">
-                <div className="text-[10px] text-zinc-500 font-bold uppercase tracking-widest mb-0.5">Daily Total</div>
-                <div className="text-xl font-bold text-white font-mono">
-                  {trip?.currencies?.[0] || 'TWD'} {filteredExpenses.reduce((sum, e) => sum + e.amount, 0).toLocaleString()}
-                </div>
-              </div>
-            </div>
-            {filteredExpenses.length > 0 ? (
-              filteredExpenses.map(expense => (
-                <div key={expense.id}
-                  onClick={() => { if (canEdit) { setEditingExpense(expense); setIsFinanceFormOpen(true); } }}
-                  className={`bg-zinc-900 border border-zinc-800 rounded-3xl p-5 shadow-lg flex items-center justify-between transition-colors ${canEdit ? 'cursor-pointer hover:bg-zinc-800/50' : ''}`}
-                >
-                  <div className="flex items-center gap-4">
-                    <div className="w-12 h-12 rounded-full bg-zinc-800 flex items-center justify-center shrink-0">
-                      <DollarSign className="text-zinc-400" size={20} />
-                    </div>
-                    <div>
-                      <h4 className="text-white font-medium">{expense.item_name}</h4>
-                      <p className="text-xs text-zinc-500 mt-1 uppercase tracking-wider">Paid by {getUserNameById(expense.payer_id)}</p>
-                    </div>
-                  </div>
-                  <div className="text-right">
-                    <div className="text-lg font-semibold text-white">{expense.amount.toLocaleString()}</div>
-                    <div className="text-[10px] text-zinc-500 uppercase tracking-wider mt-1">{expense.currency}</div>
-                  </div>
-                </div>
-              ))
-            ) : (
-              <div className="text-center py-12 text-zinc-500 border border-dashed border-zinc-800 rounded-3xl">
-                <p>No expenses recorded for this day.</p>
-              </div>
-            )}
-            {canEdit && (
-              <button onClick={() => { setEditingExpense(null); setIsFinanceFormOpen(true); }}
-                className="w-full mt-6 py-4 border-2 border-dashed border-zinc-800 rounded-3xl flex items-center justify-center gap-2 text-zinc-500 hover:text-orange-500 hover:border-orange-500/50 hover:bg-orange-500/5 transition-all">
-                <Plus size={20} /><span className="font-medium">Add Expense</span>
-              </button>
-            )}
-          </div>
+          <FinanceTab
+            filteredExpenses={filteredExpenses as any}
+            currency={trip.currencies?.[0] || 'TWD'}
+            canEdit={canEdit}
+            getUserNameById={getUserNameById}
+            onAddExpense={() => { setEditingExpense(null); setIsFinanceFormOpen(true); }}
+            onEditExpense={(expense) => { setEditingExpense(expense); setIsFinanceFormOpen(true); }}
+          />
         )}
 
-        {/* SETTINGS TAB */}
         {activeTab === 'settings' && hasEditPermission && (
           <TripSettingsForm
             trip={trip} onUpdate={refreshTripData}

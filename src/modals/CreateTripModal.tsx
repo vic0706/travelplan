@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { X } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { apiFetch } from '../utils/api';
-import { TripBaseForm, TripFormData } from './TripBaseForm';
+import { TripBaseForm, TripFormData } from '../components/forms/TripBaseForm';
 
 interface CreateTripModalProps {
   isOpen?: boolean;

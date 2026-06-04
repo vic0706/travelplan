@@ -1,11 +1,11 @@
 import React, { useState } from 'react';
-import { useAppStore } from '../store';
+import { useAppStore } from '../../store';
 import { X, MapPin, Calendar, Loader2, Plane, Train, Ship, Car, Bed, UtensilsCrossed, Ticket, MoreHorizontal, ArrowLeft } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { LocationPicker } from './LocationPicker';
-import { TimePicker } from './TimePicker';
-import { DatePicker } from './DatePicker';
-import { BookingCategory } from '../types';
+import { LocationPicker } from '../pickers/LocationPicker';
+import { TimePicker } from '../pickers/TimePicker';
+import { DatePicker } from '../pickers/DatePicker';
+import { BookingCategory } from '../../types';
 import { clsx } from 'clsx';
 import { format, parseISO } from 'date-fns';
 

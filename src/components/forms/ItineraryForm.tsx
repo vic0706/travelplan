@@ -1,11 +1,11 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
-import { useAppStore } from '../store';
+import { useAppStore } from '../../store';
 import { X, MapPin, Loader2, Plus, Trash2, Camera, Image as ImageIcon, Upload, Sparkles, Lock, Unlock, Search } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { apiFetch } from '../utils/api';
-import { DynamicIcon } from './DynamicIcon';
-import { ImageCropper, uploadImageToSupabase } from './ImageCropper';
-import { LocationPicker } from './LocationPicker';
+import { apiFetch } from '../../utils/api';
+import { DynamicIcon } from '../common/DynamicIcon';
+import { ImageCropper, uploadImageToSupabase } from '../widgets/ImageCropper';
+import { LocationPicker } from '../pickers/LocationPicker';
 import { clsx } from 'clsx';
 
 interface ItineraryFormProps {

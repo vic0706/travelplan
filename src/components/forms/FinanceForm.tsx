@@ -1,10 +1,10 @@
 import React, { useState, useEffect } from 'react';
-import { useAppStore } from '../store';
-import { apiFetch } from '../utils/api';
+import { useAppStore } from '../../store';
+import { apiFetch } from '../../utils/api';
 import { format, parseISO } from 'date-fns';
 import { Loader2, X, Delete, Check, ChevronDown, Calendar } from 'lucide-react';
-import { DynamicIcon } from './DynamicIcon'; // ✅ 修正：移除重複定義，改用共用元件
-import { User } from '../types';
+import { DynamicIcon } from '../common/DynamicIcon'; // ✅ 修正：移除重複定義，改用共用元件
+import { User } from '../../types';
 import { clsx } from 'clsx';
 import { motion, AnimatePresence } from 'framer-motion';
 
