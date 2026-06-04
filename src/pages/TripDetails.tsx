@@ -1,8 +1,8 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useAppStore } from '../store';
-import { format, parseISO, addDays, differenceInDays, isSameDay, isPast, addMinutes } from 'date-fns';
-import { Map, Info, Wallet, ArrowLeft, Settings, Edit3, ChevronsUpDown, ChevronsDownUp, Unlock, Plus, DollarSign, Loader2, ChevronDown, ChevronUp } from 'lucide-react';
+import { format, parseISO, addDays, differenceInDays, isSameDay, isPast, addMinutes, isBefore, startOfDay } from 'date-fns';
+import { Map, Info, Wallet, ArrowLeft, Settings, Edit3, ChevronsUpDown, ChevronsDownUp, Unlock, Plus, DollarSign, Loader2, Camera, CheckCircle2, XCircle } from 'lucide-react';
 import { Trip, Itinerary, Expense, Booking } from '../types';
 import { clsx } from 'clsx';
 import { db } from '../db';
@@ -57,7 +57,6 @@ function getTripCoverImage(trip: any): string {
   if (trip?.cover_image_url && typeof trip.cover_image_url === 'string' && trip.cover_image_url.startsWith('http')) {
     return trip.cover_image_url;
   }
-  // Fallback: picsum (只有 cover_image_url 真的是 null 時才用)
   const seed = trip?.id || 1;
   return `https://picsum.photos/seed/${seed}/1920/1080`;
 }
@@ -86,6 +85,40 @@ function useDateWeather(tripId: number, date: Date | null) {
   return summary;
 }
 
+// ── Toast notification component ─────────────────────────────────────
+interface ToastProps {
+  message: string;
+  type: 'success' | 'error';
+  visible: boolean;
+}
+
+function Toast({ message, type, visible }: ToastProps) {
+  return (
+    <AnimatePresence>
+      {visible && (
+        <motion.div
+          initial={{ y: 80, opacity: 0 }}
+          animate={{ y: 0, opacity: 1 }}
+          exit={{ y: 80, opacity: 0 }}
+          transition={{ type: 'spring', stiffness: 400, damping: 32 }}
+          className={clsx(
+            'fixed bottom-24 left-1/2 -translate-x-1/2 z-[9999] flex items-center gap-2.5 px-5 py-3 rounded-2xl shadow-2xl text-sm font-semibold text-white whitespace-nowrap',
+            type === 'success'
+              ? 'bg-emerald-600 shadow-emerald-900/40'
+              : 'bg-red-600 shadow-red-900/40'
+          )}
+        >
+          {type === 'success'
+            ? <CheckCircle2 size={16} strokeWidth={2.5} />
+            : <XCircle size={16} strokeWidth={2.5} />
+          }
+          {message}
+        </motion.div>
+      )}
+    </AnimatePresence>
+  );
+}
+
 export function TripDetails() {
   const { id } = useParams();
   const navigate = useNavigate();
@@ -102,13 +135,23 @@ export function TripDetails() {
   const [selectedDate, setSelectedDate] = useState<Date | null>(null);
   const [bookingFilter, setBookingFilter] = useState<string>('ALL');
 
-  // ── 問題 2：折疊封面圖 ────────────────────────────────────────────────
+  // ── 封面圖（改為相片按鈕觸發）────────────────────────────────────────
   const [isCoverExpanded, setIsCoverExpanded] = useState(false);
 
-  // ── 問題 4：EXPAND/COLLAPSE 同時控制天氣 ─────────────────────────────
+  // ── Expand/Collapse 全部行程卡片 ──────────────────────────────────────
   const [isAllExpanded, setIsAllExpanded] = useState(false);
   const [expandSignal, setExpandSignal]   = useState(0);
   const [collapseSignal, setCollapseSignal] = useState(0);
+
+  // ── Toast state ──────────────────────────────────────────────────────
+  const [toast, setToast] = useState<{ message: string; type: 'success' | 'error'; visible: boolean }>({
+    message: '', type: 'success', visible: false
+  });
+
+  const showToast = useCallback((message: string, type: 'success' | 'error' = 'success') => {
+    setToast({ message, type, visible: true });
+    setTimeout(() => setToast(prev => ({ ...prev, visible: false })), 2500);
+  }, []);
 
   const toggleExpandAll = () => {
     const next = !isAllExpanded;
@@ -203,6 +246,12 @@ export function TripDetails() {
   const validTripStartDate = trip?.start_date ? safeParse(trip.start_date) : null;
   const validTripEndDate   = trip?.end_date   ? safeParse(trip.end_date)   : null;
 
+  // ── 判斷是未來還是過去的行程 ──────────────────────────────────────────
+  const isFutureTrip = useMemo(() => {
+    if (!validTripStartDate) return false;
+    return !isBefore(startOfDay(validTripStartDate), startOfDay(new Date()));
+  }, [validTripStartDate]);
+
   const dates = useMemo(() => {
     if (!validTripStartDate || !validTripEndDate) return [];
     const daysCount = differenceInDays(validTripEndDate, validTripStartDate) + 1;
@@ -252,7 +301,7 @@ export function TripDetails() {
     return ['ALL', ...Array.from(cats)];
   }, [bookings]);
 
-  // ── 問題 3：日期列天氣摘要 ────────────────────────────────────────────
+  // ── 日期列天氣摘要 ────────────────────────────────────────────────
   const selectedDateWeather = useDateWeather(Number(id), selectedDate);
 
   if (!trip || !hasAccess) {
@@ -266,16 +315,16 @@ export function TripDetails() {
   return (
     <div className="flex flex-col h-screen bg-black overflow-hidden overscroll-none">
 
-      {/* ── 問題 2：封面圖區塊，可折疊 ─────────────────────────────────── */}
+      {/* ── 封面圖區塊 ─────────────────────────────────────────────────── */}
       <div className="shrink-0 z-30 relative shadow-xl w-full">
 
-        {/* 折疊時只顯示 header bar，展開時顯示完整封面 */}
+        {/* 封面圖（可折疊） */}
         <AnimatePresence initial={false}>
           {isCoverExpanded && (
             <motion.div
               key="cover"
               initial={{ height: 0, opacity: 0 }}
-              animate={{ height: 220, opacity: 1 }}
+              animate={{ height: 200, opacity: 1 }}
               exit={{ height: 0, opacity: 0 }}
               transition={{ duration: 0.3, ease: 'easeInOut' }}
               className="overflow-hidden relative w-full"
@@ -286,72 +335,89 @@ export function TripDetails() {
                 className="absolute inset-0 w-full h-full object-cover"
                 referrerPolicy="no-referrer"
               />
-              <div className="absolute inset-0 bg-gradient-to-b from-black/70 via-black/10 to-black/80 pointer-events-none" />
-
-              {/* 標題（只在展開時顯示） */}
-              <div className="absolute bottom-0 left-0 right-0 px-5 pb-4 z-10">
-                <h1
-                  className="text-2xl font-black text-white truncate leading-tight tracking-tight drop-shadow-md"
-                  title={trip.title}
-                >
-                  {trip.title}
-                </h1>
-              </div>
+              <div className="absolute inset-0 bg-gradient-to-b from-black/60 via-black/10 to-black/70 pointer-events-none" />
             </motion.div>
           )}
         </AnimatePresence>
 
-        {/* Header Bar（始終可見） */}
+        {/* ─────────────────────────────────────────────────────────────
+            Header Bar
+            Row 1: [← 返回]  (flex-1 空白)  [📷 相片] [✏️ 編輯鎖]
+            Row 2: [行程標題 (flex-1)]  [天氣摘要]
+        ──────────────────────────────────────────────────────────────── */}
         <div
-          className="w-full flex items-center justify-between px-4 bg-black/95 backdrop-blur-xl border-b border-zinc-800"
+          className="w-full flex flex-col bg-black/95 backdrop-blur-xl border-b border-zinc-800"
           style={{ paddingTop: 'max(0.75rem, env(safe-area-inset-top))', paddingBottom: '0.75rem' }}
         >
-          {/* 返回按鈕 */}
-          <button
-            onClick={() => navigate('/')}
-            className="p-2 bg-zinc-900 rounded-full text-white hover:bg-zinc-800 transition-colors border border-zinc-700"
-          >
-            <ArrowLeft size={20} />
-          </button>
-
-          {/* 標題（折疊時顯示） */}
-          {!isCoverExpanded && (
-            <h1 className="flex-1 text-base font-black text-white truncate mx-3 tracking-tight">
-              {trip.title}
-            </h1>
-          )}
-          {isCoverExpanded && <div className="flex-1" />}
-
-          {/* 右側按鈕群組 */}
-          <div className="flex items-center gap-2">
-            {/* ── 問題 2：封面折疊按鈕 ── */}
+          {/* Row 1: 返回 + 右側按鈕 */}
+          <div className="flex items-center justify-between px-4 mb-2">
+            {/* 返回按鈕 */}
             <button
-              onClick={() => setIsCoverExpanded(v => !v)}
-              className="p-2 bg-zinc-900 rounded-full text-zinc-400 hover:text-white hover:bg-zinc-800 transition-colors border border-zinc-700"
-              title={isCoverExpanded ? 'Hide cover' : 'Show cover'}
+              onClick={() => navigate('/')}
+              className="p-2 bg-zinc-900 rounded-full text-white hover:bg-zinc-800 transition-colors border border-zinc-700"
             >
-              {isCoverExpanded ? <ChevronUp size={18} /> : <ChevronDown size={18} />}
+              <ArrowLeft size={20} />
             </button>
 
-            {/* 編輯鎖 */}
-            {hasEditPermission && (
+            {/* 右側按鈕群組 */}
+            <div className="flex items-center gap-2">
+              {/* ── 相片按鈕（展開/收起封面圖） ── */}
               <button
-                onClick={handleToggleEditMode}
+                onClick={() => setIsCoverExpanded(v => !v)}
                 className={clsx(
                   'p-2 rounded-full transition-all border',
-                  isEditMode
-                    ? 'bg-orange-500 text-white border-orange-500'
+                  isCoverExpanded
+                    ? 'bg-orange-500/20 text-orange-400 border-orange-500/40'
                     : 'bg-zinc-900 text-zinc-400 hover:text-white hover:bg-zinc-800 border-zinc-700'
                 )}
+                title={isCoverExpanded ? 'Hide cover photo' : 'Show cover photo'}
               >
-                {isEditMode ? <Unlock size={18} /> : <Edit3 size={18} />}
+                <Camera size={18} />
               </button>
+
+              {/* 編輯鎖 */}
+              {hasEditPermission && (
+                <button
+                  onClick={handleToggleEditMode}
+                  className={clsx(
+                    'p-2 rounded-full transition-all border',
+                    isEditMode
+                      ? 'bg-orange-500 text-white border-orange-500'
+                      : 'bg-zinc-900 text-zinc-400 hover:text-white hover:bg-zinc-800 border-zinc-700'
+                  )}
+                >
+                  {isEditMode ? <Unlock size={18} /> : <Edit3 size={18} />}
+                </button>
+              )}
+            </div>
+          </div>
+
+          {/* Row 2: 標題 + 天氣 */}
+          <div className="flex items-center justify-between px-4">
+            <h1
+              className="flex-1 text-base font-black text-white truncate tracking-tight mr-2"
+              title={trip.title}
+            >
+              {trip.title}
+            </h1>
+
+            {/* 天氣摘要（右側，緊跟標題） */}
+            {selectedDateWeather ? (
+              <div className="shrink-0 flex items-center gap-1.5 px-2">
+                {getWeatherIcon(selectedDateWeather.weather_code, 18)}
+                <div className="flex flex-col leading-none">
+                  <span className="text-[10px] font-bold text-white">{selectedDateWeather.max_temp}°</span>
+                  <span className="text-[9px] text-zinc-500">{selectedDateWeather.min_temp}°</span>
+                </div>
+              </div>
+            ) : (
+              <div className="shrink-0 w-8" />
             )}
           </div>
         </div>
       </div>
 
-      {/* ── 日期列（itinerary / finance tab） ─────────────────────────── */}
+      {/* ── 日期列 ───────────────────────────────────────────────────── */}
       {(activeTab === 'itinerary' || activeTab === 'finance') && (
         <div className="bg-black/95 backdrop-blur-xl border-b border-zinc-800 py-3 px-4 shrink-0">
           <div className="flex items-center gap-2">
@@ -378,23 +444,7 @@ export function TripDetails() {
               })}
             </div>
 
-            {/* ── 問題 3：選中日期的天氣摘要（替代 Travel Dates 文字） ── */}
-            {selectedDateWeather ? (
-              <div className="shrink-0 flex flex-col items-center justify-center gap-0.5 px-2">
-                {getWeatherIcon(selectedDateWeather.weather_code, 20)}
-                <span className="text-[9px] font-bold text-white leading-none">
-                  {selectedDateWeather.max_temp}°
-                </span>
-                <span className="text-[9px] text-zinc-500 leading-none">
-                  {selectedDateWeather.min_temp}°
-                </span>
-              </div>
-            ) : (
-              // 天氣尚未載入時顯示空白佔位，避免版面跳動
-              <div className="shrink-0 w-10" />
-            )}
-
-            {/* ── 問題 4：Expand/Collapse 按鈕，同時控制 WeatherWidget ── */}
+            {/* Expand/Collapse 按鈕 */}
             <button
               onClick={toggleExpandAll}
               className={clsx(
@@ -422,12 +472,14 @@ export function TripDetails() {
         {/* ITINERARY TAB */}
         {activeTab === 'itinerary' && (
           <div className="space-y-6">
-            {/* ── 問題 4：WeatherWidget 由 isAllExpanded 控制顯示 ── */}
+            {/* WeatherWidget — 現在有自己的獨立折疊按鈕 */}
             {id && (
               <WeatherWidget
                 tripId={Number(id)}
                 date={selectedDate}
-                isExpanded={isAllExpanded}
+                isFutureTrip={isFutureTrip}
+                expandSignal={expandSignal}
+                collapseSignal={collapseSignal}
               />
             )}
 
@@ -612,25 +664,21 @@ export function TripDetails() {
           </div>
         )}
 
-        {/* SETTINGS TAB */}
+        {/* SETTINGS TAB — 移除外層的 "Trip Settings" 標題卡 */}
         {activeTab === 'settings' && hasEditPermission && (
-          <div className="space-y-6">
-            <div className="bg-zinc-900 border border-zinc-800 rounded-3xl p-6 shadow-lg">
-              <h3 className="text-lg font-semibold text-white mb-6">Trip Settings</h3>
-              <TripSettingsForm
-                trip={trip}
-                onUpdate={refreshTripData}
-                onDelete={async () => {
-                  try {
-                    await apiFetch(`/api/trips/${id}`, { method: 'DELETE' });
-                    await db.trips.delete(Number(id));
-                    navigate('/');
-                  } catch (e) { alert('Delete failed'); }
-                }}
-                onClose={() => setActiveTab('itinerary')}
-              />
-            </div>
-          </div>
+          <TripSettingsForm
+            trip={trip}
+            onUpdate={refreshTripData}
+            onDelete={async () => {
+              try {
+                await apiFetch(`/api/trips/${id}`, { method: 'DELETE' });
+                await db.trips.delete(Number(id));
+                navigate('/');
+              } catch (e) { showToast('Delete failed', 'error'); }
+            }}
+            onClose={() => setActiveTab('itinerary')}
+            showToast={showToast}
+          />
         )}
       </div>
 
@@ -669,6 +717,9 @@ export function TripDetails() {
           </button>
         )}
       </div>
+
+      {/* ── Toast 通知 ─────────────────────────────────────────────────── */}
+      <Toast message={toast.message} type={toast.type} visible={toast.visible} />
 
       {/* Modals */}
       <AnimatePresence>

@@ -1,34 +1,32 @@
 import React, { useState } from 'react';
-import { TripBaseForm } from './TripBaseForm';
-import { ConfirmDialog } from './ConfirmDialog';
+import { Loader2, Cpu, Wand2, Trash2, AlertTriangle, Check } from 'lucide-react';
+import { TripBaseForm, TripFormData } from './TripBaseForm';
 import { apiFetch } from '../utils/api';
-import { Loader2, Trash2, AlertTriangle, Cpu, Wand2, Check } from 'lucide-react';
-import { motion, AnimatePresence } from 'framer-motion';
 import { Trip } from '../types';
+import { ConfirmDialog } from './ConfirmDialog';
+import { motion, AnimatePresence } from 'framer-motion';
 
 interface TripSettingsFormProps {
   trip: Trip;
   onUpdate: () => void;
-  onDelete: () => void;
+  onDelete: () => Promise<void>;
   onClose: () => void;
+  // ✅ 新增：由 TripDetails 傳入的底部 toast 函式
+  showToast?: (message: string, type?: 'success' | 'error') => void;
 }
 
-export function TripSettingsForm({ trip, onUpdate, onDelete, onClose }: TripSettingsFormProps) {
+export function TripSettingsForm({ trip, onUpdate, onDelete, onClose, showToast }: TripSettingsFormProps) {
   const [loading, setLoading] = useState(false);
   const [isComputing, setIsComputing] = useState(false);
   const [isOptimizing, setIsOptimizing] = useState(false);
-  const [saveStatus, setSaveStatus] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle');
-
-  // ✅ Delete Trip 改用自製彈窗，不再用 window.confirm
   const [isDeleteConfirmOpen, setIsDeleteConfirmOpen] = useState(false);
-  
+
+  // 用於日期衝突的 pending 資料
   const [pendingSaveData, setPendingSaveData] = useState<any>(null);
   const [outOfBoundsDates, setOutOfBoundsDates] = useState<string[]>([]);
 
-  // ✅ 加入 autoSave 參數，自動儲存時不呼叫 onClose()
   const performSave = async (data: any, autoSave = false) => {
     setLoading(true);
-    if (autoSave) setSaveStatus('saving');
     try {
       const res = await apiFetch(`/api/trips/${trip.id}`, { method: 'PUT', body: JSON.stringify(data) });
       if (res.ok && data.members) {
@@ -36,39 +34,33 @@ export function TripSettingsForm({ trip, onUpdate, onDelete, onClose }: TripSett
       }
 
       if (res.ok) {
+        // 更新本地 trip 物件（不觸發 navigate，保持在 settings 頁面）
         trip.title = data.title;
         trip.start_date = data.start_date;
         trip.end_date = data.end_date;
         trip.default_city_id = data.default_city_id;
         trip.cover_image_url = data.cover_image_url;
-        trip.currencies = JSON.stringify(data.currencies);
-        trip.members = data.members.map((id: number) => ({ user_id: id, role: 'Member' }));
+        (trip as any).currencies = JSON.stringify(data.currencies);
+        (trip as any).members = data.members.map((id: number) => ({ user_id: id, role: 'Member' }));
 
         setPendingSaveData(null);
-        if (autoSave) {
-          setSaveStatus('saved');
-          setTimeout(() => setSaveStatus('idle'), 2500);
-        } else {
-          onClose();
-        }
-        setTimeout(() => onUpdate(), autoSave ? 300 : 1500);
+
+        // ✅ 改成底部 toast 而非 inline 文字
+        showToast?.('Settings saved', 'success');
+        setTimeout(() => onUpdate(), 300);
       } else {
-        if (autoSave) setSaveStatus('error');
-        else alert('Update failed');
+        showToast?.('Save failed', 'error');
       }
     } catch (err: any) {
-      if (autoSave) setSaveStatus('error');
-      else alert(err.message);
+      showToast?.('Save failed', 'error');
     } finally {
       setLoading(false);
     }
   };
 
-  // ✅ 作為 TripBaseForm 的 onChange 使用（自動儲存入口）
   const handleAutoSave = async (data: any) => {
     if (!data.title?.trim() || !data.start_date || !data.end_date) return;
     setLoading(true);
-    setSaveStatus('saving');
     try {
       const res = await apiFetch(`/api/trips/${trip.id}/itineraries`);
       if (res.ok) {
@@ -82,13 +74,12 @@ export function TripSettingsForm({ trip, onUpdate, onDelete, onClose }: TripSett
           setOutOfBoundsDates(outOfBounds.sort());
           setPendingSaveData(data);
           setLoading(false);
-          setSaveStatus('idle');
           return;
         }
       }
       await performSave(data, true);
     } catch (err: any) {
-      setSaveStatus('error');
+      showToast?.('Save failed', 'error');
       setLoading(false);
     }
   };
@@ -97,7 +88,12 @@ export function TripSettingsForm({ trip, onUpdate, onDelete, onClose }: TripSett
     setIsComputing(true);
     try {
       const res = await apiFetch(`/api/trips/${trip.id}/compute`, { method: 'POST' });
-      if (res.ok) { onUpdate(); }
+      if (res.ok) {
+        onUpdate();
+        showToast?.('Weather & places updated', 'success');
+      } else {
+        showToast?.('Compute failed', 'error');
+      }
     } finally { setIsComputing(false); }
   };
 
@@ -105,36 +101,21 @@ export function TripSettingsForm({ trip, onUpdate, onDelete, onClose }: TripSett
     setIsOptimizing(true);
     try {
       const res = await apiFetch(`/api/trips/${trip.id}/optimize`, { method: 'POST' });
-      if (res.ok) { onUpdate(); }
+      if (res.ok) {
+        onUpdate();
+        showToast?.('Itinerary optimized', 'success');
+      } else {
+        showToast?.('Optimize failed', 'error');
+      }
     } finally { setIsOptimizing(false); }
   };
 
   return (
     <>
-      <div className="flex flex-col h-full bg-[#1c1c1e]">
-        
-        {/* ✅ 標題列：儲存狀態指示 + 較大的 AI 功能按鈕（帶文字標籤） */}
-        <div className="px-5 py-4 flex items-center justify-between border-b border-zinc-800/50">
-          {/* 左側：儲存狀態 */}
-          <div className="flex items-center gap-2 min-h-[28px]">
-            {saveStatus === 'saving' && (
-              <span className="flex items-center gap-1.5 text-[11px] text-zinc-400 font-medium">
-                <Loader2 size={11} className="animate-spin" />
-                Saving...
-              </span>
-            )}
-            {saveStatus === 'saved' && (
-              <span className="flex items-center gap-1.5 text-[11px] text-emerald-500 font-bold">
-                <Check size={11} strokeWidth={3} />
-                Saved
-              </span>
-            )}
-            {saveStatus === 'error' && (
-              <span className="text-[11px] text-red-400 font-medium">Save failed</span>
-            )}
-          </div>
+      <div className="flex flex-col h-full bg-zinc-950 rounded-3xl border border-zinc-800 overflow-hidden">
 
-          {/* ✅ 右側：較大的 AI 按鈕，帶圖示 + 文字標籤 */}
+        {/* ✅ 標題列：移除 "Trip Settings" 文字，只留 AI 功能按鈕 */}
+        <div className="px-5 py-4 flex items-center justify-end border-b border-zinc-800/50">
           <div className="flex items-center gap-2">
             <button
               type="button"
@@ -166,7 +147,7 @@ export function TripSettingsForm({ trip, onUpdate, onDelete, onClose }: TripSett
           </div>
         </div>
 
-        {/* ✅ 表單內容：透過 onChange 自動儲存，hideSubmit=true 隱藏提交按鈕 */}
+        {/* 表單內容 */}
         <div className="flex-1 overflow-y-auto px-6 py-6 custom-scrollbar">
           <TripBaseForm
             initialData={trip}
@@ -177,7 +158,6 @@ export function TripSettingsForm({ trip, onUpdate, onDelete, onClose }: TripSett
             hideSubmit={true}
             extraButtons={
               <div className="mt-6 pt-6 border-t border-zinc-800/50">
-                {/* ✅ Delete Trip 按鈕：開啟自製確認彈窗 */}
                 <button
                   type="button"
                   onClick={() => setIsDeleteConfirmOpen(true)}
@@ -192,7 +172,7 @@ export function TripSettingsForm({ trip, onUpdate, onDelete, onClose }: TripSett
         </div>
       </div>
 
-      {/* ✅ 自製 Delete Trip 確認彈窗 */}
+      {/* ✅ Delete Trip 確認彈窗 */}
       <ConfirmDialog
         isOpen={isDeleteConfirmOpen}
         title="刪除行程"

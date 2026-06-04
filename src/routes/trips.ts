@@ -6,29 +6,18 @@ const trips = new Hono<{ Bindings: Env; Variables: { user: any } }>();
 
 // ==========================================
 // 圖片自動抓取並存入 Supabase 的工具函式
-// ✅ 解決問題 1：picsum 圖片不固定 + 與行程無關聯性
-// 流程：Unsplash 搜尋 → 下載圖片 bytes → 上傳到 Supabase → 回傳永久 URL
 // ==========================================
 async function fetchAndStoreImage(query: string, env: Env): Promise<string | null> {
   try {
-    // 1. 用城市名/行程標題向 Unsplash 搜尋相關圖片
     const unsplashUrl = await searchUnsplash(query, env);
-    if (!unsplashUrl) {
-      console.warn(`[Cover] Unsplash returned no results for query: "${query}"`);
-      return null;
-    }
+    if (!unsplashUrl) return null;
 
-    // 2. 下載圖片
     const imgRes = await fetch(unsplashUrl);
-    if (!imgRes.ok) {
-      console.warn(`[Cover] Failed to download image from Unsplash: ${imgRes.status}`);
-      return null;
-    }
+    if (!imgRes.ok) return null;
     const imgBuffer = await imgRes.arrayBuffer();
     const contentType = imgRes.headers.get('content-type') || 'image/jpeg';
     const ext = contentType.includes('png') ? 'png' : 'jpg';
 
-    // 3. 上傳到 Supabase Storage (travelplan/trips/ 目錄)
     const fileName = `${Date.now()}-${Math.random().toString(36).substring(2, 8)}.${ext}`;
     const fullPath = `travelplan/trips/${fileName}`;
 
@@ -45,15 +34,9 @@ async function fetchAndStoreImage(query: string, env: Env): Promise<string | nul
       }
     );
 
-    if (!uploadRes.ok) {
-      const err = await uploadRes.text();
-      console.error(`[Cover] Supabase upload failed: ${err}`);
-      return null;
-    }
+    if (!uploadRes.ok) return null;
 
-    // 4. 回傳永久公開 URL
     const publicUrl = `${env.VITE_SUPABASE_URL}/storage/v1/object/public/${fullPath}`;
-    console.log(`[Cover] Image stored at: ${publicUrl}`);
     return publicUrl;
   } catch (e: any) {
     console.error('[Cover] fetchAndStoreImage error:', e.message);
@@ -100,21 +83,15 @@ trips.get('/', async (c) => {
   }
 });
 
-// ✅ 建立行程 — 修正圖片邏輯
-// 1. 如果使用者有手動上傳圖片 (cover_image_url 已是 Supabase URL) → 直接用
-// 2. 如果沒有圖片 → 用 default_city 名稱搜尋 Unsplash，下載後存入 Supabase
-// 3. 圖片 URL 存入 DB，之後修改標題不會影響圖片
+// 建立行程
 trips.post('/', async (c) => {
   try {
     const body = await c.req.json().catch(() => ({}));
     const { title, start_date, end_date, default_city_id, cover_image_url, currencies } = body;
 
-    // 決定封面圖片 URL
     let finalCoverUrl = cover_image_url || null;
 
-    // 使用者沒有手動上傳圖片時，才去抓 Unsplash
     if (!finalCoverUrl) {
-      // 優先用城市名搜尋，城市名不存在時 fallback 用行程標題
       let imageQuery = title || 'travel destination';
 
       if (default_city_id) {
@@ -123,12 +100,10 @@ trips.post('/', async (c) => {
         ).bind(default_city_id).first() as any;
 
         if (cityRow) {
-          // 「台北 Taiwan travel」這種 query 比純城市名更能拿到風景照而非筆電
           imageQuery = `${cityRow.name} ${cityRow.country} travel landscape`;
         }
       }
 
-      console.log(`[Cover] No image provided, searching Unsplash for: "${imageQuery}"`);
       finalCoverUrl = await fetchAndStoreImage(imageQuery, c.env);
     }
 
@@ -137,7 +112,7 @@ trips.post('/', async (c) => {
       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).bind(
       title, start_date, end_date, default_city_id,
-      finalCoverUrl,  // ← 存入已下載到 Supabase 的永久 URL
+      finalCoverUrl,
       JSON.stringify(currencies || []), 0, Date.now(), Date.now()
     ).run();
 
@@ -181,7 +156,6 @@ trips.put('/:id', async (c) => {
 
     const body = await c.req.json().catch(() => ({}));
 
-    // ✅ 更新時若沒帶 cover_image_url，保留原本已存的圖片（不因標題更改而重新抓圖）
     let finalCoverUrl = body.cover_image_url;
     if (!finalCoverUrl) {
       const existing = await c.env.DB.prepare(
@@ -225,7 +199,199 @@ trips.delete('/:id', async (c) => {
   }
 });
 
-// 天氣查詢
+// ==========================================
+// 2. Itineraries (行程活動 CRUD)
+// ✅ 修正：補上前端呼叫但後端不存在的 endpoints，導致 404 的根本原因
+// ==========================================
+
+// 獲取特定行程的所有活動
+trips.get('/:id/itineraries', async (c) => {
+  const tripId = c.req.param('id');
+  try {
+    const canView = await checkTripAccess(c, Number(tripId), 'view');
+    if (!canView) return c.json({ error: 'Unauthorized' }, 403);
+
+    const { results } = await c.env.DB.prepare(
+      'SELECT * FROM Itineraries WHERE trip_id = ? ORDER BY date, start_time'
+    ).bind(tripId).all();
+
+    return c.json(results.map((item: any) => ({
+      ...item,
+      tags: item.tags ? JSON.parse(item.tags) : [],
+      sub_items: item.sub_items ?? '[]',
+    })));
+  } catch (error: any) {
+    return c.json({ error: error.message }, 500);
+  }
+});
+
+// ✅ 新增活動 — 修正 404 的核心：這個 endpoint 之前完全缺失
+trips.post('/:id/itineraries', async (c) => {
+  const tripId = c.req.param('id');
+  try {
+    const canEdit = await checkTripAccess(c, Number(tripId), 'edit');
+    if (!canEdit) return c.json({ error: 'Unauthorized' }, 403);
+
+    const body = await c.req.json().catch(() => ({}));
+    const {
+      title, date, address = '', start_time = '', end_time = '',
+      notes = '', icon = 'MapPin', tags = [], image_url = '',
+      google_place_id = '', lat = null, lng = null,
+      rating = null, reviews_count = null, opening_hours = '',
+      place_website = '', place_phone = '',
+      next_transport_mode = '', next_transport_time = '', next_transport_auto_time = '',
+      sub_items = '[]', is_time_fixed = 0, stay_duration = '60',
+      type = 'GENERAL', related_id = null, city_id = null,
+    } = body;
+
+    if (!title || !date) {
+      return c.json({ error: 'title and date are required' }, 400);
+    }
+
+    const { meta } = await c.env.DB.prepare(`
+      INSERT INTO Itineraries (
+        trip_id, city_id, date, start_time, end_time, title, address,
+        image_url, notes, tags, icon, sub_items, type, related_id,
+        is_time_fixed, stay_duration,
+        next_transport_mode, next_transport_time, next_transport_auto_time,
+        lat, lng, google_place_id, rating, reviews_count, opening_hours,
+        place_website, place_phone
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).bind(
+      tripId, city_id, date, start_time, end_time, title, address,
+      image_url, notes, JSON.stringify(tags), icon, sub_items, type, related_id,
+      is_time_fixed ? 1 : 0, String(stay_duration),
+      next_transport_mode, next_transport_time, String(next_transport_auto_time),
+      lat, lng, google_place_id, rating, reviews_count, opening_hours,
+      place_website, place_phone
+    ).run();
+
+    // 建立成功後，嘗試自動觸發 Google Places 同步（非阻塞）
+    if (google_place_id) {
+      c.executionCtx?.waitUntil?.(syncPlaceDetails(c.env, Number(tripId)).catch(console.error));
+    }
+
+    return c.json({ id: meta.last_row_id, success: true }, 201);
+  } catch (error: any) {
+    console.error('[Itineraries POST]', error);
+    return c.json({ error: error.message }, 500);
+  }
+});
+
+// 更新單一活動
+trips.put('/:id/itineraries/:itineraryId', async (c) => {
+  const tripId = c.req.param('id');
+  const itineraryId = c.req.param('itineraryId');
+  try {
+    const canEdit = await checkTripAccess(c, Number(tripId), 'edit');
+    if (!canEdit) return c.json({ error: 'Unauthorized' }, 403);
+
+    const body = await c.req.json().catch(() => ({}));
+    const {
+      title, date, address, start_time, end_time, notes, icon, tags,
+      image_url, google_place_id, lat, lng, rating, reviews_count,
+      opening_hours, place_website, place_phone, place_status, sync_conflict_warning,
+      next_transport_mode, next_transport_time, next_transport_auto_time,
+      sub_items, is_time_fixed, stay_duration, type, related_id, city_id,
+    } = body;
+
+    await c.env.DB.prepare(`
+      UPDATE Itineraries SET
+        city_id = ?, date = ?, start_time = ?, end_time = ?, title = ?,
+        address = ?, image_url = ?, notes = ?, tags = ?, icon = ?,
+        sub_items = ?, type = ?, related_id = ?,
+        is_time_fixed = ?, stay_duration = ?,
+        next_transport_mode = ?, next_transport_time = ?, next_transport_auto_time = ?,
+        lat = ?, lng = ?, google_place_id = ?, rating = ?, reviews_count = ?,
+        opening_hours = ?, place_website = ?, place_phone = ?,
+        place_status = ?, sync_conflict_warning = ?
+      WHERE id = ? AND trip_id = ?
+    `).bind(
+      city_id ?? null, date, start_time ?? '', end_time ?? '', title,
+      address ?? '', image_url ?? '', notes ?? '',
+      JSON.stringify(tags ?? []), icon ?? 'MapPin',
+      sub_items ?? '[]', type ?? 'GENERAL', related_id ?? null,
+      is_time_fixed ? 1 : 0, String(stay_duration ?? '60'),
+      next_transport_mode ?? '', next_transport_time ?? '', String(next_transport_auto_time ?? ''),
+      lat ?? null, lng ?? null, google_place_id ?? '', rating ?? null, reviews_count ?? null,
+      opening_hours ?? '', place_website ?? '', place_phone ?? '',
+      place_status ?? null, sync_conflict_warning ?? null,
+      itineraryId, tripId
+    ).run();
+
+    return c.json({ success: true });
+  } catch (error: any) {
+    console.error('[Itineraries PUT]', error);
+    return c.json({ error: error.message }, 500);
+  }
+});
+
+// 刪除單一活動
+trips.delete('/:id/itineraries/:itineraryId', async (c) => {
+  const tripId = c.req.param('id');
+  const itineraryId = c.req.param('itineraryId');
+  try {
+    const canEdit = await checkTripAccess(c, Number(tripId), 'edit');
+    if (!canEdit) return c.json({ error: 'Unauthorized' }, 403);
+
+    await c.env.DB.prepare(
+      'DELETE FROM Itineraries WHERE id = ? AND trip_id = ?'
+    ).bind(itineraryId, tripId).run();
+
+    return c.json({ success: true });
+  } catch (error: any) {
+    return c.json({ error: error.message }, 500);
+  }
+});
+
+// ==========================================
+// 3. Members
+// ==========================================
+trips.get('/:id/members', async (c) => {
+  const id = c.req.param('id');
+  try {
+    const canView = await checkTripAccess(c, Number(id), 'view');
+    if (!canView) return c.json({ error: 'Unauthorized' }, 403);
+
+    const { results } = await c.env.DB.prepare(`
+      SELECT u.id, u.name, u.avatar_url, u.role, tm.role as trip_role
+      FROM TripMembers tm JOIN Users u ON tm.user_id = u.id
+      WHERE tm.trip_id = ?
+    `).bind(id).all();
+
+    return c.json(results);
+  } catch (error: any) {
+    return c.json({ error: error.message }, 500);
+  }
+});
+
+trips.put('/:id/members', async (c) => {
+  const id = c.req.param('id');
+  try {
+    const canEdit = await checkTripAccess(c, Number(id), 'edit');
+    if (!canEdit) return c.json({ error: 'Unauthorized' }, 403);
+
+    const { user_ids } = await c.req.json();
+    if (!Array.isArray(user_ids)) return c.json({ error: 'user_ids must be an array' }, 400);
+
+    // 先刪除現有成員，再重新寫入
+    const statements = [
+      c.env.DB.prepare('DELETE FROM TripMembers WHERE trip_id = ?').bind(id),
+      ...user_ids.map((uid: number) =>
+        c.env.DB.prepare('INSERT OR IGNORE INTO TripMembers (trip_id, user_id, role) VALUES (?, ?, ?)').bind(id, uid, 'Member')
+      )
+    ];
+    await c.env.DB.batch(statements);
+
+    return c.json({ success: true });
+  } catch (error: any) {
+    return c.json({ error: error.message }, 500);
+  }
+});
+
+// ==========================================
+// 4. 天氣查詢
+// ==========================================
 trips.get('/:id/weather', async (c) => {
   const id = c.req.param('id');
   const date = c.req.query('date');
@@ -243,7 +409,9 @@ trips.get('/:id/weather', async (c) => {
   }
 });
 
-// AI Itinerary Optimization
+// ==========================================
+// 5. AI Optimization & Compute
+// ==========================================
 trips.post('/:id/optimize', async (c) => {
   const tripId = c.req.param('id');
   try {
@@ -268,7 +436,6 @@ trips.post('/:id/optimize', async (c) => {
   }
 });
 
-// AI Compute (weather + Google API)
 trips.post('/:id/compute', async (c) => {
   const tripId = c.req.param('id');
   try {
