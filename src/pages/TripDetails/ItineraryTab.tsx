@@ -15,6 +15,8 @@ interface ItineraryTabProps {
   canEdit: boolean;
   expandSignal: number;
   collapseSignal: number;
+  showWeather?: boolean;
+  onWeatherClose?: () => void;
   onAddActivity: () => void;
   onEditItinerary: (item: Itinerary) => void;
   onEditNextTransport: (item: Itinerary) => void;
@@ -24,17 +26,21 @@ interface ItineraryTabProps {
 export function ItineraryTab({
   tripId, selectedDate, isFutureTrip, filteredItineraries, conflictedIdsInView,
   bookings, canEdit, expandSignal, collapseSignal,
+  showWeather, onWeatherClose,
   onAddActivity, onEditItinerary, onEditNextTransport, onEditBooking,
 }: ItineraryTabProps) {
   return (
     <div className="space-y-6">
-      <WeatherWidget
-        tripId={tripId}
-        date={selectedDate}
-        isFutureTrip={isFutureTrip}
-        expandSignal={expandSignal}
-        collapseSignal={collapseSignal}
-      />
+      {showWeather && (
+        <WeatherWidget
+          tripId={tripId}
+          date={selectedDate}
+          isFutureTrip={isFutureTrip}
+          expandSignal={expandSignal}
+          collapseSignal={collapseSignal}
+          onClose={onWeatherClose}
+        />
+      )}
 
       <div className="space-y-4">
         {filteredItineraries.length > 0 ? (

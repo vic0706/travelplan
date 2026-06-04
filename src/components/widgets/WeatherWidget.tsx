@@ -165,8 +165,8 @@ export function WeatherWidget({
 
   // ─── 一般模式（內嵌在行程列表中） ────────────────────────────────────
 
-  // 折疊狀態：顯示 Expand 按鈕
-  if (!isExpanded) {
+  // 折疊狀態：只在沒有外部 onClose 控制時才顯示展開按鈕
+  if (!isExpanded && !onClose) {
     return (
       <button
         type="button"
@@ -185,18 +185,26 @@ export function WeatherWidget({
     );
   }
 
+  // 有 onClose 時不顯示折疊狀態（父層控制可見性）
+  if (!isExpanded) return null;
+
+  // 右側動作按鈕（關閉或折疊）
+  const handleAction = onClose ?? (() => setIsExpanded(false));
+  const actionLabel = onClose ? 'Close' : 'Collapse';
+  const ActionIcon = onClose ? X : ChevronUp;
+
   // 展開 + loading
   if (loading) {
     return (
       <div className="bg-zinc-900 border border-zinc-800 rounded-3xl overflow-hidden shadow-lg">
-        <button type="button" onClick={() => setIsExpanded(false)}
+        <button type="button" onClick={handleAction}
           className="w-full px-5 pt-4 pb-3 flex items-center justify-between text-zinc-400 hover:text-white transition-colors">
           <div className="flex items-center gap-2 text-xs font-bold uppercase tracking-widest">
             <Loader2 size={14} className="animate-spin text-orange-500" />
             Weather Forecast
           </div>
           <div className="flex items-center gap-1.5 text-[10px] font-black uppercase tracking-widest text-orange-500">
-            <span>Collapse</span><ChevronUp size={14} />
+            <span>{actionLabel}</span><ActionIcon size={14} />
           </div>
         </button>
         <div className="p-5 pt-2 flex items-center justify-center h-16">
@@ -210,13 +218,13 @@ export function WeatherWidget({
     if (isPastDate) return null;
     return (
       <div className="bg-zinc-900 border border-zinc-800 rounded-3xl overflow-hidden shadow-lg">
-        <button type="button" onClick={() => setIsExpanded(false)}
+        <button type="button" onClick={handleAction}
           className="w-full px-5 pt-4 pb-3 flex items-center justify-between text-zinc-400 hover:text-white transition-colors">
           <div className="flex items-center gap-2 text-xs font-bold uppercase tracking-widest">
             <Cloud size={14} />Weather Forecast
           </div>
           <div className="flex items-center gap-1.5 text-[10px] font-black uppercase tracking-widest text-orange-500">
-            <span>Collapse</span><ChevronUp size={14} />
+            <span>{actionLabel}</span><ActionIcon size={14} />
           </div>
         </button>
         <div className="px-5 pb-5 flex flex-col items-center justify-center min-h-[60px]">
@@ -228,8 +236,8 @@ export function WeatherWidget({
 
   return (
     <div className="bg-zinc-900 border border-zinc-800 rounded-3xl overflow-hidden shadow-lg">
-      {/* 折疊按鈕 */}
-      <button type="button" onClick={() => setIsExpanded(false)}
+      {/* 關閉/折疊按鈕 */}
+      <button type="button" onClick={handleAction}
         className="w-full px-5 pt-4 pb-3 flex items-center justify-between text-zinc-400 hover:text-white transition-colors">
         <div className="flex items-center gap-3">
           {data.summary && getWeatherIcon(data.summary.weather_code, 18)}
@@ -243,7 +251,7 @@ export function WeatherWidget({
           </div>
         </div>
         <div className="flex items-center gap-1.5 text-[10px] font-black uppercase tracking-widest text-orange-500">
-          <span>Collapse</span><ChevronUp size={14} />
+          <span>{actionLabel}</span><ActionIcon size={14} />
         </div>
       </button>
 
