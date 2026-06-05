@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { useAppStore } from '../../store';
-import { X, MapPin, Loader2, Plus, Trash2, Camera, Image as ImageIcon, Upload, Sparkles, Lock, Unlock, Search, Database, Check } from 'lucide-react';
+import { X, MapPin, Loader2, Plus, Trash2, Camera, Image as ImageIcon, Upload, Sparkles, Lock, Unlock, Search, Database, Check, Calendar, Copy } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { apiFetch } from '../../utils/api';
 import { DynamicIcon } from '../common/DynamicIcon';
@@ -61,6 +61,7 @@ export function ItineraryForm({ tripId, date, onSuccess, onCancel, initialData, 
     }
     return 60;
   });
+  const [dateValue, setDateValue] = useState(initialData?.date || date);
   const [loading, setLoading] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [error, setError] = useState('');
@@ -242,13 +243,32 @@ export function ItineraryForm({ tripId, date, onSuccess, onCancel, initialData, 
     finally { setIsDeleting(false); }
   };
 
+  const handleCopy = async () => {
+    setLoading(true);
+    try {
+      const payload = {
+        ...formData,
+        trip_id: tripId,
+        date: dateValue,
+        tags: formData.tags.split(',').map((t: string) => t.trim()).filter(Boolean),
+        sub_items: JSON.stringify(subItems),
+        is_time_fixed: isTimeFixed ? 1 : 0,
+        stay_duration: isTimeFixed ? fixedStayDuration.toString() : stayDuration.toString()
+      };
+      const res = await apiFetch(`/api/trips/${tripId}/itineraries`, { method: 'POST', body: JSON.stringify(payload) });
+      if (res.ok) { showToast?.('活動已複製', 'success'); onSuccess(); }
+      else showToast?.('複製失敗', 'error');
+    } catch { showToast?.('複製失敗', 'error'); }
+    finally { setLoading(false); }
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault(); setLoading(true);
     try {
       const payload = {
         ...formData,
         trip_id: tripId,
-        date,
+        date: dateValue,
         tags: formData.tags.split(',').map(t => t.trim()).filter(Boolean),
         sub_items: JSON.stringify(subItems),
         is_time_fixed: isTimeFixed ? 1 : 0,
@@ -306,6 +326,16 @@ export function ItineraryForm({ tripId, date, onSuccess, onCancel, initialData, 
             onChange={e => setFormData(prev => ({ ...prev, title: e.target.value }))}
             className="w-full bg-[#242426] border border-zinc-800 rounded-2xl px-4 py-3 text-white font-bold text-base focus:border-orange-500 outline-none transition-all"
             placeholder="活動名稱" />
+        </div>
+
+        {/* 日期 */}
+        <div className="space-y-1.5">
+          <label className="text-[10px] font-bold text-zinc-500 uppercase tracking-widest ml-1">日期</label>
+          <div className="flex items-center gap-2 bg-[#242426] border border-zinc-800 rounded-2xl px-4 h-12 focus-within:border-orange-500 transition-all">
+            <Calendar size={16} className="text-orange-500 shrink-0" />
+            <input type="date" value={dateValue} onChange={e => setDateValue(e.target.value)}
+              className="flex-1 bg-transparent text-white font-mono font-bold text-sm outline-none [color-scheme:dark]" />
+          </div>
         </div>
 
         {/* 排程模式 */}
@@ -527,6 +557,13 @@ export function ItineraryForm({ tripId, date, onSuccess, onCancel, initialData, 
       {/* 底部按鈕 */}
       <div className="absolute bottom-0 left-0 right-0 p-5 bg-[#1c1c1e] border-t border-zinc-800 flex gap-3 z-20">
         <button type="button" onClick={onCancel} className="flex-1 py-4 rounded-2xl font-bold text-zinc-500 text-sm hover:bg-zinc-800 transition-colors">取消</button>
+        {initialData && (
+          <button type="button" onClick={handleCopy} disabled={loading || uploading}
+            className="px-4 py-4 rounded-2xl border border-zinc-700 text-zinc-400 hover:border-orange-500 hover:text-orange-500 transition-all flex items-center justify-center gap-1.5 active:scale-95">
+            <Copy size={16} />
+            <span className="text-xs font-bold">複製</span>
+          </button>
+        )}
         <button type="submit" disabled={loading || uploading} onClick={handleSubmit}
           className="flex-[2] py-4 bg-orange-500 text-white rounded-2xl font-black text-sm uppercase tracking-widest shadow-lg shadow-orange-500/20 flex items-center justify-center gap-2 active:scale-95 transition-all">
           {loading ? <Loader2 size={18} className="animate-spin" /> : (initialData ? '更新行程' : '加入行程')}

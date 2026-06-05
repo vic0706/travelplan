@@ -15,7 +15,13 @@ interface FinanceTabProps {
 export function FinanceTab({
   filteredExpenses, currency, canEdit, getUserNameById, onAddExpense, onEditExpense,
 }: FinanceTabProps) {
-  const dailyTotal = filteredExpenses.reduce((sum, e) => sum + e.amount, 0);
+  const currencyTotals = filteredExpenses.reduce((acc, e) => {
+    const cur = e.currency || currency;
+    acc[cur] = (acc[cur] || 0) + e.amount;
+    return acc;
+  }, {} as Record<string, number>);
+  const isMultiCurrency = Object.keys(currencyTotals).length > 1;
+  const singleTotal = isMultiCurrency ? 0 : filteredExpenses.reduce((sum, e) => sum + e.amount, 0);
 
   return (
     <div className="space-y-4">
@@ -23,8 +29,14 @@ export function FinanceTab({
         <h3 className="text-lg font-bold text-white">每日支出</h3>
         <div className="text-right">
           <div className="text-[10px] text-zinc-500 font-bold uppercase tracking-widest mb-0.5">當日合計</div>
-          <div className="text-xl font-bold text-white font-mono">
-            {currency} {dailyTotal.toLocaleString()}
+          <div className="text-right">
+            {isMultiCurrency ? (
+              Object.entries(currencyTotals).map(([cur, amt]) => (
+                <div key={cur} className="text-base font-bold text-white font-mono">{cur} {amt.toLocaleString()}</div>
+              ))
+            ) : (
+              <div className="text-xl font-bold text-white font-mono">{currency} {singleTotal.toLocaleString()}</div>
+            )}
           </div>
         </div>
       </div>

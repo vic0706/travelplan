@@ -1,4 +1,5 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
+import { getUSDRates, convertCurrency } from '../../utils/exchangeRate';
 import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip, Legend } from 'recharts';
 import { Expense, User } from '../../types';
 import { motion, AnimatePresence } from 'framer-motion';
@@ -9,18 +10,47 @@ interface FinanceOverviewProps {
   expenses: Expense[];
   members: User[];
   currency: string;
+  currencies?: string[];
 }
 
-export function FinanceOverview({ expenses, members, currency }: FinanceOverviewProps) {
+export function FinanceOverview({ expenses, members, currency, currencies = [] }: FinanceOverviewProps) {
   const [showSplitModal, setShowSplitModal] = useState(false);
   const [copiedText, setCopiedText] = useState<string | null>(null);
+  const [usdRates, setUsdRates] = useState<Record<string, number>>({ USD: 1 });
+  const [ratesLoaded, setRatesLoaded] = useState(false);
+
+  useEffect(() => {
+    const allCurrencies = [...new Set([currency, ...currencies, ...expenses.map(e => e.currency).filter(Boolean)])];
+    const hasMultipleCurrencies = allCurrencies.length > 1;
+    if (hasMultipleCurrencies) {
+      getUSDRates().then(rates => { setUsdRates(rates); setRatesLoaded(true); });
+    }
+  }, [expenses, currency]);
 
   // ✅ 修正：直接從 store 取，App.tsx 已全局初始化，不需要再 fetch
   const { categories } = useAppStore();
 
+  const currencyTotals = useMemo(() => {
+    const totals: Record<string, number> = {};
+    expenses.forEach(exp => {
+      const cur = exp.currency || currency;
+      totals[cur] = (totals[cur] || 0) + exp.amount;
+    });
+    return totals;
+  }, [expenses, currency]);
+
   const totalAmount = useMemo(() => {
     return expenses.reduce((sum, exp) => sum + exp.amount, 0);
   }, [expenses]);
+
+  const convertedTotal = useMemo(() => {
+    if (!ratesLoaded) return null;
+    return expenses.reduce((sum, exp) => {
+      return sum + convertCurrency(exp.amount, exp.currency || currency, currency, usdRates);
+    }, 0);
+  }, [expenses, currency, usdRates, ratesLoaded]);
+
+  const isMultiCurrency = Object.keys(currencyTotals).length > 1;
 
   const categoryData = useMemo(() => {
     const data: Record<string, number> = {};
@@ -48,8 +78,11 @@ export function FinanceOverview({ expenses, members, currency }: FinanceOverview
       const splitAmong = exp.split_members;
       if (splitAmong.length === 0) return;
 
-      const amountPerPerson = exp.amount / splitAmong.length;
-      balances[paidBy] = (balances[paidBy] || 0) + exp.amount;
+      const normalizedAmount = ratesLoaded
+        ? convertCurrency(exp.amount, exp.currency || currency, currency, usdRates)
+        : exp.amount;
+      const amountPerPerson = normalizedAmount / splitAmong.length;
+      balances[paidBy] = (balances[paidBy] || 0) + normalizedAmount;
       splitAmong.forEach(memberId => {
         balances[memberId] = (balances[memberId] || 0) - amountPerPerson;
       });
@@ -107,8 +140,19 @@ export function FinanceOverview({ expenses, members, currency }: FinanceOverview
       {/* Summary Cards */}
       <div className="grid grid-cols-2 gap-4">
         <div className="bg-zinc-900 border border-zinc-800 p-4 rounded-2xl">
-          <p className="text-zinc-500 text-xs font-medium uppercase tracking-wider mb-1">費用總計</p>
-          <p className="text-2xl font-bold text-white font-mono">{currency} {totalAmount.toLocaleString()}</p>
+          <p className="text-zinc-500 text-xs font-medium uppercase tracking-wider mb-2">費用總計</p>
+          {isMultiCurrency ? (
+            <div className="space-y-1">
+              {Object.entries(currencyTotals).map(([cur, amt]) => (
+                <p key={cur} className="text-lg font-bold text-white font-mono">{cur} {amt.toLocaleString()}</p>
+              ))}
+              {convertedTotal !== null && (
+                <p className="text-xs text-zinc-500 font-mono mt-1">≈ {currency} {Math.round(convertedTotal).toLocaleString()}</p>
+              )}
+            </div>
+          ) : (
+            <p className="text-2xl font-bold text-white font-mono">{currency} {totalAmount.toLocaleString()}</p>
+          )}
         </div>
         <button
           onClick={() => setShowSplitModal(true)}
