@@ -202,6 +202,13 @@ bookings.get('/', async (c) => {
 bookings.post('/', async (c) => {
   const tripId = c.req.param('id');
   const b = await c.req.json();
+
+  // For HOTEL bookings without a photo, fetch one synchronously so it's immediately available
+  let imageUrl = b.image_url || '';
+  if (b.category === 'HOTEL' && !imageUrl && b.title) {
+    imageUrl = (await fetchAndStoreImage(b.title, c.env)) || '';
+  }
+
   const { meta } = await c.env.DB.prepare(
     `INSERT INTO Bookings (trip_id, category, title, provider, order_id, start_date, start_time, end_date, end_time, start_location, end_location, notes, image_url, details, google_place_id)
      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
@@ -218,7 +225,7 @@ bookings.post('/', async (c) => {
     b.start_location || '',
     b.end_location || '',
     b.notes || '',
-    b.image_url || '',
+    imageUrl,
     JSON.stringify(b.details || {}),
     b.google_place_id || ''
   ).run();
@@ -226,19 +233,7 @@ bookings.post('/', async (c) => {
   const bookingId = meta.last_row_id as number;
   const created = await c.env.DB.prepare('SELECT * FROM Bookings WHERE id = ?').bind(bookingId).first() as any;
 
-  await insertItineraryItems(c.env, tripId, bookingId, { ...b, image_url: b.image_url || '' });
-
-  // Auto-fetch hotel photo in background when none provided
-  if (b.category === 'HOTEL' && !b.image_url && b.title) {
-    const bgTask = async () => {
-      const photoUrl = await fetchAndStoreImage(b.title, c.env);
-      if (photoUrl) {
-        await c.env.DB.prepare('UPDATE Bookings SET image_url=? WHERE id=?').bind(photoUrl, bookingId).run();
-        await c.env.DB.prepare('UPDATE Itineraries SET image_url=? WHERE related_id=? AND trip_id=?').bind(photoUrl, bookingId, tripId).run();
-      }
-    };
-    c.executionCtx?.waitUntil?.(bgTask().catch(console.error));
-  }
+  await insertItineraryItems(c.env, tripId, bookingId, { ...b, image_url: imageUrl });
 
   return c.json({ ...created, details: created?.details ? JSON.parse(created.details) : {} });
 });

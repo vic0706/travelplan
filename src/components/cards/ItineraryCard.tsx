@@ -56,6 +56,9 @@ export function ItineraryCard({
   const hasWarning       = !!closedWarning || !!isConflicted;
   const isCircuitBreaker = canEdit && showNextTransport && !!item.start_time && !item.related_id && (!item.next_transport_mode || item.next_transport_mode === '');
 
+  // Booking-generated transport cards (FLIGHT/TRAIN/BUS etc.) auto-show timeline in overlay
+  const isBookingTransportCard = !!(item as any).related_id && item.type === 'GENERAL';
+
   const hasOverlayContent = subItems.length > 0 || tags.length > 0 || !!item.notes || hasWarning;
   const hasContent = !!item.rating || hasOverlayContent;
   const hasPhoto   = !!item.image_url;
@@ -64,6 +67,9 @@ export function ItineraryCard({
   const [isExpanded,     setIsExpanded]     = useState(!isPast && hasPhoto);
   const [overlayVisible, setOverlayVisible] = useState(false);
   const [subItemIdx,     setSubItemIdx]     = useState<number | null>(null);
+
+  // For booking transport cards the overlay mirrors expand state (no button needed)
+  const shouldShowOverlay = isBookingTransportCard ? isExpanded : overlayVisible;
 
   const overlayScrollRef = useRef<HTMLDivElement>(null);
   const [canScrollDown, setCanScrollDown] = useState(false);
@@ -75,9 +81,9 @@ export function ItineraryCard({
   };
 
   useEffect(() => {
-    if (overlayVisible) { setTimeout(checkOverlayScroll, 60); }
+    if (shouldShowOverlay) { setTimeout(checkOverlayScroll, 60); }
     else setCanScrollDown(false);
-  }, [overlayVisible, subItemIdx]);
+  }, [shouldShowOverlay, subItemIdx]);
 
   const detailParts: string[] = [
     item.notes ? '備注' : '',
@@ -88,8 +94,8 @@ export function ItineraryCard({
   const detailLabel = detailParts.length > 0 ? detailParts.join(' · ') : '詳情';
 
   useEffect(() => {
-    if (expandSignal && expandSignal > 0 && hasPhoto) setIsExpanded(true);
-  }, [expandSignal, hasPhoto]);
+    if (expandSignal && expandSignal > 0 && (hasPhoto || isBookingTransportCard)) setIsExpanded(true);
+  }, [expandSignal, hasPhoto, isBookingTransportCard]);
 
   useEffect(() => {
     if (collapseSignal && collapseSignal > 0) {
@@ -141,6 +147,25 @@ export function ItineraryCard({
   };
 
   const renderOverlayContent = () => {
+    // Booking transport cards: show the pre-formatted timeline notes directly
+    if (isBookingTransportCard && subItemIdx === null) {
+      return (
+        <div className="space-y-2">
+          {item.notes && (
+            <p className="text-[12px] text-zinc-200 leading-relaxed whitespace-pre-wrap font-mono tracking-tight">
+              {item.notes}
+            </p>
+          )}
+          {hasWarning && (
+            <div className="space-y-1">
+              {isConflicted && <div className="flex items-center gap-1 text-red-400 text-[10px] font-bold"><AlertTriangle size={10} />行程時間衝突</div>}
+              {closedWarning && <div className="flex items-center gap-1 text-red-400 text-[10px] font-bold"><Clock size={10} />⚠️ {closedWarning}</div>}
+            </div>
+          )}
+        </div>
+      );
+    }
+
     if (subItemIdx !== null) {
       const sub = subItems[subItemIdx];
       if (!sub) return null;
@@ -246,12 +271,14 @@ export function ItineraryCard({
   };
 
   const renderBottomBar = (onPhoto: boolean) => {
-    const hasBar = hasContent || (showNextTransport && (canEdit || !!item.next_transport_mode));
+    // Booking transport cards: overlay is always shown when expanded, no detail button needed
+    const showDetailBtn = !isBookingTransportCard && hasOverlayContent;
+    const hasBar = showDetailBtn || hasContent || (showNextTransport && (canEdit || !!item.next_transport_mode));
     if (!hasBar) return null;
     if (onPhoto) {
       return (
         <div className="absolute bottom-0 left-0 right-0 z-20 flex items-center justify-between px-3 py-2 bg-black/50 backdrop-blur-[8px] border-t border-white/5">
-          {hasOverlayContent ? (
+          {showDetailBtn ? (
             <button type="button" onClick={handleDetailBtn}
               className={clsx('flex items-center gap-1 px-2 py-1 rounded-lg transition-all',
                 overlayVisible ? 'text-orange-400 bg-orange-500/10' : 'text-white/55 hover:text-white/80')}>
@@ -285,7 +312,7 @@ export function ItineraryCard({
     }
     return (
       <div className="flex items-center justify-between px-3 pb-3 pt-1">
-        {hasOverlayContent ? (
+        {showDetailBtn ? (
           <button type="button" onClick={handleDetailBtn}
             className={clsx('flex items-center gap-1 px-2.5 py-1.5 rounded-xl transition-all',
               overlayVisible ? 'text-orange-500 bg-orange-500/8' : 'text-zinc-600 hover:text-zinc-400')}>
@@ -408,7 +435,7 @@ export function ItineraryCard({
 
                 {/* 內容遮罩 - z-10，底部留出底部列空間 */}
                 <AnimatePresence>
-                  {overlayVisible && (
+                  {shouldShowOverlay && (
                     <motion.div
                       initial={{ opacity: 0 }}
                       animate={{ opacity: 1 }}
