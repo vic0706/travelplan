@@ -1,7 +1,28 @@
 import { Hono } from 'hono';
 import { Env } from '../worker';
+import { searchUnsplash } from '../utils/unsplash';
 
 const bookings = new Hono<{ Bindings: Env }>();
+
+async function fetchAndStoreImage(query: string, env: Env): Promise<string | null> {
+  try {
+    const unsplashUrl = await searchUnsplash(query, env);
+    if (!unsplashUrl) return null;
+    const imgRes = await fetch(unsplashUrl);
+    if (!imgRes.ok) return null;
+    const imgBuffer = await imgRes.arrayBuffer();
+    const contentType = imgRes.headers.get('content-type') || 'image/jpeg';
+    const ext = contentType.includes('png') ? 'png' : 'jpg';
+    const fileName = `${Date.now()}-${Math.random().toString(36).substring(2, 8)}.${ext}`;
+    const fullPath = `travelplan/bookings/${fileName}`;
+    const uploadRes = await fetch(
+      `${env.VITE_SUPABASE_URL}/storage/v1/object/${fullPath}`,
+      { method: 'POST', headers: { 'Authorization': `Bearer ${env.VITE_SUPABASE_ANON_KEY}`, 'Content-Type': contentType, 'x-upsert': 'true' }, body: imgBuffer }
+    );
+    if (!uploadRes.ok) return null;
+    return `${env.VITE_SUPABASE_URL}/storage/v1/object/public/${fullPath}`;
+  } catch { return null; }
+}
 
 function addMinutes(time: string, minutes: number): string {
   if (!time || !minutes) return time || '';
@@ -105,8 +126,10 @@ function buildItineraryItems(b: any, bookingId: number): GeneratedItem[] {
       const timeLine = b.start_time && b.end_time ? `${depLabel} ${b.start_time} → ${arrLabel} ${b.end_time}` : '';
       const checkInLine = details.check_in_time ? `報到：${details.check_in_time}` : '';
       const noteLines = [b.provider, routeLine, timeLine, checkInLine, notesWithOrder].filter(Boolean).join('\n');
+      const displayStart = details.check_in_time || b.start_time;
+      const displayEnd = details.arr_stay ? addMinutes(b.end_time || b.start_time, details.arr_stay) : (b.end_time || b.start_time);
       return [{
-        date: b.start_date, start_time: b.start_time, end_time: b.end_time || b.start_time,
+        date: b.start_date, start_time: displayStart, end_time: displayEnd,
         title, type: 'GENERAL', icon,
         address: b.start_location || '', notes: noteLines,
       }];
@@ -204,6 +227,18 @@ bookings.post('/', async (c) => {
   const created = await c.env.DB.prepare('SELECT * FROM Bookings WHERE id = ?').bind(bookingId).first() as any;
 
   await insertItineraryItems(c.env, tripId, bookingId, { ...b, image_url: b.image_url || '' });
+
+  // Auto-fetch hotel photo in background when none provided
+  if (b.category === 'HOTEL' && !b.image_url && b.title) {
+    const bgTask = async () => {
+      const photoUrl = await fetchAndStoreImage(b.title, c.env);
+      if (photoUrl) {
+        await c.env.DB.prepare('UPDATE Bookings SET image_url=? WHERE id=?').bind(photoUrl, bookingId).run();
+        await c.env.DB.prepare('UPDATE Itineraries SET image_url=? WHERE related_id=? AND trip_id=?').bind(photoUrl, bookingId, tripId).run();
+      }
+    };
+    c.executionCtx?.waitUntil?.(bgTask().catch(console.error));
+  }
 
   return c.json({ ...created, details: created?.details ? JSON.parse(created.details) : {} });
 });

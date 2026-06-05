@@ -221,9 +221,7 @@ export function TripDetails() {
           const res = await apiFetch(`/api/trips/${id}/bookings/${bookingId}`, { method: 'DELETE' });
           if (!res.ok) throw new Error('Failed to delete booking');
           await db.bookings.delete(bookingId);
-          const relatedItineraries = itineraries.filter(i =>
-            i.related_id === bookingId && ['TRANSPORTATION', 'ACCOMMODATION', 'RENTAL'].includes(i.type)
-          );
+          const relatedItineraries = itineraries.filter(i => i.related_id === bookingId);
           if (relatedItineraries.length > 0) await db.itineraries.bulkDelete(relatedItineraries.map(i => i.id));
           setIsBookingFormOpen(false); setEditingBooking(null);
           showToast('訂票已刪除', 'success');
@@ -464,7 +462,13 @@ export function TripDetails() {
             isWeatherExpanded={isWeatherExpanded}
             onToggleWeather={() => setIsWeatherExpanded(v => !v)}
             onAddActivity={() => { setEditingItinerary(null); setIsItineraryFormOpen(true); }}
-            onEditItinerary={(item) => { setEditingItinerary(item); setIsItineraryFormOpen(true); }}
+            onEditItinerary={(item) => {
+              if (item.related_id) {
+                const booking = (bookings as Booking[]).find(b => b.id === item.related_id);
+                if (booking) { setEditingBooking(booking); setIsBookingFormOpen(true); return; }
+              }
+              setEditingItinerary(item); setIsItineraryFormOpen(true);
+            }}
             onEditNextTransport={(item) => { setEditingItinerary(item); setIsNextTransportFormOpen(true); }}
             onEditBooking={(booking) => { setEditingBooking(booking); setIsBookingFormOpen(true); }}
           />

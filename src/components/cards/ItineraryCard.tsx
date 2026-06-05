@@ -56,9 +56,10 @@ export function ItineraryCard({
   const hasWarning       = !!closedWarning || !!isConflicted;
   const isCircuitBreaker = canEdit && showNextTransport && !!item.start_time && !item.related_id && (!item.next_transport_mode || item.next_transport_mode === '');
 
-  const hasContent = !!item.rating || subItems.length > 0 || tags.length > 0 || !!item.notes || hasWarning;
+  const hasOverlayContent = subItems.length > 0 || tags.length > 0 || !!item.notes || hasWarning;
+  const hasContent = !!item.rating || hasOverlayContent;
   const hasPhoto   = !!item.image_url;
-  const canExpand  = hasPhoto || hasContent;
+  const canExpand  = hasPhoto || hasOverlayContent;
 
   const [isExpanded,     setIsExpanded]     = useState(!isPast && hasPhoto);
   const [overlayVisible, setOverlayVisible] = useState(false);
@@ -250,7 +251,7 @@ export function ItineraryCard({
     if (onPhoto) {
       return (
         <div className="absolute bottom-0 left-0 right-0 z-20 flex items-center justify-between px-3 py-2 bg-black/50 backdrop-blur-[8px] border-t border-white/5">
-          {hasContent ? (
+          {hasOverlayContent ? (
             <button type="button" onClick={handleDetailBtn}
               className={clsx('flex items-center gap-1 px-2 py-1 rounded-lg transition-all',
                 overlayVisible ? 'text-orange-400 bg-orange-500/10' : 'text-white/55 hover:text-white/80')}>
@@ -284,7 +285,7 @@ export function ItineraryCard({
     }
     return (
       <div className="flex items-center justify-between px-3 pb-3 pt-1">
-        {hasContent ? (
+        {hasOverlayContent ? (
           <button type="button" onClick={handleDetailBtn}
             className={clsx('flex items-center gap-1 px-2.5 py-1.5 rounded-xl transition-all',
               overlayVisible ? 'text-orange-500 bg-orange-500/8' : 'text-zinc-600 hover:text-zinc-400')}>
@@ -393,7 +394,13 @@ export function ItineraryCard({
                   <img
                     src={item.image_url!}
                     alt={item.title}
-                    className={clsx('absolute inset-0 w-full h-full object-cover', isPast ? 'opacity-25' : 'opacity-85')}
+                    loading="lazy"
+                    decoding="async"
+                    className="absolute inset-0 w-full h-full object-cover opacity-0 transition-opacity duration-300"
+                    onLoad={(e) => {
+                      e.currentTarget.classList.remove('opacity-0');
+                      e.currentTarget.classList.add(isPast ? 'opacity-25' : 'opacity-85');
+                    }}
                   />
                 ) : (
                   <div className="absolute inset-0 bg-zinc-900/70" />
