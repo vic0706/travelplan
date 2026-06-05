@@ -46,13 +46,13 @@ export function TripSettingsForm({ trip, onUpdate, onDelete, onClose, showToast 
         setPendingSaveData(null);
 
         // ✅ 改成底部 toast 而非 inline 文字
-        showToast?.('Settings saved', 'success');
+        showToast?.('設定已儲存', 'success');
         setTimeout(() => onUpdate(), 300);
       } else {
-        showToast?.('Save failed', 'error');
+        showToast?.('儲存失敗', 'error');
       }
     } catch (err: any) {
-      showToast?.('Save failed', 'error');
+      showToast?.('儲存失敗', 'error');
     } finally {
       setLoading(false);
     }
@@ -79,7 +79,7 @@ export function TripSettingsForm({ trip, onUpdate, onDelete, onClose, showToast 
       }
       await performSave(data, true);
     } catch (err: any) {
-      showToast?.('Save failed', 'error');
+      showToast?.('儲存失敗', 'error');
       setLoading(false);
     }
   };
@@ -90,9 +90,9 @@ export function TripSettingsForm({ trip, onUpdate, onDelete, onClose, showToast 
       const res = await apiFetch(`/api/trips/${trip.id}/compute`, { method: 'POST' });
       if (res.ok) {
         onUpdate();
-        showToast?.('Weather & places updated', 'success');
+        showToast?.('天氣與景點資料已更新', 'success');
       } else {
-        showToast?.('Compute failed', 'error');
+        showToast?.('運算失敗', 'error');
       }
     } finally { setIsComputing(false); }
   };
@@ -102,11 +102,18 @@ export function TripSettingsForm({ trip, onUpdate, onDelete, onClose, showToast 
     try {
       const res = await apiFetch(`/api/trips/${trip.id}/optimize`, { method: 'POST' });
       if (res.ok) {
+        const data = await res.json() as any;
         onUpdate();
-        showToast?.('Itinerary optimized', 'success');
+        if (data.conflicts > 0) {
+          showToast?.(`排程完成，有 ${data.conflicts} 個活動時間衝突`, 'error');
+        } else {
+          showToast?.('行程已優化', 'success');
+        }
       } else {
-        showToast?.('Optimize failed', 'error');
+        showToast?.('優化失敗', 'error');
       }
+    } catch {
+      showToast?.('優化失敗', 'error');
     } finally { setIsOptimizing(false); }
   };
 

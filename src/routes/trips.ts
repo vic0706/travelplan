@@ -445,7 +445,11 @@ trips.post('/:id/optimize', async (c) => {
       const dateStr = d.toISOString().split('T')[0];
       await optimizeDailyItinerary(c.env, Number(tripId), dateStr);
     }
-    return c.json({ success: true, message: 'Itinerary Optimized' });
+    const conflictRow = await c.env.DB.prepare(
+      `SELECT COUNT(*) as count FROM Itineraries WHERE trip_id = ? AND sync_conflict_warning IS NOT NULL AND sync_conflict_warning != ''`
+    ).bind(tripId).first() as any;
+    const conflicts = conflictRow?.count || 0;
+    return c.json({ success: true, conflicts });
   } catch (error: any) {
     return c.json({ error: error.message }, 500);
   }

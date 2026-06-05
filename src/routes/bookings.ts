@@ -42,6 +42,8 @@ interface GeneratedItem {
   icon: string;
   address: string;
   notes: string;
+  next_transport_mode: string;
+  next_transport_time: string;
 }
 
 function buildItineraryItems(b: any, bookingId: number): GeneratedItem[] {
@@ -78,12 +80,14 @@ function buildItineraryItems(b: any, bookingId: number): GeneratedItem[] {
             date: dateStr, start_time: checkInTime, end_time: addMinutes(checkInTime, checkInStay),
             title: `入住 ${title}`, type: 'ACCOMMODATION', icon: 'BedDouble',
             address: b.start_location || '', notes: notesWithOrder,
+            next_transport_mode: 'WALKING', next_transport_time: 'auto',
           });
           if (!isCheckOut) {
             items.push({
               date: dateStr, start_time: dailyEndTime, end_time: addMinutes(dailyEndTime, dailyReturnStay),
               title: `返回 ${title}`, type: 'ACCOMMODATION', icon: 'BedDouble',
               address: b.start_location || '', notes: '',
+              next_transport_mode: '', next_transport_time: '',
             });
           }
         } else if (isCheckOut) {
@@ -91,17 +95,20 @@ function buildItineraryItems(b: any, bookingId: number): GeneratedItem[] {
             date: dateStr, start_time: checkOutTime, end_time: addMinutes(checkOutTime, checkOutStay),
             title: `退房 ${title}`, type: 'ACCOMMODATION', icon: 'BedDouble',
             address: b.start_location || '', notes: notesWithOrder,
+            next_transport_mode: '', next_transport_time: '',
           });
         } else {
           items.push({
             date: dateStr, start_time: dailyStartTime, end_time: addMinutes(dailyStartTime, dailyDepartStay),
             title: `出發 ${title}`, type: 'ACCOMMODATION', icon: 'BedDouble',
             address: b.start_location || '', notes: '',
+            next_transport_mode: 'TRANSIT', next_transport_time: 'auto',
           });
           items.push({
             date: dateStr, start_time: dailyEndTime, end_time: addMinutes(dailyEndTime, dailyReturnStay),
             title: `返回 ${title}`, type: 'ACCOMMODATION', icon: 'BedDouble',
             address: b.start_location || '', notes: '',
+            next_transport_mode: '', next_transport_time: '',
           });
         }
         current.setDate(current.getDate() + 1);
@@ -132,6 +139,7 @@ function buildItineraryItems(b: any, bookingId: number): GeneratedItem[] {
         date: b.start_date, start_time: displayStart, end_time: displayEnd,
         title, type: 'GENERAL', icon,
         address: b.start_location || '', notes: noteLines,
+        next_transport_mode: 'TRANSIT', next_transport_time: 'auto',
       }];
     }
 
@@ -145,6 +153,7 @@ function buildItineraryItems(b: any, bookingId: number): GeneratedItem[] {
         date: b.start_date, start_time: b.start_time, end_time: b.end_time || b.start_time,
         title, type: 'GENERAL', icon: 'Car',
         address: b.start_location || '', notes: noteLines,
+        next_transport_mode: 'TRANSIT', next_transport_time: 'auto',
       }];
     }
 
@@ -157,6 +166,7 @@ function buildItineraryItems(b: any, bookingId: number): GeneratedItem[] {
           date: b.start_date, start_time: b.start_time, end_time: addMinutes(b.start_time, pickupBuffer),
           title: `取車 ${title}`, type: 'RENTAL', icon: 'Car',
           address: b.start_location || '', notes: notesWithOrder,
+          next_transport_mode: 'DRIVING', next_transport_time: 'auto',
         });
       }
       if (b.end_date && b.end_time) {
@@ -164,6 +174,7 @@ function buildItineraryItems(b: any, bookingId: number): GeneratedItem[] {
           date: b.end_date, start_time: b.end_time, end_time: addMinutes(b.end_time, returnBuffer),
           title: `還車 ${title}`, type: 'RENTAL', icon: 'Car',
           address: b.end_location || b.start_location || '', notes: '',
+          next_transport_mode: '', next_transport_time: '',
         });
       }
       return items;
@@ -188,7 +199,7 @@ async function insertItineraryItems(env: Env, tripId: string, bookingId: number,
       tripId, item.date, item.start_time, item.end_time,
       item.title, item.address, image, item.notes,
       '[]', item.icon, item.type, bookingId,
-      1, '60', '[]', '', '', ''
+      1, '60', '[]', item.next_transport_mode, item.next_transport_time, ''
     ).run();
   }
 }

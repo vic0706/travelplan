@@ -137,9 +137,17 @@ export async function optimizeDailyItinerary(env: any, tripId: number, dateStr: 
       }
       if (prevItem.next_transport_time === 'auto') {
         const dist = getDistanceKm(prevItem.lat, prevItem.lng, item.lat, item.lng);
+
+        // Auto-switch TRANSIT to WALKING for short distances
+        let resolvedMode = prevItem.next_transport_mode;
+        if (resolvedMode === 'TRANSIT' && dist !== null && dist < 0.8) {
+          resolvedMode = 'WALKING';
+          statements.push(env.DB.prepare(`UPDATE Itineraries SET next_transport_mode = 'WALKING' WHERE id = ?`).bind(prevItem.id));
+        }
+
         let speedMultiplier = 4, buffer = 5;
-        if (prevItem.next_transport_mode === 'WALKING') { speedMultiplier = 12; buffer = 2; }
-        else if (prevItem.next_transport_mode === 'TRANSIT') { speedMultiplier = 4; buffer = 10; }
+        if (resolvedMode === 'WALKING') { speedMultiplier = 12; buffer = 2; }
+        else if (resolvedMode === 'TRANSIT') { speedMultiplier = 4; buffer = 10; }
         transportMins = dist !== null ? Math.ceil(dist * speedMultiplier) + buffer : 15;
         transitionBuffer = 5;
         statements.push(env.DB.prepare(`UPDATE Itineraries SET next_transport_auto_time = ? WHERE id = ?`).bind(transportMins, prevItem.id));

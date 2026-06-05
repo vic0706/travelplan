@@ -2,6 +2,8 @@ import React from 'react';
 import { Plus } from 'lucide-react';
 import { clsx } from 'clsx';
 import { Expense } from '../../types';
+import { useAppStore } from '../../store';
+import { DynamicIcon } from '../../components/common/DynamicIcon';
 
 interface FinanceTabProps {
   filteredExpenses: Expense[];
@@ -15,6 +17,7 @@ interface FinanceTabProps {
 export function FinanceTab({
   filteredExpenses, currency, canEdit, getUserNameById, onAddExpense, onEditExpense,
 }: FinanceTabProps) {
+  const { categories } = useAppStore();
   const currencyTotals = filteredExpenses.reduce((acc, e) => {
     const cur = e.currency || currency;
     acc[cur] = (acc[cur] || 0) + e.amount;
@@ -52,12 +55,28 @@ export function FinanceTab({
             )}
           >
             <div className="flex items-center gap-4">
-              <div className="w-12 h-12 rounded-full bg-zinc-800 flex items-center justify-center shrink-0 text-zinc-400 text-xl font-bold">
-                $
-              </div>
+              {(() => {
+                const cat = categories.find((c: any) => c.name === expense.category);
+                return (
+                  <div
+                    className="w-12 h-12 rounded-full flex items-center justify-center shrink-0"
+                    style={{ backgroundColor: cat ? `${cat.color}20` : '#27272a', color: cat?.color || '#71717a' }}
+                  >
+                    {cat ? <DynamicIcon name={cat.icon} size={22} /> : <span className="text-xl font-bold">$</span>}
+                  </div>
+                );
+              })()}
               <div>
-                <h4 className="text-white font-medium">{expense.item_name}</h4>
-                <p className="text-xs text-zinc-500 mt-1">由 {getUserNameById(expense.payer_id)} 付款</p>
+                <div className="flex items-center gap-2 mb-0.5">
+                  {(() => {
+                    const cat = categories.find((c: any) => c.name === expense.category);
+                    return cat ? (
+                      <span className="text-[10px] font-bold px-2 py-0.5 rounded-full" style={{ backgroundColor: `${cat.color}20`, color: cat.color }}>{cat.name}</span>
+                    ) : null;
+                  })()}
+                  <h4 className="text-white font-medium">{expense.item_name}</h4>
+                </div>
+                <p className="text-xs text-zinc-500 mt-0.5">由 {getUserNameById(expense.payer_id)} 付款</p>
               </div>
             </div>
             <div className="text-right">

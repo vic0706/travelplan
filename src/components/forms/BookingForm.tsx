@@ -8,6 +8,16 @@ import { clsx } from 'clsx';
 import { format, parseISO } from 'date-fns';
 import { useAppStore } from '../../store';
 
+const CATEGORY_COLORS: Record<string, string> = {
+  HOTEL: '#f97316',
+  FLIGHT: '#3b82f6',
+  TRAIN: '#22c55e',
+  FERRY: '#06b6d4',
+  RENTAL: '#a855f7',
+  PRIVATE_TRANSFER: '#6366f1',
+  BUS: '#eab308',
+};
+
 const BOOKING_CATEGORIES: { id: BookingCategory; label: string; icon: React.ElementType; description: string }[] = [
   { id: 'HOTEL',            label: '住宿',      icon: Bed,   description: '飯店・民宿・旅館' },
   { id: 'FLIGHT',           label: '機票',      icon: Plane, description: '國內外航班' },
@@ -254,8 +264,8 @@ export function BookingForm({ initialData, onSubmit, onCancel, onDelete, loading
               return (
                 <motion.button key={cat.id} type="button" whileTap={{ scale: 0.97 }}
                   onClick={() => { setFormData(prev => ({ ...prev, category: cat.id })); setStep('fill-form'); }}
-                  className="flex flex-col items-start gap-3 p-4 rounded-3xl border-2 border-orange-500/20 bg-orange-500/5 hover:bg-orange-500/10 hover:border-orange-500/40 transition-all text-left">
-                  <div className="p-2 rounded-2xl bg-orange-500/10 text-orange-400">
+                  className="flex flex-col items-start gap-3 p-4 rounded-3xl border border-zinc-800 bg-zinc-800/50 hover:bg-zinc-700/50 hover:border-zinc-700 transition-all text-left">
+                  <div className="p-2 rounded-2xl" style={{ backgroundColor: `${CATEGORY_COLORS[cat.id] || '#f97316'}18`, color: CATEGORY_COLORS[cat.id] || '#f97316' }}>
                     <Icon size={24} strokeWidth={1.8} />
                   </div>
                   <div>
@@ -286,7 +296,7 @@ export function BookingForm({ initialData, onSubmit, onCancel, onDelete, loading
               className="p-2 bg-zinc-800 rounded-full text-zinc-400 hover:text-white transition-colors"><ArrowLeft size={16} /></button>
           )}
           <div className="flex items-center gap-2">
-            <div className="p-1.5 rounded-xl bg-orange-500/10 text-orange-400"><Icon size={18} strokeWidth={2} /></div>
+            <div className="p-1.5 rounded-xl" style={{ backgroundColor: `${CATEGORY_COLORS[formData.category] || '#f97316'}15`, color: CATEGORY_COLORS[formData.category] || '#f97316' }}><Icon size={18} strokeWidth={2} /></div>
             <span className="text-base font-black text-white">{selectedCat.label}</span>
           </div>
         </div>
@@ -710,6 +720,15 @@ export function BookingForm({ initialData, onSubmit, onCancel, onDelete, loading
           placeholder="確認號碼、特殊需求..." />
       </div>
 
+      {onDelete && (
+        <div className="pt-2 border-t border-zinc-800/50">
+          <button type="button" onClick={onDelete}
+            className="w-full py-3 text-red-500 bg-red-500/10 hover:bg-red-500/20 font-bold rounded-xl transition-colors border border-red-500/20 text-sm">
+            刪除訂票
+          </button>
+        </div>
+      )}
+
       <LocationPicker
         isOpen={isCityPickerOpen}
         onClose={() => setIsCityPickerOpen(false)}
@@ -735,12 +754,6 @@ export function BookingForm({ initialData, onSubmit, onCancel, onDelete, loading
           {loading ? <Loader2 className="animate-spin" size={20} /> : '儲存訂票'}
         </button>
       </div>
-      {onDelete && (
-        <button type="button" onClick={onDelete}
-          className="w-full py-3 text-red-500 bg-red-500/10 hover:bg-red-500/20 font-bold rounded-xl transition-colors border border-red-500/20">
-          刪除訂票
-        </button>
-      )}
     </div>
   </div>
   );

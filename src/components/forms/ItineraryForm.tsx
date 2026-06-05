@@ -253,7 +253,10 @@ export function ItineraryForm({ tripId, date, onSuccess, onCancel, initialData, 
         tags: formData.tags.split(',').map((t: string) => t.trim()).filter(Boolean),
         sub_items: JSON.stringify(subItems),
         is_time_fixed: isTimeFixed ? 1 : 0,
-        stay_duration: isTimeFixed ? fixedStayDuration.toString() : stayDuration.toString()
+        stay_duration: isTimeFixed ? fixedStayDuration.toString() : stayDuration.toString(),
+        // Auto-set transport for smart-scheduled items that don't have it yet
+        next_transport_mode: (!isTimeFixed && !formData.next_transport_mode) ? 'TRANSIT' : formData.next_transport_mode,
+        next_transport_time: (!isTimeFixed && !formData.next_transport_mode) ? 'auto' : formData.next_transport_time,
       };
       const res = await apiFetch(`/api/trips/${tripId}/itineraries`, { method: 'POST', body: JSON.stringify(payload) });
       if (res.ok) { showToast?.('活動已複製', 'success'); onSuccess(); }
@@ -272,7 +275,10 @@ export function ItineraryForm({ tripId, date, onSuccess, onCancel, initialData, 
         tags: formData.tags.split(',').map(t => t.trim()).filter(Boolean),
         sub_items: JSON.stringify(subItems),
         is_time_fixed: isTimeFixed ? 1 : 0,
-        stay_duration: isTimeFixed ? fixedStayDuration.toString() : stayDuration.toString()
+        stay_duration: isTimeFixed ? fixedStayDuration.toString() : stayDuration.toString(),
+        // Auto-set transport for smart-scheduled items that don't have it yet
+        next_transport_mode: (!isTimeFixed && !formData.next_transport_mode) ? 'TRANSIT' : formData.next_transport_mode,
+        next_transport_time: (!isTimeFixed && !formData.next_transport_mode) ? 'auto' : formData.next_transport_time,
       };
       const res = await apiFetch(
         initialData ? `/api/trips/${tripId}/itineraries/${initialData.id}` : `/api/trips/${tripId}/itineraries`,
