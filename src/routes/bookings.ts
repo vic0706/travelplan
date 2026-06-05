@@ -1,8 +1,159 @@
-// Bookings [cite: 282-325]
 import { Hono } from 'hono';
 import { Env } from '../worker';
 
 const bookings = new Hono<{ Bindings: Env }>();
+
+function addMinutes(time: string, minutes: number): string {
+  if (!time || !minutes) return time || '';
+  const [h, m] = time.split(':').map(Number);
+  const total = h * 60 + m + minutes;
+  const nh = Math.floor(((total % 1440) + 1440) % 1440 / 60);
+  const nm = ((total % 1440) + 1440) % 1440 % 60;
+  return `${nh.toString().padStart(2, '0')}:${nm.toString().padStart(2, '0')}`;
+}
+
+interface GeneratedItem {
+  date: string;
+  start_time: string;
+  end_time: string;
+  title: string;
+  type: string;
+  icon: string;
+  address: string;
+  notes: string;
+}
+
+function buildItineraryItems(b: any, bookingId: number): GeneratedItem[] {
+  const details = typeof b.details === 'string' ? JSON.parse(b.details || '{}') : (b.details || {});
+  const title = b.title || '';
+  const notesWithOrder = b.order_id
+    ? `訂單號：${b.order_id}${b.notes ? '\n' + b.notes : ''}`
+    : (b.notes || '');
+
+  switch (b.category) {
+    case 'HOTEL': {
+      const checkInDate = b.start_date;
+      const checkOutDate = b.end_date;
+      const checkInTime = b.start_time || '16:00';
+      const checkOutTime = b.end_time || '11:00';
+      const dailyStartTime = details.daily_start_time || '09:00';
+      const dailyEndTime = details.daily_end_time || '22:00';
+      const checkInStay = details.check_in_stay ?? 30;
+      const checkOutStay = details.check_out_stay ?? 30;
+      const dailyDepartStay = details.daily_depart_stay ?? 30;
+      const dailyReturnStay = details.daily_return_stay ?? 30;
+
+      const items: GeneratedItem[] = [];
+      const current = new Date(checkInDate + 'T12:00:00');
+      const end = new Date(checkOutDate + 'T12:00:00');
+
+      while (current <= end) {
+        const dateStr = current.toISOString().split('T')[0];
+        const isCheckIn = dateStr === checkInDate;
+        const isCheckOut = dateStr === checkOutDate;
+
+        if (isCheckIn) {
+          items.push({
+            date: dateStr, start_time: checkInTime, end_time: addMinutes(checkInTime, checkInStay),
+            title: `入住 ${title}`, type: 'ACCOMMODATION', icon: 'BedDouble',
+            address: b.start_location || '', notes: notesWithOrder,
+          });
+          if (!isCheckOut) {
+            items.push({
+              date: dateStr, start_time: dailyEndTime, end_time: addMinutes(dailyEndTime, dailyReturnStay),
+              title: `返回 ${title}`, type: 'ACCOMMODATION', icon: 'BedDouble',
+              address: b.start_location || '', notes: '',
+            });
+          }
+        } else if (isCheckOut) {
+          items.push({
+            date: dateStr, start_time: checkOutTime, end_time: addMinutes(checkOutTime, checkOutStay),
+            title: `退房 ${title}`, type: 'ACCOMMODATION', icon: 'BedDouble',
+            address: b.start_location || '', notes: notesWithOrder,
+          });
+        } else {
+          items.push({
+            date: dateStr, start_time: dailyStartTime, end_time: addMinutes(dailyStartTime, dailyDepartStay),
+            title: `出發 ${title}`, type: 'ACCOMMODATION', icon: 'BedDouble',
+            address: b.start_location || '', notes: '',
+          });
+          items.push({
+            date: dateStr, start_time: dailyEndTime, end_time: addMinutes(dailyEndTime, dailyReturnStay),
+            title: `返回 ${title}`, type: 'ACCOMMODATION', icon: 'BedDouble',
+            address: b.start_location || '', notes: '',
+          });
+        }
+        current.setDate(current.getDate() + 1);
+      }
+      return items;
+    }
+
+    case 'FLIGHT':
+    case 'TRAIN':
+    case 'FERRY':
+    case 'BUS': {
+      const icon = b.category === 'FLIGHT' ? 'Plane' : b.category === 'TRAIN' ? 'Train' : b.category === 'FERRY' ? 'Ship' : 'Bus';
+      if (!b.start_date || !b.start_time) return [];
+      return [{
+        date: b.start_date, start_time: b.start_time, end_time: b.end_time || b.start_time,
+        title, type: 'TRANSPORTATION', icon,
+        address: b.start_location || '', notes: notesWithOrder,
+      }];
+    }
+
+    case 'PRIVATE_TRANSFER': {
+      if (!b.start_date || !b.start_time) return [];
+      return [{
+        date: b.start_date, start_time: b.start_time, end_time: b.end_time || b.start_time,
+        title, type: 'TRANSPORTATION', icon: 'Car',
+        address: b.start_location || '', notes: notesWithOrder,
+      }];
+    }
+
+    case 'RENTAL': {
+      const pickupBuffer = details.pickup_buffer ?? 0;
+      const returnBuffer = details.return_buffer ?? 0;
+      const items: GeneratedItem[] = [];
+      if (b.start_date && b.start_time) {
+        items.push({
+          date: b.start_date, start_time: b.start_time, end_time: addMinutes(b.start_time, pickupBuffer),
+          title: `取車 ${title}`, type: 'RENTAL', icon: 'Car',
+          address: b.start_location || '', notes: notesWithOrder,
+        });
+      }
+      if (b.end_date && b.end_time) {
+        items.push({
+          date: b.end_date, start_time: b.end_time, end_time: addMinutes(b.end_time, returnBuffer),
+          title: `還車 ${title}`, type: 'RENTAL', icon: 'Car',
+          address: b.end_location || b.start_location || '', notes: '',
+        });
+      }
+      return items;
+    }
+
+    default:
+      return [];
+  }
+}
+
+async function insertItineraryItems(env: Env, tripId: string, bookingId: number, b: any): Promise<void> {
+  const items = buildItineraryItems(b, bookingId);
+  const image = b.image_url || '';
+  for (const item of items) {
+    await env.DB.prepare(`
+      INSERT INTO Itineraries
+        (trip_id, date, start_time, end_time, title, address, image_url, notes,
+         tags, icon, type, related_id, is_time_fixed, stay_duration, sub_items,
+         next_transport_mode, next_transport_time, next_transport_auto_time)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).bind(
+      tripId, item.date, item.start_time, item.end_time,
+      item.title, item.address, image, item.notes,
+      '[]', item.icon, item.type, bookingId,
+      1, '60', '[]', '', '', ''
+    ).run();
+  }
+}
 
 bookings.get('/', async (c) => {
   const tripId = c.req.param('id');
@@ -33,7 +184,12 @@ bookings.post('/', async (c) => {
     JSON.stringify(b.details || {}),
     b.google_place_id || ''
   ).run();
-  const created = await c.env.DB.prepare('SELECT * FROM Bookings WHERE id = ?').bind(meta.last_row_id).first() as any;
+
+  const bookingId = meta.last_row_id as number;
+  const created = await c.env.DB.prepare('SELECT * FROM Bookings WHERE id = ?').bind(bookingId).first() as any;
+
+  await insertItineraryItems(c.env, tripId, bookingId, { ...b, image_url: b.image_url || '' });
+
   return c.json({ ...created, details: created?.details ? JSON.parse(created.details) : {} });
 });
 
@@ -62,12 +218,18 @@ bookings.put('/:bookingId', async (c) => {
     bookingId,
     tripId
   ).run();
+
+  // Regenerate linked itinerary items
+  await c.env.DB.prepare('DELETE FROM Itineraries WHERE trip_id=? AND related_id=?').bind(tripId, bookingId).run();
+  await insertItineraryItems(c.env, tripId, Number(bookingId), { ...b, image_url: b.image_url || '' });
+
   return c.json({ success: true });
 });
 
 bookings.delete('/:bookingId', async (c) => {
   const tripId = c.req.param('id');
   const bookingId = c.req.param('bookingId');
+  await c.env.DB.prepare('DELETE FROM Itineraries WHERE trip_id=? AND related_id=?').bind(tripId, bookingId).run();
   await c.env.DB.prepare('DELETE FROM Bookings WHERE id=? AND trip_id=?').bind(bookingId, tripId).run();
   return c.json({ success: true });
 });
