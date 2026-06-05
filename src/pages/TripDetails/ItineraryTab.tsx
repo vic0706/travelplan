@@ -66,7 +66,7 @@ export function ItineraryTab({
                   item={item} canEdit={canEdit}
                   isConflicted={conflictedIdsInView.has(item.id)}
                   onEdit={() => onEditItinerary(item)}
-                  showNextTransport={true}
+                  showNextTransport={index < filteredItineraries.length - 1}
                   onEditNextTransport={() => onEditNextTransport(item)}
                   expandSignal={expandSignal} collapseSignal={collapseSignal}
                 />

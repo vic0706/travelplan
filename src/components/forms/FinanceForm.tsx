@@ -15,9 +15,10 @@ interface FinanceFormProps {
   onSuccess: () => void;
   onCancel: () => void;
   initialData?: any;
+  showToast?: (message: string, type?: 'success' | 'error') => void;
 }
 
-export function FinanceForm({ tripId, defaultDate, currencies = ['TWD'], onSuccess, onCancel, initialData }: FinanceFormProps) {
+export function FinanceForm({ tripId, defaultDate, currencies = ['TWD'], onSuccess, onCancel, initialData, showToast }: FinanceFormProps) {
   const { user, categories } = useAppStore();
   const [members, setMembers] = useState<User[]>([]);
   const [loading, setLoading] = useState(false);
@@ -95,8 +96,9 @@ export function FinanceForm({ tripId, defaultDate, currencies = ['TWD'], onSucce
         })
       });
       if (!res.ok) throw new Error('Failed');
+      showToast?.('記帳已儲存', 'success');
       onSuccess();
-    } catch { alert('儲存失敗'); }
+    } catch { showToast?.('儲存記帳失敗', 'error'); }
     finally { setSubmitting(false); }
   };
 
@@ -107,8 +109,9 @@ export function FinanceForm({ tripId, defaultDate, currencies = ['TWD'], onSucce
     try {
       const res = await apiFetch(`/api/trips/${tripId}/expenses/${initialData.id}`, { method: 'DELETE' });
       if (!res.ok) throw new Error('Failed');
+      showToast?.('記帳已刪除', 'success');
       onSuccess();
-    } catch { alert('刪除失敗'); }
+    } catch { showToast?.('刪除記帳失敗', 'error'); }
     finally { setSubmitting(false); }
   };
 

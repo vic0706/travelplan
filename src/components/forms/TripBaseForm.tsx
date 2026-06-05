@@ -49,7 +49,7 @@ const safeParseArray = (data: any) => {
 
 const parseInitialMembers = (membersData: any, currentUserId?: number) => {
   if (!Array.isArray(membersData)) return currentUserId ? [currentUserId] : [];
-  return membersData.map(m => (typeof m === 'object' && m !== null ? m.user_id : m));
+  return membersData.map(m => Number(typeof m === 'object' && m !== null ? m.user_id : m)).filter(Boolean);
 };
 
 export function TripBaseForm({ initialData, onSubmit, onCancel, submitText, loading = false, extraButtons, onChange, hideSubmit = false }: TripBaseFormProps) {
@@ -136,9 +136,9 @@ export function TripBaseForm({ initialData, onSubmit, onCancel, submitText, load
   const toggleMember = (userId: number) => {
     setFormData(prev => ({
       ...prev,
-      members: prev.members.includes(userId)
-        ? prev.members.filter(id => id !== userId)
-        : [...prev.members, userId]
+      members: prev.members.map(Number).includes(Number(userId))
+        ? prev.members.filter(id => Number(id) !== Number(userId))
+        : [...prev.members, Number(userId)]
     }));
   };
 
@@ -327,7 +327,7 @@ export function TripBaseForm({ initialData, onSubmit, onCancel, submitText, load
             <motion.div initial={{ height: 0, opacity: 0 }} animate={{ height: 'auto', opacity: 1 }} exit={{ height: 0, opacity: 0 }} className="overflow-hidden">
               <div className="bg-zinc-800/50 border border-zinc-700/50 rounded-xl p-2 mt-2 max-h-[180px] overflow-y-auto custom-scrollbar">
                 {availableUsers.map(u => {
-                  const isSelected = formData.members.includes(u.id);
+                  const isSelected = formData.members.map(Number).includes(Number(u.id));
                   const isSelf = u.id === user?.id;
                   return (
                     <label key={u.id} className={clsx("flex items-center justify-between p-3 rounded-lg cursor-pointer transition-colors", isSelected ? "bg-orange-500/10" : "hover:bg-zinc-700/50", isSelf && "opacity-70 pointer-events-none")}>

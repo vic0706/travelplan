@@ -207,7 +207,7 @@ export function TripDetails() {
           await db.itineraries.delete(itineraryId);
           setIsItineraryFormOpen(false); setEditingItinerary(null);
           setConfirmConfig(prev => ({ ...prev, isOpen: false }));
-        } catch (err) { console.error(err); alert('刪除活動失敗'); }
+        } catch (err) { console.error(err); showToast('刪除活動失敗', 'error'); }
       }
     });
   };
@@ -226,8 +226,9 @@ export function TripDetails() {
           );
           if (relatedItineraries.length > 0) await db.itineraries.bulkDelete(relatedItineraries.map(i => i.id));
           setIsBookingFormOpen(false); setEditingBooking(null);
+          showToast('訂票已刪除', 'success');
           setConfirmConfig(prev => ({ ...prev, isOpen: false }));
-        } catch (err) { console.error(err); alert('刪除訂票失敗'); }
+        } catch (err) { console.error(err); showToast('刪除訂票失敗', 'error'); }
       }
     });
   };
@@ -552,6 +553,7 @@ export function TripDetails() {
                 tripId={Number(id)}
                 date={selectedDate ? format(selectedDate, 'yyyy-MM-dd') : ''}
                 initialData={editingItinerary}
+                showToast={showToast}
                 onSuccess={() => { setIsItineraryFormOpen(false); setEditingItinerary(null); setTimeout(() => refreshTripData(), 300); }}
                 onCancel={() => { setIsItineraryFormOpen(false); setEditingItinerary(null); }}
               />
@@ -567,6 +569,7 @@ export function TripDetails() {
                 defaultDate={selectedDate ? format(selectedDate, 'yyyy-MM-dd') : undefined}
                 currencies={trip.currencies || ['TWD']}
                 initialData={editingExpense}
+                showToast={showToast}
                 onSuccess={() => { setIsFinanceFormOpen(false); setEditingExpense(null); setTimeout(() => refreshTripData(), 300); }}
                 onCancel={() => { setIsFinanceFormOpen(false); setEditingExpense(null); }}
               />
@@ -584,9 +587,11 @@ export function TripDetails() {
                   try {
                     const endpoint = editingBooking ? `/api/trips/${id}/bookings/${editingBooking.id}` : `/api/trips/${id}/bookings`;
                     const method = editingBooking ? 'PUT' : 'POST';
-                    await apiFetch(endpoint, { method, body: JSON.stringify(data) });
+                    const res = await apiFetch(endpoint, { method, body: JSON.stringify(data) });
+                    if (!res.ok) throw new Error('Failed');
+                    showToast('訂票已儲存', 'success');
                     setIsBookingFormOpen(false); setEditingBooking(null); setTimeout(() => refreshTripData(), 300);
-                  } catch (e) { alert('儲存訂票失敗'); }
+                  } catch (e) { showToast('儲存訂票失敗', 'error'); }
                 }}
                 onCancel={() => { setIsBookingFormOpen(false); setEditingBooking(null); }}
                 onDelete={editingBooking ? () => handleDeleteBooking(editingBooking.id) : undefined}
@@ -603,11 +608,14 @@ export function TripDetails() {
             onSave={async (data) => {
               if (!id) return;
               try {
-                await apiFetch(`/api/trips/${id}/itineraries/${editingItinerary.id}`, {
+                const res = await apiFetch(`/api/trips/${id}/itineraries/${editingItinerary.id}`, {
                   method: 'PUT', body: JSON.stringify({ ...editingItinerary, ...data })
                 });
+                if (!res.ok) throw new Error('Failed');
+                const isEmpty = !data.next_transport_mode;
+                showToast(isEmpty ? '交通資訊已清除' : '交通已設定', 'success');
                 setIsNextTransportFormOpen(false); setEditingItinerary(null); setTimeout(() => refreshTripData(), 300);
-              } catch (e) { alert('儲存交通資訊失敗'); }
+              } catch (e) { showToast('儲存交通資訊失敗', 'error'); }
             }}
           />
         )}

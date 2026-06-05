@@ -15,6 +15,7 @@ interface ItineraryFormProps {
   onSuccess: () => void;
   onCancel: () => void;
   initialData?: any;
+  showToast?: (message: string, type?: 'success' | 'error') => void;
 }
 
 const safeParseArray = (data: any) => {
@@ -40,7 +41,7 @@ const timeToMinutes = (t1: string, t2: string): number => {
   return diff > 0 ? diff : 60;
 };
 
-export function ItineraryForm({ tripId, date, onSuccess, onCancel, initialData }: ItineraryFormProps) {
+export function ItineraryForm({ tripId, date, onSuccess, onCancel, initialData, showToast }: ItineraryFormProps) {
   const { categories: storeCategories = [], setCategories, cities: storeCities = [] } = useAppStore();
 
   const groupedCities = useMemo(() => storeCities.reduce((acc: any, city: any) => {
@@ -227,7 +228,7 @@ export function ItineraryForm({ tripId, date, onSuccess, onCancel, initialData }
     try { setFormData(prev => ({ ...prev, image_url: '' }));
       const url = await uploadImageToSupabase(blob, 'itineraries');
       setFormData(prev => ({ ...prev, image_url: url }));
-    } catch { alert('圖片上傳失敗'); }
+    } catch { showToast?.('圖片上傳失敗', 'error'); }
     finally { setUploading(false); }
   };
 
@@ -235,8 +236,9 @@ export function ItineraryForm({ tripId, date, onSuccess, onCancel, initialData }
     setIsDeleting(true);
     try {
       const res = await apiFetch(`/api/trips/${tripId}/itineraries/${initialData.id}`, { method: 'DELETE' });
-      if (res.ok) onSuccess();
-    } catch { alert('刪除失敗'); }
+      if (res.ok) { showToast?.('活動已刪除', 'success'); onSuccess(); }
+      else showToast?.('刪除活動失敗', 'error');
+    } catch { showToast?.('刪除活動失敗', 'error'); }
     finally { setIsDeleting(false); }
   };
 
@@ -256,8 +258,9 @@ export function ItineraryForm({ tripId, date, onSuccess, onCancel, initialData }
         initialData ? `/api/trips/${tripId}/itineraries/${initialData.id}` : `/api/trips/${tripId}/itineraries`,
         { method: initialData ? 'PUT' : 'POST', body: JSON.stringify(payload) }
       );
-      if (res.ok) onSuccess();
-    } catch { setError('儲存活動失敗'); }
+      if (res.ok) { showToast?.('活動已儲存', 'success'); onSuccess(); }
+      else { showToast?.('儲存活動失敗', 'error'); setError('儲存活動失敗'); }
+    } catch { showToast?.('儲存活動失敗', 'error'); setError('儲存活動失敗'); }
     finally { setLoading(false); }
   };
 

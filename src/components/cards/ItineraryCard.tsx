@@ -266,9 +266,8 @@ export function ItineraryCard({
             <button type="button" disabled={!canEdit}
               onClick={(e) => { e.stopPropagation(); if (canEdit && onEditNextTransport) onEditNextTransport(); }}
               className={clsx('flex items-center gap-1.5 px-2 py-1 rounded-lg transition-colors',
-                canEdit ? 'cursor-pointer hover:bg-white/5 active:bg-white/10' : 'cursor-default',
-                isCircuitBreaker && 'bg-red-500/10')}>
-              <span className={clsx('text-[9px] font-black uppercase tracking-[0.15em]', isCircuitBreaker ? 'text-red-400' : 'text-white/40')}>
+                canEdit ? 'cursor-pointer hover:bg-white/5 active:bg-white/10' : 'cursor-default')}>
+              <span className="text-[9px] font-black uppercase tracking-[0.15em] text-white/40">
                 下一站
               </span>
               {item.next_transport_mode ? (
@@ -301,9 +300,8 @@ export function ItineraryCard({
           <button type="button" disabled={!canEdit}
             onClick={(e) => { e.stopPropagation(); if (canEdit && onEditNextTransport) onEditNextTransport(); }}
             className={clsx('flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl transition-colors',
-              canEdit ? 'cursor-pointer hover:bg-zinc-800/30 active:bg-zinc-800/50' : 'cursor-default',
-              isCircuitBreaker && 'bg-red-500/10')}>
-            <span className={clsx('text-[9px] font-black uppercase tracking-[0.15em]', isCircuitBreaker ? 'text-red-400' : 'text-zinc-500')}>
+              canEdit ? 'cursor-pointer hover:bg-zinc-800/30 active:bg-zinc-800/50' : 'cursor-default')}>
+            <span className="text-[9px] font-black uppercase tracking-[0.15em] text-zinc-500">
               下一站
             </span>
             {item.next_transport_mode ? (
@@ -355,6 +353,7 @@ export function ItineraryCard({
                   {item.start_time}{item.end_time && item.end_time !== item.start_time ? ` — ${item.end_time}` : ''}
                 </span>
                 {!(item as any).is_time_fixed && !isPast && <Sparkles size={9} className="text-orange-500/60" />}
+                {isCircuitBreaker && <span className="w-1.5 h-1.5 rounded-full bg-red-500 animate-pulse shrink-0" />}
               </div>
             )}
           </div>
