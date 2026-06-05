@@ -1,5 +1,5 @@
-import React, { useState, useEffect } from 'react';
-import { Car, Train, Bus, AlertTriangle, Star, Plus, Footprints, Bike, Navigation2, Sparkles, Clock, Asterisk, ChevronLeft, ChevronRight } from 'lucide-react';
+import React, { useState, useEffect, useRef } from 'react';
+import { Car, Train, Bus, AlertTriangle, Star, Plus, Footprints, Bike, Navigation2, Sparkles, Clock, Asterisk, ChevronLeft, ChevronRight, ChevronDown, Motorbike } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Itinerary } from '../../types';
 import { DynamicIcon } from '../common/DynamicIcon';
@@ -64,6 +64,28 @@ export function ItineraryCard({
   const [overlayVisible, setOverlayVisible] = useState(false);
   const [subItemIdx,     setSubItemIdx]     = useState<number | null>(null);
 
+  const overlayScrollRef = useRef<HTMLDivElement>(null);
+  const [canScrollDown, setCanScrollDown] = useState(false);
+
+  const checkOverlayScroll = () => {
+    const el = overlayScrollRef.current;
+    if (!el) { setCanScrollDown(false); return; }
+    setCanScrollDown(el.scrollHeight - el.scrollTop > el.clientHeight + 4);
+  };
+
+  useEffect(() => {
+    if (overlayVisible) { setTimeout(checkOverlayScroll, 60); }
+    else setCanScrollDown(false);
+  }, [overlayVisible, subItemIdx]);
+
+  const detailParts: string[] = [
+    item.notes ? '備注' : '',
+    tags.length > 0 ? '標籤' : '',
+    subItems.length > 0 ? '子活動' : '',
+    hasWarning ? '⚠' : '',
+  ].filter(Boolean) as string[];
+  const detailLabel = detailParts.length > 0 ? detailParts.join(' · ') : '詳情';
+
   useEffect(() => {
     if (expandSignal && expandSignal > 0 && hasPhoto) setIsExpanded(true);
   }, [expandSignal, hasPhoto]);
@@ -86,8 +108,9 @@ export function ItineraryCard({
       case 'transit': case 'train': return <Train size={14} />;
       case 'bus':       return <Bus size={14} />;
       case 'walking':   return <Footprints size={14} />;
-      case 'bicycling': return <Bike size={14} />;
-      default:          return <Car size={14} />;
+      case 'bicycling':    return <Bike size={14} />;
+      case 'motorcycling': return <Motorbike size={14} />;
+      default:             return <Car size={14} />;
     }
   };
 
@@ -125,9 +148,10 @@ export function ItineraryCard({
           <button
             type="button"
             onClick={() => setSubItemIdx(null)}
-            className="flex items-center gap-1 text-orange-400 text-[10px] font-black mb-2.5 tracking-wide"
+            className="w-full flex items-center gap-2 bg-white/5 active:bg-white/10 rounded-xl px-3 py-2.5 mb-3 text-orange-400 transition-colors"
           >
-            <ChevronLeft size={11} strokeWidth={3} />返回
+            <ChevronLeft size={14} strokeWidth={2.5} />
+            <span className="text-[11px] font-black tracking-wide">返回</span>
           </button>
           {sub.start_time && (
             <div className="font-mono text-[9px] text-zinc-500 mb-1">
@@ -152,21 +176,15 @@ export function ItineraryCard({
 
     return (
       <div className="space-y-2">
-        {/* 評分 + Tags */}
-        {(item.rating || tags.length > 0) && (
-          <div className="flex flex-wrap items-center gap-1.5">
-            {item.rating && (
-              <div className="flex items-center gap-1 bg-yellow-500/15 border border-yellow-500/25 rounded-lg px-2 py-0.5">
-                <Star size={10} className="text-yellow-400 fill-yellow-400" />
-                <span className="text-[11px] font-black text-yellow-300">{(item.rating as number).toFixed(1)}</span>
-                {(item as any).reviews_count && (
-                  <span className="text-[8px] text-yellow-500/60">({(item as any).reviews_count.toLocaleString()})</span>
-                )}
-              </div>
-            )}
+        {/* Tags */}
+        {tags.length > 0 && (
+          <div className="flex flex-wrap gap-1">
             {tags.map((t: string) => (
               <span key={t} className="text-[9px] font-bold text-orange-400 bg-orange-500/10 px-1.5 py-0.5 rounded-md border border-orange-500/20">#{t}</span>
             ))}
+            {(item as any).reviews_count && item.rating && (
+              <span className="text-[9px] text-yellow-500/70 px-1.5 py-0.5">({(item as any).reviews_count.toLocaleString()} 評價)</span>
+            )}
           </div>
         )}
 
@@ -260,6 +278,13 @@ export function ItineraryCard({
             )}
           </div>
 
+          {item.rating && (
+            <div className="shrink-0 flex items-center gap-0.5 bg-yellow-500/15 rounded-lg px-1.5 py-0.5">
+              <Star size={9} className="text-yellow-400 fill-yellow-400" />
+              <span className="text-[10px] font-black text-yellow-300">{(item.rating as number).toFixed(1)}</span>
+            </div>
+          )}
+
           <button
             onClick={(e) => { e.stopPropagation(); window.open(getGoogleMapsLink(), '_blank'); }}
             className="shrink-0 p-2 rounded-xl text-zinc-600 hover:text-orange-500 transition-colors active:scale-90"
@@ -299,9 +324,20 @@ export function ItineraryCard({
                       animate={{ opacity: 1 }}
                       exit={{ opacity: 0 }}
                       transition={{ duration: 0.15 }}
-                      className="absolute inset-0 bg-black/88 backdrop-blur-md overflow-y-auto no-scrollbar p-3"
+                      className="absolute inset-0 bg-black/88 backdrop-blur-md"
                     >
-                      {renderOverlayContent()}
+                      <div
+                        ref={overlayScrollRef}
+                        onScroll={checkOverlayScroll}
+                        className="absolute inset-0 overflow-y-auto no-scrollbar p-3"
+                      >
+                        {renderOverlayContent()}
+                      </div>
+                      {canScrollDown && (
+                        <div className="absolute bottom-0 left-0 right-0 h-8 bg-gradient-to-t from-black/80 to-transparent pointer-events-none flex items-end justify-center pb-1">
+                          <ChevronDown size={12} className="text-white/60 animate-bounce" />
+                        </div>
+                      )}
                     </motion.div>
                   )}
                 </AnimatePresence>
@@ -310,65 +346,58 @@ export function ItineraryCard({
           )}
         </AnimatePresence>
 
-        {/* ── 底部列：詳情按鈕 ｜ 下一站 ── */}
-        <div className={clsx(
-          'flex items-stretch border-t',
-          isCircuitBreaker ? 'border-red-500/30' : 'border-zinc-800/60',
-        )}>
+        {/* ── 底部列：無分界線，自然排列 ── */}
+        {(hasContent || (showNextTransport && (canEdit || !!item.next_transport_mode))) && (
+          <div className="flex items-center justify-between px-3 pb-3 pt-1">
 
-          {/* 詳情文字標籤 */}
-          {hasContent && (
-            <button
-              type="button"
-              onClick={handleDetailBtn}
-              className={clsx(
-                'px-4 py-3 flex items-center justify-center border-r transition-all min-w-[88px]',
-                isCircuitBreaker ? 'border-red-500/30' : 'border-zinc-800/60',
-                overlayVisible
-                  ? 'text-orange-500 bg-orange-500/8'
-                  : 'text-zinc-600 hover:text-zinc-400 hover:bg-zinc-800/30',
-              )}
-            >
-              <span className="text-[9px] font-black tracking-widest leading-none">
-                備注・標籤・子活動
-              </span>
-            </button>
-          )}
+            {/* 動態詳情標籤 */}
+            {hasContent ? (
+              <button
+                type="button"
+                onClick={handleDetailBtn}
+                className={clsx(
+                  'flex items-center gap-1 px-2.5 py-1.5 rounded-xl transition-all',
+                  overlayVisible
+                    ? 'text-orange-500 bg-orange-500/8'
+                    : 'text-zinc-600 hover:text-zinc-400',
+                )}
+              >
+                <span className="text-[9px] font-black tracking-wider">{detailLabel}</span>
+              </button>
+            ) : <div />}
 
-          {/* 下一站 */}
-          {showNextTransport && (canEdit || !!item.next_transport_mode) ? (
-            <button
-              type="button"
-              disabled={!canEdit}
-              onClick={(e) => { e.stopPropagation(); if (canEdit && onEditNextTransport) onEditNextTransport(); }}
-              className={clsx(
-                'flex-1 px-4 py-3 flex items-center justify-between transition-colors',
-                canEdit ? 'cursor-pointer hover:bg-zinc-800/30 active:bg-zinc-800/50' : 'cursor-default',
-                isCircuitBreaker && 'bg-red-500/10',
-              )}
-            >
-              <span className={clsx('text-[9px] font-black uppercase tracking-[0.2em]', isCircuitBreaker ? 'text-red-400' : 'text-zinc-500')}>
-                下一站
-              </span>
-              {item.next_transport_mode ? (
-                <div className="flex items-center gap-2 text-orange-500">
-                  {getTransportIcon()}
-                  <span className="text-[11px] font-black tracking-tight flex items-center gap-1">
-                    {manualVal > 0 ? `${manualVal}分` : autoVal > 0 ? <>{autoVal}分 <Sparkles size={9} /></> : '自動'}
-                  </span>
-                </div>
-              ) : (
-                <div className="flex items-center gap-1.5 text-zinc-600">
-                  <Plus size={12} />
-                  <span className="text-[9px] font-bold">設定交通</span>
-                </div>
-              )}
-            </button>
-          ) : (
-            /* 只有詳情按鈕時補齊空白區 */
-            !hasContent && <div className="h-px flex-1" />
-          )}
-        </div>
+            {/* 下一站（靠右） */}
+            {showNextTransport && (canEdit || !!item.next_transport_mode) && (
+              <button
+                type="button"
+                disabled={!canEdit}
+                onClick={(e) => { e.stopPropagation(); if (canEdit && onEditNextTransport) onEditNextTransport(); }}
+                className={clsx(
+                  'flex items-center gap-2 px-2.5 py-1.5 rounded-xl transition-colors',
+                  canEdit ? 'cursor-pointer hover:bg-zinc-800/30 active:bg-zinc-800/50' : 'cursor-default',
+                  isCircuitBreaker && 'bg-red-500/10 rounded-xl',
+                )}
+              >
+                {item.next_transport_mode ? (
+                  <div className="flex items-center gap-1.5 text-orange-500">
+                    {getTransportIcon()}
+                    <span className="text-[11px] font-black tracking-tight flex items-center gap-1">
+                      {manualVal > 0 ? `${manualVal}分` : autoVal > 0 ? <>{autoVal}分 <Sparkles size={9} /></> : '自動'}
+                    </span>
+                  </div>
+                ) : (
+                  <div className="flex items-center gap-1 text-zinc-600">
+                    <Plus size={11} />
+                    <span className="text-[9px] font-bold">設定交通</span>
+                  </div>
+                )}
+                <span className={clsx('text-[9px] font-black uppercase tracking-[0.15em]', isCircuitBreaker ? 'text-red-400' : 'text-zinc-500')}>
+                  下一站
+                </span>
+              </button>
+            )}
+          </div>
+        )}
 
       </div>
     </div>

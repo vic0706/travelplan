@@ -405,7 +405,7 @@ export function TripDetails() {
               exit={{ opacity: 0 }}
               transition={{ duration: 0.25 }}
               className="relative w-full overflow-hidden"
-              style={{ height: 120, paddingTop: 'env(safe-area-inset-top)' }}
+              style={{ height: 130, paddingTop: 'env(safe-area-inset-top)' }}
             >
               {/* 封面圖：顯示下半部 */}
               <img
@@ -452,7 +452,7 @@ export function TripDetails() {
               {/* 底部：標題 + 天氣 */}
               <div className="absolute bottom-0 left-0 right-0 px-4 pb-3 flex items-end justify-between">
                 <h1
-                  className="flex-1 text-base font-black text-white truncate tracking-tight drop-shadow-[0_1px_6px_rgba(0,0,0,0.8)] mr-3"
+                  className="flex-1 text-xl font-black text-white truncate tracking-tight drop-shadow-[0_1px_6px_rgba(0,0,0,0.8)] mr-3"
                   title={trip.title}
                 >
                   {trip.title}
@@ -465,8 +465,8 @@ export function TripDetails() {
                       isWeatherExpanded ? 'opacity-100' : 'opacity-65 hover:opacity-100'
                     )}
                   >
-                    {getWeatherIcon(selectedDateWeather.weather_code, 14)}
-                    <span className="text-[10px] font-bold text-white drop-shadow">
+                    {getWeatherIcon(selectedDateWeather.weather_code, 18)}
+                    <span className="text-xs font-bold text-white drop-shadow">
                       {selectedDateWeather.min_temp}°/{selectedDateWeather.max_temp}°
                     </span>
                   </span>
@@ -629,12 +629,12 @@ export function TripDetails() {
       <AnimatePresence>
         {isItineraryFormOpen && (
           <div className="fixed inset-0 z-[100] flex items-end justify-center bg-black/80 backdrop-blur-sm sm:items-center p-4">
-            <motion.div initial={{ y: '100%' }} animate={{ y: 0 }} exit={{ y: '100%' }} className="w-full max-w-md max-h-[90vh]">
+            <motion.div initial={{ y: '100%' }} animate={{ y: 0 }} exit={{ y: '100%' }} transition={{ duration: 0.22, ease: [0.32, 0.72, 0, 1] }} className="w-full max-w-md max-h-[90vh]">
               <ItineraryForm
                 tripId={Number(id)}
                 date={selectedDate ? format(selectedDate, 'yyyy-MM-dd') : ''}
                 initialData={editingItinerary}
-                onSuccess={() => { setIsItineraryFormOpen(false); setEditingItinerary(null); refreshTripData(); }}
+                onSuccess={() => { setIsItineraryFormOpen(false); setEditingItinerary(null); setTimeout(() => refreshTripData(), 300); }}
                 onCancel={() => { setIsItineraryFormOpen(false); setEditingItinerary(null); }}
               />
             </motion.div>
@@ -643,13 +643,13 @@ export function TripDetails() {
 
         {isFinanceFormOpen && (
           <div className="fixed inset-0 z-[100] flex items-end justify-center bg-black/80 backdrop-blur-sm sm:items-center p-4">
-            <motion.div initial={{ y: '100%' }} animate={{ y: 0 }} exit={{ y: '100%' }} className="w-full max-w-md max-h-[90vh]">
+            <motion.div initial={{ y: '100%' }} animate={{ y: 0 }} exit={{ y: '100%' }} transition={{ duration: 0.22, ease: [0.32, 0.72, 0, 1] }} className="w-full max-w-md max-h-[90vh]">
               <FinanceForm
                 tripId={String(id)}
                 defaultDate={selectedDate ? format(selectedDate, 'yyyy-MM-dd') : undefined}
                 currencies={trip.currencies || ['TWD']}
                 initialData={editingExpense}
-                onSuccess={() => { setIsFinanceFormOpen(false); setEditingExpense(null); refreshTripData(); }}
+                onSuccess={() => { setIsFinanceFormOpen(false); setEditingExpense(null); setTimeout(() => refreshTripData(), 300); }}
                 onCancel={() => { setIsFinanceFormOpen(false); setEditingExpense(null); }}
               />
             </motion.div>
@@ -658,7 +658,7 @@ export function TripDetails() {
 
         {isBookingFormOpen && (
           <div className="fixed inset-0 z-[100] flex items-end justify-center bg-black/80 backdrop-blur-sm sm:items-center p-4">
-            <motion.div initial={{ y: '100%' }} animate={{ y: 0 }} exit={{ y: '100%' }} className="w-full max-w-md">
+            <motion.div initial={{ y: '100%' }} animate={{ y: 0 }} exit={{ y: '100%' }} transition={{ duration: 0.22, ease: [0.32, 0.72, 0, 1] }} className="w-full max-w-md">
               <BookingForm
                 initialData={editingBooking}
                 onSubmit={async (data) => {
@@ -667,7 +667,7 @@ export function TripDetails() {
                     const endpoint = editingBooking ? `/api/trips/${id}/bookings/${editingBooking.id}` : `/api/trips/${id}/bookings`;
                     const method = editingBooking ? 'PUT' : 'POST';
                     await apiFetch(endpoint, { method, body: JSON.stringify(data) });
-                    setIsBookingFormOpen(false); setEditingBooking(null); refreshTripData();
+                    setIsBookingFormOpen(false); setEditingBooking(null); setTimeout(() => refreshTripData(), 300);
                   } catch (e) { alert('儲存訂票失敗'); }
                 }}
                 onCancel={() => { setIsBookingFormOpen(false); setEditingBooking(null); }}
@@ -688,7 +688,7 @@ export function TripDetails() {
                 await apiFetch(`/api/trips/${id}/itineraries/${editingItinerary.id}`, {
                   method: 'PUT', body: JSON.stringify({ ...editingItinerary, ...data })
                 });
-                setIsNextTransportFormOpen(false); setEditingItinerary(null); refreshTripData();
+                setIsNextTransportFormOpen(false); setEditingItinerary(null); setTimeout(() => refreshTripData(), 300);
               } catch (e) { alert('儲存交通資訊失敗'); }
             }}
           />

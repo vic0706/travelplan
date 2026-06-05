@@ -1,5 +1,5 @@
 import React, { useState, useMemo } from 'react';
-import { X, MapPin, Loader2, Plane, Train, Ship, Car, Bed, Bus, ArrowLeft, Clock } from 'lucide-react';
+import { X, MapPin, Loader2, Plane, Train, Ship, Car, Bed, Bus, ArrowLeft, Clock, ArrowRight } from 'lucide-react';
 import { motion } from 'framer-motion';
 import { LocationPicker } from '../pickers/LocationPicker';
 import { DateRangePicker } from '../pickers/DateRangePicker';
@@ -220,8 +220,23 @@ export function BookingForm({ initialData, onSubmit, onCancel, onDelete, loading
   const parsedEndDate   = formData.end_date   ? parseISO(formData.end_date)   : null;
 
   const isTransport         = ['FLIGHT','TRAIN','FERRY','BUS'].includes(formData.category);
+  const isFlightTrainFerry  = ['FLIGHT','TRAIN','FERRY'].includes(formData.category);
+  const isBus               = formData.category === 'BUS';
   const isRentalOrTransfer  = ['RENTAL','PRIVATE_TRANSFER'].includes(formData.category);
   const terminalLabel       = getTerminalLabel(formData.category);
+
+  const calcFlightDuration = useMemo(() => {
+    if (!formData.start_time || !formData.end_time) return null;
+    const [sh, sm] = formData.start_time.split(':').map(Number);
+    const [eh, em] = formData.end_time.split(':').map(Number);
+    let mins = (eh * 60 + em) - (sh * 60 + sm);
+    if (mins < 0) mins += 24 * 60;
+    const h = Math.floor(mins / 60);
+    const m = mins % 60;
+    if (h === 0) return `${m}分`;
+    if (m === 0) return `${h}時`;
+    return `${h}時${m}分`;
+  }, [formData.start_time, formData.end_time]);
 
   // ══ STEP 1: 選擇類別 ══
   if (step === 'pick-category') {
@@ -406,127 +421,215 @@ export function BookingForm({ initialData, onSubmit, onCancel, onDelete, loading
         <div className="space-y-4 bg-zinc-900/50 border border-zinc-800 rounded-2xl p-4">
           <p className="text-[10px] font-black text-orange-500 uppercase tracking-widest">住宿時間設定</p>
 
-          {/* 入住 */}
-          <div className="space-y-3">
-            <p className="text-[10px] font-bold text-zinc-500 uppercase tracking-wider">入住</p>
-            {timeInput('入住時間', formData.start_time, v => set('start_time', v))}
-            <div className="space-y-1.5">
-              <div className="flex items-center justify-between">
-                <label className="text-[10px] font-bold text-zinc-400 uppercase tracking-widest">辦理時間</label>
-                <span className="text-[9px] font-black text-orange-400 normal-case">
-                  {checkInStay}分{hotelCheckInCalc && ` · 完成約 ${hotelCheckInCalc}`}
-                </span>
-              </div>
+          {/* 入住 inline */}
+          <div className="space-y-1.5">
+            <div className="flex items-center justify-between">
+              <p className="text-[10px] font-bold text-zinc-500 uppercase tracking-wider">入住</p>
+              {hotelCheckInCalc && <span className="text-[9px] font-black text-orange-400">完成約 {hotelCheckInCalc}</span>}
+            </div>
+            <div className="flex items-center bg-zinc-900 border border-zinc-800 rounded-xl px-3 py-2 gap-2 focus-within:border-orange-500 transition-colors">
+              <Clock size={13} className="text-orange-500 shrink-0" />
+              <input type="time" value={formData.start_time} onChange={e => set('start_time', e.target.value)}
+                className="bg-transparent text-white font-mono font-bold text-sm outline-none [color-scheme:dark]" />
+              <div className="w-px h-4 bg-zinc-700 shrink-0 mx-1" />
+              <span className="text-[9px] text-zinc-600 shrink-0">辦理</span>
               <input type="range" min="0" max="120" step="5" value={checkInStay}
                 onChange={e => setCheckInStay(parseInt(e.target.value))}
-                className="w-full accent-orange-500 h-1.5 bg-zinc-800 rounded-lg appearance-none cursor-pointer outline-none" />
+                className="flex-1 accent-orange-500 h-1.5 bg-zinc-800 rounded-lg appearance-none cursor-pointer outline-none" />
+              <span className="text-[10px] font-black text-orange-400 shrink-0 w-7 text-right">{checkInStay}分</span>
             </div>
           </div>
 
-          {/* 退房 */}
-          <div className="space-y-3 border-t border-zinc-800 pt-3">
-            <p className="text-[10px] font-bold text-zinc-500 uppercase tracking-wider">退房</p>
-            {timeInput('退房時間', formData.end_time, v => set('end_time', v))}
-            <div className="space-y-1.5">
-              <div className="flex items-center justify-between">
-                <label className="text-[10px] font-bold text-zinc-400 uppercase tracking-widest">辦理時間</label>
-                <span className="text-[9px] font-black text-orange-400 normal-case">
-                  {checkOutStay}分{hotelCheckOutCalc && ` · 完成約 ${hotelCheckOutCalc}`}
-                </span>
-              </div>
+          {/* 退房 inline */}
+          <div className="space-y-1.5 border-t border-zinc-800 pt-3">
+            <div className="flex items-center justify-between">
+              <p className="text-[10px] font-bold text-zinc-500 uppercase tracking-wider">退房</p>
+              {hotelCheckOutCalc && <span className="text-[9px] font-black text-orange-400">完成約 {hotelCheckOutCalc}</span>}
+            </div>
+            <div className="flex items-center bg-zinc-900 border border-zinc-800 rounded-xl px-3 py-2 gap-2 focus-within:border-orange-500 transition-colors">
+              <Clock size={13} className="text-orange-500 shrink-0" />
+              <input type="time" value={formData.end_time} onChange={e => set('end_time', e.target.value)}
+                className="bg-transparent text-white font-mono font-bold text-sm outline-none [color-scheme:dark]" />
+              <div className="w-px h-4 bg-zinc-700 shrink-0 mx-1" />
+              <span className="text-[9px] text-zinc-600 shrink-0">辦理</span>
               <input type="range" min="0" max="120" step="5" value={checkOutStay}
                 onChange={e => setCheckOutStay(parseInt(e.target.value))}
-                className="w-full accent-orange-500 h-1.5 bg-zinc-800 rounded-lg appearance-none cursor-pointer outline-none" />
+                className="flex-1 accent-orange-500 h-1.5 bg-zinc-800 rounded-lg appearance-none cursor-pointer outline-none" />
+              <span className="text-[10px] font-black text-orange-400 shrink-0 w-7 text-right">{checkOutStay}分</span>
             </div>
           </div>
 
-          {/* 每日出門 / 回來 */}
+          {/* 每日出門 / 返回 inline */}
           <div className="space-y-3 border-t border-zinc-800 pt-3">
             <p className="text-[10px] font-bold text-zinc-500 uppercase tracking-wider">每日出門／返回時間</p>
-            <div className="grid grid-cols-2 gap-3">
-              {timeInput('出門時間', dailyDepartTime, setDailyDepartTime)}
-              {timeInput('返回時間', dailyReturnTime, setDailyReturnTime)}
+            <div className="flex items-center bg-zinc-900 border border-zinc-800 rounded-xl px-3 py-2 gap-2 focus-within:border-orange-500 transition-colors">
+              <Clock size={13} className="text-orange-500 shrink-0" />
+              <span className="text-[9px] text-zinc-600 shrink-0 w-8">出門</span>
+              <input type="time" value={dailyDepartTime} onChange={e => setDailyDepartTime(e.target.value)}
+                className="bg-transparent text-white font-mono font-bold text-sm outline-none [color-scheme:dark]" />
+              <div className="w-px h-4 bg-zinc-700 shrink-0 mx-1" />
+              <span className="text-[9px] text-zinc-600 shrink-0">準備</span>
+              <input type="range" min="0" max="60" step="5" value={dailyDepartStay}
+                onChange={e => setDailyDepartStay(parseInt(e.target.value))}
+                className="flex-1 accent-orange-500 h-1.5 bg-zinc-800 rounded-lg appearance-none cursor-pointer outline-none" />
+              <span className="text-[10px] font-black text-orange-400 shrink-0 w-7 text-right">{dailyDepartStay}分</span>
             </div>
-            <div className="space-y-3">
-              <div className="space-y-1.5">
-                <div className="flex items-center justify-between">
-                  <label className="text-[10px] font-bold text-zinc-400 uppercase tracking-widest">出門準備</label>
-                  <span className="text-xs font-black text-orange-500">{dailyDepartStay}分</span>
-                </div>
-                <input type="range" min="0" max="60" step="5" value={dailyDepartStay}
-                  onChange={e => setDailyDepartStay(parseInt(e.target.value))}
-                  className="w-full accent-orange-500 h-1.5 bg-zinc-800 rounded-lg appearance-none cursor-pointer outline-none" />
-              </div>
-              <div className="space-y-1.5">
-                <div className="flex items-center justify-between">
-                  <label className="text-[10px] font-bold text-zinc-400 uppercase tracking-widest">返回安頓</label>
-                  <span className="text-xs font-black text-orange-500">{dailyReturnStay}分</span>
-                </div>
-                <input type="range" min="0" max="60" step="5" value={dailyReturnStay}
-                  onChange={e => setDailyReturnStay(parseInt(e.target.value))}
-                  className="w-full accent-orange-500 h-1.5 bg-zinc-800 rounded-lg appearance-none cursor-pointer outline-none" />
-              </div>
+            <div className="flex items-center bg-zinc-900 border border-zinc-800 rounded-xl px-3 py-2 gap-2 focus-within:border-orange-500 transition-colors">
+              <Clock size={13} className="text-orange-500 shrink-0" />
+              <span className="text-[9px] text-zinc-600 shrink-0 w-8">返回</span>
+              <input type="time" value={dailyReturnTime} onChange={e => setDailyReturnTime(e.target.value)}
+                className="bg-transparent text-white font-mono font-bold text-sm outline-none [color-scheme:dark]" />
+              <div className="w-px h-4 bg-zinc-700 shrink-0 mx-1" />
+              <span className="text-[9px] text-zinc-600 shrink-0">安頓</span>
+              <input type="range" min="0" max="60" step="5" value={dailyReturnStay}
+                onChange={e => setDailyReturnStay(parseInt(e.target.value))}
+                className="flex-1 accent-orange-500 h-1.5 bg-zinc-800 rounded-lg appearance-none cursor-pointer outline-none" />
+              <span className="text-[10px] font-black text-orange-400 shrink-0 w-7 text-right">{dailyReturnStay}分</span>
             </div>
           </div>
         </div>
       )}
 
-      {/* ─── 交通時間設定 ─── */}
-      {isTransport && (
+      {/* ─── 機票/火車/船票：出發抵達時間 + 置中航行時長 ─── */}
+      {isFlightTrainFerry && (
         <div className="space-y-4 bg-zinc-900/50 border border-zinc-800 rounded-2xl p-4">
           <p className="text-[10px] font-black text-orange-500 uppercase tracking-widest">交通時間設定</p>
 
-          {/* 出發 */}
-          <div className="space-y-3">
-            <div className="grid grid-cols-2 gap-3">
-              {timeInput('出發時間', formData.start_time, handleDepTimeChange)}
-              <div className="space-y-1">
-                <label className="text-[10px] font-bold text-zinc-400 uppercase tracking-widest flex items-center justify-between">
-                  <span>提前報到</span>
-                  <span className="text-orange-400 font-black normal-case text-[9px]">{depBuffer}分</span>
-                </label>
-                <div className="flex items-center gap-2 pt-1">
-                  <input type="range" min="0" max="240" step="5" value={depBuffer}
-                    onChange={e => handleDepBufferChange(parseInt(e.target.value))}
-                    className="flex-1 accent-orange-500 h-1.5 bg-zinc-800 rounded-lg appearance-none cursor-pointer outline-none" />
-                </div>
+          {/* 出發 | 行程時長 | 抵達 */}
+          <div className="grid grid-cols-[1fr_auto_1fr] gap-2 items-end">
+            <div className="space-y-1">
+              <label className="text-[10px] font-bold text-zinc-400 uppercase tracking-widest">出發</label>
+              <div className="flex items-center bg-zinc-900 border border-zinc-800 rounded-xl px-3 py-2.5 gap-2 focus-within:border-orange-500 transition-colors">
+                <Clock size={14} className="text-orange-500 shrink-0" />
+                <input type="time" value={formData.start_time} onChange={e => handleDepTimeChange(e.target.value)}
+                  className="flex-1 bg-transparent text-white font-mono font-bold text-sm outline-none [color-scheme:dark]" />
               </div>
             </div>
-            {timeInput('報到時間（可手動覆蓋）', checkInTime, setCheckInTime)}
+
+            <div className="flex flex-col items-center pb-1.5 px-1 min-w-[52px]">
+              {calcFlightDuration ? (
+                <>
+                  <span className="text-[8px] text-zinc-600 uppercase tracking-wider leading-none">
+                    {formData.category === 'FLIGHT' ? '飛行' : formData.category === 'TRAIN' ? '行駛' : '航行'}
+                  </span>
+                  <span className="text-[11px] font-black text-orange-400 mt-1">{calcFlightDuration}</span>
+                  <ArrowRight size={12} className="text-zinc-600 mt-1" />
+                </>
+              ) : (
+                <ArrowRight size={16} className="text-zinc-700 mt-3" />
+              )}
+            </div>
+
+            <div className="space-y-1">
+              <label className="text-[10px] font-bold text-zinc-400 uppercase tracking-widest text-right block">抵達</label>
+              <div className="flex items-center bg-zinc-900 border border-zinc-800 rounded-xl px-3 py-2.5 gap-2 focus-within:border-orange-500 transition-colors">
+                <Clock size={14} className="text-orange-500 shrink-0" />
+                <input type="time" value={formData.end_time} onChange={e => set('end_time', e.target.value)}
+                  className="flex-1 bg-transparent text-white font-mono font-bold text-sm outline-none [color-scheme:dark]" />
+              </div>
+            </div>
           </div>
 
-          {/* 抵達 */}
+          {/* 報到與緩衝時間 */}
           <div className="space-y-3 border-t border-zinc-800 pt-3">
+            {timeInput('報到時間（可手動覆蓋）', checkInTime, setCheckInTime)}
             <div className="grid grid-cols-2 gap-3">
-              {timeInput('抵達時間', formData.end_time, v => set('end_time', v))}
               <div className="space-y-1">
-                <label className="text-[10px] font-bold text-zinc-400 uppercase tracking-widest flex items-center justify-between">
-                  <span>抵達停留</span>
-                  {transportArrCalc && <span className="text-orange-400 font-black normal-case text-[9px]">離開約 {transportArrCalc}</span>}
-                </label>
-                <div className="flex items-center gap-2 pt-1">
-                  <input type="range" min="0" max="180" step="5" value={arrStay}
-                    onChange={e => setArrStay(parseInt(e.target.value))}
-                    className="flex-1 accent-orange-500 h-1.5 bg-zinc-800 rounded-lg appearance-none cursor-pointer outline-none" />
-                  <span className="text-xs font-black text-orange-500 w-10 text-right shrink-0">{arrStay}分</span>
+                <div className="flex items-center justify-between">
+                  <label className="text-[10px] font-bold text-zinc-400 uppercase tracking-widest">提前報到</label>
+                  <span className="text-[9px] font-black text-orange-400">{depBuffer}分</span>
                 </div>
+                <input type="range" min="0" max="240" step="5" value={depBuffer}
+                  onChange={e => handleDepBufferChange(parseInt(e.target.value))}
+                  className="w-full accent-orange-500 h-1.5 bg-zinc-800 rounded-lg appearance-none cursor-pointer outline-none" />
+              </div>
+              <div className="space-y-1">
+                <div className="flex items-center justify-between">
+                  <label className="text-[10px] font-bold text-zinc-400 uppercase tracking-widest">抵達停留</label>
+                  <span className="text-[9px] font-black text-orange-400">{arrStay}分</span>
+                </div>
+                <input type="range" min="0" max="180" step="5" value={arrStay}
+                  onChange={e => setArrStay(parseInt(e.target.value))}
+                  className="w-full accent-orange-500 h-1.5 bg-zinc-800 rounded-lg appearance-none cursor-pointer outline-none" />
+                {transportArrCalc && <p className="text-[9px] text-zinc-600 mt-0.5">離開約 {transportArrCalc}</p>}
               </div>
             </div>
           </div>
 
-          {/* 航廈 / 月台 / 站牌 */}
+          {/* 航廈 / 月台 */}
           <div className="grid grid-cols-2 gap-3 border-t border-zinc-800 pt-3">
             <div>
               <label className="block text-[10px] font-bold text-zinc-400 uppercase tracking-widest mb-2">出發{terminalLabel}</label>
               <input type="text" value={depTerminal} onChange={e => setDepTerminal(e.target.value)}
                 className="w-full bg-zinc-900 border border-zinc-800 rounded-xl px-3 py-2.5 text-white text-sm focus:outline-none focus:border-orange-500 transition-colors"
-                placeholder={formData.category === 'FLIGHT' ? 'T1' : formData.category === 'BUS' ? '台北轉運站' : '1號月台'} />
+                placeholder={formData.category === 'FLIGHT' ? 'T1' : '1號月台'} />
             </div>
             <div>
               <label className="block text-[10px] font-bold text-zinc-400 uppercase tracking-widest mb-2">抵達{terminalLabel}</label>
               <input type="text" value={arrTerminal} onChange={e => setArrTerminal(e.target.value)}
                 className="w-full bg-zinc-900 border border-zinc-800 rounded-xl px-3 py-2.5 text-white text-sm focus:outline-none focus:border-orange-500 transition-colors"
-                placeholder={formData.category === 'FLIGHT' ? 'T2' : formData.category === 'BUS' ? '台中總站' : '3號月台'} />
+                placeholder={formData.category === 'FLIGHT' ? 'T2' : '3號月台'} />
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ─── 公車：時間 + duration 在同一行 ─── */}
+      {isBus && (
+        <div className="space-y-4 bg-zinc-900/50 border border-zinc-800 rounded-2xl p-4">
+          <p className="text-[10px] font-black text-orange-500 uppercase tracking-widest">交通時間設定</p>
+
+          {/* 出發 inline */}
+          <div className="space-y-1.5">
+            <div className="flex items-center justify-between">
+              <label className="text-[10px] font-bold text-zinc-400 uppercase tracking-widest">出發時間</label>
+              {checkInTime && <span className="text-[9px] font-black text-orange-400 normal-case">報到 {checkInTime}</span>}
+            </div>
+            <div className="flex items-center bg-zinc-900 border border-zinc-800 rounded-xl px-3 py-2 gap-2 focus-within:border-orange-500 transition-colors">
+              <Clock size={13} className="text-orange-500 shrink-0" />
+              <input type="time" value={formData.start_time} onChange={e => handleDepTimeChange(e.target.value)}
+                className="bg-transparent text-white font-mono font-bold text-sm outline-none [color-scheme:dark]" />
+              <div className="w-px h-4 bg-zinc-700 shrink-0 mx-1" />
+              <span className="text-[9px] text-zinc-600 shrink-0">提前</span>
+              <input type="range" min="0" max="120" step="5" value={depBuffer}
+                onChange={e => handleDepBufferChange(parseInt(e.target.value))}
+                className="flex-1 accent-orange-500 h-1.5 bg-zinc-800 rounded-lg appearance-none cursor-pointer outline-none" />
+              <span className="text-[10px] font-black text-orange-400 shrink-0 w-7 text-right">{depBuffer}分</span>
+            </div>
+          </div>
+
+          {/* 抵達 inline */}
+          <div className="space-y-1.5">
+            <div className="flex items-center justify-between">
+              <label className="text-[10px] font-bold text-zinc-400 uppercase tracking-widest">抵達時間</label>
+              {transportArrCalc && <span className="text-[9px] font-black text-orange-400 normal-case">離開約 {transportArrCalc}</span>}
+            </div>
+            <div className="flex items-center bg-zinc-900 border border-zinc-800 rounded-xl px-3 py-2 gap-2 focus-within:border-orange-500 transition-colors">
+              <Clock size={13} className="text-orange-500 shrink-0" />
+              <input type="time" value={formData.end_time} onChange={e => set('end_time', e.target.value)}
+                className="bg-transparent text-white font-mono font-bold text-sm outline-none [color-scheme:dark]" />
+              <div className="w-px h-4 bg-zinc-700 shrink-0 mx-1" />
+              <span className="text-[9px] text-zinc-600 shrink-0">停留</span>
+              <input type="range" min="0" max="180" step="5" value={arrStay}
+                onChange={e => setArrStay(parseInt(e.target.value))}
+                className="flex-1 accent-orange-500 h-1.5 bg-zinc-800 rounded-lg appearance-none cursor-pointer outline-none" />
+              <span className="text-[10px] font-black text-orange-400 shrink-0 w-7 text-right">{arrStay}分</span>
+            </div>
+          </div>
+
+          {/* 站牌 */}
+          <div className="grid grid-cols-2 gap-3 border-t border-zinc-800 pt-3">
+            <div>
+              <label className="block text-[10px] font-bold text-zinc-400 uppercase tracking-widest mb-2">出發{terminalLabel}</label>
+              <input type="text" value={depTerminal} onChange={e => setDepTerminal(e.target.value)}
+                className="w-full bg-zinc-900 border border-zinc-800 rounded-xl px-3 py-2.5 text-white text-sm focus:outline-none focus:border-orange-500 transition-colors"
+                placeholder="台北轉運站" />
+            </div>
+            <div>
+              <label className="block text-[10px] font-bold text-zinc-400 uppercase tracking-widest mb-2">抵達{terminalLabel}</label>
+              <input type="text" value={arrTerminal} onChange={e => setArrTerminal(e.target.value)}
+                className="w-full bg-zinc-900 border border-zinc-800 rounded-xl px-3 py-2.5 text-white text-sm focus:outline-none focus:border-orange-500 transition-colors"
+                placeholder="台中總站" />
             </div>
           </div>
         </div>
@@ -536,40 +639,44 @@ export function BookingForm({ initialData, onSubmit, onCancel, onDelete, loading
       {isRentalOrTransfer && (
         <div className="space-y-4 bg-zinc-900/50 border border-zinc-800 rounded-2xl p-4">
           <p className="text-[10px] font-black text-orange-500 uppercase tracking-widest">時間設定</p>
-          <div className="grid grid-cols-2 gap-3">
-            {timeInput(
-              formData.category === 'RENTAL' ? '取車時間' : '出發時間',
-              formData.start_time, v => set('start_time', v)
-            )}
-            {timeInput(
-              formData.category === 'RENTAL' ? '還車時間' : '抵達時間',
-              formData.end_time, v => set('end_time', v)
-            )}
-          </div>
-          <div className="space-y-3">
-            <div className="space-y-1.5">
-              <div className="flex items-center justify-between">
-                <label className="text-[10px] font-bold text-zinc-400 uppercase tracking-widest">
-                  {formData.category === 'RENTAL' ? '取車等候時間' : '出發等候時間'}
-                </label>
-                <span className="text-xs font-black text-orange-500">{rentalPickupBuffer}分</span>
-              </div>
+
+          {/* 取車/出發 inline */}
+          <div className="space-y-1.5">
+            <label className="text-[10px] font-bold text-zinc-400 uppercase tracking-widest">
+              {formData.category === 'RENTAL' ? '取車時間' : '出發時間'}
+            </label>
+            <div className="flex items-center bg-zinc-900 border border-zinc-800 rounded-xl px-3 py-2 gap-2 focus-within:border-orange-500 transition-colors">
+              <Clock size={13} className="text-orange-500 shrink-0" />
+              <input type="time" value={formData.start_time} onChange={e => set('start_time', e.target.value)}
+                className="bg-transparent text-white font-mono font-bold text-sm outline-none [color-scheme:dark]" />
+              <div className="w-px h-4 bg-zinc-700 shrink-0 mx-1" />
+              <span className="text-[9px] text-zinc-600 shrink-0">等候</span>
               <input type="range" min="0" max="90" step="5" value={rentalPickupBuffer}
                 onChange={e => setRentalPickupBuffer(parseInt(e.target.value))}
-                className="w-full accent-orange-500 h-1.5 bg-zinc-800 rounded-lg appearance-none cursor-pointer outline-none" />
-            </div>
-            <div className="space-y-1.5">
-              <div className="flex items-center justify-between">
-                <label className="text-[10px] font-bold text-zinc-400 uppercase tracking-widest">
-                  {formData.category === 'RENTAL' ? '還車手續時間' : '抵達等候時間'}
-                </label>
-                <span className="text-xs font-black text-orange-500">{rentalReturnBuffer}分</span>
-              </div>
-              <input type="range" min="0" max="60" step="5" value={rentalReturnBuffer}
-                onChange={e => setRentalReturnBuffer(parseInt(e.target.value))}
-                className="w-full accent-orange-500 h-1.5 bg-zinc-800 rounded-lg appearance-none cursor-pointer outline-none" />
+                className="flex-1 accent-orange-500 h-1.5 bg-zinc-800 rounded-lg appearance-none cursor-pointer outline-none" />
+              <span className="text-[10px] font-black text-orange-400 shrink-0 w-7 text-right">{rentalPickupBuffer}分</span>
             </div>
           </div>
+
+          {/* 還車/抵達 inline */}
+          <div className="space-y-1.5">
+            <label className="text-[10px] font-bold text-zinc-400 uppercase tracking-widest">
+              {formData.category === 'RENTAL' ? '還車時間' : '抵達時間'}
+            </label>
+            <div className="flex items-center bg-zinc-900 border border-zinc-800 rounded-xl px-3 py-2 gap-2 focus-within:border-orange-500 transition-colors">
+              <Clock size={13} className="text-orange-500 shrink-0" />
+              <input type="time" value={formData.end_time} onChange={e => set('end_time', e.target.value)}
+                className="bg-transparent text-white font-mono font-bold text-sm outline-none [color-scheme:dark]" />
+              <div className="w-px h-4 bg-zinc-700 shrink-0 mx-1" />
+              <span className="text-[9px] text-zinc-600 shrink-0">{formData.category === 'RENTAL' ? '手續' : '等候'}</span>
+              <input type="range" min="0" max="60" step="5" value={rentalReturnBuffer}
+                onChange={e => setRentalReturnBuffer(parseInt(e.target.value))}
+                className="flex-1 accent-orange-500 h-1.5 bg-zinc-800 rounded-lg appearance-none cursor-pointer outline-none" />
+              <span className="text-[10px] font-black text-orange-400 shrink-0 w-7 text-right">{rentalReturnBuffer}分</span>
+            </div>
+          </div>
+
+          {/* 地點 */}
           <div className="grid grid-cols-2 gap-3 border-t border-zinc-800 pt-3">
             <div>
               <label className="block text-[10px] font-bold text-zinc-400 uppercase tracking-wider mb-2">

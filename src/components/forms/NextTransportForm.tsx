@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { X, Footprints, Bus, Car, Bike, Clock, Loader2, Sparkles } from 'lucide-react';
+import { X, Footprints, Bus, Car, Bike, Clock, Loader2, Sparkles, Motorbike, Pencil } from 'lucide-react';
 import { clsx } from 'clsx';
 import { Itinerary } from '../../types';
 import { motion } from 'framer-motion';
@@ -13,10 +13,12 @@ interface NextTransportFormProps {
 
 // 💡 已移除 color 和 bg 定義，統一使用主題色
 const TRANSPORT_MODES = [
-  { id: 'DRIVING', label: 'Drive', icon: Car },
-  { id: 'TRANSIT', label: 'Transit', icon: Bus },
-  { id: 'WALKING', label: 'Walk', icon: Footprints },
-  { id: 'BICYCLING', label: 'Bicycle', icon: Bike },
+  { id: 'DRIVING',     label: '開車',   icon: Car },
+  { id: 'TRANSIT',     label: '大眾運輸', icon: Bus },
+  { id: 'WALKING',     label: '步行',   icon: Footprints },
+  { id: 'BICYCLING',   label: '自行車', icon: Bike },
+  { id: 'MOTORCYCLING', label: '機車',  icon: Motorbike },
+  { id: 'CUSTOM',      label: '自訂',   icon: Pencil },
 ];
 
 export function NextTransportForm({ isOpen, onClose, itinerary, onSave }: NextTransportFormProps) {
@@ -93,7 +95,7 @@ export function NextTransportForm({ isOpen, onClose, itinerary, onSave }: NextTr
         {/* Content */}
         <div className="p-6 space-y-6 overflow-y-auto custom-scrollbar">
           {/* Transport Mode Grid */}
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-3 gap-3">
             {TRANSPORT_MODES.map(m => {
               const Icon = m.icon;
               const isActive = mode === m.id;
@@ -128,17 +130,18 @@ export function NextTransportForm({ isOpen, onClose, itinerary, onSave }: NextTr
                 {duration === 0 ? (
                   <div className="flex items-center gap-1.5 text-orange-500 animate-pulse">
                     <Sparkles size={14} />
-                    <span className="text-sm font-black">AUTO</span>
+                    <span className="text-sm font-black">自動</span>
                   </div>
                 ) : (
                   <>
-                    <input 
-                      type="number" min="0" max="300" 
-                      value={duration} 
+                    <input
+                      type="number" min="0" max="300"
+                      inputMode="numeric" pattern="[0-9]*"
+                      value={duration}
                       onChange={(e) => setDuration(Math.max(0, parseInt(e.target.value) || 0))}
-                      className="w-12 bg-transparent text-white text-lg font-black text-right outline-none [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none" 
+                      className="w-12 bg-transparent text-white text-lg font-black text-right outline-none [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
                     />
-                    <span className="text-[10px] text-zinc-500 font-bold uppercase">MIN</span>
+                    <span className="text-[10px] text-zinc-500 font-bold">分鐘</span>
                   </>
                 )}
               </div>
@@ -153,11 +156,11 @@ export function NextTransportForm({ isOpen, onClose, itinerary, onSave }: NextTr
               style={{ accentColor: '#f97316' }} // 強制顯示為主題橘
             />
 
-            <div className="flex justify-between text-[9px] text-zinc-600 font-bold uppercase px-1">
-              <span className={clsx(duration === 0 && "text-orange-500")}>Auto</span>
-              <span>30m</span>
-              <span>1h</span>
-              <span>2h</span>
+            <div className="flex justify-between text-[9px] text-zinc-600 font-bold px-1">
+              <span className={clsx(duration === 0 && "text-orange-500")}>自動</span>
+              <span>30分</span>
+              <span>1時</span>
+              <span>2時</span>
             </div>
             
             {duration === 0 && (
