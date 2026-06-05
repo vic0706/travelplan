@@ -203,9 +203,9 @@ bookings.post('/', async (c) => {
   const tripId = c.req.param('id');
   const b = await c.req.json();
 
-  // For HOTEL bookings without a photo, fetch one synchronously so it's immediately available
+  // Synchronously fetch hotel photo before INSERT if none provided
   let imageUrl = b.image_url || '';
-  if (b.category === 'HOTEL' && !imageUrl && b.title) {
+  if (b.category === 'HOTEL' && !b.image_url && b.title) {
     imageUrl = (await fetchAndStoreImage(b.title, c.env)) || '';
   }
 

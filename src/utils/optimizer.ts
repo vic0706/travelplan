@@ -21,72 +21,95 @@ function minsToTime(mins: number) {
   return `${h.toString().padStart(2, '0')}:${m.toString().padStart(2, '0')}`;
 }
 
+function nearestNeighborSort(items: any[], startLat: number, startLng: number): any[] {
+  const withCoords = items.filter(it => it.lat && it.lng);
+  const withoutCoords = items.filter(it => !it.lat || !it.lng).sort((a, b) => a.id - b.id);
+
+  const sorted: any[] = [];
+  let remaining = [...withCoords];
+  let curLat = startLat;
+  let curLng = startLng;
+
+  while (remaining.length > 0) {
+    let bestIdx = 0;
+    let bestDist = Infinity;
+    for (let i = 0; i < remaining.length; i++) {
+      const d = getDistanceKm(curLat, curLng, remaining[i].lat, remaining[i].lng);
+      const dist = d !== null ? d : Infinity;
+      if (dist < bestDist) { bestDist = dist; bestIdx = i; }
+    }
+    const chosen = remaining[bestIdx];
+    sorted.push(chosen);
+    curLat = chosen.lat;
+    curLng = chosen.lng;
+    remaining.splice(bestIdx, 1);
+  }
+
+  return [...sorted, ...withoutCoords];
+}
+
 export async function optimizeDailyItinerary(env: any, tripId: number, dateStr: string) {
-  const { results: rawItems } = await env.DB.prepare(`
-    SELECT * FROM Itineraries WHERE trip_id = ? AND date = ?
-    ORDER BY id ASC
+  const { results: items } = await env.DB.prepare(`
+    SELECT * FROM Itineraries WHERE trip_id = ? AND date = ? ORDER BY id ASC
   `).bind(tripId, dateStr).all();
-  if (rawItems.length === 0) return;
+  if (items.length === 0) return;
 
   const isAnchor = (item: any) => item.is_time_fixed === 1 || !!item.related_id;
 
-  // Anchors = fixed-time items or booking-generated items; sorted by their assigned start_time
-  const anchors = (rawItems as any[])
-    .filter(isAnchor)
-    .sort((a: any, b: any) => timeToMins(a.start_time || '00:00') - timeToMins(b.start_time || '00:00'));
+  const anchors: any[] = (items as any[]).filter(isAnchor).sort((a, b) => timeToMins(a.start_time) - timeToMins(b.start_time));
+  const floating: any[] = (items as any[]).filter(it => !isAnchor(it));
 
-  // Floating = AI-schedulable items; sorted by creation order (id)
-  const floating = (rawItems as any[])
-    .filter((i: any) => !isAnchor(i))
-    .sort((a: any, b: any) => a.id - b.id);
-
-  // Build merged list: greedily fill floating items into gaps between anchors.
-  // Items are placed in the first gap that has enough room (id order preserved within each gap).
-  const placed = new Set<number>();
+  // Build merged list: fill gaps between anchors with nearest-neighbor floating items
   const merged: any[] = [];
+  const placed = new Set<number>();
+
   const estimateMins = (item: any) => (parseInt(item.stay_duration) || 60) + 15;
 
-  let segEndMins = 9 * 60; // day starts at 09:00
-  if (anchors.length > 0 && timeToMins(anchors[0].start_time) > 0) {
-    segEndMins = Math.min(segEndMins, timeToMins(anchors[0].start_time));
-  }
-  // Reset to day start for gap computation
-  segEndMins = 9 * 60;
+  for (let ai = 0; ai < anchors.length; ai++) {
+    const anchor = anchors[ai];
+    const prevAnchor = ai > 0 ? anchors[ai - 1] : null;
+    const gapStart = prevAnchor ? timeToMins(prevAnchor.end_time || prevAnchor.start_time) : 0;
+    const gapEnd = timeToMins(anchor.start_time);
+    const gapMins = gapEnd - gapStart;
 
-  for (const anchor of anchors) {
-    const gapEnd = timeToMins(anchor.start_time || '00:00');
-    let gapCurrent = segEndMins;
-    // Try floating items in id order; stop when one doesn't fit (preserves relative order)
-    for (const fl of floating) {
-      if (placed.has(fl.id)) continue;
-      const needed = estimateMins(fl);
-      if (gapCurrent + needed <= gapEnd) {
-        merged.push(fl);
-        placed.add(fl.id);
-        gapCurrent += needed;
+    const prevLat = prevAnchor?.lat || 0;
+    const prevLng = prevAnchor?.lng || 0;
+
+    const unplaced = floating.filter(it => !placed.has(it.id));
+    const sorted = nearestNeighborSort(unplaced, prevLat, prevLng);
+
+    let usedMins = 0;
+    for (const fit of sorted) {
+      const needed = estimateMins(fit);
+      if (usedMins + needed <= gapMins) {
+        merged.push(fit);
+        placed.add(fit.id);
+        usedMins += needed;
       }
-      // Don't break — try all unplaced items in case a smaller one fits after a large one
     }
+
     merged.push(anchor);
-    segEndMins = timeToMins(anchor.end_time || anchor.start_time || '00:00');
-  }
-  // Remaining unplaced floating items go after all anchors
-  for (const fl of floating) {
-    if (!placed.has(fl.id)) merged.push(fl);
   }
 
-  // Linear scheduling pass on the merged list
+  // Append remaining floating sorted by NN from last anchor position
+  const lastAnchor = anchors[anchors.length - 1];
+  const tailLat = lastAnchor?.lat || 0;
+  const tailLng = lastAnchor?.lng || 0;
+  const remaining = floating.filter(it => !placed.has(it.id));
+  const sortedRemaining = nearestNeighborSort(remaining, tailLat, tailLng);
+  for (const fit of sortedRemaining) {
+    merged.push(fit);
+  }
+
   const statements: any[] = [];
   let currentMins = 9 * 60;
   let isCircuitBroken = false;
 
-  const firstAnchor = anchors[0];
-  if (firstAnchor && timeToMins(firstAnchor.start_time) > 0) {
-    currentMins = Math.min(currentMins, timeToMins(firstAnchor.start_time));
-  }
+  const firstFixed = anchors.find(a => a.is_time_fixed === 1 && timeToMins(a.start_time) > 0);
+  if (firstFixed) currentMins = Math.min(currentMins, timeToMins(firstFixed.start_time));
 
   for (let i = 0; i < merged.length; i++) {
-    const item = merged[i];
+    const item = merged[i] as any;
 
     if (isAnchor(item)) {
       currentMins = timeToMins(item.end_time || item.start_time);
@@ -102,10 +125,10 @@ export async function optimizeDailyItinerary(env: any, tripId: number, dateStr: 
       continue;
     }
 
-    const prevItem = i > 0 ? merged[i - 1] : null;
+    const prevItem = i > 0 ? (merged[i - 1] as any) : null;
     let transportMins = 0, transitionBuffer = 0;
+
     if (prevItem) {
-      // Booking-generated items and fixed-time items don't need next_transport_mode to continue scheduling
       const prevNeedsTransportMode = !prevItem.related_id && prevItem.is_time_fixed !== 1;
       if (prevNeedsTransportMode && !prevItem.next_transport_mode) {
         isCircuitBroken = true;
@@ -120,7 +143,7 @@ export async function optimizeDailyItinerary(env: any, tripId: number, dateStr: 
         transportMins = dist !== null ? Math.ceil(dist * speedMultiplier) + buffer : 15;
         transitionBuffer = 5;
         statements.push(env.DB.prepare(`UPDATE Itineraries SET next_transport_auto_time = ? WHERE id = ?`).bind(transportMins, prevItem.id));
-      } else if (prevItem.next_transport_mode) {
+      } else {
         transportMins = parseInt(prevItem.next_transport_time?.replace(/\D/g, '')) || 15;
       }
     }

@@ -147,7 +147,6 @@ export function ItineraryCard({
   };
 
   const renderOverlayContent = () => {
-    // Booking transport cards: show the pre-formatted timeline notes directly
     if (isBookingTransportCard && subItemIdx === null) {
       return (
         <div className="space-y-2">
@@ -165,7 +164,6 @@ export function ItineraryCard({
         </div>
       );
     }
-
     if (subItemIdx !== null) {
       const sub = subItems[subItemIdx];
       if (!sub) return null;
@@ -271,7 +269,6 @@ export function ItineraryCard({
   };
 
   const renderBottomBar = (onPhoto: boolean) => {
-    // Booking transport cards: overlay is always shown when expanded, no detail button needed
     const showDetailBtn = !isBookingTransportCard && hasOverlayContent;
     const hasBar = showDetailBtn || hasContent || (showNextTransport && (canEdit || !!item.next_transport_mode));
     if (!hasBar) return null;
@@ -294,10 +291,10 @@ export function ItineraryCard({
                 下一站
               </span>
               {item.next_transport_mode ? (
-                <div className="flex items-center gap-1 text-orange-400">
+                <div className="flex items-center gap-1 text-white/60">
                   {getTransportIcon()}
                   <span className="text-[10px] font-black tracking-tight flex items-center gap-0.5">
-                    {manualVal > 0 ? `${manualVal}分` : autoVal > 0 ? <>{autoVal}分 <Sparkles size={9} /></> : '自動'}
+                    {manualVal > 0 ? `${manualVal}分` : autoVal > 0 ? <>{autoVal}分 <Sparkles size={9} className="text-orange-500/60" /></> : '自動'}
                   </span>
                 </div>
               ) : (
@@ -328,10 +325,10 @@ export function ItineraryCard({
               下一站
             </span>
             {item.next_transport_mode ? (
-              <div className="flex items-center gap-1.5 text-orange-500">
+              <div className="flex items-center gap-1.5 text-zinc-400">
                 {getTransportIcon()}
                 <span className="text-[11px] font-black tracking-tight flex items-center gap-1">
-                  {manualVal > 0 ? `${manualVal}分` : autoVal > 0 ? <>{autoVal}分 <Sparkles size={9} /></> : '自動'}
+                  {manualVal > 0 ? `${manualVal}分` : autoVal > 0 ? <>{autoVal}分 <Sparkles size={9} className="text-orange-500/60" /></> : '自動'}
                 </span>
               </div>
             ) : (
