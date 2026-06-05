@@ -120,7 +120,13 @@ trips.post('/', async (c) => {
       JSON.stringify(currencies || []), 0, Date.now(), Date.now()
     ).run();
 
-    return c.json({ id: meta.last_row_id });
+    const tripId = meta.last_row_id;
+    const currentUser = c.get('user');
+    if (currentUser?.id) {
+      await c.env.DB.prepare('INSERT OR IGNORE INTO TripMembers (trip_id, user_id, role) VALUES (?, ?, ?)')
+        .bind(tripId, currentUser.id, 'Admin').run();
+    }
+    return c.json({ id: tripId });
   } catch (error: any) {
     return c.json({ error: error.message }, 500);
   }
@@ -378,10 +384,15 @@ trips.put('/:id/members', async (c) => {
     const { user_ids } = await c.req.json();
     if (!Array.isArray(user_ids)) return c.json({ error: 'user_ids must be an array' }, 400);
 
+    const currentUser = c.get('user');
+    const safeIds: number[] = Array.from(
+      new Set([...(currentUser?.id ? [Number(currentUser.id)] : []), ...user_ids.map(Number)])
+    );
+
     // 先刪除現有成員，再重新寫入
     const statements = [
       c.env.DB.prepare('DELETE FROM TripMembers WHERE trip_id = ?').bind(id),
-      ...user_ids.map((uid: number) =>
+      ...safeIds.map((uid: number) =>
         c.env.DB.prepare('INSERT OR IGNORE INTO TripMembers (trip_id, user_id, role) VALUES (?, ?, ?)').bind(id, uid, 'Member')
       )
     ];

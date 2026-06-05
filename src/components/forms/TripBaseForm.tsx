@@ -48,8 +48,13 @@ const safeParseArray = (data: any) => {
 };
 
 const parseInitialMembers = (membersData: any, currentUserId?: number) => {
-  if (!Array.isArray(membersData)) return currentUserId ? [currentUserId] : [];
-  return membersData.map(m => Number(typeof m === 'object' && m !== null ? (m.user_id ?? m.id) : m)).filter(Boolean);
+  const base = Array.isArray(membersData)
+    ? membersData.map(m => Number(typeof m === 'object' && m !== null ? (m.user_id ?? m.id) : m)).filter(Boolean)
+    : [];
+  if (currentUserId && !base.includes(Number(currentUserId))) {
+    return [Number(currentUserId), ...base];
+  }
+  return base;
 };
 
 export function TripBaseForm({ initialData, onSubmit, onCancel, submitText, loading = false, extraButtons, onChange, hideSubmit = false }: TripBaseFormProps) {

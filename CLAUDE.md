@@ -30,3 +30,7 @@ npm run build
 
 - `main`：主分支，穩定版本
 - `claude/*`：Claude Code 開發分支
+
+## 回覆規則
+
+- 總是用繁體中文回覆

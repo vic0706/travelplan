@@ -285,7 +285,8 @@ export function TripDetails() {
   }, [expenses, selectedDate]);
 
   const getUserNameById = (uid: number) => {
-    const found = tripUsers?.find(u => u.id === uid);
+    if (user && Number(uid) === Number(user.id)) return user.name || 'Unknown';
+    const found = tripUsers?.find(u => Number(u.id) === Number(uid));
     return found ? found.name : 'Unknown';
   };
 
