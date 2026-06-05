@@ -115,36 +115,32 @@ export function TripSettingsForm({ trip, onUpdate, onDelete, onClose, showToast 
       <div className="flex flex-col h-full bg-zinc-950 rounded-3xl border border-zinc-800 overflow-hidden">
 
         {/* ✅ 標題列：移除 "Trip Settings" 文字，只留 AI 功能按鈕 */}
-        <div className="px-5 py-4 flex items-center justify-end border-b border-zinc-800/50">
-          <div className="flex items-center gap-2">
-            <button
-              type="button"
-              title="AI Computation: Update weather & places"
-              disabled={isComputing || loading}
-              onClick={handleCompute}
-              className="flex flex-col items-center gap-1 px-4 py-2.5 text-orange-500 hover:bg-orange-500/10 rounded-2xl transition-all disabled:opacity-30 min-w-[64px]"
-            >
-              {isComputing
-                ? <Loader2 size={24} className="animate-spin" />
-                : <Cpu size={24} />
-              }
-              <span className="text-[9px] font-black uppercase tracking-widest leading-none">運算</span>
-            </button>
+        <div className="px-5 py-4 flex items-center gap-3 border-b border-zinc-800/50">
+          <button
+            type="button"
+            disabled={isComputing || loading}
+            onClick={handleCompute}
+            className="flex items-center gap-3 px-4 py-3 text-orange-500 hover:bg-orange-500/10 rounded-2xl transition-all disabled:opacity-30 border border-orange-500/20"
+          >
+            {isComputing ? <Loader2 size={20} className="animate-spin shrink-0" /> : <Cpu size={20} className="shrink-0" />}
+            <div className="text-left">
+              <div className="text-xs font-black tracking-wide leading-none">運算</div>
+              <div className="text-[9px] text-orange-500/60 mt-0.5 leading-none">更新天氣・景點資料</div>
+            </div>
+          </button>
 
-            <button
-              type="button"
-              title="AI Optimization: Re-sort itinerary flow"
-              disabled={isOptimizing || loading}
-              onClick={handleOptimize}
-              className="flex flex-col items-center gap-1 px-4 py-2.5 text-orange-500 hover:bg-orange-500/10 rounded-2xl transition-all disabled:opacity-30 min-w-[64px]"
-            >
-              {isOptimizing
-                ? <Loader2 size={24} className="animate-spin" />
-                : <Wand2 size={24} />
-              }
-              <span className="text-[9px] font-black uppercase tracking-widest leading-none">優化</span>
-            </button>
-          </div>
+          <button
+            type="button"
+            disabled={isOptimizing || loading}
+            onClick={handleOptimize}
+            className="flex items-center gap-3 px-4 py-3 text-orange-500 hover:bg-orange-500/10 rounded-2xl transition-all disabled:opacity-30 border border-orange-500/20"
+          >
+            {isOptimizing ? <Loader2 size={20} className="animate-spin shrink-0" /> : <Wand2 size={20} className="shrink-0" />}
+            <div className="text-left">
+              <div className="text-xs font-black tracking-wide leading-none">優化</div>
+              <div className="text-[9px] text-orange-500/60 mt-0.5 leading-none">AI 重排行程順序</div>
+            </div>
+          </button>
         </div>
 
         {/* 表單內容 */}

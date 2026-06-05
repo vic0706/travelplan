@@ -136,14 +136,14 @@ export function FinanceForm({ tripId, defaultDate, currencies = ['TWD'], onSucce
             <div className="space-y-1">
               <label className="text-[10px] font-bold text-zinc-500 uppercase tracking-widest ml-1">日期</label>
               <button onClick={() => setIsDatePickerOpen(true)}
-                className="w-full flex items-center gap-2 bg-zinc-950 border border-zinc-800 rounded-2xl px-3 py-3 text-white hover:border-orange-500 transition-colors">
+                className="w-full flex items-center gap-2 bg-zinc-950 border border-zinc-800 rounded-2xl px-3 h-[46px] text-white hover:border-orange-500 transition-colors">
                 <Calendar size={15} className="text-orange-500 shrink-0" />
                 <span className="text-sm font-medium">{format(parseISO(date), 'MM/dd')}</span>
               </button>
             </div>
             <div className="space-y-1">
               <label className="text-[10px] font-bold text-zinc-500 uppercase tracking-widest ml-1">時間</label>
-              <div className="flex items-center gap-2 bg-zinc-950 border border-zinc-800 rounded-2xl px-3 py-3 focus-within:border-orange-500 transition-colors">
+              <div className="flex items-center gap-2 bg-zinc-950 border border-zinc-800 rounded-2xl px-3 h-[46px] focus-within:border-orange-500 transition-colors">
                 <Clock size={15} className="text-orange-500 shrink-0" />
                 <input type="time" value={time} onChange={e => setTime(e.target.value)}
                   className="flex-1 bg-transparent text-white text-sm font-mono font-bold outline-none [color-scheme:dark]" />

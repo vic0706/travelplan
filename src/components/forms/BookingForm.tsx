@@ -409,40 +409,34 @@ export function BookingForm({ initialData, onSubmit, onCancel, onDelete, loading
           {/* 入住 */}
           <div className="space-y-3">
             <p className="text-[10px] font-bold text-zinc-500 uppercase tracking-wider">入住</p>
-            <div className="grid grid-cols-2 gap-3">
-              {timeInput('入住時間', formData.start_time, v => set('start_time', v))}
-              <div className="space-y-1">
-                <label className="text-[10px] font-bold text-zinc-400 uppercase tracking-widest flex items-center justify-between">
-                  <span>辦理時間</span>
-                  {hotelCheckInCalc && <span className="text-orange-400 font-black normal-case text-[9px]">完成約 {hotelCheckInCalc}</span>}
-                </label>
-                <div className="flex items-center gap-2 pt-1">
-                  <input type="range" min="0" max="120" step="5" value={checkInStay}
-                    onChange={e => setCheckInStay(parseInt(e.target.value))}
-                    className="flex-1 accent-orange-500 h-1.5 bg-zinc-800 rounded-lg appearance-none cursor-pointer outline-none" />
-                  <span className="text-xs font-black text-orange-500 w-10 text-right shrink-0">{checkInStay}分</span>
-                </div>
+            {timeInput('入住時間', formData.start_time, v => set('start_time', v))}
+            <div className="space-y-1.5">
+              <div className="flex items-center justify-between">
+                <label className="text-[10px] font-bold text-zinc-400 uppercase tracking-widest">辦理時間</label>
+                <span className="text-[9px] font-black text-orange-400 normal-case">
+                  {checkInStay}分{hotelCheckInCalc && ` · 完成約 ${hotelCheckInCalc}`}
+                </span>
               </div>
+              <input type="range" min="0" max="120" step="5" value={checkInStay}
+                onChange={e => setCheckInStay(parseInt(e.target.value))}
+                className="w-full accent-orange-500 h-1.5 bg-zinc-800 rounded-lg appearance-none cursor-pointer outline-none" />
             </div>
           </div>
 
           {/* 退房 */}
           <div className="space-y-3 border-t border-zinc-800 pt-3">
             <p className="text-[10px] font-bold text-zinc-500 uppercase tracking-wider">退房</p>
-            <div className="grid grid-cols-2 gap-3">
-              {timeInput('退房時間', formData.end_time, v => set('end_time', v))}
-              <div className="space-y-1">
-                <label className="text-[10px] font-bold text-zinc-400 uppercase tracking-widest flex items-center justify-between">
-                  <span>辦理時間</span>
-                  {hotelCheckOutCalc && <span className="text-orange-400 font-black normal-case text-[9px]">完成約 {hotelCheckOutCalc}</span>}
-                </label>
-                <div className="flex items-center gap-2 pt-1">
-                  <input type="range" min="0" max="120" step="5" value={checkOutStay}
-                    onChange={e => setCheckOutStay(parseInt(e.target.value))}
-                    className="flex-1 accent-orange-500 h-1.5 bg-zinc-800 rounded-lg appearance-none cursor-pointer outline-none" />
-                  <span className="text-xs font-black text-orange-500 w-10 text-right shrink-0">{checkOutStay}分</span>
-                </div>
+            {timeInput('退房時間', formData.end_time, v => set('end_time', v))}
+            <div className="space-y-1.5">
+              <div className="flex items-center justify-between">
+                <label className="text-[10px] font-bold text-zinc-400 uppercase tracking-widest">辦理時間</label>
+                <span className="text-[9px] font-black text-orange-400 normal-case">
+                  {checkOutStay}分{hotelCheckOutCalc && ` · 完成約 ${hotelCheckOutCalc}`}
+                </span>
               </div>
+              <input type="range" min="0" max="120" step="5" value={checkOutStay}
+                onChange={e => setCheckOutStay(parseInt(e.target.value))}
+                className="w-full accent-orange-500 h-1.5 bg-zinc-800 rounded-lg appearance-none cursor-pointer outline-none" />
             </div>
           </div>
 

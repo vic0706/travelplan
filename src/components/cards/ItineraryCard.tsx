@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Car, Train, Bus, AlertTriangle, Star, Plus, Footprints, Bike, Navigation2, Sparkles, Clock, Asterisk, ChevronLeft, ChevronRight, List } from 'lucide-react';
+import { Car, Train, Bus, AlertTriangle, Star, Plus, Footprints, Bike, Navigation2, Sparkles, Clock, Asterisk, ChevronLeft, ChevronRight } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Itinerary } from '../../types';
 import { DynamicIcon } from '../common/DynamicIcon';
@@ -316,20 +316,22 @@ export function ItineraryCard({
           isCircuitBreaker ? 'border-red-500/30' : 'border-zinc-800/60',
         )}>
 
-          {/* 詳情按鈕 */}
+          {/* 詳情文字標籤 */}
           {hasContent && (
             <button
               type="button"
               onClick={handleDetailBtn}
               className={clsx(
-                'px-3.5 flex items-center justify-center border-r transition-all',
+                'px-4 py-3 flex items-center justify-center border-r transition-all min-w-[88px]',
                 isCircuitBreaker ? 'border-red-500/30' : 'border-zinc-800/60',
                 overlayVisible
                   ? 'text-orange-500 bg-orange-500/8'
                   : 'text-zinc-600 hover:text-zinc-400 hover:bg-zinc-800/30',
               )}
             >
-              <List size={14} strokeWidth={1.8} />
+              <span className="text-[9px] font-black tracking-widest leading-none">
+                備注・標籤・子活動
+              </span>
             </button>
           )}
 

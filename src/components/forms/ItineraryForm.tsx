@@ -133,10 +133,24 @@ export function ItineraryForm({ tripId, date, onSuccess, onCancel, initialData }
     return () => clearTimeout(timer);
   }, [formData.address, isLocationManuallyEdited]);
 
-  const handleSuggestionSelect = (suggestion: any) => {
+  const handleSuggestionSelect = async (suggestion: any) => {
     setFormData(prev => ({ ...prev, address: suggestion.description, google_place_id: suggestion.place_id }));
     setSuggestions([]);
     setIsLocationManuallyEdited(false);
+    // Auto-fetch place details (coordinates + photo) on selection
+    setIsSearching(true);
+    try {
+      const cached = await getCachedPlaceDetails(suggestion.place_id);
+      if (cached) { applyPlaceDetails(cached); return; }
+      const res = await apiFetch(`/api/places/details?placeId=${suggestion.place_id}&session=${sessionToken.current}`);
+      if (res.ok) {
+        const details = await res.json();
+        await cachePlaceDetails(suggestion.place_id, details);
+        applyPlaceDetails(details);
+        sessionToken.current = Math.random().toString(36).substring(2);
+      }
+    } catch { /* silent */ }
+    finally { setIsSearching(false); }
   };
 
   const handleFetchDetails = async () => {
