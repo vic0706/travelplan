@@ -115,36 +115,32 @@ export function TripSettingsForm({ trip, onUpdate, onDelete, onClose, showToast 
       <div className="flex flex-col h-full bg-zinc-950 rounded-3xl border border-zinc-800 overflow-hidden">
 
         {/* ✅ 標題列：移除 "Trip Settings" 文字，只留 AI 功能按鈕 */}
-        <div className="px-5 py-4 flex items-center justify-end border-b border-zinc-800/50">
-          <div className="flex items-center gap-2">
-            <button
-              type="button"
-              title="AI Computation: Update weather & places"
-              disabled={isComputing || loading}
-              onClick={handleCompute}
-              className="flex flex-col items-center gap-1 px-4 py-2.5 text-orange-500 hover:bg-orange-500/10 rounded-2xl transition-all disabled:opacity-30 min-w-[64px]"
-            >
-              {isComputing
-                ? <Loader2 size={24} className="animate-spin" />
-                : <Cpu size={24} />
-              }
-              <span className="text-[9px] font-black uppercase tracking-widest leading-none">Compute</span>
-            </button>
+        <div className="px-5 py-4 flex items-center gap-3 border-b border-zinc-800/50">
+          <button
+            type="button"
+            disabled={isComputing || loading}
+            onClick={handleCompute}
+            className="flex items-center gap-3 px-4 py-3 text-orange-500 hover:bg-orange-500/10 rounded-2xl transition-all disabled:opacity-30 border border-orange-500/20"
+          >
+            {isComputing ? <Loader2 size={20} className="animate-spin shrink-0" /> : <Cpu size={20} className="shrink-0" />}
+            <div className="text-left">
+              <div className="text-xs font-black tracking-wide leading-none">運算</div>
+              <div className="text-[9px] text-orange-500/60 mt-0.5 leading-none">更新天氣・景點資料</div>
+            </div>
+          </button>
 
-            <button
-              type="button"
-              title="AI Optimization: Re-sort itinerary flow"
-              disabled={isOptimizing || loading}
-              onClick={handleOptimize}
-              className="flex flex-col items-center gap-1 px-4 py-2.5 text-orange-500 hover:bg-orange-500/10 rounded-2xl transition-all disabled:opacity-30 min-w-[64px]"
-            >
-              {isOptimizing
-                ? <Loader2 size={24} className="animate-spin" />
-                : <Wand2 size={24} />
-              }
-              <span className="text-[9px] font-black uppercase tracking-widest leading-none">Optimize</span>
-            </button>
-          </div>
+          <button
+            type="button"
+            disabled={isOptimizing || loading}
+            onClick={handleOptimize}
+            className="flex items-center gap-3 px-4 py-3 text-orange-500 hover:bg-orange-500/10 rounded-2xl transition-all disabled:opacity-30 border border-orange-500/20"
+          >
+            {isOptimizing ? <Loader2 size={20} className="animate-spin shrink-0" /> : <Wand2 size={20} className="shrink-0" />}
+            <div className="text-left">
+              <div className="text-xs font-black tracking-wide leading-none">優化</div>
+              <div className="text-[9px] text-orange-500/60 mt-0.5 leading-none">AI 重排行程順序</div>
+            </div>
+          </button>
         </div>
 
         {/* 表單內容 */}
@@ -153,7 +149,7 @@ export function TripSettingsForm({ trip, onUpdate, onDelete, onClose, showToast 
             initialData={trip}
             onSubmit={handleAutoSave}
             loading={loading}
-            submitText="Save"
+            submitText="儲存"
             onChange={handleAutoSave}
             hideSubmit={true}
             extraButtons={
@@ -164,7 +160,7 @@ export function TripSettingsForm({ trip, onUpdate, onDelete, onClose, showToast 
                   className="w-full bg-red-500/10 hover:bg-red-500/20 active:bg-red-500/30 text-red-500 font-bold rounded-2xl py-4 transition-colors border border-red-500/20 flex items-center justify-center gap-2"
                 >
                   <Trash2 size={18} />
-                  <span className="uppercase tracking-widest text-xs font-black">Delete Trip</span>
+                  <span className="uppercase tracking-widest text-xs font-black">刪除行程</span>
                 </button>
               </div>
             }
@@ -201,9 +197,9 @@ export function TripSettingsForm({ trip, onUpdate, onDelete, onClose, showToast 
               <div className="w-16 h-16 bg-red-500/10 rounded-full flex items-center justify-center mb-5 border border-red-500/20 relative z-10">
                 <AlertTriangle size={32} className="text-red-500" />
               </div>
-              <h3 className="text-lg font-black text-white uppercase tracking-widest mb-3 relative z-10">Date Conflict</h3>
+              <h3 className="text-lg font-black text-white uppercase tracking-widest mb-3 relative z-10">日期衝突</h3>
               <p className="text-sm text-zinc-400 mb-4 leading-relaxed relative z-10">
-                Activities outside range: <br />
+                超出範圍的活動：<br />
                 <span className="font-mono font-bold text-red-400 bg-red-500/10 px-3 py-1 rounded-lg block mt-3 inline-block">
                   {outOfBoundsDates.join(', ')}
                 </span>
@@ -213,14 +209,14 @@ export function TripSettingsForm({ trip, onUpdate, onDelete, onClose, showToast 
                   onClick={() => setPendingSaveData(null)}
                   className="flex-1 py-4 bg-zinc-800 text-white font-bold rounded-2xl transition-colors"
                 >
-                  Cancel
+                  取消
                 </button>
                 <button
                   onClick={() => performSave(pendingSaveData, true)}
                   disabled={loading}
                   className="flex-[1.5] py-4 bg-red-500 hover:bg-red-600 text-white font-black uppercase tracking-widest text-[12px] rounded-2xl transition-colors shadow-lg shadow-red-500/20 flex items-center justify-center gap-2"
                 >
-                  {loading ? <Loader2 size={18} className="animate-spin" /> : 'Proceed Anyway'}
+                  {loading ? <Loader2 size={18} className="animate-spin" /> : '強制儲存'}
                 </button>
               </div>
             </motion.div>

@@ -10,7 +10,7 @@ const renderLocation = (loc: string, terminal?: string) => {
   if (loc.startsWith('http')) {
       return (
           <a href={loc} target="_blank" rel="noopener noreferrer" className="text-orange-500 hover:text-orange-400 hover:underline transition-colors" onClick={e => e.stopPropagation()}>
-              [ Map Link ]
+              [ 地圖連結 ]
           </a>
       );
   }

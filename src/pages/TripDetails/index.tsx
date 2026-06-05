@@ -136,8 +136,12 @@ export function TripDetails() {
   const [expandSignal, setExpandSignal]   = useState(0);
   const [collapseSignal, setCollapseSignal] = useState(0);
 
-  // ── Weather Modal ────────────────────────────────────────────────────
-  const [isWeatherModalOpen, setIsWeatherModalOpen] = useState(false);
+  // ── Weather 展開/收起（連動 ItineraryTab 的 WeatherWidget）───────────
+  const [isWeatherExpanded, setIsWeatherExpanded] = useState(false);
+  const handleWeatherChipClick = () => {
+    if (activeTab !== 'itinerary') setActiveTab('itinerary');
+    setIsWeatherExpanded(v => !v);
+  };
 
   // ── Toast ────────────────────────────────────────────────────────────
   const [toast, setToast] = useState<{ message: string; type: 'success' | 'error'; visible: boolean }>({
@@ -203,7 +207,7 @@ export function TripDetails() {
           await db.itineraries.delete(itineraryId);
           setIsItineraryFormOpen(false); setEditingItinerary(null);
           setConfirmConfig(prev => ({ ...prev, isOpen: false }));
-        } catch (err) { console.error(err); alert('刪除活動失敗'); }
+        } catch (err) { console.error(err); showToast('刪除活動失敗', 'error'); }
       }
     });
   };
@@ -222,8 +226,9 @@ export function TripDetails() {
           );
           if (relatedItineraries.length > 0) await db.itineraries.bulkDelete(relatedItineraries.map(i => i.id));
           setIsBookingFormOpen(false); setEditingBooking(null);
+          showToast('訂票已刪除', 'success');
           setConfirmConfig(prev => ({ ...prev, isOpen: false }));
-        } catch (err) { console.error(err); alert('刪除訂票失敗'); }
+        } catch (err) { console.error(err); showToast('刪除訂票失敗', 'error'); }
       }
     });
   };
@@ -312,154 +317,85 @@ export function TripDetails() {
           - 封面圖收起時：純黑 header bar，兩行佈局
       ══════════════════════════════════════════════════ */}
       <div className="shrink-0 z-30 relative w-full">
-        <AnimatePresence initial={false}>
-          {isCoverExpanded ? (
-            /* ─── 展開狀態：封面圖全寬，所有元素浮層 ─── */
-            <motion.div
-              key="expanded"
-              initial={{ height: 0, opacity: 0 }}
-              animate={{ height: 220, opacity: 1 }}
-              exit={{ height: 0, opacity: 0 }}
-              transition={{ duration: 0.32, ease: 'easeInOut' }}
-              className="relative w-full overflow-hidden"
-              style={{ paddingTop: 'env(safe-area-inset-top)' }}
+        {/* 單一 motion.div 動畫高度，避免 AnimatePresence 切換造成跑版 */}
+        <motion.div
+          className="relative w-full overflow-hidden"
+          animate={{ height: isCoverExpanded ? 220 : 130 }}
+          transition={{ duration: 0.32, ease: [0.32, 0.72, 0, 1] }}
+          style={{ paddingTop: 'env(safe-area-inset-top)' }}
+        >
+          {/* 封面圖 */}
+          <img
+            src={tripCoverImageUrl}
+            alt={trip.title}
+            className="absolute inset-0 w-full h-full object-cover object-bottom"
+            referrerPolicy="no-referrer"
+          />
+          {/* 漸層遮罩 */}
+          <div className="absolute inset-0 bg-gradient-to-b from-black/80 via-black/20 to-black/80 pointer-events-none" />
+
+          {/* 頂部工具列 */}
+          <div className="absolute top-0 left-0 right-0 flex items-center justify-between px-4 pt-3">
+            <button
+              onClick={() => navigate('/')}
+              className="p-2 bg-black/40 backdrop-blur-md rounded-full text-white border border-white/20"
             >
-              {/* 封面圖 */}
-              <img
-                src={tripCoverImageUrl}
-                alt={trip.title}
-                className="absolute inset-0 w-full h-full object-cover"
-                referrerPolicy="no-referrer"
-              />
-              {/* 漸層遮罩：上下皆深 */}
-              <div className="absolute inset-0 bg-gradient-to-b from-black/70 via-transparent to-black/80 pointer-events-none" />
-
-              {/* 頂部工具列（浮在圖上） */}
-              <div className="absolute top-0 left-0 right-0 flex items-center justify-between px-4 pt-3">
-                <button
-                  onClick={() => navigate('/')}
-                  className="p-2 bg-black/40 backdrop-blur-md rounded-full text-white border border-white/20"
-                >
-                  <ArrowLeft size={20} />
-                </button>
-                <div className="flex items-center gap-2">
-                  {/* 相片收起按鈕 */}
-                  <button
-                    onClick={() => setIsCoverExpanded(false)}
-                    className="p-2 bg-orange-500/80 backdrop-blur-md rounded-full text-white border border-orange-400/40"
-                    title="Hide cover"
-                  >
-                    <Camera size={18} />
-                  </button>
-                  {hasEditPermission && (
-                    <button
-                      onClick={() => setIsEditMode(v => !v)}
-                      className={clsx(
-                        'p-2 rounded-full transition-all border backdrop-blur-md',
-                        isEditMode
-                          ? 'bg-orange-500 text-white border-orange-500'
-                          : 'bg-black/40 text-white border-white/20'
-                      )}
-                    >
-                      {isEditMode ? <Unlock size={18} /> : <Edit3 size={18} />}
-                    </button>
-                  )}
-                </div>
-              </div>
-
-              {/* 底部：行程標題 + 天氣（浮在圖片上） */}
-              <div className="absolute bottom-0 left-0 right-0 px-4 pb-3 flex items-end justify-between">
-                <h1
-                  className="flex-1 text-xl font-black text-white truncate tracking-tight drop-shadow-[0_2px_8px_rgba(0,0,0,0.8)] mr-3"
-                  title={trip.title}
-                >
-                  {trip.title}
-                </h1>
-                {/* 天氣（可點擊打開 Modal） */}
-                {selectedDateWeather && (
-                  <button
-                    onClick={() => setIsWeatherModalOpen(true)}
-                    className="shrink-0 flex items-center gap-2 bg-black/40 backdrop-blur-md rounded-2xl px-3 py-2 border border-white/10 hover:bg-black/60 transition-all active:scale-95"
-                  >
-                    {getWeatherIcon(selectedDateWeather.weather_code, 20)}
-                    <div className="flex flex-col items-start leading-none">
-                      <span className="text-[11px] font-bold text-white">{selectedDateWeather.max_temp}°</span>
-                      <span className="text-[9px] text-zinc-300">{selectedDateWeather.min_temp}°</span>
-                    </div>
-                  </button>
+              <ArrowLeft size={20} />
+            </button>
+            <div className="flex items-center gap-2">
+              <button
+                onClick={() => setIsCoverExpanded(v => !v)}
+                className={clsx(
+                  'p-2 backdrop-blur-md rounded-full border transition-all',
+                  isCoverExpanded
+                    ? 'bg-orange-500/80 text-white border-orange-400/40'
+                    : 'bg-black/40 text-zinc-300 border-white/20 hover:bg-white/20'
                 )}
-              </div>
-            </motion.div>
-          ) : (
-            /* ─── 收起狀態：純黑 header bar，兩行 ─── */
-            <motion.div
-              key="collapsed"
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              exit={{ opacity: 0 }}
-              transition={{ duration: 0.2 }}
-              className="w-full bg-black/95 backdrop-blur-xl border-b border-zinc-800 flex flex-col"
-              style={{ paddingTop: 'max(0.75rem, env(safe-area-inset-top))', paddingBottom: '0.75rem' }}
+              >
+                <Camera size={18} />
+              </button>
+              {hasEditPermission && (
+                <button
+                  onClick={() => setIsEditMode(v => !v)}
+                  className={clsx(
+                    'p-2 rounded-full transition-all border backdrop-blur-md',
+                    isEditMode
+                      ? 'bg-orange-500 text-white border-orange-500'
+                      : 'bg-black/40 text-white border-white/20 hover:bg-white/20'
+                  )}
+                >
+                  {isEditMode ? <Unlock size={18} /> : <Edit3 size={18} />}
+                </button>
+              )}
+            </div>
+          </div>
+
+          {/* 底部：標題 + 天氣 */}
+          <div className="absolute bottom-0 left-0 right-0 px-4 pb-3 flex items-end justify-between">
+            <h1
+              className="flex-1 text-xl font-black text-white truncate tracking-tight drop-shadow-[0_2px_8px_rgba(0,0,0,0.8)] mr-3"
+              title={trip.title}
             >
-              {/* Row 1: 返回 + 右側按鈕 */}
-              <div className="flex items-center justify-between px-4 mb-2">
-                <button
-                  onClick={() => navigate('/')}
-                  className="p-2 bg-zinc-900 rounded-full text-white hover:bg-zinc-800 transition-colors border border-zinc-700"
-                >
-                  <ArrowLeft size={20} />
-                </button>
-                <div className="flex items-center gap-2">
-                  {/* 相片展開按鈕 */}
-                  <button
-                    onClick={() => setIsCoverExpanded(true)}
-                    className="p-2 bg-zinc-900 rounded-full text-zinc-400 hover:text-white hover:bg-zinc-800 transition-all border border-zinc-700"
-                    title="Show cover photo"
-                  >
-                    <Camera size={18} />
-                  </button>
-                  {hasEditPermission && (
-                    <button
-                      onClick={() => setIsEditMode(v => !v)}
-                      className={clsx(
-                        'p-2 rounded-full transition-all border',
-                        isEditMode
-                          ? 'bg-orange-500 text-white border-orange-500'
-                          : 'bg-zinc-900 text-zinc-400 hover:text-white hover:bg-zinc-800 border-zinc-700'
-                      )}
-                    >
-                      {isEditMode ? <Unlock size={18} /> : <Edit3 size={18} />}
-                    </button>
-                  )}
-                </div>
-              </div>
-
-              {/* Row 2: 標題 + 天氣按鈕 */}
-              <div className="flex items-center justify-between px-4">
-                <h1
-                  className="flex-1 text-base font-black text-white truncate tracking-tight mr-2"
-                  title={trip.title}
-                >
-                  {trip.title}
-                </h1>
-                {selectedDateWeather ? (
-                  /* ── 天氣可點擊按鈕 ── */
-                  <button
-                    onClick={() => setIsWeatherModalOpen(true)}
-                    className="shrink-0 flex items-center gap-1.5 bg-zinc-900 hover:bg-zinc-800 active:scale-95 rounded-xl px-2.5 py-1.5 border border-zinc-700 hover:border-zinc-500 transition-all"
-                  >
-                    {getWeatherIcon(selectedDateWeather.weather_code, 16)}
-                    <span className="text-[11px] font-bold text-white leading-none">{selectedDateWeather.min_temp}°</span>
-                    <span className="text-[9px] text-zinc-400 leading-none">/</span>
-                    <span className="text-[11px] font-bold text-orange-400 leading-none">{selectedDateWeather.max_temp}°</span>
-                  </button>
-                ) : (
-                  <div className="shrink-0 w-8" />
+              {trip.title}
+            </h1>
+            {selectedDateWeather ? (
+              <span
+                onClick={handleWeatherChipClick}
+                className={clsx(
+                  'shrink-0 flex items-center gap-1.5 cursor-pointer select-none transition-opacity active:opacity-50',
+                  isWeatherExpanded ? 'opacity-100' : 'opacity-70 hover:opacity-100'
                 )}
-              </div>
-            </motion.div>
-          )}
-        </AnimatePresence>
+              >
+                {getWeatherIcon(selectedDateWeather.weather_code, 18)}
+                <span className="text-xs font-bold text-white drop-shadow">
+                  {selectedDateWeather.min_temp}°/{selectedDateWeather.max_temp}°
+                </span>
+              </span>
+            ) : (
+              <div className="shrink-0 w-4" />
+            )}
+          </div>
+        </motion.div>
       </div>
 
       {/* ── 日期列 ───────────────────────────────────────────────────── */}
@@ -525,6 +461,8 @@ export function TripDetails() {
             canEdit={canEdit}
             expandSignal={expandSignal}
             collapseSignal={collapseSignal}
+            isWeatherExpanded={isWeatherExpanded}
+            onToggleWeather={() => setIsWeatherExpanded(v => !v)}
             onAddActivity={() => { setEditingItinerary(null); setIsItineraryFormOpen(true); }}
             onEditItinerary={(item) => { setEditingItinerary(item); setIsItineraryFormOpen(true); }}
             onEditNextTransport={(item) => { setEditingItinerary(item); setIsNextTransportFormOpen(true); }}
@@ -598,36 +536,10 @@ export function TripDetails() {
               activeTab === 'settings' ? 'text-orange-500 bg-orange-500/10' : 'text-zinc-500 hover:text-zinc-300 hover:bg-zinc-800/50'
             )}>
             <Settings size={activeTab === 'settings' ? 24 : 22} className="transition-all duration-300" />
-            <span className="text-[10px] font-bold tracking-wide">Settings</span>
+            <span className="text-[10px] font-bold tracking-wide">設定</span>
           </button>
         )}
       </div>
-
-      {/* ── Weather Modal（點擊天氣按鈕後跳出） ──────────────────────── */}
-      <AnimatePresence>
-        {isWeatherModalOpen && id && (
-          <div className="fixed inset-0 z-[200] flex items-end justify-center">
-            <motion.div
-              initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
-              onClick={() => setIsWeatherModalOpen(false)}
-              className="absolute inset-0 bg-black/60 backdrop-blur-sm"
-            />
-            <motion.div
-              initial={{ y: '100%' }} animate={{ y: 0 }} exit={{ y: '100%' }}
-              transition={{ type: 'spring', stiffness: 340, damping: 36 }}
-              className="relative w-full max-w-lg bg-zinc-950 border-t border-zinc-800 rounded-t-[32px] overflow-hidden p-5 pb-10"
-            >
-              <WeatherWidget
-                tripId={Number(id)}
-                date={selectedDate}
-                isFutureTrip={isFutureTrip}
-                forceExpanded={true}
-                onClose={() => setIsWeatherModalOpen(false)}
-              />
-            </motion.div>
-          </div>
-        )}
-      </AnimatePresence>
 
       {/* Toast */}
       <Toast message={toast.message} type={toast.type} visible={toast.visible} />
@@ -636,12 +548,13 @@ export function TripDetails() {
       <AnimatePresence>
         {isItineraryFormOpen && (
           <div className="fixed inset-0 z-[100] flex items-end justify-center bg-black/80 backdrop-blur-sm sm:items-center p-4">
-            <motion.div initial={{ y: '100%' }} animate={{ y: 0 }} exit={{ y: '100%' }} className="w-full max-w-md max-h-[90vh]">
+            <motion.div initial={{ y: '100%' }} animate={{ y: 0 }} exit={{ y: '100%' }} transition={{ duration: 0.22, ease: [0.32, 0.72, 0, 1] }} className="w-full max-w-md max-h-[90vh]">
               <ItineraryForm
                 tripId={Number(id)}
                 date={selectedDate ? format(selectedDate, 'yyyy-MM-dd') : ''}
                 initialData={editingItinerary}
-                onSuccess={() => { setIsItineraryFormOpen(false); setEditingItinerary(null); refreshTripData(); }}
+                showToast={showToast}
+                onSuccess={() => { setIsItineraryFormOpen(false); setEditingItinerary(null); setTimeout(() => refreshTripData(), 300); }}
                 onCancel={() => { setIsItineraryFormOpen(false); setEditingItinerary(null); }}
               />
             </motion.div>
@@ -650,13 +563,14 @@ export function TripDetails() {
 
         {isFinanceFormOpen && (
           <div className="fixed inset-0 z-[100] flex items-end justify-center bg-black/80 backdrop-blur-sm sm:items-center p-4">
-            <motion.div initial={{ y: '100%' }} animate={{ y: 0 }} exit={{ y: '100%' }} className="w-full max-w-md max-h-[90vh]">
+            <motion.div initial={{ y: '100%' }} animate={{ y: 0 }} exit={{ y: '100%' }} transition={{ duration: 0.22, ease: [0.32, 0.72, 0, 1] }} className="w-full max-w-md max-h-[90vh]">
               <FinanceForm
                 tripId={String(id)}
                 defaultDate={selectedDate ? format(selectedDate, 'yyyy-MM-dd') : undefined}
                 currencies={trip.currencies || ['TWD']}
                 initialData={editingExpense}
-                onSuccess={() => { setIsFinanceFormOpen(false); setEditingExpense(null); refreshTripData(); }}
+                showToast={showToast}
+                onSuccess={() => { setIsFinanceFormOpen(false); setEditingExpense(null); setTimeout(() => refreshTripData(), 300); }}
                 onCancel={() => { setIsFinanceFormOpen(false); setEditingExpense(null); }}
               />
             </motion.div>
@@ -665,7 +579,7 @@ export function TripDetails() {
 
         {isBookingFormOpen && (
           <div className="fixed inset-0 z-[100] flex items-end justify-center bg-black/80 backdrop-blur-sm sm:items-center p-4">
-            <motion.div initial={{ y: '100%' }} animate={{ y: 0 }} exit={{ y: '100%' }} className="w-full max-w-md bg-zinc-900 rounded-3xl p-6 shadow-2xl max-h-[90vh] overflow-y-auto">
+            <motion.div initial={{ y: '100%' }} animate={{ y: 0 }} exit={{ y: '100%' }} transition={{ duration: 0.22, ease: [0.32, 0.72, 0, 1] }} className="w-full max-w-md">
               <BookingForm
                 initialData={editingBooking}
                 onSubmit={async (data) => {
@@ -673,20 +587,15 @@ export function TripDetails() {
                   try {
                     const endpoint = editingBooking ? `/api/trips/${id}/bookings/${editingBooking.id}` : `/api/trips/${id}/bookings`;
                     const method = editingBooking ? 'PUT' : 'POST';
-                    await apiFetch(endpoint, { method, body: JSON.stringify(data) });
-                    setIsBookingFormOpen(false); setEditingBooking(null); refreshTripData();
-                  } catch (e) { alert('儲存訂票失敗'); }
+                    const res = await apiFetch(endpoint, { method, body: JSON.stringify(data) });
+                    if (!res.ok) throw new Error('Failed');
+                    showToast('訂票已儲存', 'success');
+                    setIsBookingFormOpen(false); setEditingBooking(null); setTimeout(() => refreshTripData(), 300);
+                  } catch (e) { showToast('儲存訂票失敗', 'error'); }
                 }}
                 onCancel={() => { setIsBookingFormOpen(false); setEditingBooking(null); }}
+                onDelete={editingBooking ? () => handleDeleteBooking(editingBooking.id) : undefined}
               />
-              {editingBooking && (
-                <div className="mt-4 pt-4 border-t border-zinc-800">
-                  <button onClick={() => handleDeleteBooking(editingBooking.id)}
-                    className="w-full py-3 text-red-500 bg-red-500/10 hover:bg-red-500/20 font-bold rounded-xl transition-colors">
-                    Delete Booking
-                  </button>
-                </div>
-              )}
             </motion.div>
           </div>
         )}
@@ -699,11 +608,14 @@ export function TripDetails() {
             onSave={async (data) => {
               if (!id) return;
               try {
-                await apiFetch(`/api/trips/${id}/itineraries/${editingItinerary.id}`, {
+                const res = await apiFetch(`/api/trips/${id}/itineraries/${editingItinerary.id}`, {
                   method: 'PUT', body: JSON.stringify({ ...editingItinerary, ...data })
                 });
-                setIsNextTransportFormOpen(false); setEditingItinerary(null); refreshTripData();
-              } catch (e) { alert('儲存交通資訊失敗'); }
+                if (!res.ok) throw new Error('Failed');
+                const isEmpty = !data.next_transport_mode;
+                showToast(isEmpty ? '交通資訊已清除' : '交通已設定', 'success');
+                setIsNextTransportFormOpen(false); setEditingItinerary(null); setTimeout(() => refreshTripData(), 300);
+              } catch (e) { showToast('儲存交通資訊失敗', 'error'); }
             }}
           />
         )}
