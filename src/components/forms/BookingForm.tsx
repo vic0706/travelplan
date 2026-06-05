@@ -1,6 +1,6 @@
 import React, { useState, useMemo } from 'react';
-import { X, MapPin, Loader2, Plane, Train, Ship, Car, Bed, ArrowLeft, Clock, Calendar, ArrowRight } from 'lucide-react';
-import { motion, AnimatePresence } from 'framer-motion';
+import { X, MapPin, Loader2, Plane, Train, Ship, Car, Bed, Bus, ArrowLeft, Clock } from 'lucide-react';
+import { motion } from 'framer-motion';
 import { LocationPicker } from '../pickers/LocationPicker';
 import { DateRangePicker } from '../pickers/DateRangePicker';
 import { BookingCategory } from '../../types';
@@ -9,13 +9,51 @@ import { format, parseISO } from 'date-fns';
 import { useAppStore } from '../../store';
 
 const BOOKING_CATEGORIES: { id: BookingCategory; label: string; icon: React.ElementType; description: string }[] = [
-  { id: 'HOTEL',            label: '住宿',    icon: Bed,   description: '飯店・民宿・旅館' },
-  { id: 'FLIGHT',           label: '機票',    icon: Plane, description: '國內外航班' },
-  { id: 'TRAIN',            label: '火車',    icon: Train, description: '高鐵・捷運・電車' },
-  { id: 'FERRY',            label: '船票',    icon: Ship,  description: '渡輪・遊輪' },
-  { id: 'RENTAL',           label: '租車',    icon: Car,   description: '自駕・租賃車輛' },
-  { id: 'PRIVATE_TRANSFER', label: '接送',    icon: Car,   description: '包車・計程車' },
+  { id: 'HOTEL',            label: '住宿',      icon: Bed,   description: '飯店・民宿・旅館' },
+  { id: 'FLIGHT',           label: '機票',      icon: Plane, description: '國內外航班' },
+  { id: 'TRAIN',            label: '火車',      icon: Train, description: '高鐵・捷運・電車' },
+  { id: 'FERRY',            label: '船票',      icon: Ship,  description: '渡輪・遊輪' },
+  { id: 'RENTAL',           label: '租車',      icon: Car,   description: '自駕・租賃車輛' },
+  { id: 'PRIVATE_TRANSFER', label: '接送',      icon: Car,   description: '包車・計程車' },
+  { id: 'BUS',              label: '公車/巴士', icon: Bus,   description: '客運・市區公車' },
 ];
+
+const getProviderLabel = (cat: BookingCategory) => {
+  switch (cat) {
+    case 'HOTEL':            return '訂購平台';
+    case 'FLIGHT':           return '航空公司';
+    case 'TRAIN':            return '車種車型';
+    case 'FERRY':            return '船種船型';
+    case 'BUS':              return '巴士業者';
+    default:                 return '供應商';
+  }
+};
+
+const getProviderPlaceholder = (cat: BookingCategory) => {
+  switch (cat) {
+    case 'HOTEL':            return 'Booking.com・Agoda';
+    case 'FLIGHT':           return '中華航空・長榮';
+    case 'TRAIN':            return '高鐵自由座・台鐵莒光';
+    case 'FERRY':            return '台灣好行・麗娜輪';
+    case 'BUS':              return '統聯・阿羅哈';
+    default:                 return '供應商名稱';
+  }
+};
+
+const getTerminalLabel = (cat: BookingCategory) => {
+  if (cat === 'FLIGHT') return '航廈';
+  if (cat === 'BUS')    return '站牌';
+  return '月台';
+};
+
+const addMinutes = (time: string, minutes: number) => {
+  if (!time || minutes === 0) return '';
+  const [h, m] = time.split(':').map(Number);
+  const total = h * 60 + m + minutes;
+  const nh = Math.floor(((total % 1440) + 1440) % 1440 / 60);
+  const nm = ((total % 60) + 60) % 60;
+  return `${nh.toString().padStart(2,'0')}:${nm.toString().padStart(2,'0')}`;
+};
 
 interface BookingFormData {
   category: BookingCategory;
@@ -46,29 +84,13 @@ const timeInput = (label: string, value: string, onChange: (v: string) => void, 
   <div className="space-y-1">
     <label className="text-[10px] font-bold text-zinc-400 uppercase tracking-widest flex items-center justify-between">
       <span>{label}</span>
-      {hint && <span className="text-[9px] text-orange-400 font-normal normal-case">{hint}</span>}
+      {hint && <span className="text-[9px] text-orange-400 font-black normal-case">{hint}</span>}
     </label>
     <div className="flex items-center bg-zinc-900 border border-zinc-800 rounded-xl px-3 py-2.5 gap-2 focus-within:border-orange-500 transition-colors">
       <Clock size={14} className="text-orange-500 shrink-0" />
       <input type="time" value={value} onChange={e => onChange(e.target.value)}
         className="flex-1 bg-transparent text-white font-mono font-bold text-sm outline-none [color-scheme:dark]" />
     </div>
-  </div>
-);
-
-const durationSlider = (label: string, value: number, onChange: (v: number) => void, max = 240, hint?: string) => (
-  <div className="space-y-1.5">
-    <div className="flex items-center justify-between">
-      <label className="text-[10px] font-bold text-zinc-400 uppercase tracking-widest">{label}</label>
-      <div className="flex items-center gap-1 bg-zinc-900 border border-zinc-800 rounded-lg px-2 py-1">
-        <span className="text-xs font-black text-orange-500">{value}</span>
-        <span className="text-[10px] text-zinc-500">分</span>
-      </div>
-    </div>
-    <input type="range" min="0" max={max} step="5" value={value}
-      onChange={e => onChange(parseInt(e.target.value))}
-      className="w-full accent-orange-500 h-1.5 bg-zinc-800 rounded-lg appearance-none cursor-pointer outline-none" />
-    {hint && <p className="text-[9px] text-zinc-500">{hint}</p>}
   </div>
 );
 
@@ -99,23 +121,27 @@ export function BookingForm({ initialData, onSubmit, onCancel, loading = false }
     notes: initialData?.notes || '',
     image_url: initialData?.image_url || '',
     details: initialDetails,
-    google_place_id: initialData?.google_place_id || ''
+    google_place_id: initialData?.google_place_id || '',
   });
 
   // Hotel specific
-  const [checkInStay, setCheckInStay] = useState<number>(initialDetails.check_in_stay ?? 30);
-  const [checkOutStay, setCheckOutStay] = useState<number>(initialDetails.check_out_stay ?? 30);
+  const [checkInStay,     setCheckInStay]     = useState<number>(initialDetails.check_in_stay    ?? 30);
+  const [checkOutStay,    setCheckOutStay]     = useState<number>(initialDetails.check_out_stay   ?? 30);
   const [dailyDepartStay, setDailyDepartStay] = useState<number>(initialDetails.daily_depart_stay ?? 30);
   const [dailyReturnStay, setDailyReturnStay] = useState<number>(initialDetails.daily_return_stay ?? 30);
   const [dailyDepartTime, setDailyDepartTime] = useState<string>(initialDetails.daily_start_time || '09:00');
-  const [dailyReturnTime, setDailyReturnTime] = useState<string>(initialDetails.daily_end_time || '22:00');
+  const [dailyReturnTime, setDailyReturnTime] = useState<string>(initialDetails.daily_end_time   || '22:00');
 
   // Transport specific
-  const [depBuffer, setDepBuffer] = useState<number>(initialDetails.dep_buffer ?? 60);
-  const [arrStay, setArrStay] = useState<number>(initialDetails.arr_stay ?? 30);
-  const [depTerminal, setDepTerminal] = useState<string>(initialDetails.dep_terminal || '');
-  const [arrTerminal, setArrTerminal] = useState<string>(initialDetails.arr_terminal || '');
-  const [checkInTime, setCheckInTime] = useState<string>(initialDetails.check_in_time || '');
+  const [depBuffer,    setDepBuffer]    = useState<number>(initialDetails.dep_buffer  ?? 60);
+  const [arrStay,      setArrStay]      = useState<number>(initialDetails.arr_stay    ?? 30);
+  const [depTerminal,  setDepTerminal]  = useState<string>(initialDetails.dep_terminal || '');
+  const [arrTerminal,  setArrTerminal]  = useState<string>(initialDetails.arr_terminal || '');
+  const [checkInTime,  setCheckInTime]  = useState<string>(initialDetails.check_in_time || '');
+
+  // Rental / Transfer specific
+  const [rentalPickupBuffer, setRentalPickupBuffer] = useState<number>(initialDetails.pickup_buffer ?? 30);
+  const [rentalReturnBuffer, setRentalReturnBuffer] = useState<number>(initialDetails.return_buffer ?? 15);
 
   const [isCityPickerOpen, setIsCityPickerOpen] = useState(false);
 
@@ -127,23 +153,17 @@ export function BookingForm({ initialData, onSubmit, onCancel, loading = false }
 
   const set = (key: keyof BookingFormData, val: any) => setFormData(prev => ({ ...prev, [key]: val }));
 
-  const handleDateRange = (range: any) => {
-    setFormData(prev => ({
-      ...prev,
-      start_date: range.start_date ? format(range.start_date, 'yyyy-MM-dd') : '',
-      end_date: range.end_date ? format(range.end_date, 'yyyy-MM-dd') : '',
-      start_time: range.start_time || prev.start_time,
-      end_time: range.end_time || prev.end_time,
-    }));
-  };
+  // Computed time hints
+  const hotelCheckInCalc  = addMinutes(formData.start_time, checkInStay);
+  const hotelCheckOutCalc = addMinutes(formData.end_time,   checkOutStay);
+  const transportArrCalc  = addMinutes(formData.end_time,   arrStay);
 
-  // 出發時間改變時，根據 depBuffer 自動計算報到時間
   const handleDepTimeChange = (v: string) => {
     set('start_time', v);
     if (v && depBuffer > 0) {
       const [h, m] = v.split(':').map(Number);
       const total = h * 60 + m - depBuffer;
-      const nh = Math.floor(((total % 1440) + 1440) / 60) % 24;
+      const nh = Math.floor(((total % 1440) + 1440) % 1440 / 60);
       const nm = ((total % 60) + 60) % 60;
       setCheckInTime(`${nh.toString().padStart(2,'0')}:${nm.toString().padStart(2,'0')}`);
     }
@@ -154,7 +174,7 @@ export function BookingForm({ initialData, onSubmit, onCancel, loading = false }
     if (formData.start_time && v > 0) {
       const [h, m] = formData.start_time.split(':').map(Number);
       const total = h * 60 + m - v;
-      const nh = Math.floor(((total % 1440) + 1440) / 60) % 24;
+      const nh = Math.floor(((total % 1440) + 1440) % 1440 / 60);
       const nm = ((total % 60) + 60) % 60;
       setCheckInTime(`${nh.toString().padStart(2,'0')}:${nm.toString().padStart(2,'0')}`);
     }
@@ -164,21 +184,27 @@ export function BookingForm({ initialData, onSubmit, onCancel, loading = false }
     const cat = formData.category;
     if (cat === 'HOTEL') {
       return {
-        check_in_stay: checkInStay,
-        check_out_stay: checkOutStay,
+        check_in_stay:    checkInStay,
+        check_out_stay:   checkOutStay,
         daily_start_time: dailyDepartTime,
-        daily_end_time: dailyReturnTime,
+        daily_end_time:   dailyReturnTime,
         daily_depart_stay: dailyDepartStay,
         daily_return_stay: dailyReturnStay,
       };
     }
-    if (['FLIGHT','TRAIN','FERRY'].includes(cat)) {
+    if (['FLIGHT','TRAIN','FERRY','BUS'].includes(cat)) {
       return {
-        dep_buffer: depBuffer,
-        arr_stay: arrStay,
-        dep_terminal: depTerminal,
-        arr_terminal: arrTerminal,
+        dep_buffer:    depBuffer,
+        arr_stay:      arrStay,
+        dep_terminal:  depTerminal,
+        arr_terminal:  arrTerminal,
         check_in_time: checkInTime,
+      };
+    }
+    if (['RENTAL','PRIVATE_TRANSFER'].includes(cat)) {
+      return {
+        pickup_buffer: rentalPickupBuffer,
+        return_buffer: rentalReturnBuffer,
       };
     }
     return formData.details || {};
@@ -190,10 +216,11 @@ export function BookingForm({ initialData, onSubmit, onCancel, loading = false }
   };
 
   const parsedStartDate = formData.start_date ? parseISO(formData.start_date) : null;
-  const parsedEndDate = formData.end_date ? parseISO(formData.end_date) : null;
+  const parsedEndDate   = formData.end_date   ? parseISO(formData.end_date)   : null;
 
-  const isTransport = ['FLIGHT','TRAIN','FERRY'].includes(formData.category);
-  const isRentalOrTransfer = ['RENTAL','PRIVATE_TRANSFER'].includes(formData.category);
+  const isTransport         = ['FLIGHT','TRAIN','FERRY','BUS'].includes(formData.category);
+  const isRentalOrTransfer  = ['RENTAL','PRIVATE_TRANSFER'].includes(formData.category);
+  const terminalLabel       = getTerminalLabel(formData.category);
 
   // ══ STEP 1: 選擇類別 ══
   if (step === 'pick-category') {
@@ -203,20 +230,20 @@ export function BookingForm({ initialData, onSubmit, onCancel, loading = false }
           <h2 className="text-xl font-black text-white">新增訂票</h2>
           <button type="button" onClick={onCancel} className="p-2 bg-zinc-800 rounded-full text-zinc-400 hover:text-white transition-colors"><X size={20} /></button>
         </div>
-        <p className="text-xs font-bold text-zinc-500 uppercase tracking-widest mb-4">選擇類型</p>
+        <p className="text-[10px] font-black text-zinc-500 uppercase tracking-widest mb-4">選擇類型</p>
         <div className="grid grid-cols-2 gap-3">
           {BOOKING_CATEGORIES.map(cat => {
             const Icon = cat.icon;
             return (
               <motion.button key={cat.id} type="button" whileTap={{ scale: 0.97 }}
                 onClick={() => { setFormData(prev => ({ ...prev, category: cat.id })); setStep('fill-form'); }}
-                className="flex flex-col items-start gap-3 p-5 rounded-3xl border-2 border-orange-500/20 bg-orange-500/5 hover:bg-orange-500/10 hover:border-orange-500/40 transition-all text-left">
-                <div className="p-2.5 rounded-2xl bg-orange-500/10 text-orange-400">
-                  <Icon size={28} strokeWidth={1.8} />
+                className="flex flex-col items-start gap-3 p-4 rounded-3xl border-2 border-orange-500/20 bg-orange-500/5 hover:bg-orange-500/10 hover:border-orange-500/40 transition-all text-left">
+                <div className="p-2 rounded-2xl bg-orange-500/10 text-orange-400">
+                  <Icon size={24} strokeWidth={1.8} />
                 </div>
                 <div>
-                  <div className="text-base font-black text-white">{cat.label}</div>
-                  <div className="text-[11px] text-zinc-400 mt-0.5 leading-snug">{cat.description}</div>
+                  <div className="text-sm font-black text-white">{cat.label}</div>
+                  <div className="text-[10px] text-zinc-500 mt-0.5 leading-snug">{cat.description}</div>
                 </div>
               </motion.button>
             );
@@ -250,7 +277,7 @@ export function BookingForm({ initialData, onSubmit, onCancel, loading = false }
       {/* 類別切換（編輯模式） */}
       {initialData && (
         <div>
-          <label className="block text-xs font-bold text-zinc-500 uppercase tracking-wider mb-2">類型</label>
+          <label className="block text-[10px] font-bold text-zinc-500 uppercase tracking-wider mb-2">類型</label>
           <div className="flex gap-2 overflow-x-auto no-scrollbar pb-1">
             {BOOKING_CATEGORIES.map(cat => {
               const CatIcon = cat.icon;
@@ -272,53 +299,59 @@ export function BookingForm({ initialData, onSubmit, onCancel, loading = false }
 
       {/* 名稱 */}
       <div>
-        <label className="block text-xs font-bold text-zinc-400 uppercase tracking-wider mb-2">名稱 *</label>
+        <label className="block text-[10px] font-bold text-zinc-400 uppercase tracking-wider mb-2">名稱 *</label>
         <input type="text" required value={formData.title} onChange={e => set('title', e.target.value)}
           className="w-full bg-zinc-900 border border-zinc-800 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-orange-500 transition-colors"
-          placeholder={formData.category === 'HOTEL' ? '飯店名稱' : formData.category === 'FLIGHT' ? '如：CI100' : '訂票名稱'} />
+          placeholder={
+            formData.category === 'HOTEL'  ? '飯店名稱' :
+            formData.category === 'FLIGHT' ? '如：CI100' :
+            formData.category === 'TRAIN'  ? '如：高鐵0201' :
+            formData.category === 'BUS'    ? '如：統聯 12:00 台北→台中' :
+            '訂票名稱'
+          } />
       </div>
 
-      {/* 供應商 + 訂單號 */}
+      {/* 訂購平台/航空公司/車種 + 訂單號 */}
       <div className="grid grid-cols-2 gap-3">
         <div>
-          <label className="block text-xs font-bold text-zinc-400 uppercase tracking-wider mb-2">供應商</label>
+          <label className="block text-[10px] font-bold text-zinc-400 uppercase tracking-wider mb-2">
+            {getProviderLabel(formData.category)}
+          </label>
           <input type="text" value={formData.provider} onChange={e => set('provider', e.target.value)}
-            className="w-full bg-zinc-900 border border-zinc-800 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-orange-500 transition-colors"
-            placeholder={formData.category === 'FLIGHT' ? '中華航空' : '供應商'} />
+            className="w-full bg-zinc-900 border border-zinc-800 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-orange-500 transition-colors text-sm"
+            placeholder={getProviderPlaceholder(formData.category)} />
         </div>
         <div>
-          <label className="block text-xs font-bold text-zinc-400 uppercase tracking-wider mb-2">訂單號</label>
+          <label className="block text-[10px] font-bold text-zinc-400 uppercase tracking-wider mb-2">訂單號</label>
           <input type="text" value={formData.order_id} onChange={e => set('order_id', e.target.value)}
-            className="w-full bg-zinc-900 border border-zinc-800 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-orange-500 transition-colors"
+            className="w-full bg-zinc-900 border border-zinc-800 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-orange-500 transition-colors text-sm"
             placeholder="ABC123" />
         </div>
       </div>
 
       {/* 城市 */}
       <div>
-        <label className="block text-xs font-bold text-zinc-400 uppercase tracking-wider mb-2">城市</label>
+        <label className="block text-[10px] font-bold text-zinc-400 uppercase tracking-wider mb-2">城市</label>
         <button type="button" onClick={() => setIsCityPickerOpen(true)}
-          className="w-full bg-zinc-900 border border-zinc-800 rounded-xl px-4 py-3 flex items-center justify-between text-zinc-400 hover:border-zinc-600 transition-colors">
-          <div className="flex items-center gap-3">
-            <MapPin size={18} className="text-orange-500" />
-            <span className={formData.city_id ? 'text-white' : ''}>
-              {formData.city_id ? cities.find(c => String(c.id) === formData.city_id)?.name : '選擇城市...'}
-            </span>
-          </div>
+          className="w-full bg-zinc-900 border border-zinc-800 rounded-xl px-4 py-3 flex items-center gap-3 text-zinc-400 hover:border-zinc-600 transition-colors">
+          <MapPin size={16} className="text-orange-500 shrink-0" />
+          <span className={formData.city_id ? 'text-white' : 'text-zinc-600'}>
+            {formData.city_id ? cities.find(c => String(c.id) === formData.city_id)?.name : '選擇城市...'}
+          </span>
         </button>
       </div>
 
-      {/* 出發地 / 目的地（交通類型） */}
+      {/* 出發地 / 目的地（交通） */}
       {isTransport && (
         <div className="grid grid-cols-2 gap-3">
           <div>
-            <label className="block text-xs font-bold text-zinc-400 uppercase tracking-wider mb-2">出發地</label>
+            <label className="block text-[10px] font-bold text-zinc-400 uppercase tracking-wider mb-2">出發地</label>
             <input type="text" value={formData.start_location} onChange={e => set('start_location', e.target.value)}
               className="w-full bg-zinc-900 border border-zinc-800 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-orange-500 transition-colors text-sm"
               placeholder={formData.category === 'FLIGHT' ? 'TPE' : '出發地'} />
           </div>
           <div>
-            <label className="block text-xs font-bold text-zinc-400 uppercase tracking-wider mb-2">目的地</label>
+            <label className="block text-[10px] font-bold text-zinc-400 uppercase tracking-wider mb-2">目的地</label>
             <input type="text" value={formData.end_location} onChange={e => set('end_location', e.target.value)}
               className="w-full bg-zinc-900 border border-zinc-800 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-orange-500 transition-colors text-sm"
               placeholder={formData.category === 'FLIGHT' ? 'NRT' : '目的地'} />
@@ -329,16 +362,16 @@ export function BookingForm({ initialData, onSubmit, onCancel, loading = false }
       {/* 飯店地址 */}
       {formData.category === 'HOTEL' && (
         <div>
-          <label className="block text-xs font-bold text-zinc-400 uppercase tracking-wider mb-2">地址</label>
+          <label className="block text-[10px] font-bold text-zinc-400 uppercase tracking-wider mb-2">地址</label>
           <input type="text" value={formData.start_location} onChange={e => set('start_location', e.target.value)}
-            className="w-full bg-zinc-900 border border-zinc-800 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-orange-500 transition-colors"
+            className="w-full bg-zinc-900 border border-zinc-800 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-orange-500 transition-colors text-sm"
             placeholder="飯店地址" />
         </div>
       )}
 
-      {/* ─── 日期範圍選擇器 ─── */}
+      {/* 日期範圍 */}
       <div>
-        <label className="block text-xs font-bold text-zinc-400 uppercase tracking-wider mb-2">
+        <label className="block text-[10px] font-bold text-zinc-400 uppercase tracking-wider mb-2">
           {formData.category === 'HOTEL' ? '入住 → 退房日期' : '出發 → 抵達日期'}
         </label>
         <DateRangePicker
@@ -346,37 +379,40 @@ export function BookingForm({ initialData, onSubmit, onCancel, loading = false }
           hideTime={true}
           value={{
             start_date: parsedStartDate,
-            end_date: parsedEndDate,
+            end_date:   parsedEndDate,
             start_time: formData.start_time,
-            end_time: formData.end_time,
+            end_time:   formData.end_time,
           }}
           onChange={r => {
             setFormData(prev => ({
               ...prev,
               start_date: r.start_date ? format(r.start_date, 'yyyy-MM-dd') : '',
-              end_date: r.end_date ? format(r.end_date, 'yyyy-MM-dd') : '',
+              end_date:   r.end_date   ? format(r.end_date,   'yyyy-MM-dd') : '',
             }));
           }}
         />
       </div>
 
-      {/* ─── 飯店時間區塊 ─── */}
+      {/* ─── 住宿時間設定 ─── */}
       {formData.category === 'HOTEL' && (
         <div className="space-y-4 bg-zinc-900/50 border border-zinc-800 rounded-2xl p-4">
-          <p className="text-xs font-black text-orange-500 uppercase tracking-widest">住宿時間設定</p>
+          <p className="text-[10px] font-black text-orange-500 uppercase tracking-widest">住宿時間設定</p>
 
           {/* 入住 */}
           <div className="space-y-3">
-            <p className="text-[10px] font-bold text-zinc-400 uppercase tracking-wider">入住</p>
+            <p className="text-[10px] font-bold text-zinc-500 uppercase tracking-wider">入住</p>
             <div className="grid grid-cols-2 gap-3">
               {timeInput('入住時間', formData.start_time, v => set('start_time', v))}
               <div className="space-y-1">
-                <label className="text-[10px] font-bold text-zinc-400 uppercase tracking-widest">入住程序時間</label>
-                <div className="flex items-center gap-2">
+                <label className="text-[10px] font-bold text-zinc-400 uppercase tracking-widest flex items-center justify-between">
+                  <span>辦理時間</span>
+                  {hotelCheckInCalc && <span className="text-orange-400 font-black normal-case text-[9px]">完成約 {hotelCheckInCalc}</span>}
+                </label>
+                <div className="flex items-center gap-2 pt-1">
                   <input type="range" min="0" max="120" step="5" value={checkInStay}
                     onChange={e => setCheckInStay(parseInt(e.target.value))}
                     className="flex-1 accent-orange-500 h-1.5 bg-zinc-800 rounded-lg appearance-none cursor-pointer outline-none" />
-                  <span className="text-xs font-black text-orange-500 w-12 text-right">{checkInStay}分</span>
+                  <span className="text-xs font-black text-orange-500 w-10 text-right shrink-0">{checkInStay}分</span>
                 </div>
               </div>
             </div>
@@ -384,45 +420,48 @@ export function BookingForm({ initialData, onSubmit, onCancel, loading = false }
 
           {/* 退房 */}
           <div className="space-y-3 border-t border-zinc-800 pt-3">
-            <p className="text-[10px] font-bold text-zinc-400 uppercase tracking-wider">退房</p>
+            <p className="text-[10px] font-bold text-zinc-500 uppercase tracking-wider">退房</p>
             <div className="grid grid-cols-2 gap-3">
               {timeInput('退房時間', formData.end_time, v => set('end_time', v))}
               <div className="space-y-1">
-                <label className="text-[10px] font-bold text-zinc-400 uppercase tracking-widest">退房程序時間</label>
-                <div className="flex items-center gap-2">
+                <label className="text-[10px] font-bold text-zinc-400 uppercase tracking-widest flex items-center justify-between">
+                  <span>辦理時間</span>
+                  {hotelCheckOutCalc && <span className="text-orange-400 font-black normal-case text-[9px]">完成約 {hotelCheckOutCalc}</span>}
+                </label>
+                <div className="flex items-center gap-2 pt-1">
                   <input type="range" min="0" max="120" step="5" value={checkOutStay}
                     onChange={e => setCheckOutStay(parseInt(e.target.value))}
                     className="flex-1 accent-orange-500 h-1.5 bg-zinc-800 rounded-lg appearance-none cursor-pointer outline-none" />
-                  <span className="text-xs font-black text-orange-500 w-12 text-right">{checkOutStay}分</span>
+                  <span className="text-xs font-black text-orange-500 w-10 text-right shrink-0">{checkOutStay}分</span>
                 </div>
               </div>
             </div>
           </div>
 
-          {/* 每日時間 */}
+          {/* 每日出門 / 回來 */}
           <div className="space-y-3 border-t border-zinc-800 pt-3">
-            <p className="text-[10px] font-bold text-zinc-400 uppercase tracking-wider">每日出門／回來時間</p>
+            <p className="text-[10px] font-bold text-zinc-500 uppercase tracking-wider">每日出門／返回時間</p>
             <div className="grid grid-cols-2 gap-3">
               {timeInput('出門時間', dailyDepartTime, setDailyDepartTime)}
-              {timeInput('回來時間', dailyReturnTime, setDailyReturnTime)}
+              {timeInput('返回時間', dailyReturnTime, setDailyReturnTime)}
             </div>
             <div className="grid grid-cols-2 gap-3">
               <div className="space-y-1">
-                <label className="text-[10px] font-bold text-zinc-400 uppercase tracking-widest">出門準備時間</label>
+                <label className="text-[10px] font-bold text-zinc-400 uppercase tracking-widest">出門準備</label>
                 <div className="flex items-center gap-2">
                   <input type="range" min="0" max="60" step="5" value={dailyDepartStay}
                     onChange={e => setDailyDepartStay(parseInt(e.target.value))}
                     className="flex-1 accent-orange-500 h-1.5 bg-zinc-800 rounded-lg appearance-none cursor-pointer outline-none" />
-                  <span className="text-xs font-black text-orange-500 w-10 text-right">{dailyDepartStay}分</span>
+                  <span className="text-xs font-black text-orange-500 w-10 text-right shrink-0">{dailyDepartStay}分</span>
                 </div>
               </div>
               <div className="space-y-1">
-                <label className="text-[10px] font-bold text-zinc-400 uppercase tracking-widest">回來安頓時間</label>
+                <label className="text-[10px] font-bold text-zinc-400 uppercase tracking-widest">返回安頓</label>
                 <div className="flex items-center gap-2">
                   <input type="range" min="0" max="60" step="5" value={dailyReturnStay}
                     onChange={e => setDailyReturnStay(parseInt(e.target.value))}
                     className="flex-1 accent-orange-500 h-1.5 bg-zinc-800 rounded-lg appearance-none cursor-pointer outline-none" />
-                  <span className="text-xs font-black text-orange-500 w-10 text-right">{dailyReturnStay}分</span>
+                  <span className="text-xs font-black text-orange-500 w-10 text-right shrink-0">{dailyReturnStay}分</span>
                 </div>
               </div>
             </div>
@@ -430,26 +469,27 @@ export function BookingForm({ initialData, onSubmit, onCancel, loading = false }
         </div>
       )}
 
-      {/* ─── 機票/火車/船票時間區塊 ─── */}
+      {/* ─── 交通時間設定 ─── */}
       {isTransport && (
         <div className="space-y-4 bg-zinc-900/50 border border-zinc-800 rounded-2xl p-4">
-          <p className="text-xs font-black text-orange-500 uppercase tracking-widest">交通時間設定</p>
+          <p className="text-[10px] font-black text-orange-500 uppercase tracking-widest">交通時間設定</p>
 
           {/* 出發 */}
           <div className="space-y-3">
             <div className="grid grid-cols-2 gap-3">
               {timeInput('出發時間', formData.start_time, handleDepTimeChange)}
               <div className="space-y-1">
-                <label className="text-[10px] font-bold text-zinc-400 uppercase tracking-widest">
-                  報到提前時間 <span className="text-orange-400 font-normal normal-case">({depBuffer}分)</span>
+                <label className="text-[10px] font-bold text-zinc-400 uppercase tracking-widest flex items-center justify-between">
+                  <span>提前報到</span>
+                  <span className="text-orange-400 font-black normal-case text-[9px]">{depBuffer}分</span>
                 </label>
-                <div className="flex items-center gap-2">
+                <div className="flex items-center gap-2 pt-1">
                   <input type="range" min="0" max="240" step="5" value={depBuffer}
                     onChange={e => handleDepBufferChange(parseInt(e.target.value))}
                     className="flex-1 accent-orange-500 h-1.5 bg-zinc-800 rounded-lg appearance-none cursor-pointer outline-none" />
                 </div>
                 {checkInTime && (
-                  <p className="text-[9px] text-orange-400">報到時間：{checkInTime}</p>
+                  <p className="text-[9px] text-orange-400 font-bold">報到時間：{checkInTime}</p>
                 )}
               </div>
             </div>
@@ -461,68 +501,100 @@ export function BookingForm({ initialData, onSubmit, onCancel, loading = false }
             <div className="grid grid-cols-2 gap-3">
               {timeInput('抵達時間', formData.end_time, v => set('end_time', v))}
               <div className="space-y-1">
-                <label className="text-[10px] font-bold text-zinc-400 uppercase tracking-widest">
-                  抵達停留 <span className="text-orange-400 font-normal normal-case">({arrStay}分)</span>
+                <label className="text-[10px] font-bold text-zinc-400 uppercase tracking-widest flex items-center justify-between">
+                  <span>抵達停留</span>
+                  {transportArrCalc && <span className="text-orange-400 font-black normal-case text-[9px]">離開約 {transportArrCalc}</span>}
                 </label>
-                <div className="flex items-center gap-2">
+                <div className="flex items-center gap-2 pt-1">
                   <input type="range" min="0" max="180" step="5" value={arrStay}
                     onChange={e => setArrStay(parseInt(e.target.value))}
                     className="flex-1 accent-orange-500 h-1.5 bg-zinc-800 rounded-lg appearance-none cursor-pointer outline-none" />
+                  <span className="text-xs font-black text-orange-500 w-10 text-right shrink-0">{arrStay}分</span>
                 </div>
               </div>
             </div>
           </div>
 
-          {/* 航廈/站台 */}
-          <div className="space-y-3 border-t border-zinc-800 pt-3">
-            <div className="grid grid-cols-2 gap-3">
-              <div>
-                <label className="block text-[10px] font-bold text-zinc-400 uppercase tracking-widest mb-2">出發{formData.category === 'FLIGHT' ? '航廈' : '月台'}</label>
-                <input type="text" value={depTerminal} onChange={e => setDepTerminal(e.target.value)}
-                  className="w-full bg-zinc-900 border border-zinc-800 rounded-xl px-3 py-2.5 text-white text-sm focus:outline-none focus:border-orange-500 transition-colors"
-                  placeholder={formData.category === 'FLIGHT' ? 'T1' : '1號月台'} />
-              </div>
-              <div>
-                <label className="block text-[10px] font-bold text-zinc-400 uppercase tracking-widest mb-2">抵達{formData.category === 'FLIGHT' ? '航廈' : '月台'}</label>
-                <input type="text" value={arrTerminal} onChange={e => setArrTerminal(e.target.value)}
-                  className="w-full bg-zinc-900 border border-zinc-800 rounded-xl px-3 py-2.5 text-white text-sm focus:outline-none focus:border-orange-500 transition-colors"
-                  placeholder={formData.category === 'FLIGHT' ? 'T2' : '3號月台'} />
-              </div>
+          {/* 航廈 / 月台 / 站牌 */}
+          <div className="grid grid-cols-2 gap-3 border-t border-zinc-800 pt-3">
+            <div>
+              <label className="block text-[10px] font-bold text-zinc-400 uppercase tracking-widest mb-2">出發{terminalLabel}</label>
+              <input type="text" value={depTerminal} onChange={e => setDepTerminal(e.target.value)}
+                className="w-full bg-zinc-900 border border-zinc-800 rounded-xl px-3 py-2.5 text-white text-sm focus:outline-none focus:border-orange-500 transition-colors"
+                placeholder={formData.category === 'FLIGHT' ? 'T1' : formData.category === 'BUS' ? '台北轉運站' : '1號月台'} />
+            </div>
+            <div>
+              <label className="block text-[10px] font-bold text-zinc-400 uppercase tracking-widest mb-2">抵達{terminalLabel}</label>
+              <input type="text" value={arrTerminal} onChange={e => setArrTerminal(e.target.value)}
+                className="w-full bg-zinc-900 border border-zinc-800 rounded-xl px-3 py-2.5 text-white text-sm focus:outline-none focus:border-orange-500 transition-colors"
+                placeholder={formData.category === 'FLIGHT' ? 'T2' : formData.category === 'BUS' ? '台中總站' : '3號月台'} />
             </div>
           </div>
         </div>
       )}
 
-      {/* ─── 租車/接送時間 ─── */}
+      {/* ─── 租車 / 接送時間 ─── */}
       {isRentalOrTransfer && (
-        <div className="space-y-3 bg-zinc-900/50 border border-zinc-800 rounded-2xl p-4">
-          <p className="text-xs font-black text-orange-500 uppercase tracking-widest">時間設定</p>
+        <div className="space-y-4 bg-zinc-900/50 border border-zinc-800 rounded-2xl p-4">
+          <p className="text-[10px] font-black text-orange-500 uppercase tracking-widest">時間設定</p>
           <div className="grid grid-cols-2 gap-3">
-            {timeInput(formData.category === 'RENTAL' ? '取車時間' : '出發時間', formData.start_time, v => set('start_time', v))}
-            {timeInput(formData.category === 'RENTAL' ? '還車時間' : '抵達時間', formData.end_time, v => set('end_time', v))}
+            {timeInput(
+              formData.category === 'RENTAL' ? '取車時間' : '出發時間',
+              formData.start_time, v => set('start_time', v)
+            )}
+            {timeInput(
+              formData.category === 'RENTAL' ? '還車時間' : '抵達時間',
+              formData.end_time, v => set('end_time', v)
+            )}
           </div>
-          {isRentalOrTransfer && (
-            <div className="grid grid-cols-2 gap-3">
-              <div>
-                <label className="block text-xs font-bold text-zinc-400 uppercase tracking-wider mb-2">取車地點</label>
-                <input type="text" value={formData.start_location} onChange={e => set('start_location', e.target.value)}
-                  className="w-full bg-zinc-900 border border-zinc-800 rounded-xl px-3 py-2.5 text-white text-sm focus:outline-none focus:border-orange-500 transition-colors"
-                  placeholder="取車地點" />
-              </div>
-              <div>
-                <label className="block text-xs font-bold text-zinc-400 uppercase tracking-wider mb-2">還車地點</label>
-                <input type="text" value={formData.end_location} onChange={e => set('end_location', e.target.value)}
-                  className="w-full bg-zinc-900 border border-zinc-800 rounded-xl px-3 py-2.5 text-white text-sm focus:outline-none focus:border-orange-500 transition-colors"
-                  placeholder="還車地點" />
+          <div className="grid grid-cols-2 gap-3">
+            <div className="space-y-1">
+              <label className="text-[10px] font-bold text-zinc-400 uppercase tracking-widest">
+                {formData.category === 'RENTAL' ? '取車等候時間' : '出發等候時間'}
+              </label>
+              <div className="flex items-center gap-2 pt-1">
+                <input type="range" min="0" max="90" step="5" value={rentalPickupBuffer}
+                  onChange={e => setRentalPickupBuffer(parseInt(e.target.value))}
+                  className="flex-1 accent-orange-500 h-1.5 bg-zinc-800 rounded-lg appearance-none cursor-pointer outline-none" />
+                <span className="text-xs font-black text-orange-500 w-10 text-right shrink-0">{rentalPickupBuffer}分</span>
               </div>
             </div>
-          )}
+            <div className="space-y-1">
+              <label className="text-[10px] font-bold text-zinc-400 uppercase tracking-widest">
+                {formData.category === 'RENTAL' ? '還車手續時間' : '抵達等候時間'}
+              </label>
+              <div className="flex items-center gap-2 pt-1">
+                <input type="range" min="0" max="60" step="5" value={rentalReturnBuffer}
+                  onChange={e => setRentalReturnBuffer(parseInt(e.target.value))}
+                  className="flex-1 accent-orange-500 h-1.5 bg-zinc-800 rounded-lg appearance-none cursor-pointer outline-none" />
+                <span className="text-xs font-black text-orange-500 w-10 text-right shrink-0">{rentalReturnBuffer}分</span>
+              </div>
+            </div>
+          </div>
+          <div className="grid grid-cols-2 gap-3 border-t border-zinc-800 pt-3">
+            <div>
+              <label className="block text-[10px] font-bold text-zinc-400 uppercase tracking-wider mb-2">
+                {formData.category === 'RENTAL' ? '取車地點' : '出發地點'}
+              </label>
+              <input type="text" value={formData.start_location} onChange={e => set('start_location', e.target.value)}
+                className="w-full bg-zinc-900 border border-zinc-800 rounded-xl px-3 py-2.5 text-white text-sm focus:outline-none focus:border-orange-500 transition-colors"
+                placeholder={formData.category === 'RENTAL' ? '取車地點' : '出發地點'} />
+            </div>
+            <div>
+              <label className="block text-[10px] font-bold text-zinc-400 uppercase tracking-wider mb-2">
+                {formData.category === 'RENTAL' ? '還車地點' : '目的地點'}
+              </label>
+              <input type="text" value={formData.end_location} onChange={e => set('end_location', e.target.value)}
+                className="w-full bg-zinc-900 border border-zinc-800 rounded-xl px-3 py-2.5 text-white text-sm focus:outline-none focus:border-orange-500 transition-colors"
+                placeholder={formData.category === 'RENTAL' ? '還車地點' : '目的地點'} />
+            </div>
+          </div>
         </div>
       )}
 
       {/* 備註 */}
       <div>
-        <label className="block text-xs font-bold text-zinc-400 uppercase tracking-wider mb-2">備註</label>
+        <label className="block text-[10px] font-bold text-zinc-400 uppercase tracking-wider mb-2">備註</label>
         <textarea value={formData.notes} onChange={e => set('notes', e.target.value)}
           className="w-full bg-zinc-900 border border-zinc-800 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-orange-500 transition-colors h-20 resize-none text-sm"
           placeholder="確認號碼、特殊需求..." />
@@ -543,10 +615,10 @@ export function BookingForm({ initialData, onSubmit, onCancel, loading = false }
         onClose={() => setIsCityPickerOpen(false)}
         onSelect={res => setFormData(prev => ({
           ...prev,
-          city_id: res.id ? String(res.id) : prev.city_id,
-          title: res.google_place_id ? res.name : prev.title,
+          city_id:        res.id ? String(res.id) : prev.city_id,
+          title:          res.google_place_id ? res.name : prev.title,
           start_location: res.address || prev.start_location,
-          google_place_id: res.google_place_id || ''
+          google_place_id: res.google_place_id || '',
         }))}
         groupedCities={groupedCities}
       />

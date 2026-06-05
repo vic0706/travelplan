@@ -114,8 +114,6 @@ export function FinanceForm({ tripId, defaultDate, currencies = ['TWD'], onSucce
 
   const selectedCat = categories.find((c: any) => c.name === category);
 
-  if (loading) return <div className="p-8 flex justify-center"><Loader2 className="animate-spin text-orange-500" /></div>;
-
   return (
     <>
       <div className="bg-[#1c1c1e] border border-zinc-800 rounded-[32px] overflow-hidden shadow-2xl flex flex-col max-h-[90vh]">
@@ -153,29 +151,29 @@ export function FinanceForm({ tripId, defaultDate, currencies = ['TWD'], onSucce
             </div>
           </div>
 
-          {/* 類別選擇 */}
-          <div className="space-y-1">
-            <label className="text-[10px] font-bold text-zinc-500 uppercase tracking-widest ml-1">分類</label>
-            <button onClick={() => setIsCategoryModalOpen(true)}
-              className="w-full flex items-center justify-between bg-zinc-950 border border-zinc-800 rounded-2xl px-4 py-3 hover:border-orange-500 transition-colors">
-              <div className="flex items-center gap-3">
-                {selectedCat && (
-                  <div className="w-9 h-9 rounded-xl flex items-center justify-center" style={{ backgroundColor: `${selectedCat.color}20`, color: selectedCat.color }}>
-                    <DynamicIcon name={selectedCat.icon} size={20} />
-                  </div>
-                )}
-                <span className="text-sm font-bold text-white">{category}</span>
-              </div>
-              <ChevronRight size={16} className="text-zinc-500" />
-            </button>
-          </div>
-
-          {/* 項目名稱 */}
-          <div className="space-y-1">
-            <label className="text-[10px] font-bold text-zinc-500 uppercase tracking-widest ml-1">項目名稱</label>
-            <input type="text" value={itemName} onChange={e => setItemName(e.target.value)}
-              placeholder="費用名稱"
-              className="w-full bg-zinc-950 border border-zinc-800 rounded-2xl px-4 py-3 text-white text-base focus:outline-none focus:border-orange-500 placeholder:text-zinc-600" />
+          {/* 分類 + 項目名稱（同一行）*/}
+          <div className="flex gap-3 items-start">
+            <div className="space-y-1">
+              <label className="text-[10px] font-bold text-zinc-500 uppercase tracking-widest ml-1">分類</label>
+              <button onClick={() => setIsCategoryModalOpen(true)}
+                className="w-14 h-[46px] flex items-center justify-center rounded-2xl border transition-colors hover:border-orange-500/60"
+                style={selectedCat
+                  ? { backgroundColor: `${selectedCat.color}18`, borderColor: `${selectedCat.color}35` }
+                  : { backgroundColor: '#18181b', borderColor: '#27272a' }
+                }
+              >
+                {selectedCat
+                  ? <DynamicIcon name={selectedCat.icon} size={22} style={{ color: selectedCat.color }} />
+                  : <Loader2 size={18} className="text-zinc-600 animate-spin" />
+                }
+              </button>
+            </div>
+            <div className="flex-1 space-y-1">
+              <label className="text-[10px] font-bold text-zinc-500 uppercase tracking-widest ml-1">項目名稱</label>
+              <input type="text" value={itemName} onChange={e => setItemName(e.target.value)}
+                placeholder="費用名稱"
+                className="w-full bg-zinc-950 border border-zinc-800 rounded-2xl px-4 py-3 text-white text-base focus:outline-none focus:border-orange-500 placeholder:text-zinc-600" />
+            </div>
           </div>
 
           {/* 付款人 + 分攤 */}

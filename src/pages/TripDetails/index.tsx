@@ -351,7 +351,7 @@ export function TripDetails() {
                   <button
                     onClick={() => setIsCoverExpanded(false)}
                     className="p-2 bg-orange-500/80 backdrop-blur-md rounded-full text-white border border-orange-400/40"
-                    title="Hide cover"
+                    title="收起封面"
                   >
                     <Camera size={18} />
                   </button>
@@ -379,23 +379,20 @@ export function TripDetails() {
                 >
                   {trip.title}
                 </h1>
-                {/* 天氣（連動 WeatherWidget） */}
+                {/* 天氣（點擊連動 WeatherWidget，樣式低調） */}
                 {selectedDateWeather && (
-                  <button
+                  <span
                     onClick={handleWeatherChipClick}
                     className={clsx(
-                      'shrink-0 flex items-center gap-2 backdrop-blur-md rounded-2xl px-3 py-2 border transition-all active:scale-95',
-                      isWeatherExpanded
-                        ? 'bg-orange-500/80 border-orange-400/40 shadow-lg shadow-orange-500/20'
-                        : 'bg-black/40 border-white/10 hover:bg-black/60'
+                      'shrink-0 flex items-center gap-1.5 cursor-pointer select-none transition-opacity active:opacity-50',
+                      isWeatherExpanded ? 'opacity-100' : 'opacity-70 hover:opacity-100'
                     )}
                   >
-                    {getWeatherIcon(selectedDateWeather.weather_code, 20)}
-                    <div className="flex flex-col items-start leading-none">
-                      <span className="text-[11px] font-bold text-white">{selectedDateWeather.max_temp}°</span>
-                      <span className="text-[9px] text-zinc-300">{selectedDateWeather.min_temp}°</span>
-                    </div>
-                  </button>
+                    {getWeatherIcon(selectedDateWeather.weather_code, 16)}
+                    <span className="text-[11px] font-bold text-white drop-shadow">
+                      {selectedDateWeather.min_temp}°/{selectedDateWeather.max_temp}°
+                    </span>
+                  </span>
                 )}
               </div>
             </motion.div>
@@ -461,22 +458,20 @@ export function TripDetails() {
                   {trip.title}
                 </h1>
                 {selectedDateWeather ? (
-                  <button
+                  <span
                     onClick={handleWeatherChipClick}
                     className={clsx(
-                      'shrink-0 flex items-center gap-1.5 backdrop-blur-md rounded-xl px-2.5 py-1.5 border transition-all active:scale-95',
-                      isWeatherExpanded
-                        ? 'bg-orange-500/80 border-orange-400/60 text-white shadow-lg shadow-orange-500/20'
-                        : 'bg-black/40 border-white/20 hover:bg-black/60'
+                      'shrink-0 flex items-center gap-1.5 cursor-pointer select-none transition-opacity active:opacity-50',
+                      isWeatherExpanded ? 'opacity-100' : 'opacity-65 hover:opacity-100'
                     )}
                   >
-                    {getWeatherIcon(selectedDateWeather.weather_code, 16)}
-                    <span className="text-[11px] font-bold text-white leading-none">{selectedDateWeather.min_temp}°</span>
-                    <span className="text-[9px] text-zinc-300 leading-none">/</span>
-                    <span className="text-[11px] font-bold text-orange-300 leading-none">{selectedDateWeather.max_temp}°</span>
-                  </button>
+                    {getWeatherIcon(selectedDateWeather.weather_code, 14)}
+                    <span className="text-[10px] font-bold text-white drop-shadow">
+                      {selectedDateWeather.min_temp}°/{selectedDateWeather.max_temp}°
+                    </span>
+                  </span>
                 ) : (
-                  <div className="shrink-0 w-8" />
+                  <div className="shrink-0 w-4" />
                 )}
               </div>
             </motion.div>
@@ -622,7 +617,7 @@ export function TripDetails() {
               activeTab === 'settings' ? 'text-orange-500 bg-orange-500/10' : 'text-zinc-500 hover:text-zinc-300 hover:bg-zinc-800/50'
             )}>
             <Settings size={activeTab === 'settings' ? 24 : 22} className="transition-all duration-300" />
-            <span className="text-[10px] font-bold tracking-wide">Settings</span>
+            <span className="text-[10px] font-bold tracking-wide">設定</span>
           </button>
         )}
       </div>
@@ -681,7 +676,7 @@ export function TripDetails() {
                 <div className="mt-4 pt-4 border-t border-zinc-800">
                   <button onClick={() => handleDeleteBooking(editingBooking.id)}
                     className="w-full py-3 text-red-500 bg-red-500/10 hover:bg-red-500/20 font-bold rounded-xl transition-colors">
-                    Delete Booking
+                    刪除訂票
                   </button>
                 </div>
               )}

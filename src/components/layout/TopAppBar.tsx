@@ -195,9 +195,9 @@ export function TopAppBar() {
                             className="w-full flex items-center gap-3 px-3 py-2.5 text-sm text-zinc-300 hover:bg-zinc-800 hover:text-white rounded-xl transition-colors text-left font-medium"
                           >
                             <Plus size={16} />
-                            New Trip
+                            新增行程
                           </button>
-                          <button 
+                          <button
                             onClick={() => {
                               navigate('/admin/members');
                               setUserMenuOpen(false);
@@ -205,9 +205,9 @@ export function TopAppBar() {
                             className="w-full flex items-center gap-3 px-3 py-2.5 text-sm text-zinc-300 hover:bg-zinc-800 hover:text-white rounded-xl transition-colors text-left font-medium"
                           >
                             <Users size={16} />
-                            Member Management
+                            成員管理
                           </button>
-                          <button 
+                          <button
                             onClick={() => {
                               navigate('/admin/settings');
                               setUserMenuOpen(false);
@@ -215,7 +215,7 @@ export function TopAppBar() {
                             className="w-full flex items-center gap-3 px-3 py-2.5 text-sm text-zinc-300 hover:bg-zinc-800 hover:text-white rounded-xl transition-colors text-left font-medium"
                           >
                             <Settings size={16} />
-                            System Settings
+                            系統設定
                           </button>
                         </>
                       )}
@@ -225,7 +225,7 @@ export function TopAppBar() {
                         className="w-full flex items-center gap-3 px-3 py-2.5 text-sm text-zinc-300 hover:bg-zinc-800 hover:text-white rounded-xl transition-colors text-left font-medium cursor-pointer"
                       >
                         {uploadingImage ? <Loader2 size={16} className="animate-spin" /> : <Camera size={16} />}
-                        Change Avatar
+                        更換頭像
                       </label>
 
                       <button 
@@ -236,7 +236,7 @@ export function TopAppBar() {
                         className="w-full flex items-center gap-3 px-3 py-2.5 text-sm text-zinc-300 hover:bg-zinc-800 hover:text-white rounded-xl transition-colors text-left font-medium"
                       >
                         <RefreshCw size={16} />
-                        Clear Cache & Reload
+                        清除快取並重載
                       </button>
 
                       <div className="h-px bg-zinc-800 my-1 mx-2"></div>
@@ -245,7 +245,7 @@ export function TopAppBar() {
                         className="w-full flex items-center gap-3 px-3 py-2.5 text-sm text-red-400 hover:bg-red-500/10 rounded-xl transition-colors text-left font-medium"
                       >
                         <LogOut size={16} />
-                        Sign Out
+                        登出
                       </button>
                     </div>
                   </>
@@ -258,7 +258,7 @@ export function TopAppBar() {
                       }}
                       className="w-full flex items-center gap-3 px-3 py-2.5 text-sm text-white bg-orange-500 hover:bg-orange-600 rounded-xl transition-colors text-left font-bold justify-center mb-2 shadow-lg shadow-orange-500/20"
                     >
-                      Sign In
+                      登入
                     </button>
                     <button 
                       onClick={() => {

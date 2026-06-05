@@ -128,7 +128,7 @@ export function TripSettingsForm({ trip, onUpdate, onDelete, onClose, showToast 
                 ? <Loader2 size={24} className="animate-spin" />
                 : <Cpu size={24} />
               }
-              <span className="text-[9px] font-black uppercase tracking-widest leading-none">Compute</span>
+              <span className="text-[9px] font-black uppercase tracking-widest leading-none">運算</span>
             </button>
 
             <button
@@ -142,7 +142,7 @@ export function TripSettingsForm({ trip, onUpdate, onDelete, onClose, showToast 
                 ? <Loader2 size={24} className="animate-spin" />
                 : <Wand2 size={24} />
               }
-              <span className="text-[9px] font-black uppercase tracking-widest leading-none">Optimize</span>
+              <span className="text-[9px] font-black uppercase tracking-widest leading-none">優化</span>
             </button>
           </div>
         </div>
@@ -153,7 +153,7 @@ export function TripSettingsForm({ trip, onUpdate, onDelete, onClose, showToast 
             initialData={trip}
             onSubmit={handleAutoSave}
             loading={loading}
-            submitText="Save"
+            submitText="儲存"
             onChange={handleAutoSave}
             hideSubmit={true}
             extraButtons={
@@ -164,7 +164,7 @@ export function TripSettingsForm({ trip, onUpdate, onDelete, onClose, showToast 
                   className="w-full bg-red-500/10 hover:bg-red-500/20 active:bg-red-500/30 text-red-500 font-bold rounded-2xl py-4 transition-colors border border-red-500/20 flex items-center justify-center gap-2"
                 >
                   <Trash2 size={18} />
-                  <span className="uppercase tracking-widest text-xs font-black">Delete Trip</span>
+                  <span className="uppercase tracking-widest text-xs font-black">刪除行程</span>
                 </button>
               </div>
             }
@@ -201,9 +201,9 @@ export function TripSettingsForm({ trip, onUpdate, onDelete, onClose, showToast 
               <div className="w-16 h-16 bg-red-500/10 rounded-full flex items-center justify-center mb-5 border border-red-500/20 relative z-10">
                 <AlertTriangle size={32} className="text-red-500" />
               </div>
-              <h3 className="text-lg font-black text-white uppercase tracking-widest mb-3 relative z-10">Date Conflict</h3>
+              <h3 className="text-lg font-black text-white uppercase tracking-widest mb-3 relative z-10">日期衝突</h3>
               <p className="text-sm text-zinc-400 mb-4 leading-relaxed relative z-10">
-                Activities outside range: <br />
+                超出範圍的活動：<br />
                 <span className="font-mono font-bold text-red-400 bg-red-500/10 px-3 py-1 rounded-lg block mt-3 inline-block">
                   {outOfBoundsDates.join(', ')}
                 </span>
@@ -213,14 +213,14 @@ export function TripSettingsForm({ trip, onUpdate, onDelete, onClose, showToast 
                   onClick={() => setPendingSaveData(null)}
                   className="flex-1 py-4 bg-zinc-800 text-white font-bold rounded-2xl transition-colors"
                 >
-                  Cancel
+                  取消
                 </button>
                 <button
                   onClick={() => performSave(pendingSaveData, true)}
                   disabled={loading}
                   className="flex-[1.5] py-4 bg-red-500 hover:bg-red-600 text-white font-black uppercase tracking-widest text-[12px] rounded-2xl transition-colors shadow-lg shadow-red-500/20 flex items-center justify-center gap-2"
                 >
-                  {loading ? <Loader2 size={18} className="animate-spin" /> : 'Proceed Anyway'}
+                  {loading ? <Loader2 size={18} className="animate-spin" /> : '強制儲存'}
                 </button>
               </div>
             </motion.div>

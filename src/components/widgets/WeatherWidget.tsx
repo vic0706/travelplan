@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { Cloud, CloudDrizzle, CloudFog, CloudLightning, CloudRain, CloudSnow, Sun, Loader2, ChevronDown, ChevronUp, X } from 'lucide-react';
+import { Cloud, CloudDrizzle, CloudFog, CloudLightning, CloudRain, CloudSnow, Sun, Loader2 } from 'lucide-react';
 import { apiFetch, safeJson } from '../../utils/api';
 import { format, isSameDay, isBefore, startOfDay } from 'date-fns';
 
@@ -11,7 +11,6 @@ interface WeatherWidgetProps {
   collapseSignal?: number;
   forceExpanded?: boolean;
   onClose?: () => void;
-  // 外部控制展開/收起
   controlled?: boolean;
   isExpanded?: boolean;
   onToggle?: () => void;
@@ -19,135 +18,89 @@ interface WeatherWidgetProps {
 
 interface WeatherData {
   date: string;
-  summary: {
-    max_temp: number;
-    min_temp: number;
-    weather_code: number;
-  } | null;
-  intervals: {
-    time: string;
-    city: string;
-    temp: number | null;
-    pop: number | null;
-    code: number | null;
-  }[];
+  summary: { max_temp: number; min_temp: number; weather_code: number } | null;
+  intervals: { time: string; city: string; temp: number | null; pop: number | null; code: number | null }[];
 }
 
 export function getWeatherIcon(code: number | null, size = 24, className?: string) {
   if (code === null) return <Cloud size={size} className={className ?? 'text-zinc-500'} />;
-  if (code <= 3)  return <Sun           size={size} className={className ?? 'text-yellow-400'} />;
-  if (code <= 49) return <CloudFog      size={size} className={className ?? 'text-zinc-400'} />;
-  if (code <= 59) return <CloudDrizzle  size={size} className={className ?? 'text-blue-300'} />;
-  if (code <= 69) return <CloudRain     size={size} className={className ?? 'text-blue-500'} />;
-  if (code <= 79) return <CloudSnow    size={size} className={className ?? 'text-white'} />;
+  if (code <= 3)  return <Sun            size={size} className={className ?? 'text-yellow-400'} />;
+  if (code <= 49) return <CloudFog       size={size} className={className ?? 'text-zinc-400'} />;
+  if (code <= 59) return <CloudDrizzle   size={size} className={className ?? 'text-blue-300'} />;
+  if (code <= 69) return <CloudRain      size={size} className={className ?? 'text-blue-500'} />;
+  if (code <= 79) return <CloudSnow      size={size} className={className ?? 'text-white'} />;
   if (code <= 99) return <CloudLightning size={size} className={className ?? 'text-purple-400'} />;
   return <Cloud size={size} className={className ?? 'text-zinc-500'} />;
 }
 
 export function WeatherWidget({
-  tripId,
-  date,
-  isFutureTrip,
-  expandSignal = 0,
-  collapseSignal = 0,
-  forceExpanded = false,
-  onClose,
-  controlled = false,
-  isExpanded: externalExpanded,
-  onToggle,
+  tripId, date, isFutureTrip,
+  forceExpanded = false, onClose,
+  controlled = false, isExpanded: externalExpanded, onToggle,
 }: WeatherWidgetProps) {
   const [data, setData] = useState<WeatherData | null>(null);
   const [loading, setLoading] = useState(true);
   const [message, setMessage] = useState<string | null>(null);
-  const [internalExpanded, setInternalExpanded] = useState(forceExpanded || isFutureTrip);
-
-  const isExpanded = controlled && externalExpanded !== undefined ? externalExpanded : internalExpanded;
-  const handleToggle = () => {
-    if (controlled && onToggle) {
-      onToggle();
-    } else {
-      setInternalExpanded(v => !v);
-    }
-  };
 
   useEffect(() => {
-    if (!controlled) setInternalExpanded(isFutureTrip);
-  }, [isFutureTrip, controlled]);
-
-  const fetchWeather = async () => {
     if (!date) return;
-    setLoading(true);
-    setData(null);
-    try {
-      const dateStr = format(date, 'yyyy-MM-dd');
-      const res = await apiFetch(`/api/trips/${tripId}/weather?date=${dateStr}`);
-      if (res.status === 202 || res.status === 404) {
-        const json = await safeJson<{ message: string }>(res, { message: '天氣資料尚未取得' });
-        setMessage(json.message);
-        setData(null);
-      } else if (res.ok) {
-        const json = await safeJson<WeatherData>(res, null);
-        setData(json);
-        setMessage(null);
-      }
-    } catch (err) {
-      console.error('Failed to fetch weather', err);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  useEffect(() => { fetchWeather(); }, [tripId, date]);
-
-  const isPastDate = date ? isBefore(startOfDay(date), startOfDay(new Date())) : false;
+    let cancelled = false;
+    const load = async () => {
+      setLoading(true); setData(null);
+      try {
+        const res = await apiFetch(`/api/trips/${tripId}/weather?date=${format(date, 'yyyy-MM-dd')}`);
+        if (res.status === 202 || res.status === 404) {
+          const json = await safeJson<{ message: string }>(res, { message: '天氣資料尚未取得' });
+          if (!cancelled) { setMessage(json.message); setData(null); }
+        } else if (res.ok) {
+          const json = await safeJson<WeatherData>(res, null);
+          if (!cancelled) { setData(json); setMessage(null); }
+        }
+      } catch { /* silent */ }
+      finally { if (!cancelled) setLoading(false); }
+    };
+    load();
+    return () => { cancelled = true; };
+  }, [tripId, date]);
 
   const intervals = (data?.intervals ?? []).filter(interval => {
     const now = new Date();
     const isToday = date ? isSameDay(date, now) : false;
     if (!isToday) return true;
     if (interval.time.includes('(+1)')) return true;
-    const intervalHour = parseInt(interval.time.split(':')[0], 10);
-    return intervalHour + 3 > now.getHours();
+    return parseInt(interval.time.split(':')[0], 10) + 3 > now.getHours();
   });
 
-  // ── forceExpanded 模式（Modal）
-  if (forceExpanded) {
+  // ── 受控模式（ItineraryTab 使用）：只在 isExpanded=true 時顯示 ──────
+  if (controlled) {
+    if (!externalExpanded) return null;
     return (
-      <div className="flex flex-col gap-4">
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            {data?.summary && getWeatherIcon(data.summary.weather_code, 24)}
-            <div>
-              <h3 className="text-white font-bold text-base">天氣預報</h3>
-              {data?.summary && (
-                <p className="text-xs text-zinc-400">最高 {data.summary.max_temp}° · 最低 {data.summary.min_temp}°</p>
-              )}
-              {date && (
-                <p className="text-[10px] text-zinc-500 mt-0.5">{format(date, 'EEEE, MMM d')}</p>
-              )}
-            </div>
-          </div>
-          {onClose && (
-            <button type="button" onClick={onClose}
-              className="p-2 bg-zinc-800 hover:bg-zinc-700 rounded-full text-zinc-400 hover:text-white transition-colors">
-              <X size={18} />
-            </button>
+      <div className="bg-zinc-900/80 border border-zinc-800 rounded-2xl overflow-hidden">
+        {/* 簡潔標頭 */}
+        <div className="px-4 pt-3 pb-2 flex items-center gap-2">
+          {data?.summary ? getWeatherIcon(data.summary.weather_code, 16) : <Cloud size={16} className="text-zinc-500" />}
+          <span className="text-xs font-black text-white uppercase tracking-widest">天氣預報</span>
+          {data?.summary && (
+            <span className="text-[10px] text-zinc-400 ml-1">最高 {data.summary.max_temp}° · 最低 {data.summary.min_temp}°</span>
           )}
+          {date && <span className="text-[9px] text-zinc-600 ml-auto">{format(date, 'M/d EEEE')}</span>}
         </div>
         {loading ? (
-          <div className="flex items-center justify-center h-20"><Loader2 className="w-6 h-6 text-orange-500 animate-spin" /></div>
+          <div className="flex items-center justify-center h-16 border-t border-zinc-800">
+            <Loader2 className="w-5 h-5 text-orange-500 animate-spin" />
+          </div>
         ) : message || !data || intervals.length === 0 ? (
-          <div className="flex items-center justify-center h-16">
-            <p className="text-sm text-zinc-500 italic">{message || '尚無天氣資料'}</p>
+          <div className="flex items-center justify-center h-12 border-t border-zinc-800">
+            <p className="text-xs text-zinc-500 italic">{message || '尚無天氣資料'}</p>
           </div>
         ) : (
-          <div className="flex overflow-x-auto gap-2 pb-1 no-scrollbar border-t border-zinc-800 pt-4">
+          <div className="flex overflow-x-auto gap-1.5 px-3 pb-3 pt-2 no-scrollbar border-t border-zinc-800">
             {intervals.map((interval, idx) => (
-              <div key={idx} className="flex-none w-[calc(25%-6px)] flex flex-col items-center bg-zinc-900 rounded-2xl py-3 px-1 border border-zinc-800">
-                <span className="text-[10px] font-medium text-zinc-500 mb-2">{interval.time}</span>
-                {getWeatherIcon(interval.code, 22)}
-                <span className="text-sm font-semibold text-white mt-2">{interval.temp !== null ? `${interval.temp}°` : '--'}</span>
-                <span className="text-[9px] font-medium text-orange-500/80 mt-1 truncate w-full text-center px-1">{interval.city}</span>
+              <div key={idx} className="flex-none w-[calc(25%-4px)] flex flex-col items-center bg-zinc-950/60 rounded-xl py-2.5 px-1 border border-zinc-800/60">
+                <span className="text-[9px] font-medium text-zinc-500 mb-1.5">{interval.time}</span>
+                {getWeatherIcon(interval.code, 18)}
+                <span className="text-xs font-semibold text-white mt-1.5">{interval.temp !== null ? `${interval.temp}°` : '--'}</span>
+                <span className="text-[8px] text-orange-500/70 mt-0.5 truncate w-full text-center">{interval.city}</span>
               </div>
             ))}
           </div>
@@ -156,89 +109,6 @@ export function WeatherWidget({
     );
   }
 
-  // ── 收起狀態
-  if (!isExpanded) {
-    return (
-      <button type="button" onClick={handleToggle}
-        className="w-full bg-zinc-900 border border-zinc-800 rounded-2xl px-4 py-3 flex items-center justify-between text-zinc-500 hover:text-white hover:border-zinc-600 transition-all">
-        <div className="flex items-center gap-2 text-xs font-bold uppercase tracking-widest">
-          {data?.summary ? getWeatherIcon(data.summary.weather_code, 14) : <Cloud size={14} />}
-          天氣預報
-        </div>
-        <div className="flex items-center gap-1.5 text-[10px] font-black uppercase tracking-widest text-orange-500">
-          <span>展開</span><ChevronDown size={14} />
-        </div>
-      </button>
-    );
-  }
-
-  // ── 展開 + loading
-  if (loading) {
-    return (
-      <div className="bg-zinc-900 border border-zinc-800 rounded-3xl overflow-hidden shadow-lg">
-        <button type="button" onClick={handleToggle}
-          className="w-full px-5 pt-4 pb-3 flex items-center justify-between text-zinc-400 hover:text-white transition-colors">
-          <div className="flex items-center gap-2 text-xs font-bold uppercase tracking-widest">
-            <Loader2 size={14} className="animate-spin text-orange-500" />天氣預報
-          </div>
-          <div className="flex items-center gap-1.5 text-[10px] font-black uppercase tracking-widest text-orange-500">
-            <span>收合</span><ChevronUp size={14} />
-          </div>
-        </button>
-        <div className="p-5 pt-2 flex items-center justify-center h-16">
-          <Loader2 className="w-6 h-6 text-orange-500 animate-spin" />
-        </div>
-      </div>
-    );
-  }
-
-  if (message || !data || intervals.length === 0) {
-    if (isPastDate) return null;
-    return (
-      <div className="bg-zinc-900 border border-zinc-800 rounded-3xl overflow-hidden shadow-lg">
-        <button type="button" onClick={handleToggle}
-          className="w-full px-5 pt-4 pb-3 flex items-center justify-between text-zinc-400 hover:text-white transition-colors">
-          <div className="flex items-center gap-2 text-xs font-bold uppercase tracking-widest">
-            <Cloud size={14} />天氣預報
-          </div>
-          <div className="flex items-center gap-1.5 text-[10px] font-black uppercase tracking-widest text-orange-500">
-            <span>收合</span><ChevronUp size={14} />
-          </div>
-        </button>
-        <div className="px-5 pb-5 flex flex-col items-center justify-center min-h-[60px]">
-          <p className="text-sm text-zinc-500 italic">{message || '尚無天氣資料'}</p>
-        </div>
-      </div>
-    );
-  }
-
-  return (
-    <div className="bg-zinc-900 border border-zinc-800 rounded-3xl overflow-hidden shadow-lg">
-      <button type="button" onClick={handleToggle}
-        className="w-full px-5 pt-4 pb-3 flex items-center justify-between text-zinc-400 hover:text-white transition-colors">
-        <div className="flex items-center gap-3">
-          {data.summary && getWeatherIcon(data.summary.weather_code, 18)}
-          <div className="text-left">
-            <div className="text-xs font-bold uppercase tracking-widest text-white">天氣預報</div>
-            {data.summary && (
-              <div className="text-[10px] text-zinc-400">最高 {data.summary.max_temp}° · 最低 {data.summary.min_temp}°</div>
-            )}
-          </div>
-        </div>
-        <div className="flex items-center gap-1.5 text-[10px] font-black uppercase tracking-widest text-orange-500">
-          <span>收合</span><ChevronUp size={14} />
-        </div>
-      </button>
-      <div className="flex overflow-x-auto gap-2 px-5 pb-5 pt-1 no-scrollbar border-t border-zinc-800">
-        {intervals.map((interval, idx) => (
-          <div key={idx} className="flex-none w-[calc(25%-6px)] flex flex-col items-center bg-zinc-950/50 rounded-2xl py-3 px-1 border border-zinc-800/50">
-            <span className="text-[10px] font-medium text-zinc-500 mb-2">{interval.time}</span>
-            {getWeatherIcon(interval.code, 20)}
-            <span className="text-sm font-semibold text-white mt-2">{interval.temp !== null ? `${interval.temp}°` : '--'}</span>
-            <span className="text-[9px] font-medium text-orange-500/80 mt-1 truncate w-full text-center px-1">{interval.city}</span>
-          </div>
-        ))}
-      </div>
-    </div>
-  );
+  // ── forceExpanded 模式（保留備用）
+  return null;
 }

@@ -109,7 +109,7 @@ export interface AppSetting {
   value: string;
 }
 
-export type BookingCategory = 'FLIGHT' | 'TRAIN' | 'FERRY' | 'RENTAL' | 'PRIVATE_TRANSFER' | 'HOTEL';
+export type BookingCategory = 'FLIGHT' | 'TRAIN' | 'FERRY' | 'RENTAL' | 'PRIVATE_TRANSFER' | 'HOTEL' | 'BUS';
 
 export interface Booking {
   id: number;

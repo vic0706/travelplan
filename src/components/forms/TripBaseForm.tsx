@@ -180,13 +180,13 @@ export function TripBaseForm({ initialData, onSubmit, onCancel, submitText, load
             <>
               <img src={formData.cover_image_url} alt="Cover" className="w-full h-full object-cover" />
               <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
-                <span className="text-white font-medium bg-black/50 px-4 py-2 rounded-xl backdrop-blur-md">Change Image</span>
+                <span className="text-white font-medium bg-black/50 px-4 py-2 rounded-xl backdrop-blur-md">更換照片</span>
               </div>
             </>
           ) : (
             <div className="absolute inset-0 flex flex-col items-center justify-center text-zinc-500">
               <ImageIcon size={32} className="mb-2 opacity-50" />
-              <span className="text-sm font-medium">Click to upload cover image</span>
+              <span className="text-sm font-medium">點擊上傳封面照片</span>
             </div>
           )}
           <input
@@ -221,7 +221,7 @@ export function TripBaseForm({ initialData, onSubmit, onCancel, submitText, load
       {/* Date Range */}
       <div className="w-full">
         <DateRangePicker
-          label="Schedule *"
+          label="行程日期 *"
           hideTime={true}
           value={{
             start_date: formData.start_date ? parseISO(formData.start_date) : null,
@@ -240,7 +240,7 @@ export function TripBaseForm({ initialData, onSubmit, onCancel, submitText, load
       {/* Default City */}
       <div className="w-full">
         <label className="block text-xs font-bold text-zinc-500 uppercase tracking-wider mb-2 flex items-center gap-1.5">
-           Default City
+           預設城市
         </label>
         <button
           type="button"
@@ -260,7 +260,7 @@ export function TripBaseForm({ initialData, onSubmit, onCancel, submitText, load
       {/* Supported Currencies */}
       <div className="w-full">
         <label className="block text-xs font-bold text-zinc-500 uppercase tracking-wider mb-2 flex items-center gap-1.5">
-          <Globe size={14} /> Supported Currencies
+          <Globe size={14} /> 支援幣別
         </label>
         <button
           type="button"
@@ -308,7 +308,7 @@ export function TripBaseForm({ initialData, onSubmit, onCancel, submitText, load
       {/* Trip Members */}
       <div>
         <label className="block text-xs font-bold text-zinc-500 uppercase tracking-wider mb-2 flex items-center gap-1.5">
-          <Users size={14} /> Trip Members
+          <Users size={14} /> 行程成員
         </label>
         <button
           type="button"
@@ -336,7 +336,7 @@ export function TripBaseForm({ initialData, onSubmit, onCancel, submitText, load
                         <div>
                           <div className="text-sm font-bold text-white">
                             {u.name} 
-                            {isSelf && <span className="text-[10px] text-orange-400 font-bold ml-1 uppercase">(You / Admin)</span>}
+                            {isSelf && <span className="text-[10px] text-orange-400 font-bold ml-1">（你／管理員）</span>}
                           </div>
                           <div className="text-[10px] text-zinc-500">{u.role}</div>
                         </div>
@@ -357,7 +357,7 @@ export function TripBaseForm({ initialData, onSubmit, onCancel, submitText, load
       {/* 💡 Privacy Setting (Public / Private) */}
       <div className="w-full">
         <label className="block text-xs font-bold text-zinc-500 uppercase tracking-wider mb-2 flex items-center gap-1.5">
-          Privacy Setting
+          隱私設定
         </label>
         <button
           type="button"
@@ -394,7 +394,7 @@ export function TripBaseForm({ initialData, onSubmit, onCancel, submitText, load
             <div className="flex gap-3">
               {onCancel && (
                 <button type="button" onClick={onCancel} className="flex-1 bg-zinc-800 hover:bg-zinc-700 text-white font-bold rounded-xl px-4 py-3.5 transition-colors">
-                  Cancel
+                  取消
                 </button>
               )}
               <button type="submit" disabled={loading || uploading} className="flex-[2] bg-orange-500 hover:bg-orange-600 disabled:opacity-50 text-white font-black uppercase tracking-widest text-sm rounded-xl px-4 py-3.5 transition-colors shadow-lg shadow-orange-500/20 flex items-center justify-center gap-2">
