@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Car, Train, Bus, AlertTriangle, Star, Plus, Footprints, Bike, Navigation2, Sparkles, Clock, Asterisk, ChevronLeft, ChevronRight } from 'lucide-react';
+import { Car, Train, Bus, AlertTriangle, Star, Plus, Footprints, Bike, Navigation2, Sparkles, Clock, Asterisk, ChevronLeft, ChevronRight, List } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Itinerary } from '../../types';
 import { DynamicIcon } from '../common/DynamicIcon';
@@ -60,15 +60,18 @@ export function ItineraryCard({
   const hasPhoto   = !!item.image_url;
   const canExpand  = hasPhoto || hasContent;
 
-  const [isExpanded,  setIsExpanded]  = useState(!isPast && hasPhoto);
-  const [subItemIdx,  setSubItemIdx]  = useState<number | null>(null);
+  const [isExpanded,     setIsExpanded]     = useState(!isPast && hasPhoto);
+  const [overlayVisible, setOverlayVisible] = useState(false);
+  const [subItemIdx,     setSubItemIdx]     = useState<number | null>(null);
 
   useEffect(() => {
     if (expandSignal && expandSignal > 0 && hasPhoto) setIsExpanded(true);
   }, [expandSignal, hasPhoto]);
 
   useEffect(() => {
-    if (collapseSignal && collapseSignal > 0) { setIsExpanded(false); setSubItemIdx(null); }
+    if (collapseSignal && collapseSignal > 0) {
+      setIsExpanded(false); setOverlayVisible(false); setSubItemIdx(null);
+    }
   }, [collapseSignal]);
 
   const getGoogleMapsLink = () => {
@@ -94,83 +97,133 @@ export function ItineraryCard({
   const handleTitleClick = () => {
     if (canEdit) { onEdit(); return; }
     if (!canExpand) return;
-    setIsExpanded(v => !v);
-    setSubItemIdx(null);
+    if (isExpanded) {
+      setIsExpanded(false);
+      setOverlayVisible(false);
+      setSubItemIdx(null);
+    } else {
+      setIsExpanded(true);
+    }
   };
 
-  const renderContent = () => (
-    <div className="space-y-3">
-      {/* 評分 + Tags */}
-      {(item.rating || tags.length > 0) && (
-        <div className="flex flex-wrap items-center gap-1.5">
-          {item.rating && (
-            <div className="flex items-center gap-1 bg-yellow-500/15 border border-yellow-500/25 rounded-xl px-2.5 py-1">
-              <Star size={11} className="text-yellow-400 fill-yellow-400" />
-              <span className="text-[12px] font-black text-yellow-300">{(item.rating as number).toFixed(1)}</span>
-              {(item as any).reviews_count && (
-                <span className="text-[9px] text-yellow-500/60">({(item as any).reviews_count.toLocaleString()})</span>
-              )}
+  const handleDetailBtn = () => {
+    if (!isExpanded) {
+      setIsExpanded(true);
+      setOverlayVisible(true);
+    } else {
+      setOverlayVisible(v => !v);
+      setSubItemIdx(null);
+    }
+  };
+
+  const renderOverlayContent = () => {
+    if (subItemIdx !== null) {
+      const sub = subItems[subItemIdx];
+      if (!sub) return null;
+      return (
+        <div>
+          <button
+            type="button"
+            onClick={() => setSubItemIdx(null)}
+            className="flex items-center gap-1 text-orange-400 text-[10px] font-black mb-2.5 tracking-wide"
+          >
+            <ChevronLeft size={11} strokeWidth={3} />返回
+          </button>
+          {sub.start_time && (
+            <div className="font-mono text-[9px] text-zinc-500 mb-1">
+              {sub.start_time}{sub.end_time && sub.end_time !== sub.start_time ? ` — ${sub.end_time}` : ''}
             </div>
           )}
-          {tags.map((t: string) => (
-            <span key={t} className="text-[10px] font-bold text-orange-400 bg-orange-500/10 px-2 py-0.5 rounded-lg border border-orange-500/20">#{t}</span>
-          ))}
+          <h5 className="text-[13px] font-black text-white mb-2">{sub.title}</h5>
+          {sub.tags?.length > 0 && (
+            <div className="flex flex-wrap gap-1 mb-2">
+              {sub.tags.map((t: string) => (
+                <span key={t} className="text-[8px] font-bold text-orange-400 bg-orange-400/10 px-1.5 py-0.5 rounded-md border border-orange-400/20">#{t}</span>
+              ))}
+            </div>
+          )}
+          {sub.notes
+            ? <p className="text-[11px] text-zinc-300 leading-relaxed italic">{sub.notes}</p>
+            : <p className="text-[10px] text-zinc-600 italic">沒有備註</p>
+          }
         </div>
-      )}
+      );
+    }
 
-      {/* 子活動列表 */}
-      {subItems.length > 0 && (
-        <div className="space-y-1.5">
-          <div className="text-[9px] font-black text-zinc-500 uppercase tracking-[0.18em]">子活動</div>
-          {subItems.map((sub: any, idx: number) => (
-            <button
-              key={idx}
-              type="button"
-              onClick={(e) => { e.stopPropagation(); setSubItemIdx(idx); }}
-              className="w-full flex items-center gap-3 px-3.5 py-3 bg-white/5 active:bg-white/10 border border-white/8 rounded-2xl transition-colors text-left"
-            >
-              <div className="flex-1 min-w-0">
-                <div className="text-[13px] font-semibold text-zinc-200 truncate">{sub.title}</div>
-                {sub.start_time && (
-                  <div className="font-mono text-[10px] text-zinc-500 mt-0.5">
-                    {sub.start_time}{sub.end_time && sub.end_time !== sub.start_time ? ` — ${sub.end_time}` : ''}
-                  </div>
+    return (
+      <div className="space-y-2">
+        {/* 評分 + Tags */}
+        {(item.rating || tags.length > 0) && (
+          <div className="flex flex-wrap items-center gap-1.5">
+            {item.rating && (
+              <div className="flex items-center gap-1 bg-yellow-500/15 border border-yellow-500/25 rounded-lg px-2 py-0.5">
+                <Star size={10} className="text-yellow-400 fill-yellow-400" />
+                <span className="text-[11px] font-black text-yellow-300">{(item.rating as number).toFixed(1)}</span>
+                {(item as any).reviews_count && (
+                  <span className="text-[8px] text-yellow-500/60">({(item as any).reviews_count.toLocaleString()})</span>
                 )}
               </div>
-              {(sub.notes || sub.tags?.length > 0) && (
-                <Asterisk size={10} strokeWidth={3} className="shrink-0 text-zinc-600" />
-              )}
-              <ChevronRight size={13} className="shrink-0 text-zinc-700" />
-            </button>
-          ))}
-        </div>
-      )}
+            )}
+            {tags.map((t: string) => (
+              <span key={t} className="text-[9px] font-bold text-orange-400 bg-orange-500/10 px-1.5 py-0.5 rounded-md border border-orange-500/20">#{t}</span>
+            ))}
+          </div>
+        )}
 
-      {/* 警告 + 備註 */}
-      {(hasWarning || item.notes) && (
-        <div className="space-y-1.5">
-          {isConflicted && (
-            <div className="flex items-center gap-1.5 text-red-400 text-[11px] font-bold">
-              <AlertTriangle size={12} />行程時間衝突
-            </div>
-          )}
-          {closedWarning && (
-            <div className="flex items-center gap-1.5 text-red-400 text-[11px] font-bold">
-              <Clock size={12} />⚠️ {closedWarning}
-            </div>
-          )}
-          {item.sync_conflict_warning && !closedWarning && (
-            <div className="flex items-center gap-1.5 text-orange-400 text-[11px] font-bold">
-              <AlertTriangle size={12} />{item.sync_conflict_warning}
-            </div>
-          )}
-          {item.notes && (
-            <p className="text-[12px] text-zinc-400 leading-relaxed italic whitespace-pre-wrap">{item.notes}</p>
-          )}
-        </div>
-      )}
-    </div>
-  );
+        {/* 子活動 */}
+        {subItems.length > 0 && (
+          <div className="space-y-1">
+            <div className="text-[8px] font-black text-zinc-500 uppercase tracking-[0.15em]">子活動</div>
+            {subItems.map((sub: any, idx: number) => (
+              <button
+                key={idx}
+                type="button"
+                onClick={(e) => { e.stopPropagation(); setSubItemIdx(idx); }}
+                className="w-full flex items-center gap-2 px-3 py-2.5 bg-white/5 border border-white/8 rounded-xl text-left active:bg-white/10 transition-colors"
+              >
+                <div className="flex-1 min-w-0">
+                  <div className="text-[12px] font-semibold text-zinc-100 truncate">{sub.title}</div>
+                  {sub.start_time && (
+                    <div className="font-mono text-[9px] text-zinc-500 mt-0.5">
+                      {sub.start_time}{sub.end_time && sub.end_time !== sub.start_time ? ` — ${sub.end_time}` : ''}
+                    </div>
+                  )}
+                </div>
+                {(sub.notes || sub.tags?.length > 0) && (
+                  <Asterisk size={9} strokeWidth={3} className="shrink-0 text-zinc-600" />
+                )}
+                <ChevronRight size={11} className="shrink-0 text-zinc-700" />
+              </button>
+            ))}
+          </div>
+        )}
+
+        {/* 警告 + 備註 */}
+        {(hasWarning || item.notes) && (
+          <div className="space-y-1.5">
+            {isConflicted && (
+              <div className="flex items-center gap-1 text-red-400 text-[10px] font-bold">
+                <AlertTriangle size={10} />行程時間衝突
+              </div>
+            )}
+            {closedWarning && (
+              <div className="flex items-center gap-1 text-red-400 text-[10px] font-bold">
+                <Clock size={10} />⚠️ {closedWarning}
+              </div>
+            )}
+            {item.sync_conflict_warning && !closedWarning && (
+              <div className="flex items-center gap-1 text-orange-400 text-[10px] font-bold">
+                <AlertTriangle size={10} />{item.sync_conflict_warning}
+              </div>
+            )}
+            {item.notes && (
+              <p className="text-[11px] text-zinc-300 leading-relaxed italic whitespace-pre-wrap">{item.notes}</p>
+            )}
+          </div>
+        )}
+      </div>
+    );
+  };
 
   return (
     <div className={clsx('flex flex-col w-full mb-3 px-1 transition-all', isDragOverlay && 'opacity-90 scale-105 shadow-2xl z-50')}>
@@ -181,7 +234,7 @@ export function ItineraryCard({
         !isConflicted && !isCircuitBreaker && (canEdit ? 'border-zinc-800 hover:border-zinc-700' : 'border-zinc-800'),
       )}>
 
-        {/* ── ROW 1: ICON ｜ 標題 ｜ 導航按鈕 ── */}
+        {/* ── ROW 1: ICON ｜ 標題 ｜ 導航 ── */}
         <div className="px-4 pt-4 pb-2 flex items-center gap-3">
           <div
             className="shrink-0 w-9 h-9 rounded-2xl flex items-center justify-center"
@@ -215,7 +268,7 @@ export function ItineraryCard({
           </button>
         </div>
 
-        {/* ── 展開內容區 ── */}
+        {/* ── 展開區域（固定高度） ── */}
         <AnimatePresence initial={false}>
           {isExpanded && canExpand && (
             <motion.div
@@ -226,130 +279,68 @@ export function ItineraryCard({
               transition={{ duration: 0.25, ease: 'easeInOut' }}
               className="overflow-hidden"
             >
-              <AnimatePresence mode="wait" initial={false}>
-                {subItemIdx !== null ? (
-
-                  /* ── 子活動詳情 ── */
-                  <motion.div
-                    key={`sub-${subItemIdx}`}
-                    initial={{ x: 24, opacity: 0 }}
-                    animate={{ x: 0, opacity: 1 }}
-                    exit={{ x: 24, opacity: 0 }}
-                    transition={{ duration: 0.18 }}
-                    className="mx-3 mb-3 bg-zinc-900/50 rounded-[20px] border border-zinc-800/50 overflow-hidden"
-                  >
-                    <button
-                      type="button"
-                      onClick={() => setSubItemIdx(null)}
-                      className="flex items-center gap-1.5 px-4 pt-3 pb-2 text-orange-400 text-[11px] font-black tracking-wide"
-                    >
-                      <ChevronLeft size={13} strokeWidth={3} />返回
-                    </button>
-                    {(() => {
-                      const sub = subItems[subItemIdx];
-                      if (!sub) return null;
-                      return (
-                        <div className="px-4 pb-4 space-y-3">
-                          {sub.start_time && (
-                            <div className="font-mono text-[10px] text-zinc-500">
-                              {sub.start_time}{sub.end_time && sub.end_time !== sub.start_time ? ` — ${sub.end_time}` : ''}
-                            </div>
-                          )}
-                          <h5 className="text-[16px] font-black text-white">{sub.title}</h5>
-                          {sub.tags?.length > 0 && (
-                            <div className="flex flex-wrap gap-1.5">
-                              {sub.tags.map((t: string) => (
-                                <span key={t} className="text-[9px] font-bold text-orange-400 bg-orange-400/10 px-2 py-0.5 rounded-lg border border-orange-400/20">#{t}</span>
-                              ))}
-                            </div>
-                          )}
-                          {sub.notes ? (
-                            <div className="bg-white/5 rounded-2xl p-3 border border-white/8">
-                              <p className="text-[12px] text-zinc-300 leading-relaxed italic whitespace-pre-wrap">{sub.notes}</p>
-                            </div>
-                          ) : (
-                            <p className="text-[12px] text-zinc-600 italic">沒有備註</p>
-                          )}
-                        </div>
-                      );
-                    })()}
-                  </motion.div>
-
-                ) : hasPhoto && !hasContent ? (
-
-                  /* ── 僅有照片 ── */
-                  <motion.div
-                    key="photo-only"
-                    initial={{ opacity: 0 }}
-                    animate={{ opacity: 1 }}
-                    exit={{ opacity: 0 }}
-                    transition={{ duration: 0.18 }}
-                    className="mx-3 mb-3 rounded-[20px] overflow-hidden"
-                  >
-                    <img
-                      src={item.image_url!}
-                      alt={item.title}
-                      className={clsx('w-full aspect-[21/9] object-cover block', isPast ? 'opacity-30' : 'opacity-90')}
-                    />
-                  </motion.div>
-
-                ) : hasPhoto && hasContent ? (
-
-                  /* ── 照片 + 遮罩 + 內容 ── */
-                  <motion.div
-                    key="photo-content"
-                    initial={{ opacity: 0 }}
-                    animate={{ opacity: 1 }}
-                    exit={{ opacity: 0 }}
-                    transition={{ duration: 0.18 }}
-                    className="mx-3 mb-3 rounded-[20px] overflow-hidden"
-                  >
-                    <div className="relative">
-                      <img
-                        src={item.image_url!}
-                        alt={item.title}
-                        className={clsx('w-full object-cover block', isPast ? 'opacity-25' : 'opacity-80')}
-                        style={{ height: '120px', objectPosition: 'center' }}
-                      />
-                      <div className="absolute inset-0 bg-gradient-to-t from-[#1c1c1e] via-[#1c1c1e]/50 to-transparent" />
-                    </div>
-                    <div className="bg-[#1c1c1e] px-4 pb-4 pt-1">
-                      {renderContent()}
-                    </div>
-                  </motion.div>
-
+              <div className="mx-3 mb-3 rounded-[20px] overflow-hidden relative" style={{ height: 144 }}>
+                {/* 背景：照片或深色底 */}
+                {hasPhoto ? (
+                  <img
+                    src={item.image_url!}
+                    alt={item.title}
+                    className={clsx('absolute inset-0 w-full h-full object-cover', isPast ? 'opacity-25' : 'opacity-85')}
+                  />
                 ) : (
-
-                  /* ── 僅有內容（無照片）── */
-                  <motion.div
-                    key="content-only"
-                    initial={{ opacity: 0 }}
-                    animate={{ opacity: 1 }}
-                    exit={{ opacity: 0 }}
-                    transition={{ duration: 0.18 }}
-                    className="mx-3 mb-3 bg-zinc-900/40 rounded-[20px] border border-zinc-800/40 px-4 py-4"
-                  >
-                    {renderContent()}
-                  </motion.div>
-
+                  <div className="absolute inset-0 bg-zinc-900/70" />
                 )}
-              </AnimatePresence>
+
+                {/* 內容遮罩 */}
+                <AnimatePresence>
+                  {overlayVisible && (
+                    <motion.div
+                      initial={{ opacity: 0 }}
+                      animate={{ opacity: 1 }}
+                      exit={{ opacity: 0 }}
+                      transition={{ duration: 0.15 }}
+                      className="absolute inset-0 bg-black/88 backdrop-blur-md overflow-y-auto no-scrollbar p-3"
+                    >
+                      {renderOverlayContent()}
+                    </motion.div>
+                  )}
+                </AnimatePresence>
+              </div>
             </motion.div>
           )}
         </AnimatePresence>
 
-        {/* ── 下一站 ── */}
-        {showNextTransport && (canEdit || !!item.next_transport_mode) && (
-          <div className={clsx(
-            'border-t',
-            isCircuitBreaker ? 'border-red-500/30' : 'border-zinc-800/60',
-          )}>
+        {/* ── 底部列：詳情按鈕 ｜ 下一站 ── */}
+        <div className={clsx(
+          'flex items-stretch border-t',
+          isCircuitBreaker ? 'border-red-500/30' : 'border-zinc-800/60',
+        )}>
+
+          {/* 詳情按鈕 */}
+          {hasContent && (
+            <button
+              type="button"
+              onClick={handleDetailBtn}
+              className={clsx(
+                'px-3.5 flex items-center justify-center border-r transition-all',
+                isCircuitBreaker ? 'border-red-500/30' : 'border-zinc-800/60',
+                overlayVisible
+                  ? 'text-orange-500 bg-orange-500/8'
+                  : 'text-zinc-600 hover:text-zinc-400 hover:bg-zinc-800/30',
+              )}
+            >
+              <List size={14} strokeWidth={1.8} />
+            </button>
+          )}
+
+          {/* 下一站 */}
+          {showNextTransport && (canEdit || !!item.next_transport_mode) ? (
             <button
               type="button"
               disabled={!canEdit}
               onClick={(e) => { e.stopPropagation(); if (canEdit && onEditNextTransport) onEditNextTransport(); }}
               className={clsx(
-                'w-full px-4 py-3 flex items-center justify-between transition-colors',
+                'flex-1 px-4 py-3 flex items-center justify-between transition-colors',
                 canEdit ? 'cursor-pointer hover:bg-zinc-800/30 active:bg-zinc-800/50' : 'cursor-default',
                 isCircuitBreaker && 'bg-red-500/10',
               )}
@@ -357,7 +348,6 @@ export function ItineraryCard({
               <span className={clsx('text-[9px] font-black uppercase tracking-[0.2em]', isCircuitBreaker ? 'text-red-400' : 'text-zinc-500')}>
                 下一站
               </span>
-
               {item.next_transport_mode ? (
                 <div className="flex items-center gap-2 text-orange-500">
                   {getTransportIcon()}
@@ -372,8 +362,11 @@ export function ItineraryCard({
                 </div>
               )}
             </button>
-          </div>
-        )}
+          ) : (
+            /* 只有詳情按鈕時補齊空白區 */
+            !hasContent && <div className="h-px flex-1" />
+          )}
+        </div>
 
       </div>
     </div>

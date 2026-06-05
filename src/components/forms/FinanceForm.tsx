@@ -181,7 +181,7 @@ export function FinanceForm({ tripId, defaultDate, currencies = ['TWD'], onSucce
             <div className="space-y-1">
               <label className="text-[10px] font-bold text-zinc-500 uppercase tracking-widest ml-1">付款人</label>
               <button onClick={() => setIsPayerModalOpen(true)}
-                className="w-full flex items-center gap-2 bg-zinc-950 border border-zinc-800 rounded-2xl p-2.5 text-left hover:border-orange-500 transition-colors">
+                className="w-full flex items-center gap-2 bg-zinc-950 border border-zinc-800 rounded-2xl p-2.5 text-left hover:border-orange-500 transition-colors min-h-[52px]">
                 <div className="w-8 h-8 rounded-full bg-zinc-800 overflow-hidden shrink-0 border border-zinc-700">
                   <img src={members.find(m => m.id === payerId)?.avatar_url || `https://ui-avatars.com/api/?name=${members.find(m => m.id === payerId)?.name || '?'}`} alt="付款人" className="w-full h-full object-cover" />
                 </div>
@@ -191,7 +191,7 @@ export function FinanceForm({ tripId, defaultDate, currencies = ['TWD'], onSucce
             <div className="space-y-1">
               <label className="text-[10px] font-bold text-zinc-500 uppercase tracking-widest ml-1">共同分攤</label>
               <button onClick={() => setIsSplitModalOpen(true)}
-                className="w-full flex items-center gap-2 bg-zinc-950 border border-zinc-800 rounded-2xl p-2.5 text-left hover:border-orange-500 transition-colors">
+                className="w-full flex items-center gap-2 bg-zinc-950 border border-zinc-800 rounded-2xl p-2.5 text-left hover:border-orange-500 transition-colors min-h-[52px]">
                 <div className="flex -space-x-2 overflow-hidden shrink-0">
                   {splitMembers.slice(0, 3).map(id => {
                     const m = members.find(member => member.id === id);

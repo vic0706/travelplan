@@ -77,6 +77,7 @@ interface BookingFormProps {
   initialData?: any;
   onSubmit: (data: BookingFormData) => Promise<void>;
   onCancel: () => void;
+  onDelete?: () => void;
   loading?: boolean;
 }
 
@@ -94,7 +95,7 @@ const timeInput = (label: string, value: string, onChange: (v: string) => void, 
   </div>
 );
 
-export function BookingForm({ initialData, onSubmit, onCancel, loading = false }: BookingFormProps) {
+export function BookingForm({ initialData, onSubmit, onCancel, onDelete, loading = false }: BookingFormProps) {
   const { cities } = useAppStore();
   const [step, setStep] = useState<'pick-category' | 'fill-form'>(initialData ? 'fill-form' : 'pick-category');
 
@@ -225,29 +226,31 @@ export function BookingForm({ initialData, onSubmit, onCancel, loading = false }
   // ══ STEP 1: 選擇類別 ══
   if (step === 'pick-category') {
     return (
-      <div className="flex flex-col">
-        <div className="flex items-center justify-between mb-6">
+      <div className="bg-zinc-900 rounded-3xl overflow-hidden shadow-2xl">
+        <div className="px-6 pt-5 pb-4 border-b border-zinc-800 flex items-center justify-between">
           <h2 className="text-xl font-black text-white">新增訂票</h2>
           <button type="button" onClick={onCancel} className="p-2 bg-zinc-800 rounded-full text-zinc-400 hover:text-white transition-colors"><X size={20} /></button>
         </div>
-        <p className="text-[10px] font-black text-zinc-500 uppercase tracking-widest mb-4">選擇類型</p>
-        <div className="grid grid-cols-2 gap-3">
-          {BOOKING_CATEGORIES.map(cat => {
-            const Icon = cat.icon;
-            return (
-              <motion.button key={cat.id} type="button" whileTap={{ scale: 0.97 }}
-                onClick={() => { setFormData(prev => ({ ...prev, category: cat.id })); setStep('fill-form'); }}
-                className="flex flex-col items-start gap-3 p-4 rounded-3xl border-2 border-orange-500/20 bg-orange-500/5 hover:bg-orange-500/10 hover:border-orange-500/40 transition-all text-left">
-                <div className="p-2 rounded-2xl bg-orange-500/10 text-orange-400">
-                  <Icon size={24} strokeWidth={1.8} />
-                </div>
-                <div>
-                  <div className="text-sm font-black text-white">{cat.label}</div>
-                  <div className="text-[10px] text-zinc-500 mt-0.5 leading-snug">{cat.description}</div>
-                </div>
-              </motion.button>
-            );
-          })}
+        <div className="px-6 py-5">
+          <p className="text-[10px] font-black text-zinc-500 uppercase tracking-widest mb-4">選擇類型</p>
+          <div className="grid grid-cols-2 gap-3">
+            {BOOKING_CATEGORIES.map(cat => {
+              const Icon = cat.icon;
+              return (
+                <motion.button key={cat.id} type="button" whileTap={{ scale: 0.97 }}
+                  onClick={() => { setFormData(prev => ({ ...prev, category: cat.id })); setStep('fill-form'); }}
+                  className="flex flex-col items-start gap-3 p-4 rounded-3xl border-2 border-orange-500/20 bg-orange-500/5 hover:bg-orange-500/10 hover:border-orange-500/40 transition-all text-left">
+                  <div className="p-2 rounded-2xl bg-orange-500/10 text-orange-400">
+                    <Icon size={24} strokeWidth={1.8} />
+                  </div>
+                  <div>
+                    <div className="text-sm font-black text-white">{cat.label}</div>
+                    <div className="text-[10px] text-zinc-500 mt-0.5 leading-snug">{cat.description}</div>
+                  </div>
+                </motion.button>
+              );
+            })}
+          </div>
         </div>
       </div>
     );
@@ -258,9 +261,10 @@ export function BookingForm({ initialData, onSubmit, onCancel, loading = false }
   const Icon = selectedCat.icon;
 
   return (
-    <form onSubmit={handleSubmit} className="flex flex-col gap-5">
-      {/* 標頭 */}
-      <div className="flex items-center justify-between">
+    <div className="bg-zinc-900 rounded-3xl overflow-hidden shadow-2xl flex flex-col max-h-[90vh]">
+
+      {/* 固定標頭 */}
+      <div className="shrink-0 px-6 pt-5 pb-4 border-b border-zinc-800 flex items-center justify-between">
         <div className="flex items-center gap-3">
           {!initialData && (
             <button type="button" onClick={() => setStep('pick-category')}
@@ -273,6 +277,10 @@ export function BookingForm({ initialData, onSubmit, onCancel, loading = false }
         </div>
         <button type="button" onClick={onCancel} className="p-2 text-zinc-400 hover:text-white transition-colors"><X size={20} /></button>
       </div>
+
+      {/* 可滑動內容 */}
+      <form id="booking-form" onSubmit={handleSubmit} className="flex-1 overflow-y-auto custom-scrollbar">
+      <div className="px-6 py-5 space-y-5">
 
       {/* 類別切換（編輯模式） */}
       {initialData && (
@@ -445,24 +453,24 @@ export function BookingForm({ initialData, onSubmit, onCancel, loading = false }
               {timeInput('出門時間', dailyDepartTime, setDailyDepartTime)}
               {timeInput('返回時間', dailyReturnTime, setDailyReturnTime)}
             </div>
-            <div className="grid grid-cols-2 gap-3">
-              <div className="space-y-1">
-                <label className="text-[10px] font-bold text-zinc-400 uppercase tracking-widest">出門準備</label>
-                <div className="flex items-center gap-2">
-                  <input type="range" min="0" max="60" step="5" value={dailyDepartStay}
-                    onChange={e => setDailyDepartStay(parseInt(e.target.value))}
-                    className="flex-1 accent-orange-500 h-1.5 bg-zinc-800 rounded-lg appearance-none cursor-pointer outline-none" />
-                  <span className="text-xs font-black text-orange-500 w-10 text-right shrink-0">{dailyDepartStay}分</span>
+            <div className="space-y-3">
+              <div className="space-y-1.5">
+                <div className="flex items-center justify-between">
+                  <label className="text-[10px] font-bold text-zinc-400 uppercase tracking-widest">出門準備</label>
+                  <span className="text-xs font-black text-orange-500">{dailyDepartStay}分</span>
                 </div>
+                <input type="range" min="0" max="60" step="5" value={dailyDepartStay}
+                  onChange={e => setDailyDepartStay(parseInt(e.target.value))}
+                  className="w-full accent-orange-500 h-1.5 bg-zinc-800 rounded-lg appearance-none cursor-pointer outline-none" />
               </div>
-              <div className="space-y-1">
-                <label className="text-[10px] font-bold text-zinc-400 uppercase tracking-widest">返回安頓</label>
-                <div className="flex items-center gap-2">
-                  <input type="range" min="0" max="60" step="5" value={dailyReturnStay}
-                    onChange={e => setDailyReturnStay(parseInt(e.target.value))}
-                    className="flex-1 accent-orange-500 h-1.5 bg-zinc-800 rounded-lg appearance-none cursor-pointer outline-none" />
-                  <span className="text-xs font-black text-orange-500 w-10 text-right shrink-0">{dailyReturnStay}分</span>
+              <div className="space-y-1.5">
+                <div className="flex items-center justify-between">
+                  <label className="text-[10px] font-bold text-zinc-400 uppercase tracking-widest">返回安頓</label>
+                  <span className="text-xs font-black text-orange-500">{dailyReturnStay}分</span>
                 </div>
+                <input type="range" min="0" max="60" step="5" value={dailyReturnStay}
+                  onChange={e => setDailyReturnStay(parseInt(e.target.value))}
+                  className="w-full accent-orange-500 h-1.5 bg-zinc-800 rounded-lg appearance-none cursor-pointer outline-none" />
               </div>
             </div>
           </div>
@@ -488,9 +496,6 @@ export function BookingForm({ initialData, onSubmit, onCancel, loading = false }
                     onChange={e => handleDepBufferChange(parseInt(e.target.value))}
                     className="flex-1 accent-orange-500 h-1.5 bg-zinc-800 rounded-lg appearance-none cursor-pointer outline-none" />
                 </div>
-                {checkInTime && (
-                  <p className="text-[9px] text-orange-400 font-bold">報到時間：{checkInTime}</p>
-                )}
               </div>
             </div>
             {timeInput('報到時間（可手動覆蓋）', checkInTime, setCheckInTime)}
@@ -547,28 +552,28 @@ export function BookingForm({ initialData, onSubmit, onCancel, loading = false }
               formData.end_time, v => set('end_time', v)
             )}
           </div>
-          <div className="grid grid-cols-2 gap-3">
-            <div className="space-y-1">
-              <label className="text-[10px] font-bold text-zinc-400 uppercase tracking-widest">
-                {formData.category === 'RENTAL' ? '取車等候時間' : '出發等候時間'}
-              </label>
-              <div className="flex items-center gap-2 pt-1">
-                <input type="range" min="0" max="90" step="5" value={rentalPickupBuffer}
-                  onChange={e => setRentalPickupBuffer(parseInt(e.target.value))}
-                  className="flex-1 accent-orange-500 h-1.5 bg-zinc-800 rounded-lg appearance-none cursor-pointer outline-none" />
-                <span className="text-xs font-black text-orange-500 w-10 text-right shrink-0">{rentalPickupBuffer}分</span>
+          <div className="space-y-3">
+            <div className="space-y-1.5">
+              <div className="flex items-center justify-between">
+                <label className="text-[10px] font-bold text-zinc-400 uppercase tracking-widest">
+                  {formData.category === 'RENTAL' ? '取車等候時間' : '出發等候時間'}
+                </label>
+                <span className="text-xs font-black text-orange-500">{rentalPickupBuffer}分</span>
               </div>
+              <input type="range" min="0" max="90" step="5" value={rentalPickupBuffer}
+                onChange={e => setRentalPickupBuffer(parseInt(e.target.value))}
+                className="w-full accent-orange-500 h-1.5 bg-zinc-800 rounded-lg appearance-none cursor-pointer outline-none" />
             </div>
-            <div className="space-y-1">
-              <label className="text-[10px] font-bold text-zinc-400 uppercase tracking-widest">
-                {formData.category === 'RENTAL' ? '還車手續時間' : '抵達等候時間'}
-              </label>
-              <div className="flex items-center gap-2 pt-1">
-                <input type="range" min="0" max="60" step="5" value={rentalReturnBuffer}
-                  onChange={e => setRentalReturnBuffer(parseInt(e.target.value))}
-                  className="flex-1 accent-orange-500 h-1.5 bg-zinc-800 rounded-lg appearance-none cursor-pointer outline-none" />
-                <span className="text-xs font-black text-orange-500 w-10 text-right shrink-0">{rentalReturnBuffer}分</span>
+            <div className="space-y-1.5">
+              <div className="flex items-center justify-between">
+                <label className="text-[10px] font-bold text-zinc-400 uppercase tracking-widest">
+                  {formData.category === 'RENTAL' ? '還車手續時間' : '抵達等候時間'}
+                </label>
+                <span className="text-xs font-black text-orange-500">{rentalReturnBuffer}分</span>
               </div>
+              <input type="range" min="0" max="60" step="5" value={rentalReturnBuffer}
+                onChange={e => setRentalReturnBuffer(parseInt(e.target.value))}
+                className="w-full accent-orange-500 h-1.5 bg-zinc-800 rounded-lg appearance-none cursor-pointer outline-none" />
             </div>
           </div>
           <div className="grid grid-cols-2 gap-3 border-t border-zinc-800 pt-3">
@@ -600,16 +605,6 @@ export function BookingForm({ initialData, onSubmit, onCancel, loading = false }
           placeholder="確認號碼、特殊需求..." />
       </div>
 
-      {/* 送出 */}
-      <div className="flex gap-3 pt-2 border-t border-zinc-800">
-        <button type="button" onClick={onCancel}
-          className="flex-1 bg-zinc-800 hover:bg-zinc-700 text-white font-bold rounded-xl px-4 py-3.5 transition-colors">取消</button>
-        <button type="submit" disabled={loading}
-          className="flex-[2] bg-orange-500 hover:bg-orange-600 disabled:opacity-50 text-white font-black rounded-xl px-4 py-3.5 transition-colors shadow-lg shadow-orange-500/20 flex items-center justify-center gap-2 uppercase tracking-widest text-sm">
-          {loading ? <Loader2 className="animate-spin" size={20} /> : '儲存訂票'}
-        </button>
-      </div>
-
       <LocationPicker
         isOpen={isCityPickerOpen}
         onClose={() => setIsCityPickerOpen(false)}
@@ -622,6 +617,26 @@ export function BookingForm({ initialData, onSubmit, onCancel, loading = false }
         }))}
         groupedCities={groupedCities}
       />
+      </div>
     </form>
+
+    {/* 固定底部 */}
+    <div className="shrink-0 px-6 pt-4 pb-5 border-t border-zinc-800 space-y-3">
+      <div className="flex gap-3">
+        <button type="button" onClick={onCancel}
+          className="flex-1 bg-zinc-800 hover:bg-zinc-700 text-white font-bold rounded-xl px-4 py-3.5 transition-colors">取消</button>
+        <button form="booking-form" type="submit" disabled={loading}
+          className="flex-[2] bg-orange-500 hover:bg-orange-600 disabled:opacity-50 text-white font-black rounded-xl px-4 py-3.5 transition-colors shadow-lg shadow-orange-500/20 flex items-center justify-center gap-2 uppercase tracking-widest text-sm">
+          {loading ? <Loader2 className="animate-spin" size={20} /> : '儲存訂票'}
+        </button>
+      </div>
+      {onDelete && (
+        <button type="button" onClick={onDelete}
+          className="w-full py-3 text-red-500 bg-red-500/10 hover:bg-red-500/20 font-bold rounded-xl transition-colors border border-red-500/20">
+          刪除訂票
+        </button>
+      )}
+    </div>
+  </div>
   );
 }

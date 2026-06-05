@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { useAppStore } from '../../store';
-import { X, MapPin, Loader2, Plus, Trash2, Camera, Image as ImageIcon, Upload, Sparkles, Lock, Unlock, Search, Database } from 'lucide-react';
+import { X, MapPin, Loader2, Plus, Trash2, Camera, Image as ImageIcon, Upload, Sparkles, Lock, Unlock, Search, Database, Check } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { apiFetch } from '../../utils/api';
 import { DynamicIcon } from '../common/DynamicIcon';
@@ -543,24 +543,45 @@ export function ItineraryForm({ tripId, date, onSuccess, onCancel, initialData }
             <motion.div initial={{ scale: 0.9, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0.9, opacity: 0 }}
               className="bg-[#1c1c1e] border border-zinc-800 rounded-[40px] w-full max-w-sm overflow-hidden flex flex-col shadow-2xl">
               <div className="p-4 border-b border-zinc-800 flex justify-between items-center bg-zinc-900/50">
-                <span className="text-xs font-black text-white uppercase tracking-widest">照片管理</span>
+                <span className="text-xs font-black text-white uppercase tracking-widest">活動照片</span>
                 <button type="button" onClick={() => setIsPhotoModalOpen(false)}><X size={20} className="text-zinc-500" /></button>
               </div>
-              <div className="p-6 flex flex-col items-center gap-6">
-                <div className="w-full aspect-[21/9] rounded-[28px] bg-zinc-950 border border-zinc-800 overflow-hidden relative shadow-inner">
-                  {formData.image_url ? <img src={formData.image_url} className="w-full h-full object-cover" alt="全覽" /> : (
-                    <div className="absolute inset-0 flex flex-col items-center justify-center text-zinc-700 gap-2"><ImageIcon size={48} strokeWidth={1} /><span className="text-[10px] font-bold uppercase tracking-widest">尚無照片</span></div>
+              <div className="p-6 flex flex-col items-center gap-4">
+                {/* 點擊框架即可上傳 */}
+                <label className="w-full aspect-[21/9] rounded-[28px] bg-zinc-950 border-2 border-dashed border-zinc-700 overflow-hidden relative shadow-inner cursor-pointer hover:border-orange-500/50 transition-colors group">
+                  {formData.image_url ? (
+                    <img src={formData.image_url} className="w-full h-full object-cover" alt="預覽" />
+                  ) : (
+                    <div className="absolute inset-0 flex flex-col items-center justify-center text-zinc-600 gap-2 group-hover:text-zinc-400 transition-colors">
+                      <Upload size={32} strokeWidth={1.5} />
+                      <span className="text-[10px] font-bold uppercase tracking-widest">點擊上傳照片</span>
+                    </div>
                   )}
-                  {uploading && <div className="absolute inset-0 bg-black/60 flex items-center justify-center text-orange-500 backdrop-blur-sm"><Loader2 className="animate-spin" size={32} /></div>}
-                </div>
+                  {uploading && (
+                    <div className="absolute inset-0 bg-black/60 flex items-center justify-center backdrop-blur-sm">
+                      <Loader2 className="animate-spin text-orange-500" size={32} />
+                    </div>
+                  )}
+                  <input type="file" className="hidden" accept="image/*" onChange={handleFileSelect} disabled={uploading} />
+                </label>
+
                 <div className="flex w-full gap-3">
-                  <label className="flex-1 flex items-center justify-center gap-2 py-4 bg-white text-black rounded-2xl font-black text-xs uppercase cursor-pointer hover:bg-zinc-200 transition-colors shadow-lg">
-                    <Upload size={16} /> 上傳照片
-                    <input type="file" className="hidden" accept="image/*" onChange={handleFileSelect} />
-                  </label>
-                  {formData.image_url && (
-                    <button type="button" onClick={() => setFormData(prev => ({ ...prev, image_url: '' }))}
-                      className="w-16 flex items-center justify-center bg-red-500/10 text-red-500 rounded-2xl hover:bg-red-500/20 transition-colors"><Trash2 size={20} /></button>
+                  {formData.image_url ? (
+                    <>
+                      <button type="button" onClick={() => setIsPhotoModalOpen(false)}
+                        className="flex-1 flex items-center justify-center gap-2 py-4 bg-orange-500 text-white rounded-2xl font-black text-xs uppercase tracking-widest shadow-lg shadow-orange-500/20 active:scale-95 transition-all">
+                        <Check size={16} /> 完成
+                      </button>
+                      <button type="button" onClick={() => setFormData(prev => ({ ...prev, image_url: '' }))}
+                        className="w-14 flex items-center justify-center bg-red-500/10 text-red-500 rounded-2xl hover:bg-red-500/20 transition-colors border border-red-500/20">
+                        <Trash2 size={18} />
+                      </button>
+                    </>
+                  ) : (
+                    <button type="button" onClick={() => setIsPhotoModalOpen(false)}
+                      className="flex-1 py-4 bg-zinc-800 text-zinc-400 rounded-2xl font-bold text-xs uppercase tracking-widest hover:bg-zinc-700 transition-colors">
+                      取消
+                    </button>
                   )}
                 </div>
               </div>
