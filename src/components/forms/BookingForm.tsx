@@ -459,32 +459,36 @@ export function BookingForm({ initialData, onSubmit, onCancel, onDelete, loading
             </div>
           </div>
 
-          {/* 每日出門 / 返回 inline */}
+          {/* 每日出門 / 返回 - 比照入住退房設計 */}
           <div className="space-y-3 border-t border-zinc-800 pt-3">
             <p className="text-[10px] font-bold text-zinc-500 uppercase tracking-wider">每日出門／返回時間</p>
-            <div className="flex items-center bg-zinc-900 border border-zinc-800 rounded-xl px-3 py-2 gap-2 focus-within:border-orange-500 transition-colors">
-              <Clock size={13} className="text-orange-500 shrink-0" />
-              <span className="text-[9px] text-zinc-600 shrink-0 w-8">出門</span>
-              <input type="time" value={dailyDepartTime} onChange={e => setDailyDepartTime(e.target.value)}
-                className="bg-transparent text-white font-mono font-bold text-sm outline-none [color-scheme:dark]" />
-              <div className="w-px h-4 bg-zinc-700 shrink-0 mx-1" />
-              <span className="text-[9px] text-zinc-600 shrink-0">準備</span>
-              <input type="range" min="0" max="60" step="5" value={dailyDepartStay}
-                onChange={e => setDailyDepartStay(parseInt(e.target.value))}
-                className="flex-1 accent-orange-500 h-1.5 bg-zinc-800 rounded-lg appearance-none cursor-pointer outline-none" />
-              <span className="text-[10px] font-black text-orange-400 shrink-0 w-7 text-right">{dailyDepartStay}分</span>
+            <div className="space-y-1.5">
+              <p className="text-[10px] font-bold text-zinc-600">出門</p>
+              <div className="flex items-center bg-zinc-900 border border-zinc-800 rounded-xl px-3 py-2 gap-2 focus-within:border-orange-500 transition-colors">
+                <Clock size={13} className="text-orange-500 shrink-0" />
+                <input type="time" value={dailyDepartTime} onChange={e => setDailyDepartTime(e.target.value)}
+                  className="bg-transparent text-white font-mono font-bold text-sm outline-none [color-scheme:dark]" />
+                <div className="w-px h-4 bg-zinc-700 shrink-0 mx-1" />
+                <span className="text-[9px] text-zinc-600 shrink-0">準備</span>
+                <input type="range" min="0" max="60" step="5" value={dailyDepartStay}
+                  onChange={e => setDailyDepartStay(parseInt(e.target.value))}
+                  className="flex-1 accent-orange-500 h-1.5 bg-zinc-800 rounded-lg appearance-none cursor-pointer outline-none" />
+                <span className="text-[10px] font-black text-orange-400 shrink-0 w-7 text-right">{dailyDepartStay}分</span>
+              </div>
             </div>
-            <div className="flex items-center bg-zinc-900 border border-zinc-800 rounded-xl px-3 py-2 gap-2 focus-within:border-orange-500 transition-colors">
-              <Clock size={13} className="text-orange-500 shrink-0" />
-              <span className="text-[9px] text-zinc-600 shrink-0 w-8">返回</span>
-              <input type="time" value={dailyReturnTime} onChange={e => setDailyReturnTime(e.target.value)}
-                className="bg-transparent text-white font-mono font-bold text-sm outline-none [color-scheme:dark]" />
-              <div className="w-px h-4 bg-zinc-700 shrink-0 mx-1" />
-              <span className="text-[9px] text-zinc-600 shrink-0">安頓</span>
-              <input type="range" min="0" max="60" step="5" value={dailyReturnStay}
-                onChange={e => setDailyReturnStay(parseInt(e.target.value))}
-                className="flex-1 accent-orange-500 h-1.5 bg-zinc-800 rounded-lg appearance-none cursor-pointer outline-none" />
-              <span className="text-[10px] font-black text-orange-400 shrink-0 w-7 text-right">{dailyReturnStay}分</span>
+            <div className="space-y-1.5">
+              <p className="text-[10px] font-bold text-zinc-600">返回</p>
+              <div className="flex items-center bg-zinc-900 border border-zinc-800 rounded-xl px-3 py-2 gap-2 focus-within:border-orange-500 transition-colors">
+                <Clock size={13} className="text-orange-500 shrink-0" />
+                <input type="time" value={dailyReturnTime} onChange={e => setDailyReturnTime(e.target.value)}
+                  className="bg-transparent text-white font-mono font-bold text-sm outline-none [color-scheme:dark]" />
+                <div className="w-px h-4 bg-zinc-700 shrink-0 mx-1" />
+                <span className="text-[9px] text-zinc-600 shrink-0">安頓</span>
+                <input type="range" min="0" max="60" step="5" value={dailyReturnStay}
+                  onChange={e => setDailyReturnStay(parseInt(e.target.value))}
+                  className="flex-1 accent-orange-500 h-1.5 bg-zinc-800 rounded-lg appearance-none cursor-pointer outline-none" />
+                <span className="text-[10px] font-black text-orange-400 shrink-0 w-7 text-right">{dailyReturnStay}分</span>
+              </div>
             </div>
           </div>
         </div>

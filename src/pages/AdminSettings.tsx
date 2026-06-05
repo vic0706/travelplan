@@ -57,14 +57,14 @@ export function AdminSettings() {
         body: JSON.stringify(settings)
       });
       if (res.ok) {
-        setMessage('Settings saved successfully!');
+        setMessage('設定已儲存！');
         setTimeout(() => setMessage(''), 3000);
       } else {
         throw new Error('Failed to save settings');
       }
     } catch (err) {
       console.error(err);
-      setMessage('Error saving settings');
+      setMessage('儲存設定時發生錯誤');
     } finally {
       setSaving(false);
     }
@@ -104,7 +104,7 @@ export function AdminSettings() {
       }
     } catch (err) {
       console.error(err);
-      alert('Failed to save category');
+      alert('儲存類別失敗');
     } finally {
       setAddingCat(false);
     }
@@ -125,7 +125,7 @@ export function AdminSettings() {
 
   const handleDeleteCategory = async (id: number, e: React.MouseEvent) => {
     e.stopPropagation(); // Prevent triggering edit
-    if (!confirm('Delete this category?')) return;
+    if (!confirm('確定要刪除此類別？')) return;
     try {
       const res = await apiFetch(`/api/settings/categories/${id}`, { method: 'DELETE' });
       if (res.ok) {
@@ -137,12 +137,12 @@ export function AdminSettings() {
       }
     } catch (err) {
       console.error(err);
-      alert('Failed to delete category');
+      alert('刪除類別失敗');
     }
   };
 
   const handleClearCache = async () => {
-    if (window.confirm('This will clear all local data and reload. Are you sure?')) {
+    if (window.confirm('此操作將清除所有本機資料並重新載入，確定繼續？')) {
       localStorage.clear();
       sessionStorage.clear();
       window.location.reload();
@@ -169,13 +169,13 @@ export function AdminSettings() {
       setSettings({ ...settings, top_bg_url: publicUrl });
     } catch (err) {
       console.error(err);
-      alert('Failed to upload image');
+      alert('上傳圖片失敗');
     } finally {
       setUploadingImage(false);
     }
   };
 
-  if (user?.role !== 'Admin') return <div className="p-8 text-center text-zinc-500">Access Denied</div>;
+  if (user?.role !== 'Admin') return <div className="p-8 text-center text-zinc-500">存取被拒</div>;
 
   if (loading) return <div className="flex justify-center p-8"><Loader2 className="animate-spin text-orange-500" /></div>;
 
@@ -190,7 +190,7 @@ export function AdminSettings() {
             </button>
           )}
           <h2 className="text-2xl font-semibold text-white tracking-tight">
-            {view === 'main' ? 'Settings' : view === 'categories' ? 'Categories' : 'System Settings'}
+            {view === 'main' ? '設定' : view === 'categories' ? '類別管理' : '系統設定'}
           </h2>
         </div>
         {view !== 'main' && (
@@ -200,7 +200,7 @@ export function AdminSettings() {
             className="flex items-center gap-2 px-4 py-2 bg-orange-500 text-white text-xs font-bold uppercase tracking-wider rounded-full hover:bg-orange-600 transition-all disabled:opacity-50"
           >
             {saving ? <Loader2 size={16} className="animate-spin" /> : <Save size={16} />}
-            {saving ? 'Saving...' : 'Save'}
+            {saving ? '儲存中...' : '儲存'}
           </button>
         )}
       </div>
@@ -231,8 +231,8 @@ export function AdminSettings() {
                 </div>
                 <div className="flex items-center justify-between">
                   <div>
-                    <h3 className="text-lg font-bold text-white">Categories</h3>
-                    <p className="text-sm text-zinc-500 mt-1">Manage custom categories for expenses and activities</p>
+                    <h3 className="text-lg font-bold text-white">類別管理</h3>
+                    <p className="text-sm text-zinc-500 mt-1">管理消費與活動的自訂類別</p>
                   </div>
                   <ChevronRight className="text-zinc-600 group-hover:text-white transition-colors" />
                 </div>
@@ -247,8 +247,8 @@ export function AdminSettings() {
                 </div>
                 <div className="flex items-center justify-between">
                   <div>
-                    <h3 className="text-lg font-bold text-white">System Settings</h3>
-                    <p className="text-sm text-zinc-500 mt-1">App configuration, background image, and cache</p>
+                    <h3 className="text-lg font-bold text-white">系統設定</h3>
+                    <p className="text-sm text-zinc-500 mt-1">應用程式設定、背景圖片與快取</p>
                   </div>
                   <ChevronRight className="text-zinc-600 group-hover:text-white transition-colors" />
                 </div>
@@ -294,31 +294,31 @@ export function AdminSettings() {
 
                 <div id="category-form" className="pt-4 border-t border-zinc-800">
                   <div className="flex items-center justify-between mb-4">
-                    <h4 className="text-sm font-medium text-zinc-400">{editingCatId ? 'Edit Category' : 'Add New Category'}</h4>
+                    <h4 className="text-sm font-medium text-zinc-400">{editingCatId ? '編輯類別' : '新增類別'}</h4>
                     {editingCatId && (
-                      <button onClick={handleCancelEdit} className="text-xs text-zinc-500 hover:text-white">Cancel</button>
+                      <button onClick={handleCancelEdit} className="text-xs text-zinc-500 hover:text-white">取消</button>
                     )}
                   </div>
                   <div className="grid grid-cols-1 md:grid-cols-4 gap-4 items-end">
                     <div className="flex-1 w-full">
-                      <label className="text-xs text-zinc-500 mb-1 block">Name</label>
-                      <input 
-                        type="text" 
+                      <label className="text-xs text-zinc-500 mb-1 block">名稱</label>
+                      <input
+                        type="text"
                         value={newCat.name}
                         onChange={e => setNewCat({...newCat, name: e.target.value})}
                         className="w-full bg-zinc-800 border border-zinc-700 rounded-xl px-4 py-2 text-white focus:outline-none focus:border-orange-500"
-                        placeholder="e.g. Snacks"
+                        placeholder="例如：零食"
                       />
                     </div>
                     <div className="flex-1 w-full">
-                      <label className="text-xs text-zinc-500 mb-1 block">Icon (Lucide Name)</label>
+                      <label className="text-xs text-zinc-500 mb-1 block">圖示（Lucide 名稱）</label>
                       <div className="relative">
-                        <input 
-                          type="text" 
+                        <input
+                          type="text"
                           value={newCat.icon}
                           onChange={e => setNewCat({...newCat, icon: e.target.value})}
                           className="w-full bg-zinc-800 border border-zinc-700 rounded-xl px-4 py-2 text-white focus:outline-none focus:border-orange-500 pr-10"
-                          placeholder="e.g. Coffee"
+                          placeholder="例如：Coffee"
                         />
                         <div className="absolute right-3 top-1/2 -translate-y-1/2 text-zinc-400">
                           <DynamicIcon name={newCat.icon} size={16} />
@@ -326,7 +326,7 @@ export function AdminSettings() {
                       </div>
                     </div>
                     <div className="w-full md:w-auto">
-                      <label className="text-xs text-zinc-500 mb-1 block">Color</label>
+                      <label className="text-xs text-zinc-500 mb-1 block">顏色</label>
                       <div className="flex items-center gap-2 h-[42px] bg-zinc-800 border border-zinc-700 rounded-xl px-2">
                         <input 
                           type="color" 
@@ -343,7 +343,7 @@ export function AdminSettings() {
                       className={`w-full md:w-auto px-6 py-2.5 font-bold rounded-xl transition-colors disabled:opacity-50 flex items-center justify-center gap-2 h-[42px] ${editingCatId ? 'bg-orange-500 text-white hover:bg-orange-600' : 'bg-zinc-800 text-white hover:bg-orange-500'}`}
                     >
                       {addingCat ? <Loader2 size={16} className="animate-spin" /> : (editingCatId ? <Save size={16} /> : <Plus size={16} />)}
-                      {editingCatId ? 'Update' : 'Add'}
+                      {editingCatId ? '更新' : '新增'}
                     </button>
                   </div>
                 </div>
@@ -361,7 +361,7 @@ export function AdminSettings() {
             >
               <div className="bg-zinc-900 border border-zinc-800 rounded-3xl p-6 space-y-6">
                 <div>
-                  <label className="block text-sm font-medium text-zinc-400 mb-2">App Name</label>
+                  <label className="block text-sm font-medium text-zinc-400 mb-2">應用程式名稱</label>
                   <input 
                     type="text" 
                     value={settings.app_name || ''} 
@@ -372,7 +372,7 @@ export function AdminSettings() {
                 </div>
 
                 <div>
-                  <label className="block text-sm font-medium text-zinc-400 mb-2">Top Background Image</label>
+                  <label className="block text-sm font-medium text-zinc-400 mb-2">頂部背景圖片</label>
                   <div className="space-y-4">
                     {settings.top_bg_url && (
                       <div className="relative h-48 w-full rounded-xl overflow-hidden border border-zinc-800">
@@ -390,7 +390,7 @@ export function AdminSettings() {
                         />
                         <div className="flex items-center justify-center gap-2 w-full py-3 bg-zinc-800 border border-dashed border-zinc-600 rounded-xl text-zinc-400 hover:text-white hover:border-zinc-400 transition-all">
                           <ImageIcon size={20} />
-                          <span className="text-sm font-medium">Upload New Image</span>
+                          <span className="text-sm font-medium">上傳新圖片</span>
                         </div>
                       </label>
                       {uploadingImage && <Loader2 className="animate-spin text-orange-500" />}

@@ -192,14 +192,21 @@ export function FinanceForm({ tripId, defaultDate, currencies = ['TWD'], onSucce
               <label className="text-[10px] font-bold text-zinc-500 uppercase tracking-widest ml-1">共同分攤</label>
               <button onClick={() => setIsSplitModalOpen(true)}
                 className="w-full flex items-center gap-2 bg-zinc-950 border border-zinc-800 rounded-2xl p-2.5 text-left hover:border-orange-500 transition-colors min-h-[52px]">
-                <div className="flex -space-x-2 overflow-hidden shrink-0">
-                  {splitMembers.slice(0, 3).map(id => {
-                    const m = members.find(member => member.id === id);
-                    return <div key={id} className="w-6 h-6 rounded-full border-2 border-zinc-950 bg-zinc-800 overflow-hidden"><img src={m?.avatar_url || `https://ui-avatars.com/api/?name=${m?.name || '?'}`} alt="" className="w-full h-full object-cover" /></div>;
-                  })}
-                  {splitMembers.length > 3 && <div className="w-6 h-6 rounded-full border-2 border-zinc-950 bg-zinc-800 flex items-center justify-center text-[8px] text-zinc-400 font-bold">+{splitMembers.length - 3}</div>}
+                <div className="w-8 h-8 rounded-full bg-zinc-800 overflow-hidden shrink-0 border border-zinc-700">
+                  {splitMembers.length > 0
+                    ? <img src={members.find(m => m.id === splitMembers[0])?.avatar_url || `https://ui-avatars.com/api/?name=${encodeURIComponent(members.find(m => m.id === splitMembers[0])?.name || '?')}`} alt="" className="w-full h-full object-cover" />
+                    : <div className="w-full h-full flex items-center justify-center text-zinc-500 text-xs">?</div>
+                  }
                 </div>
-                <span className="text-[10px] font-bold text-zinc-400">{splitMembers.length === members.length ? '所有人' : `${splitMembers.length} 人`}</span>
+                <span className="text-xs font-bold text-white truncate">
+                  {splitMembers.length === 0
+                    ? '未選擇'
+                    : splitMembers.length === members.length
+                      ? '所有人'
+                      : splitMembers.length === 1
+                        ? (members.find(m => m.id === splitMembers[0])?.name || '1人')
+                        : `${members.find(m => m.id === splitMembers[0])?.name || ''}等 ${splitMembers.length} 人`}
+                </span>
               </button>
             </div>
           </div>
