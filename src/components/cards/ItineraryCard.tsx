@@ -153,7 +153,7 @@ export function ItineraryCard({
             <ChevronLeft size={14} strokeWidth={2.5} />
             <span className="text-[11px] font-black tracking-wide">返回</span>
           </button>
-          {sub.start_time && (
+          {sub.start_time && !!(item as any).is_time_fixed && (
             <div className="font-mono text-[9px] text-zinc-500 mb-1">
               {sub.start_time}{sub.end_time && sub.end_time !== sub.start_time ? ` — ${sub.end_time}` : ''}
             </div>
@@ -189,27 +189,36 @@ export function ItineraryCard({
         {subItems.length > 0 && (
           <div className="space-y-1">
             <div className="text-[8px] font-black text-zinc-500 uppercase tracking-[0.15em]">子活動</div>
-            {subItems.map((sub: any, idx: number) => (
-              <button
-                key={idx}
-                type="button"
-                onClick={(e) => { e.stopPropagation(); setSubItemIdx(idx); }}
-                className="w-full flex items-center gap-2 px-3 py-2.5 bg-white/5 border border-white/8 rounded-xl text-left active:bg-white/10 transition-colors"
-              >
-                <div className="flex-1 min-w-0">
-                  <div className="text-[12px] font-semibold text-zinc-100 truncate">{sub.title}</div>
-                  {sub.start_time && (
-                    <div className="font-mono text-[9px] text-zinc-500 mt-0.5">
-                      {sub.start_time}{sub.end_time && sub.end_time !== sub.start_time ? ` — ${sub.end_time}` : ''}
-                    </div>
+            {subItems.map((sub: any, idx: number) => {
+              const subHasDetails = !!(sub.notes || sub.tags?.length > 0);
+              const showTime = !!(sub.start_time && (item as any).is_time_fixed);
+              return (
+                <button
+                  key={idx}
+                  type="button"
+                  onClick={subHasDetails ? (e) => { e.stopPropagation(); setSubItemIdx(idx); } : undefined}
+                  className={clsx(
+                    "w-full flex items-center gap-2 px-3 py-2.5 bg-white/5 border border-white/8 rounded-xl text-left transition-colors",
+                    subHasDetails ? "active:bg-white/10 cursor-pointer" : "cursor-default"
                   )}
-                </div>
-                {(sub.notes || sub.tags?.length > 0) && (
-                  <Asterisk size={9} strokeWidth={3} className="shrink-0 text-zinc-600" />
-                )}
-                <ChevronRight size={11} className="shrink-0 text-zinc-700" />
-              </button>
-            ))}
+                >
+                  <div className="flex-1 min-w-0">
+                    <div className="text-[12px] font-semibold text-zinc-100 truncate">{sub.title}</div>
+                    {showTime && (
+                      <div className="font-mono text-[9px] text-zinc-500 mt-0.5">
+                        {sub.start_time}{sub.end_time && sub.end_time !== sub.start_time ? ` — ${sub.end_time}` : ''}
+                      </div>
+                    )}
+                  </div>
+                  {subHasDetails && (
+                    <>
+                      <Asterisk size={9} strokeWidth={3} className="shrink-0 text-zinc-600" />
+                      <ChevronRight size={11} className="shrink-0 text-zinc-700" />
+                    </>
+                  )}
+                </button>
+              );
+            })}
           </div>
         )}
 
@@ -376,7 +385,7 @@ export function ItineraryCard({
               transition={{ duration: 0.25, ease: 'easeInOut' }}
               className="overflow-hidden"
             >
-              <div className="relative" style={{ height: 164 }}>
+              <div className="relative" style={{ height: 197 }}>
                 {/* 背景：照片或深色底 */}
                 {hasPhoto ? (
                   <img

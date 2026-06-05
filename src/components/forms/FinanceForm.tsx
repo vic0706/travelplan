@@ -45,10 +45,14 @@ export function FinanceForm({ tripId, defaultDate, currencies = ['TWD'], onSucce
         const res = await apiFetch(`/api/trips/${tripId}/members`);
         if (res.ok) {
           const data = await res.json() as User[];
-          setMembers(data);
+          // 如果目前登入者（如管理員）不在成員清單中，自動加入以便選取
+          const membersList: User[] = (user && !data.some(m => Number(m.id) === Number(user.id)))
+            ? [user as unknown as User, ...data]
+            : data;
+          setMembers(membersList);
           if (!initialData) {
-            setSplitMembers(data.map(m => m.id));
-            if (!payerId && data.length > 0) setPayerId(data[0].id);
+            setSplitMembers(membersList.map(m => m.id));
+            if (!payerId && membersList.length > 0) setPayerId(user?.id || membersList[0].id);
           }
         }
       } catch { console.error('Failed to fetch members'); }
