@@ -46,7 +46,9 @@ export async function optimizeDailyItinerary(env: any, tripId: number, dateStr: 
     const prevItem = i > 0 ? (items[i - 1] as any) : null;
     let transportMins = 0, transitionBuffer = 0;
     if (prevItem) {
-      if (!prevItem.next_transport_mode) {
+      // Booking-generated items (related_id set) represent actual bookings and don't need next_transport_mode
+      const prevIsBookingCard = !!prevItem.related_id;
+      if (!prevIsBookingCard && !prevItem.next_transport_mode) {
         isCircuitBroken = true;
         statements.push(env.DB.prepare(`UPDATE Itineraries SET start_time = '', end_time = '', sync_conflict_warning = ? WHERE id = ?`).bind('⚠️ 請設定前一站交通方式', item.id));
         continue;

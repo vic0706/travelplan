@@ -53,8 +53,8 @@ export function ItineraryCard({
   const isPast = Date.now() > new Date(`${item.date}T${endTimeStr}`).getTime();
 
   const closedWarning    = checkIsClosed(item.date, item.opening_hours);
-  const hasWarning       = !!closedWarning || !!item.sync_conflict_warning || !!isConflicted;
-  const isCircuitBreaker = canEdit && showNextTransport && !!item.start_time && (!item.next_transport_mode || item.next_transport_mode === '');
+  const hasWarning       = !!closedWarning || !!isConflicted;
+  const isCircuitBreaker = canEdit && showNextTransport && !!item.start_time && !item.related_id && (!item.next_transport_mode || item.next_transport_mode === '');
 
   const hasContent = !!item.rating || subItems.length > 0 || tags.length > 0 || !!item.notes || hasWarning;
   const hasPhoto   = !!item.image_url;
@@ -235,11 +235,6 @@ export function ItineraryCard({
                 <Clock size={10} />⚠️ {closedWarning}
               </div>
             )}
-            {item.sync_conflict_warning && !closedWarning && (
-              <div className="flex items-center gap-1 text-orange-400 text-[10px] font-bold">
-                <AlertTriangle size={10} />{item.sync_conflict_warning}
-              </div>
-            )}
             {item.notes && (
               <p className="text-[11px] text-zinc-300 leading-relaxed italic whitespace-pre-wrap">{item.notes}</p>
             )}
@@ -354,6 +349,14 @@ export function ItineraryCard({
                 </span>
                 {!(item as any).is_time_fixed && !isPast && <Sparkles size={9} className="text-orange-500/60" />}
                 {isCircuitBreaker && <span className="w-1.5 h-1.5 rounded-full bg-red-500 animate-pulse shrink-0" />}
+              </div>
+            )}
+            {item.sync_conflict_warning && (
+              <div className="flex items-center gap-1 mt-0.5">
+                <AlertTriangle size={9} className="shrink-0 text-orange-500/80" />
+                <span className="text-[9px] font-bold text-orange-500/80 truncate">
+                  {item.sync_conflict_warning.replace(/^⚠️\s*/, '')}
+                </span>
               </div>
             )}
           </div>

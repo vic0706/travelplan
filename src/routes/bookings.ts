@@ -94,19 +94,34 @@ function buildItineraryItems(b: any, bookingId: number): GeneratedItem[] {
     case 'BUS': {
       const icon = b.category === 'FLIGHT' ? 'Plane' : b.category === 'TRAIN' ? 'Train' : b.category === 'FERRY' ? 'Ship' : 'Bus';
       if (!b.start_date || !b.start_time) return [];
+      const depLabel = b.category === 'FLIGHT' ? '起飛' : b.category === 'FERRY' ? '出航' : '搭車';
+      const arrLabel = b.category === 'FLIGHT' ? '降落' : b.category === 'FERRY' ? '靠港' : '抵站';
+      const termLabel = b.category === 'FLIGHT' ? '航廈' : b.category === 'BUS' ? '站牌' : '月台';
+      const depTerminal = details.dep_terminal ? ` ${termLabel}${details.dep_terminal}` : '';
+      const arrTerminal = details.arr_terminal ? ` ${termLabel}${details.arr_terminal}` : '';
+      const routeLine = b.start_location && b.end_location
+        ? `${b.start_location}${depTerminal} → ${b.end_location}${arrTerminal}`
+        : (b.start_location || b.end_location || '');
+      const timeLine = b.start_time && b.end_time ? `${depLabel} ${b.start_time} → ${arrLabel} ${b.end_time}` : '';
+      const checkInLine = details.check_in_time ? `報到：${details.check_in_time}` : '';
+      const noteLines = [b.provider, routeLine, timeLine, checkInLine, notesWithOrder].filter(Boolean).join('\n');
       return [{
         date: b.start_date, start_time: b.start_time, end_time: b.end_time || b.start_time,
-        title, type: 'TRANSPORTATION', icon,
-        address: b.start_location || '', notes: notesWithOrder,
+        title, type: 'GENERAL', icon,
+        address: b.start_location || '', notes: noteLines,
       }];
     }
 
     case 'PRIVATE_TRANSFER': {
       if (!b.start_date || !b.start_time) return [];
+      const routeLine = b.start_location && b.end_location
+        ? `${b.start_location} → ${b.end_location}`
+        : (b.start_location || b.end_location || '');
+      const noteLines = [b.provider, routeLine, notesWithOrder].filter(Boolean).join('\n');
       return [{
         date: b.start_date, start_time: b.start_time, end_time: b.end_time || b.start_time,
-        title, type: 'TRANSPORTATION', icon: 'Car',
-        address: b.start_location || '', notes: notesWithOrder,
+        title, type: 'GENERAL', icon: 'Car',
+        address: b.start_location || '', notes: noteLines,
       }];
     }
 
