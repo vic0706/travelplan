@@ -81,8 +81,8 @@ interface GapSlot {
 }
 
 /**
- * Fetches real travel duration via Google Distance Matrix API.
- * KV-cached 24 h per origin/destination/mode pair to minimise API calls.
+ * Fetches real travel duration via Google Routes API (computeRouteMatrix).
+ * Replaces legacy Distance Matrix API. KV-cached 24 h per pair.
  * Falls back to haversine if API is unavailable or coords are missing.
  */
 async function calcTravelMins(gap: GapSlot, item: any, statements: any[], env: any): Promise<number> {
@@ -94,28 +94,46 @@ async function calcTravelMins(gap: GapSlot, item: any, statements: any[], env: a
     let mins = 15;
 
     if (gap.lastLat && gap.lastLng && item.lat && item.lng && env.GOOGLE_MAPS_API_KEY) {
-      const googleMode = mode === 'WALKING' ? 'walking'
-        : mode === 'BICYCLING' ? 'bicycling'
-        : mode === 'TRANSIT'   ? 'transit'
-        : 'driving';
-      const cacheKey = `travel_time:${gap.lastLat.toFixed(4)},${gap.lastLng.toFixed(4)}:${item.lat.toFixed(4)},${item.lng.toFixed(4)}:${googleMode}`;
+      // Routes API travel mode names
+      const travelMode = mode === 'WALKING'     ? 'WALK'
+        : mode === 'BICYCLING'   ? 'BICYCLE'
+        : mode === 'TRANSIT'     ? 'TRANSIT'
+        : mode === 'MOTORCYCLING'? 'TWO_WHEELER'
+        : 'DRIVE';
+      // Cache key uses lowercase for stability across renames
+      const cacheMode = travelMode.toLowerCase();
+      const cacheKey = `travel_time:${gap.lastLat.toFixed(4)},${gap.lastLng.toFixed(4)}:${item.lat.toFixed(4)},${item.lng.toFixed(4)}:${cacheMode}`;
       const cached: number | null = await env.KV.get(cacheKey, 'json');
       if (cached !== null) {
         mins = cached;
       } else {
         try {
-          const url = `https://maps.googleapis.com/maps/api/distancematrix/json`
-            + `?origins=${gap.lastLat},${gap.lastLng}`
-            + `&destinations=${item.lat},${item.lng}`
-            + `&mode=${googleMode}`
-            + `&key=${env.GOOGLE_MAPS_API_KEY}`;
-          const res = await fetch(url);
+          const res = await fetch('https://routes.googleapis.com/distanceMatrix/v2:computeRouteMatrix', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'X-Goog-Api-Key': env.GOOGLE_MAPS_API_KEY,
+              'X-Goog-FieldMask': 'originIndex,destinationIndex,duration,distanceMeters,status',
+            },
+            body: JSON.stringify({
+              origins: [{ waypoint: { location: { latLng: { latitude: gap.lastLat, longitude: gap.lastLng } } } }],
+              destinations: [{ waypoint: { location: { latLng: { latitude: item.lat, longitude: item.lng } } } }],
+              travelMode,
+            }),
+          });
           if (res.ok) {
-            const data = await res.json() as any;
-            const el = data.rows?.[0]?.elements?.[0];
-            if (el?.status === 'OK' && el.duration?.value) {
-              mins = Math.ceil(el.duration.value / 60);
-              await env.KV.put(cacheKey, JSON.stringify(mins), { expirationTtl: 86400 });
+            // Response is NDJSON — one JSON object per line
+            const text = await res.text();
+            const row = text.split('\n').map(l => l.trim()).filter(Boolean).map(l => {
+              try { return JSON.parse(l); } catch { return null; }
+            }).find((r: any) => r && r.originIndex === 0 && r.destinationIndex === 0);
+            if (row?.duration) {
+              // duration is "183s" format (protobuf Duration)
+              const secs = parseInt(row.duration);
+              if (!isNaN(secs)) {
+                mins = Math.ceil(secs / 60);
+                await env.KV.put(cacheKey, JSON.stringify(mins), { expirationTtl: 86400 });
+              }
             }
           }
         } catch { /* fall through to haversine */ }

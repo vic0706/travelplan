@@ -65,12 +65,13 @@ export async function extractCoordsFromUrl(url: string): Promise<{ coords: strin
 
 export async function geocodeTextToCoords(text: string, apiKey: string, region = 'tw'): Promise<{ coords: string | null; debug: string }> {
   try {
-    const res = await fetch(`https://maps.googleapis.com/maps/api/geocode/json?address=${encodeURIComponent(text)}&key=${apiKey}&region=${region}`);
+    // Geocoding API v4 (replaces legacy geocode/json)
+    const res = await fetch(`https://geocode.googleapis.com/v4/geocode/address?address=${encodeURIComponent(text)}&regionCode=${region}&key=${apiKey}`);
     const data = await res.json() as any;
-    if (data.status === 'OK' && data.results?.length > 0) {
-      const loc = data.results[0].geometry.location;
-      return { coords: `${loc.lat},${loc.lng}`, debug: `Geocoded [${text}]` };
+    if (data.results?.length > 0) {
+      const loc = data.results[0].geocode.location;
+      return { coords: `${loc.latitude},${loc.longitude}`, debug: `Geocoded [${text}]` };
     }
-    return { coords: null, debug: `Failed: ${data.status}` };
+    return { coords: null, debug: `Failed: no results` };
   } catch (e: any) { return { coords: null, debug: e.message }; }
 }
