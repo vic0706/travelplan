@@ -21,6 +21,8 @@ interface ItineraryTabProps {
   onEditItinerary: (item: Itinerary) => void;
   onEditNextTransport: (item: Itinerary) => void;
   onEditBooking: (booking: Booking) => void;
+  onCopyItinerary: (item: Itinerary) => void;
+  onChangeDateItinerary: (item: Itinerary) => void;
 }
 
 export function ItineraryTab({
@@ -28,6 +30,7 @@ export function ItineraryTab({
   bookings, canEdit, expandSignal, collapseSignal,
   isWeatherExpanded, onToggleWeather,
   onAddActivity, onEditItinerary, onEditNextTransport, onEditBooking,
+  onCopyItinerary, onChangeDateItinerary,
 }: ItineraryTabProps) {
   return (
     <div className="space-y-6">
@@ -69,6 +72,8 @@ export function ItineraryTab({
                   showNextTransport={index < filteredItineraries.length - 1}
                   onEditNextTransport={() => onEditNextTransport(item)}
                   expandSignal={expandSignal} collapseSignal={collapseSignal}
+                  onCopy={() => onCopyItinerary(item)}
+                  onChangeDate={() => onChangeDateItinerary(item)}
                 />
               </div>
             );

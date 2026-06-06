@@ -24,16 +24,10 @@ function minsToTime(mins: number) {
 const DAY_START = 9 * 60;   // 09:00
 const DAY_END   = 22 * 60;  // 22:00
 
-// Time windows for time_preference values
-const TIME_PREF_WINDOWS: Record<string, { start: number; end: number }> = {
-  morning:   { start:  7 * 60, end: 12 * 60 },
-  afternoon: { start: 12 * 60, end: 17 * 60 },
-  evening:   { start: 17 * 60, end: 21 * 60 },
-};
 
 /**
  * Returns the preferred [start, end] window (in minutes from midnight) for a smart item.
- * Priority: opening_hours for that weekday > time_preference > anytime
+ * Priority: opening_hours for that weekday > keyword inference (title/tags) > anytime
  */
 function getPreferredWindow(item: any, dateStr: string): { start: number; end: number } {
   // 1. Try opening_hours from Google Places
@@ -63,9 +57,18 @@ function getPreferredWindow(item: any, dateStr: string): { start: number; end: n
     } catch { /* invalid JSON — fall through */ }
   }
 
-  // 2. time_preference field
-  const pref = (item.time_preference || 'anytime').toLowerCase();
-  if (TIME_PREF_WINDOWS[pref]) return TIME_PREF_WINDOWS[pref];
+  // 2. Keyword-based inference from title + tags
+  const titleText = (item.title || '').toLowerCase();
+  const tagsArr: string[] = (() => { try { return JSON.parse(item.tags || '[]'); } catch { return []; } })();
+  const text = `${titleText} ${(item.notes || '')} ${tagsArr.join(' ')}`.toLowerCase();
+
+  if (/早餐|早午餐|breakfast|brunch/.test(text)) return { start: 7 * 60,       end: 10 * 60 };
+  if (/咖啡|cafe|coffee/.test(text))              return { start: 9 * 60,       end: 17 * 60 };
+  if (/午餐|lunch|中餐/.test(text))               return { start: 11 * 60 + 30, end: 14 * 60 };
+  if (/下午茶|afternoon tea/.test(text))          return { start: 14 * 60,      end: 17 * 60 };
+  if (/夕陽|日落|sunset|落日/.test(text))         return { start: 16 * 60,      end: 20 * 60 };
+  if (/晚餐|dinner|晚飯/.test(text))              return { start: 17 * 60,      end: 21 * 60 };
+  if (/夜市|night market|酒吧|bar/.test(text))    return { start: 18 * 60,      end: 23 * 60 };
 
   // 3. anytime
   return { start: DAY_START, end: DAY_END };

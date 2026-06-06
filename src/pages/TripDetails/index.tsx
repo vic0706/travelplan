@@ -2,7 +2,7 @@ import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useAppStore } from '../../store';
 import { format, parseISO, addDays, differenceInDays, isSameDay, addMinutes, isBefore, startOfDay } from 'date-fns';
-import { Map, Info, Wallet, ArrowLeft, Settings, Edit3, ChevronsUpDown, ChevronsDownUp, Unlock, Loader2, Camera, CheckCircle2, XCircle } from 'lucide-react';
+import { Map, Info, Wallet, ArrowLeft, Settings, Edit3, ChevronsUpDown, ChevronsDownUp, Unlock, Loader2, Camera, CheckCircle2, XCircle, X } from 'lucide-react';
 import { Trip, Itinerary, Expense, Booking } from '../../types';
 import { clsx } from 'clsx';
 import { db } from '../../db';
@@ -189,6 +189,7 @@ export function TripDetails() {
   const [isBookingFormOpen, setIsBookingFormOpen]         = useState(false);
 
   const [editingItinerary, setEditingItinerary] = useState<Itinerary | null>(null);
+  const [changingDateItem, setChangingDateItem] = useState<Itinerary | null>(null);
   const [editingExpense,   setEditingExpense]   = useState<Expense | null>(null);
   const [editingBooking,   setEditingBooking]   = useState<Booking | null>(null);
 
@@ -241,6 +242,49 @@ export function TripDetails() {
         } catch (err) { console.error(err); showToast('刪除訂票失敗', 'error'); }
       }
     });
+  };
+
+  const handleCopyItinerary = async (item: Itinerary) => {
+    if (!id) return;
+    try {
+      const payload = {
+        ...item,
+        title: `${item.title}（複製）`,
+        is_time_fixed: 0,
+        start_time: '',
+        end_time: '',
+        tags: Array.isArray(item.tags) ? item.tags : [],
+        sub_items: typeof item.sub_items === 'string' ? item.sub_items : '[]',
+      };
+      const { id: _id, trip_id: _tid, ...rest } = payload as any;
+      const res = await apiFetch(`/api/trips/${id}/itineraries`, {
+        method: 'POST',
+        body: JSON.stringify(rest),
+      });
+      if (res.ok) { showToast('活動已複製', 'success'); setTimeout(() => refreshTripData(), 300); }
+      else showToast('複製失敗', 'error');
+    } catch { showToast('複製失敗', 'error'); }
+  };
+
+  const handleChangeDateItinerary = async (item: Itinerary, newDate: string) => {
+    if (!id) return;
+    try {
+      const res = await apiFetch(`/api/trips/${id}/itineraries/${item.id}`, {
+        method: 'PUT',
+        body: JSON.stringify({
+          ...item,
+          date: newDate,
+          tags: Array.isArray(item.tags) ? item.tags : [],
+          sub_items: typeof item.sub_items === 'string' ? item.sub_items : '[]',
+        }),
+      });
+      if (res.ok) {
+        await db.itineraries.update(item.id, { date: newDate });
+        setChangingDateItem(null);
+        showToast('日期已更新', 'success');
+        setTimeout(() => refreshTripData(), 300);
+      } else showToast('更新日期失敗', 'error');
+    } catch { showToast('更新日期失敗', 'error'); }
   };
 
   const isMember = user && (
@@ -479,6 +523,8 @@ export function TripDetails() {
             onEditItinerary={(item) => { setEditingItinerary(item); setIsItineraryFormOpen(true); }}
             onEditNextTransport={(item) => { setEditingItinerary(item); setIsNextTransportFormOpen(true); }}
             onEditBooking={(booking) => { setEditingBooking(booking); setIsBookingFormOpen(true); }}
+            onCopyItinerary={(item) => handleCopyItinerary(item)}
+            onChangeDateItinerary={(item) => setChangingDateItem(item)}
           />
         )}
 
@@ -630,6 +676,55 @@ export function TripDetails() {
               } catch (e) { showToast('儲存交通資訊失敗', 'error'); }
             }}
           />
+        )}
+      </AnimatePresence>
+
+      <AnimatePresence>
+        {changingDateItem && (
+          <div className="fixed inset-0 z-[100] flex items-end justify-center bg-black/80 backdrop-blur-sm">
+            <motion.div
+              initial={{ y: '100%' }}
+              animate={{ y: 0 }}
+              exit={{ y: '100%' }}
+              transition={{ duration: 0.22, ease: [0.32, 0.72, 0, 1] }}
+              className="w-full max-w-md bg-zinc-900 rounded-t-3xl border border-zinc-800 shadow-2xl"
+            >
+              <div className="flex items-center justify-between px-6 pt-5 pb-4 border-b border-zinc-800">
+                <div>
+                  <h3 className="text-white font-black text-base">移動活動至</h3>
+                  <p className="text-zinc-400 text-xs mt-0.5 truncate max-w-[220px]">{changingDateItem.title}</p>
+                </div>
+                <button onClick={() => setChangingDateItem(null)} className="p-2 rounded-full text-zinc-400 hover:text-white hover:bg-zinc-800 transition-colors">
+                  <X size={18} />
+                </button>
+              </div>
+              <div className="p-4 space-y-2 max-h-80 overflow-y-auto custom-scrollbar">
+                {dates.map(date => {
+                  const dateStr = format(date, 'yyyy-MM-dd');
+                  const isCurrent = dateStr === changingDateItem.date;
+                  return (
+                    <button
+                      key={dateStr}
+                      disabled={isCurrent}
+                      onClick={() => handleChangeDateItinerary(changingDateItem, dateStr)}
+                      className={`w-full py-3.5 px-4 rounded-2xl text-left transition-all flex items-center gap-3 ${
+                        isCurrent
+                          ? 'bg-zinc-800/50 text-zinc-500 cursor-not-allowed'
+                          : 'bg-zinc-800/30 text-white hover:bg-orange-500/20 hover:border-orange-500/40 border border-zinc-700/50 hover:text-orange-400 active:bg-orange-500/30'
+                      }`}
+                    >
+                      <span className={`text-[10px] font-black uppercase tracking-widest w-8 ${isCurrent ? 'text-zinc-600' : 'text-zinc-500'}`}>
+                        {format(date, 'EEE')}
+                      </span>
+                      <span className="font-bold text-sm">{format(date, 'MM/dd')}</span>
+                      {isCurrent && <span className="text-[10px] text-zinc-500 ml-auto">目前日期</span>}
+                    </button>
+                  );
+                })}
+              </div>
+              <div className="h-safe-bottom pb-4" />
+            </motion.div>
+          </div>
         )}
       </AnimatePresence>
 

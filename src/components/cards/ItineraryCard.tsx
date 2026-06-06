@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Car, Train, Bus, AlertTriangle, Star, Plus, Footprints, Bike, Navigation2, Sparkles, Clock, Asterisk, ChevronLeft, ChevronRight, ChevronDown, Motorbike } from 'lucide-react';
+import { Car, Train, Bus, AlertTriangle, Star, Plus, Footprints, Bike, Navigation2, Sparkles, Clock, Asterisk, ChevronLeft, ChevronRight, ChevronDown, Motorbike, Copy, CalendarDays } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Itinerary } from '../../types';
 import { DynamicIcon } from '../common/DynamicIcon';
@@ -16,6 +16,8 @@ interface ItineraryCardProps {
   expandSignal?: number;
   collapseSignal?: number;
   isDragOverlay?: boolean;
+  onCopy?: () => void;
+  onChangeDate?: () => void;
 }
 
 const safeParse = (data: any) => {
@@ -41,7 +43,7 @@ const checkIsClosed = (dateStr: string, openingHoursJson?: string | null) => {
 
 export function ItineraryCard({
   item, canEdit, isConflicted, onEdit, showNextTransport, onEditNextTransport,
-  expandSignal, collapseSignal, isDragOverlay,
+  expandSignal, collapseSignal, isDragOverlay, onCopy, onChangeDate,
 }: ItineraryCardProps) {
   const { categories } = useAppStore();
   const category = (categories || []).find((c: any) => c.icon === item.icon) || { color: '#808080' };
@@ -365,6 +367,24 @@ export function ItineraryCard({
             </div>
           )}
 
+          {canEdit && (
+            <>
+              <button
+                onClick={(e) => { e.stopPropagation(); onCopy?.(); }}
+                className="shrink-0 p-2 rounded-xl text-zinc-600 hover:text-orange-500 transition-colors active:scale-90"
+                title="複製活動"
+              >
+                <Copy size={15} />
+              </button>
+              <button
+                onClick={(e) => { e.stopPropagation(); onChangeDate?.(); }}
+                className="shrink-0 p-2 rounded-xl text-zinc-600 hover:text-orange-500 transition-colors active:scale-90"
+                title="更改日期"
+              >
+                <CalendarDays size={15} />
+              </button>
+            </>
+          )}
           <button
             onClick={(e) => { e.stopPropagation(); window.open(getGoogleMapsLink(), '_blank'); }}
             className="shrink-0 p-2 rounded-xl text-zinc-600 hover:text-orange-500 transition-colors active:scale-90"

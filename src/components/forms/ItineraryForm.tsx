@@ -55,9 +55,6 @@ export function ItineraryForm({ tripId, date, onSuccess, onCancel, initialData, 
   const [stayDuration, setStayDuration] = useState(
     initialData?.stay_duration ? parseInt(initialData.stay_duration) : 60
   );
-  const [timePreference, setTimePreference] = useState<string>(
-    (initialData as any)?.time_preference || 'anytime'
-  );
   const [fixedStayDuration, setFixedStayDuration] = useState(() => {
     if (initialData?.start_time && initialData?.end_time) {
       return timeToMinutes(initialData.start_time, initialData.end_time);
@@ -256,7 +253,7 @@ export function ItineraryForm({ tripId, date, onSuccess, onCancel, initialData, 
         sub_items: JSON.stringify(subItems),
         is_time_fixed: isTimeFixed ? 1 : 0,
         stay_duration: isTimeFixed ? fixedStayDuration.toString() : stayDuration.toString(),
-        time_preference: isTimeFixed ? 'anytime' : timePreference
+        time_preference: 'anytime'
       };
       const res = await apiFetch(
         initialData ? `/api/trips/${tripId}/itineraries/${initialData.id}` : `/api/trips/${tripId}/itineraries`,
@@ -383,37 +380,6 @@ export function ItineraryForm({ tripId, date, onSuccess, onCancel, initialData, 
                   <span>0分</span><span>2時</span><span>4時</span><span>6時</span><span>8時</span>
                 </div>
 
-                {/* 時段偏好 */}
-                <div className="space-y-2 pt-1">
-                  <label className="text-[10px] font-black text-orange-500 uppercase tracking-widest">時段偏好</label>
-                  <div className="grid grid-cols-4 gap-1.5">
-                    {[
-                      { value: 'anytime',   label: '任何時間', emoji: '🕐' },
-                      { value: 'morning',   label: '早上',     emoji: '🌅' },
-                      { value: 'afternoon', label: '下午',     emoji: '☀️' },
-                      { value: 'evening',   label: '傍晚',     emoji: '🌇' },
-                    ].map(opt => (
-                      <button
-                        key={opt.value}
-                        type="button"
-                        onClick={() => setTimePreference(opt.value)}
-                        className={`flex flex-col items-center gap-1 py-2 px-1 rounded-xl text-center transition-all border ${
-                          timePreference === opt.value
-                            ? 'bg-orange-500 text-white border-orange-500 shadow-md shadow-orange-500/20'
-                            : 'bg-zinc-900 text-zinc-400 border-zinc-800 hover:border-zinc-600'
-                        }`}
-                      >
-                        <span className="text-base leading-none">{opt.emoji}</span>
-                        <span className="text-[9px] font-black">{opt.label}</span>
-                      </button>
-                    ))}
-                  </div>
-                  {(timePreference !== 'anytime') && (
-                    <p className="text-[9px] text-zinc-500 px-1">
-                      若景點有營業時間資料，系統會優先依照營業時間安排
-                    </p>
-                  )}
-                </div>
               </motion.div>
             )}
           </AnimatePresence>
