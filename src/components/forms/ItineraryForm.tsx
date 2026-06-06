@@ -111,6 +111,28 @@ export function ItineraryForm({ tripId, date, onSuccess, onCancel, initialData, 
     });
   }, []);
 
+  // Auto-fill transport mode from most common mode in this trip (only for new items)
+  useEffect(() => {
+    if (initialData) return;
+    apiFetch(`/api/trips/${tripId}/itineraries`)
+      .then(r => r.ok ? r.json() : [])
+      .then((items: any[]) => {
+        const counts: Record<string, number> = {};
+        for (const i of items) {
+          if (i.next_transport_mode) counts[i.next_transport_mode] = (counts[i.next_transport_mode] || 0) + 1;
+        }
+        const mostCommon = Object.entries(counts).sort((a, b) => b[1] - a[1])[0]?.[0];
+        if (mostCommon) {
+          setFormData(prev => ({
+            ...prev,
+            next_transport_mode: prev.next_transport_mode || mostCommon,
+            next_transport_time: prev.next_transport_time || 'auto',
+          }));
+        }
+      })
+      .catch(() => {});
+  }, [tripId, initialData]);
+
   // 自動搜尋地點（帶 DB 快取）
   useEffect(() => {
     const timer = setTimeout(async () => {

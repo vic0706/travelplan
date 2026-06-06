@@ -80,10 +80,17 @@ interface GapSlot {
   lastItem: any | null;
 }
 
+class MissingTransportError extends Error {
+  constructor(public itemId: number, public itemTitle: string) {
+    super(`MISSING_TRANSPORT:${itemId}`);
+    this.name = 'MissingTransportError';
+  }
+}
+
 /**
  * Fetches real travel duration via Google Routes API (computeRouteMatrix).
- * Replaces legacy Distance Matrix API. KV-cached 24 h per pair.
- * Falls back to haversine if API is unavailable or coords are missing.
+ * KV-cached 30 days per pair. Falls back to haversine if API unavailable.
+ * Throws MissingTransportError if transport info is absent or coords missing.
  */
 async function calcTravelMins(gap: GapSlot, item: any, statements: any[], env: any): Promise<number> {
   if (!gap.lastItem) return 0;
@@ -91,18 +98,16 @@ async function calcTravelMins(gap: GapSlot, item: any, statements: any[], env: a
   const mode = (prev.next_transport_mode || '').toUpperCase();
 
   if (prev.next_transport_time === 'auto') {
-    let mins = 15;
+    const hasCoords = !!(gap.lastLat && gap.lastLng && item.lat && item.lng);
+    let mins: number | null = null;
 
-    if (gap.lastLat && gap.lastLng && item.lat && item.lng && env.GOOGLE_MAPS_API_KEY) {
-      // Routes API travel mode names
-      const travelMode = mode === 'WALKING'     ? 'WALK'
-        : mode === 'BICYCLING'   ? 'BICYCLE'
-        : mode === 'TRANSIT'     ? 'TRANSIT'
-        : mode === 'MOTORCYCLING'? 'TWO_WHEELER'
+    if (hasCoords && env.GOOGLE_MAPS_API_KEY) {
+      const travelMode = mode === 'WALKING'      ? 'WALK'
+        : mode === 'BICYCLING'    ? 'BICYCLE'
+        : mode === 'TRANSIT'      ? 'TRANSIT'
+        : mode === 'MOTORCYCLING' ? 'TWO_WHEELER'
         : 'DRIVE';
-      // Cache key uses lowercase for stability across renames
-      const cacheMode = travelMode.toLowerCase();
-      const cacheKey = `travel_time:${gap.lastLat.toFixed(4)},${gap.lastLng.toFixed(4)}:${item.lat.toFixed(4)},${item.lng.toFixed(4)}:${cacheMode}`;
+      const cacheKey = `travel_time:${gap.lastLat!.toFixed(4)},${gap.lastLng!.toFixed(4)}:${item.lat.toFixed(4)},${item.lng.toFixed(4)}:${travelMode.toLowerCase()}`;
       const cached: number | null = await env.KV.get(cacheKey, 'json');
       if (cached !== null) {
         mins = cached;
@@ -122,39 +127,50 @@ async function calcTravelMins(gap: GapSlot, item: any, statements: any[], env: a
             }),
           });
           if (res.ok) {
-            // Response is NDJSON — one JSON object per line
             const text = await res.text();
             const row = text.split('\n').map(l => l.trim()).filter(Boolean).map(l => {
               try { return JSON.parse(l); } catch { return null; }
             }).find((r: any) => r && r.originIndex === 0 && r.destinationIndex === 0);
             if (row?.duration) {
-              // duration is "183s" format (protobuf Duration)
               const secs = parseInt(row.duration);
               if (!isNaN(secs)) {
                 mins = Math.ceil(secs / 60);
-                await env.KV.put(cacheKey, JSON.stringify(mins), { expirationTtl: 86400 });
+                await env.KV.put(cacheKey, JSON.stringify(mins), { expirationTtl: 2592000 }); // 30 days
               }
             }
           }
         } catch { /* fall through to haversine */ }
       }
-    } else {
-      // Haversine fallback when coords or API key unavailable
+    }
+
+    // Haversine fallback when API unavailable or failed
+    if (mins === null && hasCoords) {
       const dist = getDistanceKm(gap.lastLat!, gap.lastLng!, item.lat, item.lng);
-      let speed = 2, buffer = 5;
-      if (mode === 'WALKING')     { speed = 12; buffer = 2; }
-      if (mode === 'BICYCLING')   { speed = 6;  buffer = 3; }
-      if (mode === 'MOTORCYCLING'){ speed = 2;  buffer = 3; }
-      if (mode === 'TRANSIT')     { speed = 3;  buffer = 8; }
-      mins = dist !== null ? Math.ceil(dist * speed) + buffer : 15;
+      if (dist !== null) {
+        let speed = 2, buffer = 5;
+        if (mode === 'WALKING')      { speed = 12; buffer = 2; }
+        if (mode === 'BICYCLING')    { speed = 6;  buffer = 3; }
+        if (mode === 'MOTORCYCLING') { speed = 2;  buffer = 3; }
+        if (mode === 'TRANSIT')      { speed = 3;  buffer = 8; }
+        mins = Math.ceil(dist * speed) + buffer;
+      }
+    }
+
+    if (mins === null) {
+      throw new MissingTransportError(prev.id, prev.title || String(prev.id));
     }
 
     statements.push(env.DB.prepare(`UPDATE Itineraries SET next_transport_auto_time = ? WHERE id = ?`).bind(mins, prev.id));
     return mins;
   }
 
-  if (prev.next_transport_time) return parseInt(prev.next_transport_time.replace(/\D/g, '')) || 15;
-  return 15;
+  if (prev.next_transport_time) {
+    const parsed = parseInt(prev.next_transport_time.replace(/\D/g, ''));
+    return isNaN(parsed) ? 0 : parsed;
+  }
+
+  // No transport set → optimizer cannot calculate travel time
+  throw new MissingTransportError(prev.id, prev.title || String(prev.id));
 }
 
 async function placeInGap(

@@ -1,60 +1,138 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { X, Footprints, Bus, Car, Bike, Clock, Loader2, Sparkles, Motorbike, Pencil } from 'lucide-react';
 import { clsx } from 'clsx';
 import { Itinerary } from '../../types';
 import { motion } from 'framer-motion';
+import { apiFetch } from '../../utils/api';
 
 interface NextTransportFormProps {
   isOpen: boolean;
   onClose: () => void;
   itinerary: Itinerary | null | undefined;
+  nextItinerary?: Itinerary | null;
   onSave: (data: { next_transport_mode: string; next_transport_time: string; next_transport_auto_time: string }) => Promise<void>;
 }
 
-// 💡 已移除 color 和 bg 定義，統一使用主題色
 const TRANSPORT_MODES = [
-  { id: 'DRIVING',     label: '開車',   icon: Car },
-  { id: 'TRANSIT',     label: '大眾運輸', icon: Bus },
-  { id: 'WALKING',     label: '步行',   icon: Footprints },
-  { id: 'BICYCLING',   label: '自行車', icon: Bike },
-  { id: 'MOTORCYCLING', label: '機車',  icon: Motorbike },
-  { id: 'CUSTOM',      label: '自訂',   icon: Pencil },
+  { id: 'DRIVING',      label: '開車',    icon: Car },
+  { id: 'TRANSIT',      label: '大眾運輸', icon: Bus },
+  { id: 'WALKING',      label: '步行',    icon: Footprints },
+  { id: 'BICYCLING',    label: '自行車',  icon: Bike },
+  { id: 'MOTORCYCLING', label: '機車',    icon: Motorbike },
+  { id: 'CUSTOM',       label: '自訂',    icon: Pencil },
 ];
 
-export function NextTransportForm({ isOpen, onClose, itinerary, onSave }: NextTransportFormProps) {
+// Haversine distance in km
+function haversineKm(lat1: number, lng1: number, lat2: number, lng2: number): number {
+  const R = 6371;
+  const dLat = (lat2 - lat1) * Math.PI / 180;
+  const dLng = (lng2 - lng1) * Math.PI / 180;
+  const a = Math.sin(dLat / 2) ** 2 + Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) * Math.sin(dLng / 2) ** 2;
+  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+}
+
+// Estimated mins from haversine distance (speed in min/km, buffer in min)
+const HEURISTIC: Record<string, { speed: number; buffer: number }> = {
+  DRIVING:      { speed: 2,  buffer: 5 },
+  TRANSIT:      { speed: 3,  buffer: 8 },
+  WALKING:      { speed: 12, buffer: 2 },
+  BICYCLING:    { speed: 6,  buffer: 3 },
+  MOTORCYCLING: { speed: 2,  buffer: 3 },
+};
+
+function haversineEstimate(dist: number, mode: string): number {
+  const h = HEURISTIC[mode] || HEURISTIC.DRIVING;
+  return Math.ceil(dist * h.speed) + h.buffer;
+}
+
+export function NextTransportForm({ isOpen, onClose, itinerary, nextItinerary, onSave }: NextTransportFormProps) {
   const [mode, setMode] = useState('DRIVING');
   const [duration, setDuration] = useState<number>(15);
   const [loading, setLoading] = useState(false);
 
-  // 載入現有資料
+  // Haversine estimates for all modes (instant, free)
+  const [estimates, setEstimates] = useState<Record<string, number>>({});
+  // Accurate API time for the currently selected mode
+  const [accurateMins, setAccurateMins] = useState<number | null>(null);
+  const [loadingAccurate, setLoadingAccurate] = useState(false);
+
+  // Compute haversine estimates when form opens
   useEffect(() => {
-    if (isOpen && itinerary) {
-      if (itinerary.next_transport_mode === 'auto') {
-        setDuration(0);
-        setMode('DRIVING'); // 預設顯示在第一個
-      } else {
-        const currentMode = itinerary.next_transport_mode || 'DRIVING';
-        setMode(currentMode);
-        const mins = itinerary.next_transport_time 
-          ? parseInt(itinerary.next_transport_time.replace(/\D/g, '')) 
-          : 15;
-        setDuration(mins || 15);
+    if (!isOpen) return;
+    const from = itinerary;
+    const to = nextItinerary;
+    if (from?.lat && from?.lng && to?.lat && to?.lng) {
+      const dist = haversineKm(from.lat, from.lng, to.lat, to.lng);
+      const est: Record<string, number> = {};
+      for (const m of TRANSPORT_MODES) {
+        if (m.id !== 'CUSTOM') est[m.id] = haversineEstimate(dist, m.id);
       }
+      setEstimates(est);
+    } else {
+      setEstimates({});
     }
-  }, [isOpen, itinerary]);
+  }, [isOpen, itinerary?.lat, itinerary?.lng, nextItinerary?.lat, nextItinerary?.lng]);
+
+  // Fetch accurate travel time for selected mode via Compute Routes API
+  const fetchAccurateTime = useCallback(async (selectedMode: string) => {
+    if (selectedMode === 'CUSTOM') { setAccurateMins(null); return; }
+    const from = itinerary;
+    const to = nextItinerary;
+    if (!from?.lat || !from?.lng || !to?.lat || !to?.lng) { setAccurateMins(null); return; }
+
+    setLoadingAccurate(true);
+    setAccurateMins(null);
+    try {
+      const res = await apiFetch('/api/travel-time', {
+        method: 'POST',
+        body: JSON.stringify({ fromLat: from.lat, fromLng: from.lng, toLat: to.lat, toLng: to.lng, mode: selectedMode }),
+      });
+      if (res.ok) {
+        const data = await res.json() as any;
+        setAccurateMins(data.mins ?? null);
+      }
+    } catch { /* silent */ }
+    finally { setLoadingAccurate(false); }
+  }, [itinerary?.lat, itinerary?.lng, nextItinerary?.lat, nextItinerary?.lng]);
+
+  // Load existing data and trigger API fetch when form opens
+  useEffect(() => {
+    if (!isOpen || !itinerary) return;
+    let initialMode = 'DRIVING';
+    let initialDuration = 15;
+
+    if (itinerary.next_transport_mode === 'auto') {
+      initialDuration = 0;
+    } else {
+      initialMode = itinerary.next_transport_mode || 'DRIVING';
+      const mins = itinerary.next_transport_time
+        ? parseInt(itinerary.next_transport_time.replace(/\D/g, ''))
+        : 15;
+      initialDuration = mins || 15;
+    }
+
+    setMode(initialMode);
+    setDuration(initialDuration);
+    setAccurateMins(null);
+    fetchAccurateTime(initialMode);
+  }, [isOpen, itinerary?.id]);
+
+  // Fetch accurate time when mode changes
+  useEffect(() => {
+    if (!isOpen) return;
+    fetchAccurateTime(mode);
+  }, [mode, isOpen]);
 
   if (!isOpen || !itinerary) return null;
 
   const handleSave = async () => {
     setLoading(true);
     try {
-      // 💡 修正：如果時間為 0，next_transport_time 存為 'auto'
-      // 💡 next_transport_mode 永遠儲存選中的模式（如 WALKING）
       const isAuto = duration === 0;
       await onSave({
-        next_transport_mode: mode, 
+        next_transport_mode: mode,
         next_transport_time: isAuto ? 'auto' : `${duration} min`,
-        next_transport_auto_time: '' // 這是給後端回寫用的暫存欄位
+        next_transport_auto_time: '',
       });
       onClose();
     } finally {
@@ -72,9 +150,11 @@ export function NextTransportForm({ isOpen, onClose, itinerary, onSave }: NextTr
     }
   };
 
+  const hasCoords = !!(itinerary.lat && itinerary.lng && nextItinerary?.lat && nextItinerary?.lng);
+
   return (
     <div className="fixed inset-0 z-[400] flex items-end sm:items-center justify-center p-4 sm:p-0 bg-black/80 backdrop-blur-sm">
-      <motion.div 
+      <motion.div
         initial={{ y: '100%', opacity: 0 }}
         animate={{ y: 0, opacity: 1 }}
         exit={{ y: '100%', opacity: 0 }}
@@ -91,7 +171,7 @@ export function NextTransportForm({ isOpen, onClose, itinerary, onSave }: NextTr
             <X size={18} />
           </button>
         </div>
-        
+
         {/* Content */}
         <div className="p-6 space-y-6 overflow-y-auto custom-scrollbar">
           {/* Transport Mode Grid */}
@@ -99,21 +179,38 @@ export function NextTransportForm({ isOpen, onClose, itinerary, onSave }: NextTr
             {TRANSPORT_MODES.map(m => {
               const Icon = m.icon;
               const isActive = mode === m.id;
-              
+              const est = estimates[m.id];
+              const showAccurate = isActive && accurateMins !== null && m.id !== 'CUSTOM';
+              const showLoading  = isActive && loadingAccurate && m.id !== 'CUSTOM' && hasCoords;
+
               return (
                 <button
                   key={m.id} type="button"
                   onClick={() => setMode(m.id)}
                   className={clsx(
-                    "flex flex-col items-center justify-center gap-2 py-4 rounded-2xl border transition-all active:scale-95",
-                    // 💡 被選中時統一使用主題橘色 (bg-orange-500/10, text-orange-500)
-                    isActive 
-                      ? "bg-orange-500/10 border-orange-500/50 text-orange-500 shadow-inner" 
+                    "flex flex-col items-center justify-center gap-1.5 py-3 rounded-2xl border transition-all active:scale-95",
+                    isActive
+                      ? "bg-orange-500/10 border-orange-500/50 text-orange-500 shadow-inner"
                       : "bg-[#242426] border-zinc-800 text-zinc-500 hover:bg-zinc-800 hover:text-white hover:border-zinc-500"
                   )}
                 >
-                  <Icon size={24} className="mb-1" />
+                  <Icon size={22} className="shrink-0" />
                   <span className="text-[10px] font-bold uppercase tracking-widest">{m.label}</span>
+                  {/* Time estimate */}
+                  {m.id !== 'CUSTOM' && (
+                    <span className={clsx(
+                      "text-[9px] font-bold leading-none",
+                      isActive ? "text-orange-400" : "text-zinc-600"
+                    )}>
+                      {showLoading ? (
+                        <Loader2 size={10} className="animate-spin inline" />
+                      ) : showAccurate ? (
+                        `${accurateMins} 分`
+                      ) : est ? (
+                        `~${est} 分`
+                      ) : null}
+                    </span>
+                  )}
                 </button>
               );
             })}
@@ -125,7 +222,7 @@ export function NextTransportForm({ isOpen, onClose, itinerary, onSave }: NextTr
               <label className="text-[10px] font-black text-zinc-400 uppercase tracking-widest flex items-center gap-2">
                 <Clock size={12} className="text-orange-500" /> 預估交通時間
               </label>
-              
+
               <div className="flex items-center gap-2 bg-zinc-900 border border-zinc-800 rounded-xl px-4 py-2">
                 {duration === 0 ? (
                   <div className="flex items-center gap-1.5 text-orange-500 animate-pulse">
@@ -147,13 +244,12 @@ export function NextTransportForm({ isOpen, onClose, itinerary, onSave }: NextTr
               </div>
             </div>
 
-            {/* 💡 拉桿也統一使用主題橘色 accent-orange-500 */}
-            <input 
-              type="range" min="0" max="120" step="5" 
-              value={duration} 
-              onChange={(e) => setDuration(parseInt(e.target.value))} 
+            <input
+              type="range" min="0" max="120" step="5"
+              value={duration}
+              onChange={(e) => setDuration(parseInt(e.target.value))}
               className="w-full h-1.5 rounded-lg appearance-none cursor-pointer outline-none bg-orange-500 accent-orange-500"
-              style={{ accentColor: '#f97316' }} // 強制顯示為主題橘
+              style={{ accentColor: '#f97316' }}
             />
 
             <div className="flex justify-between text-[9px] text-zinc-600 font-bold px-1">
@@ -162,7 +258,7 @@ export function NextTransportForm({ isOpen, onClose, itinerary, onSave }: NextTr
               <span>1時</span>
               <span>2時</span>
             </div>
-            
+
             {duration === 0 && (
               <p className="text-[10px] text-orange-500/60 text-center font-bold italic">
                 * 設定為 0 將由 AI 根據距離自動計算
@@ -173,17 +269,16 @@ export function NextTransportForm({ isOpen, onClose, itinerary, onSave }: NextTr
 
         {/* Footer */}
         <div className="p-5 border-t border-zinc-800 bg-[#1c1c1e] flex gap-3 shrink-0">
-          <button 
-            onClick={handleClear} 
-            disabled={loading || !itinerary.next_transport_mode} 
+          <button
+            onClick={handleClear}
+            disabled={loading || !itinerary.next_transport_mode}
             className="flex-1 py-4 bg-[#242426] hover:bg-red-500/10 text-zinc-400 hover:text-red-500 font-bold rounded-2xl transition-colors text-xs uppercase tracking-widest"
           >
             清除
           </button>
-          {/* 💡 確認按鈕统一使用主題橘色 */}
-          <button 
-            onClick={handleSave} 
-            disabled={loading} 
+          <button
+            onClick={handleSave}
+            disabled={loading}
             className="flex-[2] py-4 bg-orange-500 rounded-2xl font-black text-sm uppercase tracking-widest shadow-lg flex items-center justify-center gap-2 active:scale-95 transition-all text-white shadow-orange-500/10 hover:bg-orange-600"
           >
             {loading ? <Loader2 size={18} className="animate-spin" /> : '確認儲存'}

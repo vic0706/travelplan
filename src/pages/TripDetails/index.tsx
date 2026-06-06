@@ -669,6 +669,11 @@ export function TripDetails() {
             isOpen={isNextTransportFormOpen}
             onClose={() => { setIsNextTransportFormOpen(false); setEditingItinerary(null); }}
             itinerary={editingItinerary}
+            nextItinerary={(() => {
+              const sorted = [...filteredItineraries].sort((a, b) => (a.start_time || '').localeCompare(b.start_time || ''));
+              const idx = sorted.findIndex(i => i.id === editingItinerary.id);
+              return idx >= 0 ? (sorted[idx + 1] ?? null) : null;
+            })()}
             onSave={async (data) => {
               if (!id) return;
               try {

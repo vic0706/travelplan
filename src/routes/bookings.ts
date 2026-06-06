@@ -9,7 +9,7 @@ async function insertItinerary(db: any, tripId: string, item: {
   date: string; start_time: string; end_time: string;
   title: string; address: string; image_url: string; notes: string;
   icon: string; type: string; related_id: number;
-}) {
+}, transportMode = '', transportTime = '') {
   await db.prepare(`
     INSERT INTO Itineraries (
       trip_id, city_id, date, start_time, end_time, title, address,
@@ -17,12 +17,25 @@ async function insertItinerary(db: any, tripId: string, item: {
       is_time_fixed, stay_duration, next_transport_mode, next_transport_time,
       next_transport_auto_time, lat, lng, google_place_id, rating,
       reviews_count, opening_hours, place_website, place_phone
-    ) VALUES (?, NULL, ?, ?, ?, ?, ?, ?, ?, '[]', ?, '[]', ?, ?, 1, '0', '', '', '0', NULL, NULL, '', NULL, NULL, NULL, NULL, NULL)
+    ) VALUES (?, NULL, ?, ?, ?, ?, ?, ?, ?, '[]', ?, '[]', ?, ?, 1, '0', ?, ?, '0', NULL, NULL, '', NULL, NULL, NULL, NULL, NULL)
   `).bind(
     tripId, item.date, item.start_time, item.end_time,
     item.title, item.address, item.image_url, item.notes,
-    item.icon, item.type, item.related_id
+    item.icon, item.type, item.related_id,
+    transportMode, transportTime
   ).run();
+}
+
+// ── Helper: get most common next_transport_mode for this trip ────────────────
+async function getMostCommonTransportMode(db: any, tripId: string): Promise<string> {
+  try {
+    const { results } = await db.prepare(
+      `SELECT next_transport_mode, COUNT(*) as cnt FROM Itineraries
+       WHERE trip_id = ? AND next_transport_mode != '' AND next_transport_mode IS NOT NULL
+       GROUP BY next_transport_mode ORDER BY cnt DESC LIMIT 1`
+    ).bind(tripId).all();
+    return (results[0] as any)?.next_transport_mode || '';
+  } catch { return ''; }
 }
 
 // ── Helper: iterate dates between start and end (inclusive) ──────────────────
@@ -47,6 +60,8 @@ async function generateItineraryItems(db: any, tripId: string, bookingId: number
   const cat = b.category;
   const addr = b.start_location || '';
   const notes = b.order_id ? `Order ID: ${b.order_id}\n${b.notes || ''}`.trim() : (b.notes || '');
+  const defaultMode = await getMostCommonTransportMode(db, tripId);
+  const defaultTime = defaultMode ? 'auto' : '';
 
   if (cat === 'HOTEL') {
     const checkInTime  = b.start_time || '16:00';
@@ -61,26 +76,25 @@ async function generateItineraryItems(db: any, tripId: string, bookingId: number
       const isLast  = i === dates.length - 1;
 
       if (isFirst && isLast) {
-        // Single-night: only check-in + check-out
-        await insertItinerary(db, tripId, { date, start_time: checkInTime,  end_time: checkInTime,  title: `Check-in ${b.title}`,  address: addr, image_url: imageUrl, notes, icon: 'Bed', type: 'ACCOMMODATION', related_id: bookingId });
-        await insertItinerary(db, tripId, { date, start_time: checkOutTime, end_time: checkOutTime, title: `Check-out ${b.title}`, address: addr, image_url: imageUrl, notes, icon: 'Bed', type: 'ACCOMMODATION', related_id: bookingId });
+        await insertItinerary(db, tripId, { date, start_time: checkInTime,  end_time: checkInTime,  title: `Check-in ${b.title}`,  address: addr, image_url: imageUrl, notes, icon: 'Bed', type: 'ACCOMMODATION', related_id: bookingId }, defaultMode, defaultTime);
+        await insertItinerary(db, tripId, { date, start_time: checkOutTime, end_time: checkOutTime, title: `Check-out ${b.title}`, address: addr, image_url: imageUrl, notes, icon: 'Bed', type: 'ACCOMMODATION', related_id: bookingId }, defaultMode, defaultTime);
       } else if (isFirst) {
-        await insertItinerary(db, tripId, { date, start_time: checkInTime, end_time: checkInTime, title: `Check-in ${b.title}`,  address: addr, image_url: imageUrl, notes, icon: 'Bed', type: 'ACCOMMODATION', related_id: bookingId });
-        await insertItinerary(db, tripId, { date, start_time: dailyReturn, end_time: dailyReturn, title: `返回 ${b.title}`,       address: addr, image_url: imageUrl, notes: '', icon: 'Bed', type: 'ACCOMMODATION', related_id: bookingId });
+        await insertItinerary(db, tripId, { date, start_time: checkInTime, end_time: checkInTime, title: `Check-in ${b.title}`,  address: addr, image_url: imageUrl, notes, icon: 'Bed', type: 'ACCOMMODATION', related_id: bookingId }, defaultMode, defaultTime);
+        await insertItinerary(db, tripId, { date, start_time: dailyReturn, end_time: dailyReturn, title: `返回 ${b.title}`,       address: addr, image_url: imageUrl, notes: '', icon: 'Bed', type: 'ACCOMMODATION', related_id: bookingId }, defaultMode, defaultTime);
       } else if (isLast) {
-        await insertItinerary(db, tripId, { date, start_time: checkOutTime, end_time: checkOutTime, title: `Check-out ${b.title}`, address: addr, image_url: imageUrl, notes, icon: 'Bed', type: 'ACCOMMODATION', related_id: bookingId });
+        await insertItinerary(db, tripId, { date, start_time: checkOutTime, end_time: checkOutTime, title: `Check-out ${b.title}`, address: addr, image_url: imageUrl, notes, icon: 'Bed', type: 'ACCOMMODATION', related_id: bookingId }, defaultMode, defaultTime);
       } else {
-        await insertItinerary(db, tripId, { date, start_time: dailyOut,    end_time: dailyOut,    title: `出門（${b.title}）`, address: addr, image_url: imageUrl, notes: '', icon: 'Bed', type: 'ACCOMMODATION', related_id: bookingId });
-        await insertItinerary(db, tripId, { date, start_time: dailyReturn, end_time: dailyReturn, title: `返回 ${b.title}`,     address: addr, image_url: imageUrl, notes: '', icon: 'Bed', type: 'ACCOMMODATION', related_id: bookingId });
+        await insertItinerary(db, tripId, { date, start_time: dailyOut,    end_time: dailyOut,    title: `出門（${b.title}）`, address: addr, image_url: imageUrl, notes: '', icon: 'Bed', type: 'ACCOMMODATION', related_id: bookingId }, defaultMode, defaultTime);
+        await insertItinerary(db, tripId, { date, start_time: dailyReturn, end_time: dailyReturn, title: `返回 ${b.title}`,     address: addr, image_url: imageUrl, notes: '', icon: 'Bed', type: 'ACCOMMODATION', related_id: bookingId }, defaultMode, defaultTime);
       }
     }
     return;
   }
 
   if (cat === 'RENTAL' || cat === 'PRIVATE_TRANSFER') {
-    await insertItinerary(db, tripId, { date: b.start_date, start_time: b.start_time || '10:00', end_time: b.start_time || '10:00', title: `取車：${b.title}`, address: addr, image_url: imageUrl, notes, icon: 'Car', type: 'RENTAL', related_id: bookingId });
+    await insertItinerary(db, tripId, { date: b.start_date, start_time: b.start_time || '10:00', end_time: b.start_time || '10:00', title: `取車：${b.title}`, address: addr, image_url: imageUrl, notes, icon: 'Car', type: 'RENTAL', related_id: bookingId }, defaultMode, defaultTime);
     if (b.end_date && b.end_date !== b.start_date) {
-      await insertItinerary(db, tripId, { date: b.end_date, start_time: b.end_time || '10:00', end_time: b.end_time || '10:00', title: `還車：${b.title}`, address: b.end_location || addr, image_url: imageUrl, notes, icon: 'Car', type: 'RENTAL', related_id: bookingId });
+      await insertItinerary(db, tripId, { date: b.end_date, start_time: b.end_time || '10:00', end_time: b.end_time || '10:00', title: `還車：${b.title}`, address: b.end_location || addr, image_url: imageUrl, notes, icon: 'Car', type: 'RENTAL', related_id: bookingId }, defaultMode, defaultTime);
     }
     return;
   }
@@ -90,7 +104,7 @@ async function generateItineraryItems(db: any, tripId: string, bookingId: number
     const icon = cat === 'FLIGHT' ? 'Plane' : cat === 'TRAIN' ? 'Train' : cat === 'FERRY' ? 'Ship' : 'Bus';
     const checkInAt = b.start_time ? subtractMins(b.start_time, depBuffer) : b.start_time || '';
     // Departure item (type TRANSPORTATION so TransportationCard renders it)
-    await insertItinerary(db, tripId, { date: b.start_date, start_time: checkInAt, end_time: b.start_time || '', title: b.title, address: addr, image_url: imageUrl, notes, icon, type: 'TRANSPORTATION', related_id: bookingId });
+    await insertItinerary(db, tripId, { date: b.start_date, start_time: checkInAt, end_time: b.start_time || '', title: b.title, address: addr, image_url: imageUrl, notes, icon, type: 'TRANSPORTATION', related_id: bookingId }, defaultMode, defaultTime);
   }
 }
 

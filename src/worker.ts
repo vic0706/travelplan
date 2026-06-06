@@ -12,6 +12,8 @@ import expenseRoutes from './routes/expenses';
 import placeRoutes from './routes/places';
 import mediaRoutes from './routes/media';
 import cities from './routes/cities';
+import travelTimeRoute from './routes/travelTime';
+import { checkApiQuota, trackApiCall, getApiUsage, saveApiLimit } from './utils/apiQuota';
 
 export interface Env {
   DB: D1Database;
@@ -50,6 +52,7 @@ app.route('/api/trips/:id/expenses', expenseRoutes);
 app.route('/api/places', placeRoutes);
 app.route('/api/media', mediaRoutes);
 app.route('/api/cities', cities);
+app.route('/api/travel-time', travelTimeRoute);
 
 // 3. 基礎城市查詢
 app.get('/api/cities', async (c) => {
@@ -82,6 +85,7 @@ app.get('/api/places/autocomplete', async (c) => {
   if (cached) return c.json(cached);
 
   try {
+    await checkApiQuota(c.env, 'places_autocomplete');
     const sessionToken = c.req.query('session') || undefined;
     const body: any = { input: q, languageCode: 'zh-TW' };
     if (sessionToken) body.sessionToken = sessionToken;
@@ -91,8 +95,8 @@ app.get('/api/places/autocomplete', async (c) => {
       headers: { 'Content-Type': 'application/json', 'X-Goog-Api-Key': c.env.GOOGLE_MAPS_API_KEY },
       body: JSON.stringify(body),
     });
+    await trackApiCall(c.env, 'places_autocomplete');
     const data = await res.json() as any;
-    // Normalize to same shape as old API so frontend needs no change
     const predictions = (data.suggestions || [])
       .filter((s: any) => s.placePrediction)
       .map((s: any) => ({
@@ -105,7 +109,8 @@ app.get('/api/places/autocomplete', async (c) => {
       }));
     await c.env.KV.put(cacheKey, JSON.stringify(predictions), { expirationTtl: 86400 });
     return c.json(predictions);
-  } catch (error) {
+  } catch (error: any) {
+    if (error?.code === 'API_QUOTA_EXCEEDED') return c.json({ error: 'API_QUOTA_EXCEEDED', api: 'places_autocomplete' }, 429);
     return c.json({ error: 'Failed to fetch autocomplete' }, 500);
   }
 });
@@ -123,6 +128,7 @@ app.get('/api/places/details', async (c) => {
   }
 
   try {
+    await checkApiQuota(c.env, 'place_details');
     const url = `https://places.googleapis.com/v1/places/${placeId}`;
     const res = await fetch(url, {
       headers: {
@@ -130,6 +136,7 @@ app.get('/api/places/details', async (c) => {
         'X-Goog-FieldMask': 'id,location,photos,displayName,formattedAddress,rating,userRatingCount,currentOpeningHours,regularOpeningHours,reviewSummary,websiteUri,internationalPhoneNumber,businessStatus'
       }
     });
+    await trackApiCall(c.env, 'place_details');
 
     const data = await res.json() as any;
 
@@ -144,11 +151,11 @@ app.get('/api/places/details', async (c) => {
     }
 
     const result = { ...data, actual_photo_url: photoUri };
-    // 寫入 KV，TTL 7 天（syncPlaceDetails 也讀這個 key）
     await c.env.KV.put(cacheKey, JSON.stringify(result), { expirationTtl: 604800 });
 
     return c.json({ ...result, from_cache: false });
-  } catch (error) {
+  } catch (error: any) {
+    if (error?.code === 'API_QUOTA_EXCEEDED') return c.json({ error: 'API_QUOTA_EXCEEDED', api: 'place_details' }, 429);
     return c.json({ error: 'Failed to fetch place details' }, 500);
   }
 });
@@ -188,6 +195,47 @@ app.get('/api/exchange-rates', async (c) => {
   } catch {
     return c.json({ base, rates: {} });
   }
+});
+
+// ── Settings endpoints ────────────────────────────────────────────────────────
+
+app.get('/api/settings', async (c) => {
+  try {
+    const { results } = await c.env.DB.prepare('SELECT key_name, value FROM App_Settings').all();
+    const settings: Record<string, string> = {};
+    for (const row of results as any[]) settings[row.key_name] = row.value;
+    return c.json(settings);
+  } catch { return c.json({}, 500); }
+});
+
+app.put('/api/settings', async (c) => {
+  const body = await c.req.json().catch(() => ({}));
+  try {
+    const stmts = Object.entries(body).map(([key, val]) =>
+      c.env.DB.prepare(
+        `INSERT INTO App_Settings (key_name, value) VALUES (?, ?)
+         ON CONFLICT(key_name) DO UPDATE SET value = excluded.value`
+      ).bind(key, String(val))
+    );
+    if (stmts.length > 0) await c.env.DB.batch(stmts);
+    return c.json({ success: true });
+  } catch (e: any) { return c.json({ error: e.message }, 500); }
+});
+
+app.get('/api/settings/api-usage', async (c) => {
+  try {
+    const usage = await getApiUsage(c.env);
+    return c.json(usage);
+  } catch (e: any) { return c.json({ error: e.message }, 500); }
+});
+
+app.put('/api/settings/api-limit', async (c) => {
+  const { apiName, limit } = await c.req.json().catch(() => ({}));
+  if (!apiName || limit == null) return c.json({ error: 'Missing apiName or limit' }, 400);
+  try {
+    await saveApiLimit(c.env, apiName, Number(limit));
+    return c.json({ success: true });
+  } catch (e: any) { return c.json({ error: e.message }, 500); }
 });
 
 // 6. 健康檢查

@@ -56,7 +56,7 @@ export function ItineraryCard({
 
   const closedWarning    = checkIsClosed(item.date, item.opening_hours);
   const hasWarning       = !!closedWarning || !!item.sync_conflict_warning || !!isConflicted;
-  const isCircuitBreaker = canEdit && !!item.start_time && (!item.next_transport_mode || item.next_transport_mode === '');
+  const isCircuitBreaker = canEdit && !!showNextTransport && !!item.start_time && (!item.next_transport_mode || item.next_transport_mode === '');
 
   const hasContent = !!item.rating || subItems.length > 0 || tags.length > 0 || !!item.notes || hasWarning;
   const hasPhoto   = !!item.image_url;
