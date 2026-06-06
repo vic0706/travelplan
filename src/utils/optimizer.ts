@@ -21,13 +21,106 @@ function minsToTime(mins: number) {
   return `${h.toString().padStart(2, '0')}:${m.toString().padStart(2, '0')}`;
 }
 
+const DAY_START = 9 * 60;   // 09:00
+const DAY_END   = 22 * 60;  // 22:00
+
+// Time windows for time_preference values
+const TIME_PREF_WINDOWS: Record<string, { start: number; end: number }> = {
+  morning:   { start:  7 * 60, end: 12 * 60 },
+  afternoon: { start: 12 * 60, end: 17 * 60 },
+  evening:   { start: 17 * 60, end: 21 * 60 },
+};
+
+/**
+ * Returns the preferred [start, end] window (in minutes from midnight) for a smart item.
+ * Priority: opening_hours for that weekday > time_preference > anytime
+ */
+function getPreferredWindow(item: any, dateStr: string): { start: number; end: number } {
+  // 1. Try opening_hours from Google Places
+  if (item.opening_hours) {
+    try {
+      const oh = JSON.parse(item.opening_hours);
+      if (Array.isArray(oh.periods) && oh.periods.length > 0) {
+        // 24/7: single period, open day 0 hour 0 with no close
+        const only = oh.periods[0];
+        if (oh.periods.length === 1 && only.open?.day === 0 && only.open?.hour === 0 && !only.close) {
+          return { start: DAY_START, end: DAY_END };
+        }
+        // dateStr is 'YYYY-MM-DD'; new Date() gives local-time day-of-week
+        const dayOfWeek = new Date(dateStr + 'T00:00:00').getDay(); // 0=Sun
+        const period = oh.periods.find((p: any) => p.open?.day === dayOfWeek);
+        if (period?.open) {
+          const openMins  = (period.open.hour  || 0) * 60 + (period.open.minute  || 0);
+          const closeMins = period.close
+            ? (period.close.hour || 0) * 60 + (period.close.minute || 0)
+            : 24 * 60;
+          return {
+            start: Math.max(DAY_START, openMins),
+            end:   Math.min(DAY_END,   closeMins > openMins ? closeMins : DAY_END),
+          };
+        }
+      }
+    } catch { /* invalid JSON — fall through */ }
+  }
+
+  // 2. time_preference field
+  const pref = (item.time_preference || 'anytime').toLowerCase();
+  if (TIME_PREF_WINDOWS[pref]) return TIME_PREF_WINDOWS[pref];
+
+  // 3. anytime
+  return { start: DAY_START, end: DAY_END };
+}
+
 interface GapSlot {
-  start: number;
-  end: number;
-  cursor: number;
-  lastLat: number | null;
-  lastLng: number | null;
+  start:    number;
+  end:      number;
+  cursor:   number;
+  lastLat:  number | null;
+  lastLng:  number | null;
   lastItem: any | null;
+}
+
+function calcTravelMins(gap: GapSlot, item: any, statements: any[], env: any): number {
+  if (!gap.lastItem) return 0;
+  const prev = gap.lastItem;
+  if (prev.next_transport_time === 'auto') {
+    const dist = getDistanceKm(gap.lastLat!, gap.lastLng!, item.lat, item.lng);
+    let speed = 4, buffer = 5;
+    if (prev.next_transport_mode === 'WALKING') { speed = 12; buffer = 2; }
+    if (prev.next_transport_mode === 'TRANSIT') { speed = 4;  buffer = 10; }
+    const mins = dist !== null ? Math.ceil(dist * speed) + buffer : 15;
+    statements.push(env.DB.prepare(`UPDATE Itineraries SET next_transport_auto_time = ? WHERE id = ?`).bind(mins, prev.id));
+    return mins;
+  }
+  if (prev.next_transport_time) return parseInt(prev.next_transport_time.replace(/\D/g, '')) || 15;
+  return 15; // default when no transport info
+}
+
+function placeInGap(
+  gap: GapSlot,
+  item: any,
+  stayDuration: number,
+  windowStart: number,
+  windowEnd: number,
+  statements: any[],
+  env: any
+): boolean {
+  const travelMins = calcTravelMins(gap, item, statements, env);
+  const startMins  = Math.max(gap.cursor + travelMins, windowStart);
+  const endMins    = startMins + stayDuration;
+
+  if (startMins < windowEnd && endMins <= gap.end) {
+    statements.push(
+      env.DB.prepare(`UPDATE Itineraries SET start_time = ?, end_time = ?, sync_conflict_warning = null WHERE id = ?`)
+        .bind(minsToTime(startMins), minsToTime(endMins), item.id)
+    );
+    gap.cursor  = endMins;
+    gap.lastLat = item.lat;
+    gap.lastLng = item.lng;
+    gap.lastItem = item;
+    return true;
+  }
+  return false;
 }
 
 export async function optimizeDailyItinerary(env: any, tripId: number, dateStr: string) {
@@ -39,7 +132,7 @@ export async function optimizeDailyItinerary(env: any, tripId: number, dateStr: 
 
   const statements: any[] = [];
 
-  // Separate fixed vs smart items; sort fixed by their locked start_time
+  // Separate fixed vs smart; sort fixed by locked start_time
   const fixedItems = (rawItems as any[])
     .filter(i => i.is_time_fixed === 1)
     .sort((a: any, b: any) => timeToMins(a.start_time) - timeToMins(b.start_time));
@@ -56,10 +149,7 @@ export async function optimizeDailyItinerary(env: any, tripId: number, dateStr: 
     return;
   }
 
-  // Build free time gaps around fixed items
-  const DAY_START = 9 * 60;  // 09:00
-  const DAY_END   = 22 * 60; // 22:00
-
+  // Build free time gaps between fixed items
   const gaps: GapSlot[] = [];
   let prevEnd  = DAY_START;
   let prevLat: number | null = null;
@@ -74,13 +164,11 @@ export async function optimizeDailyItinerary(env: any, tripId: number, dateStr: 
     prevLat = block.lat;
     prevLng = block.lng;
   }
-  // Gap after the last fixed item (or whole day if no fixed items)
   if (prevEnd < DAY_END) {
     gaps.push({ start: prevEnd, end: DAY_END, cursor: prevEnd, lastLat: prevLat, lastLng: prevLng, lastItem: null });
   }
 
   if (gaps.length === 0) {
-    // Fixed items occupy the entire day — no room for smart items
     for (const item of smartItems) {
       statements.push(
         env.DB.prepare(`UPDATE Itineraries SET start_time = '', end_time = '', sync_conflict_warning = ? WHERE id = ?`)
@@ -91,44 +179,30 @@ export async function optimizeDailyItinerary(env: any, tripId: number, dateStr: 
     return;
   }
 
-  // Try to fit each smart item into the first gap that has enough space
   for (const item of smartItems as any[]) {
     const stayDuration = parseInt(item.stay_duration) || 60;
+    const pref = getPreferredWindow(item, dateStr);
     let placed = false;
 
+    // Pass 1: find a gap that overlaps with the preferred window
     for (const gap of gaps) {
-      // Calculate travel time from the previous item in this gap
-      let travelMins = 0;
-      if (gap.lastItem) {
-        const prev = gap.lastItem;
-        if (prev.next_transport_time === 'auto') {
-          const dist = getDistanceKm(gap.lastLat!, gap.lastLng!, item.lat, item.lng);
-          let speedMultiplier = 4, buffer = 5;
-          if (prev.next_transport_mode === 'WALKING')  { speedMultiplier = 12; buffer = 2; }
-          if (prev.next_transport_mode === 'TRANSIT')  { speedMultiplier = 4;  buffer = 10; }
-          travelMins = dist !== null ? Math.ceil(dist * speedMultiplier) + buffer : 15;
-          statements.push(env.DB.prepare(`UPDATE Itineraries SET next_transport_auto_time = ? WHERE id = ?`).bind(travelMins, prev.id));
-        } else if (prev.next_transport_time) {
-          travelMins = parseInt(prev.next_transport_time.replace(/\D/g, '')) || 15;
-        } else {
-          travelMins = 15; // default buffer when no transport info set
+      const winStart = Math.max(pref.start, gap.start);
+      const winEnd   = Math.min(pref.end,   gap.end);
+      if (winEnd - winStart >= stayDuration && gap.cursor < winEnd) {
+        if (placeInGap(gap, item, stayDuration, winStart, winEnd, statements, env)) {
+          placed = true;
+          break;
         }
       }
+    }
 
-      const startMins = gap.cursor + travelMins;
-      const endMins   = startMins + stayDuration;
-
-      if (endMins <= gap.end) {
-        statements.push(
-          env.DB.prepare(`UPDATE Itineraries SET start_time = ?, end_time = ?, sync_conflict_warning = null WHERE id = ?`)
-            .bind(minsToTime(startMins), minsToTime(endMins), item.id)
-        );
-        gap.cursor  = endMins;
-        gap.lastLat = item.lat;
-        gap.lastLng = item.lng;
-        gap.lastItem = item;
-        placed = true;
-        break;
+    // Pass 2: fallback — fit into any available gap (ignoring time preference)
+    if (!placed) {
+      for (const gap of gaps) {
+        if (placeInGap(gap, item, stayDuration, gap.start, gap.end, statements, env)) {
+          placed = true;
+          break;
+        }
       }
     }
 
