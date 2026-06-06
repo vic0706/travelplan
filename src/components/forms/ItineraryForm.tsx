@@ -77,12 +77,20 @@ export function ItineraryForm({ tripId, date, onSuccess, onCancel, initialData, 
   const [fromCache, setFromCache] = useState(false);
   const sessionToken = useRef(Math.random().toString(36).substring(2));
 
-  // Live-query: google_place_ids already in THIS trip (auto-updates reactively)
+  // Live-query: google_place_ids in THIS trip — checks both itineraries and bookings
   const knownPlaceIds = useLiveQuery(
-    () => db.itineraries
-      .where('trip_id').equals(tripId)
-      .toArray()
-      .then(items => new Set(items.filter(i => i.google_place_id).map(i => i.google_place_id as string))),
+    async () => {
+      const [itinItems, bookingItems] = await Promise.all([
+        db.itineraries.where('trip_id').equals(tripId).toArray(),
+        db.bookings.where('trip_id').equals(tripId).toArray(),
+      ]);
+      const ids = new Set<string>();
+      for (const item of [...itinItems, ...bookingItems]) {
+        const pid = (item as any).google_place_id;
+        if (pid) ids.add(pid);
+      }
+      return ids;
+    },
     [tripId],
     new Set<string>()
   ) ?? new Set<string>();
@@ -126,14 +134,12 @@ export function ItineraryForm({ tripId, date, onSuccess, onCancel, initialData, 
         for (const i of items) {
           if (i.next_transport_mode) counts[i.next_transport_mode] = (counts[i.next_transport_mode] || 0) + 1;
         }
-        const mostCommon = Object.entries(counts).sort((a, b) => b[1] - a[1])[0]?.[0];
-        if (mostCommon) {
-          setFormData(prev => ({
-            ...prev,
-            next_transport_mode: prev.next_transport_mode || mostCommon,
-            next_transport_time: prev.next_transport_time || 'auto',
-          }));
-        }
+        const mostCommon = Object.entries(counts).sort((a, b) => b[1] - a[1])[0]?.[0] || 'DRIVING';
+        setFormData(prev => ({
+          ...prev,
+          next_transport_mode: prev.next_transport_mode || mostCommon,
+          next_transport_time: prev.next_transport_time || 'auto',
+        }));
       })
       .catch(() => {});
   }, [tripId, initialData]);
