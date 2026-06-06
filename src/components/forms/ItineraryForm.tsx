@@ -479,10 +479,13 @@ export function ItineraryForm({ tripId, date, onSuccess, onCancel, initialData, 
                     const isKnown = knownPlaceIds.has(s.place_id);
                     return (
                       <button key={idx} type="button" onClick={() => handleSuggestionSelect(s)}
-                        className="w-full px-4 py-3 flex items-start gap-3 hover:bg-zinc-800 text-left border-b border-zinc-800/50 last:border-0 group">
+                        className={clsx(
+                          "w-full px-4 py-3 flex items-start gap-3 text-left border-b border-zinc-800/50 last:border-0 group transition-colors",
+                          isKnown ? "bg-orange-500/5 hover:bg-orange-500/10" : "hover:bg-zinc-800"
+                        )}>
                         <MapPin size={14} className={clsx("mt-0.5 shrink-0 transition-colors", isKnown ? "text-orange-500" : "text-zinc-600 group-hover:text-orange-500")} />
                         <div className="flex-1 min-w-0">
-                          <div className="text-xs font-bold text-white truncate flex items-center gap-1.5">
+                          <div className={clsx("text-xs font-bold truncate flex items-center gap-1.5", isKnown ? "text-orange-400" : "text-white")}>
                             {s.structured_formatting.main_text}
                             {isKnown && (
                               <span className="inline-flex items-center gap-0.5 bg-orange-500/15 text-orange-400 text-[8px] font-black px-1.5 py-0.5 rounded-full border border-orange-500/20 shrink-0">
@@ -490,7 +493,7 @@ export function ItineraryForm({ tripId, date, onSuccess, onCancel, initialData, 
                               </span>
                             )}
                           </div>
-                          <div className="text-[10px] text-zinc-500 truncate">{s.structured_formatting.secondary_text}</div>
+                          <div className={clsx("text-[10px] truncate", isKnown ? "text-orange-400/50" : "text-zinc-500")}>{s.structured_formatting.secondary_text}</div>
                         </div>
                       </button>
                     );
