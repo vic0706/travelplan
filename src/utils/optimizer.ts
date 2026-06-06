@@ -80,92 +80,23 @@ interface GapSlot {
   lastItem: any | null;
 }
 
-/** Maps our transport mode names to Google Distance Matrix mode values. */
-function toGoogleMode(mode: string): string {
-  switch (mode.toUpperCase()) {
-    case 'WALKING':   return 'walking';
-    case 'BICYCLING': return 'bicycling';
-    case 'TRANSIT':   return 'transit';
-    default:          return 'driving'; // DRIVING, MOTORCYCLING, CAR, etc.
-  }
-}
-
 /**
- * Fallback haversine-based estimate when Google API is unavailable.
- * speed = minutes per straight-line km.
+ * Estimates travel time using haversine straight-line distance + mode speed.
+ * speed = minutes per km (straight-line ≈ 0.65× road, so speeds are adjusted accordingly).
  */
-function haversineMins(dist: number | null, mode: string): number {
-  let speed = 2, buffer = 5;
-  switch (mode.toUpperCase()) {
-    case 'WALKING':     speed = 12; buffer = 2;  break;
-    case 'BICYCLING':   speed = 6;  buffer = 3;  break;
-    case 'MOTORCYCLING':speed = 2;  buffer = 3;  break;
-    case 'TRANSIT':     speed = 3;  buffer = 8;  break;
-  }
-  return dist !== null ? Math.ceil(dist * speed) + buffer : 15;
-}
-
-/**
- * Fetches real driving/walking duration from Google Distance Matrix API.
- * Results are KV-cached for 24 h to avoid repeat charges.
- * Falls back to haversine estimate on any error.
- */
-async function fetchGoogleTravelMins(
-  fromLat: number, fromLng: number,
-  toLat: number,   toLng: number,
-  googleMode: string,
-  env: any
-): Promise<number | null> {
-  if (!env.GOOGLE_MAPS_API_KEY) return null;
-
-  // Round to 4 dp (~11 m precision) for cache key stability
-  const cacheKey = `travel_time:${fromLat.toFixed(4)},${fromLng.toFixed(4)}:${toLat.toFixed(4)},${toLng.toFixed(4)}:${googleMode}`;
-  const cached: number | null = await env.KV.get(cacheKey, 'json');
-  if (cached !== null) return cached;
-
-  try {
-    const url = `https://maps.googleapis.com/maps/api/distancematrix/json`
-      + `?origins=${fromLat},${fromLng}`
-      + `&destinations=${toLat},${toLng}`
-      + `&mode=${googleMode}`
-      + `&key=${env.GOOGLE_MAPS_API_KEY}`;
-    const res = await fetch(url);
-    if (!res.ok) return null;
-    const data = await res.json() as any;
-    const el = data.rows?.[0]?.elements?.[0];
-    if (el?.status !== 'OK' || !el.duration?.value) return null;
-    const mins = Math.ceil(el.duration.value / 60);
-    await env.KV.put(cacheKey, JSON.stringify(mins), { expirationTtl: 86400 }); // 24 h
-    return mins;
-  } catch {
-    return null;
-  }
-}
-
-async function calcTravelMins(gap: GapSlot, item: any, statements: any[], env: any): Promise<number> {
+function calcTravelMins(gap: GapSlot, item: any, statements: any[], env: any): number {
   if (!gap.lastItem) return 0;
   const prev = gap.lastItem;
-  const mode = (prev.next_transport_mode || 'DRIVING');
+  const mode = (prev.next_transport_mode || '').toUpperCase();
 
   if (prev.next_transport_time === 'auto') {
-    let mins: number;
-
-    if (gap.lastLat && gap.lastLng && item.lat && item.lng) {
-      const googleMins = await fetchGoogleTravelMins(
-        gap.lastLat, gap.lastLng, item.lat, item.lng,
-        toGoogleMode(mode), env
-      );
-      if (googleMins !== null) {
-        mins = googleMins;
-      } else {
-        // Google unavailable — haversine fallback
-        const dist = getDistanceKm(gap.lastLat, gap.lastLng, item.lat, item.lng);
-        mins = haversineMins(dist, mode);
-      }
-    } else {
-      mins = 15; // no coords at all
-    }
-
+    const dist = getDistanceKm(gap.lastLat!, gap.lastLng!, item.lat, item.lng);
+    let speed = 2, buffer = 5; // default DRIVING ~30 km/h
+    if (mode === 'WALKING')     { speed = 12; buffer = 2; }  // ~5 km/h
+    if (mode === 'BICYCLING')   { speed = 6;  buffer = 3; }  // ~10 km/h
+    if (mode === 'MOTORCYCLING'){ speed = 2;  buffer = 3; }  // ~30 km/h
+    if (mode === 'TRANSIT')     { speed = 3;  buffer = 8; }  // ~20 km/h
+    const mins = dist !== null ? Math.ceil(dist * speed) + buffer : 15;
     statements.push(env.DB.prepare(`UPDATE Itineraries SET next_transport_auto_time = ? WHERE id = ?`).bind(mins, prev.id));
     return mins;
   }
@@ -174,7 +105,7 @@ async function calcTravelMins(gap: GapSlot, item: any, statements: any[], env: a
   return 15;
 }
 
-async function placeInGap(
+function placeInGap(
   gap: GapSlot,
   item: any,
   stayDuration: number,
@@ -182,8 +113,8 @@ async function placeInGap(
   windowEnd: number,
   statements: any[],
   env: any
-): Promise<boolean> {
-  const travelMins = await calcTravelMins(gap, item, statements, env);
+): boolean {
+  const travelMins = calcTravelMins(gap, item, statements, env);
   const startMins  = Math.max(gap.cursor + travelMins, windowStart);
   const endMins    = startMins + stayDuration;
 
@@ -309,7 +240,7 @@ export async function optimizeDailyItinerary(env: any, tripId: number, dateStr: 
       const pref = getPreferredWindow(item, dateStr);
       const winStart = Math.max(pref.start, gap.start);
       const winEnd   = Math.min(pref.end,   gap.end);
-      if (await placeInGap(gap, item, stayDuration, winStart, winEnd, statements, env)) {
+      if (placeInGap(gap, item, stayDuration, winStart, winEnd, statements, env)) {
         unplaced.delete(idx);
       }
     }
@@ -324,7 +255,7 @@ export async function optimizeDailyItinerary(env: any, tripId: number, dateStr: 
       const idx = smartItems.indexOf(item);
       if (!unplaced.has(idx)) continue;
       const stayDuration = parseInt(item.stay_duration) || 60;
-      if (await placeInGap(gap, item, stayDuration, gap.start, gap.end, statements, env)) {
+      if (placeInGap(gap, item, stayDuration, gap.start, gap.end, statements, env)) {
         unplaced.delete(idx);
       }
     }
