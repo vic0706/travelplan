@@ -118,6 +118,16 @@ export function TripDetails() {
   const { user } = useAppStore();
   const { refreshTripData } = useTripData(id);
 
+  // Read safe-area-inset-top for PWA header height calculation
+  const [safeTop, setSafeTop] = useState(0);
+  useEffect(() => {
+    const el = document.createElement('div');
+    el.style.cssText = 'position:fixed;top:0;height:env(safe-area-inset-top,0px);visibility:hidden;pointer-events:none;';
+    document.body.appendChild(el);
+    setSafeTop(el.offsetHeight || 0);
+    document.body.removeChild(el);
+  }, []);
+
   const trip     = useLiveQuery(() => db.trips.get(Number(id) || 0), [id]);
   const itineraries = useLiveQuery(() => db.itineraries.where('trip_id').equals(Number(id) || 0).toArray(), [id]) || [];
   const expenses = useLiveQuery(() => db.expenses.where('trip_id').equals(Number(id) || 0).toArray(), [id]) || [];
@@ -320,9 +330,8 @@ export function TripDetails() {
         {/* 單一 motion.div 動畫高度，避免 AnimatePresence 切換造成跑版 */}
         <motion.div
           className="relative w-full overflow-hidden"
-          animate={{ height: isCoverExpanded ? 220 : 130 }}
+          animate={{ height: (isCoverExpanded ? 220 : 130) + safeTop }}
           transition={{ duration: 0.32, ease: [0.32, 0.72, 0, 1] }}
-          style={{ paddingTop: 'env(safe-area-inset-top)' }}
         >
           {/* 封面圖 */}
           <img
@@ -334,8 +343,11 @@ export function TripDetails() {
           {/* 漸層遮罩 */}
           <div className="absolute inset-0 bg-gradient-to-b from-black/80 via-black/20 to-black/80 pointer-events-none" />
 
-          {/* 頂部工具列 */}
-          <div className="absolute top-0 left-0 right-0 flex items-center justify-between px-4 pt-3">
+          {/* 頂部工具列：top 從 safe-area-inset-top 開始，避免被狀態列遮住 */}
+          <div
+            className="absolute left-0 right-0 flex items-center justify-between px-4 pt-3"
+            style={{ top: safeTop }}
+          >
             <button
               onClick={() => navigate('/')}
               className="p-2 bg-black/40 backdrop-blur-md rounded-full text-white border border-white/20"

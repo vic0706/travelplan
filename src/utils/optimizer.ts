@@ -21,56 +21,124 @@ function minsToTime(mins: number) {
   return `${h.toString().padStart(2, '0')}:${m.toString().padStart(2, '0')}`;
 }
 
+interface GapSlot {
+  start: number;
+  end: number;
+  cursor: number;
+  lastLat: number | null;
+  lastLng: number | null;
+  lastItem: any | null;
+}
+
 export async function optimizeDailyItinerary(env: any, tripId: number, dateStr: string) {
-  const { results: items } = await env.DB.prepare(`
+  const { results: rawItems } = await env.DB.prepare(`
     SELECT * FROM Itineraries WHERE trip_id = ? AND date = ?
-    ORDER BY CASE WHEN start_time = '' OR start_time IS NULL THEN 1 ELSE 0 END, start_time ASC, id ASC
   `).bind(tripId, dateStr).all();
-  if (items.length === 0) return;
+
+  if (rawItems.length === 0) return;
+
   const statements: any[] = [];
-  let currentMins = 9 * 60;
-  let isCircuitBroken = false;
-  const firstFixed = items.find((item: any) => item.is_time_fixed === 1);
-  if (firstFixed && timeToMins(firstFixed.start_time) > 0) currentMins = Math.min(currentMins, timeToMins(firstFixed.start_time));
-  for (let i = 0; i < items.length; i++) {
-    const item = items[i] as any;
-    if (item.is_time_fixed === 1) {
-      currentMins = timeToMins(item.end_time); isCircuitBroken = false;
-      statements.push(env.DB.prepare(`UPDATE Itineraries SET sync_conflict_warning = null WHERE id = ?`).bind(item.id));
-      continue;
-    }
-    if (isCircuitBroken) {
-      statements.push(env.DB.prepare(`UPDATE Itineraries SET start_time = '', end_time = '', sync_conflict_warning = ? WHERE id = ?`).bind('⚠️ 前方交通未設定，AI 暫停排程', item.id));
-      continue;
-    }
-    const prevItem = i > 0 ? (items[i - 1] as any) : null;
-    let transportMins = 0, transitionBuffer = 0;
-    if (prevItem) {
-      if (!prevItem.next_transport_mode) {
-        isCircuitBroken = true;
-        statements.push(env.DB.prepare(`UPDATE Itineraries SET start_time = '', end_time = '', sync_conflict_warning = ? WHERE id = ?`).bind('⚠️ 請設定前一站交通方式', item.id));
-        continue;
-      }
-      if (prevItem.next_transport_time === 'auto') {
-        const dist = getDistanceKm(prevItem.lat, prevItem.lng, item.lat, item.lng);
-        let speedMultiplier = 4, buffer = 5;
-        if (prevItem.next_transport_mode === 'WALKING') { speedMultiplier = 12; buffer = 2; }
-        else if (prevItem.next_transport_mode === 'TRANSIT') { speedMultiplier = 4; buffer = 10; }
-        transportMins = dist !== null ? Math.ceil(dist * speedMultiplier) + buffer : 15;
-        transitionBuffer = 5;
-        statements.push(env.DB.prepare(`UPDATE Itineraries SET next_transport_auto_time = ? WHERE id = ?`).bind(transportMins, prevItem.id));
-      } else {
-        transportMins = parseInt(prevItem.next_transport_time?.replace(/\D/g, '')) || 15;
-      }
-    }
-    const startMins = currentMins + transportMins + transitionBuffer;
-    const stayDuration = parseInt(item.stay_duration) || 60;
-    const endMins = startMins + stayDuration;
-    let warning = null;
-    const nextFixed = items.slice(i + 1).find((x: any) => x.is_time_fixed === 1);
-    if (nextFixed && endMins > timeToMins(nextFixed.start_time)) warning = '⚠️ 停留時間與後方固定行程重疊';
-    statements.push(env.DB.prepare(`UPDATE Itineraries SET start_time = ?, end_time = ?, sync_conflict_warning = ? WHERE id = ?`).bind(minsToTime(startMins), minsToTime(endMins), warning, item.id));
-    currentMins = endMins;
+
+  // Separate fixed vs smart items; sort fixed by their locked start_time
+  const fixedItems = (rawItems as any[])
+    .filter(i => i.is_time_fixed === 1)
+    .sort((a: any, b: any) => timeToMins(a.start_time) - timeToMins(b.start_time));
+
+  const smartItems = (rawItems as any[]).filter(i => i.is_time_fixed !== 1);
+
+  // Clear warnings on fixed items
+  for (const item of fixedItems) {
+    statements.push(env.DB.prepare(`UPDATE Itineraries SET sync_conflict_warning = null WHERE id = ?`).bind(item.id));
   }
+
+  if (smartItems.length === 0) {
+    if (statements.length > 0) await env.DB.batch(statements);
+    return;
+  }
+
+  // Build free time gaps around fixed items
+  const DAY_START = 9 * 60;  // 09:00
+  const DAY_END   = 22 * 60; // 22:00
+
+  const gaps: GapSlot[] = [];
+  let prevEnd  = DAY_START;
+  let prevLat: number | null = null;
+  let prevLng: number | null = null;
+
+  for (const block of fixedItems) {
+    const blockStart = timeToMins(block.start_time);
+    if (blockStart > prevEnd) {
+      gaps.push({ start: prevEnd, end: blockStart, cursor: prevEnd, lastLat: prevLat, lastLng: prevLng, lastItem: null });
+    }
+    prevEnd = timeToMins(block.end_time);
+    prevLat = block.lat;
+    prevLng = block.lng;
+  }
+  // Gap after the last fixed item (or whole day if no fixed items)
+  if (prevEnd < DAY_END) {
+    gaps.push({ start: prevEnd, end: DAY_END, cursor: prevEnd, lastLat: prevLat, lastLng: prevLng, lastItem: null });
+  }
+
+  if (gaps.length === 0) {
+    // Fixed items occupy the entire day — no room for smart items
+    for (const item of smartItems) {
+      statements.push(
+        env.DB.prepare(`UPDATE Itineraries SET start_time = '', end_time = '', sync_conflict_warning = ? WHERE id = ?`)
+          .bind('⚠️ 無法插入，固定行程已佔滿當天時段', item.id)
+      );
+    }
+    await env.DB.batch(statements);
+    return;
+  }
+
+  // Try to fit each smart item into the first gap that has enough space
+  for (const item of smartItems as any[]) {
+    const stayDuration = parseInt(item.stay_duration) || 60;
+    let placed = false;
+
+    for (const gap of gaps) {
+      // Calculate travel time from the previous item in this gap
+      let travelMins = 0;
+      if (gap.lastItem) {
+        const prev = gap.lastItem;
+        if (prev.next_transport_time === 'auto') {
+          const dist = getDistanceKm(gap.lastLat!, gap.lastLng!, item.lat, item.lng);
+          let speedMultiplier = 4, buffer = 5;
+          if (prev.next_transport_mode === 'WALKING')  { speedMultiplier = 12; buffer = 2; }
+          if (prev.next_transport_mode === 'TRANSIT')  { speedMultiplier = 4;  buffer = 10; }
+          travelMins = dist !== null ? Math.ceil(dist * speedMultiplier) + buffer : 15;
+          statements.push(env.DB.prepare(`UPDATE Itineraries SET next_transport_auto_time = ? WHERE id = ?`).bind(travelMins, prev.id));
+        } else if (prev.next_transport_time) {
+          travelMins = parseInt(prev.next_transport_time.replace(/\D/g, '')) || 15;
+        } else {
+          travelMins = 15; // default buffer when no transport info set
+        }
+      }
+
+      const startMins = gap.cursor + travelMins;
+      const endMins   = startMins + stayDuration;
+
+      if (endMins <= gap.end) {
+        statements.push(
+          env.DB.prepare(`UPDATE Itineraries SET start_time = ?, end_time = ?, sync_conflict_warning = null WHERE id = ?`)
+            .bind(minsToTime(startMins), minsToTime(endMins), item.id)
+        );
+        gap.cursor  = endMins;
+        gap.lastLat = item.lat;
+        gap.lastLng = item.lng;
+        gap.lastItem = item;
+        placed = true;
+        break;
+      }
+    }
+
+    if (!placed) {
+      statements.push(
+        env.DB.prepare(`UPDATE Itineraries SET start_time = '', end_time = '', sync_conflict_warning = ? WHERE id = ?`)
+          .bind('⚠️ 無法插入，可用時間不足', item.id)
+      );
+    }
+  }
+
   if (statements.length > 0) await env.DB.batch(statements);
 }
