@@ -87,6 +87,9 @@ export interface SubItinerary {
   title: string;
   tags: string;
   notes: string;
+  address?: string;
+  lat?: number;
+  lng?: number;
 }
 
 export interface Expense {

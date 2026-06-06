@@ -80,6 +80,8 @@ interface BookingFormProps {
   onCancel: () => void;
   onDelete?: () => void;
   loading?: boolean;
+  tripStartDate?: string;
+  tripEndDate?: string;
 }
 
 const timeInput = (label: string, value: string, onChange: (v: string) => void, hint?: string) => (
@@ -96,7 +98,7 @@ const timeInput = (label: string, value: string, onChange: (v: string) => void, 
   </div>
 );
 
-export function BookingForm({ initialData, onSubmit, onCancel, onDelete, loading = false }: BookingFormProps) {
+export function BookingForm({ initialData, onSubmit, onCancel, onDelete, loading = false, tripStartDate, tripEndDate }: BookingFormProps) {
   const { cities } = useAppStore();
   const [step, setStep] = useState<'pick-category' | 'fill-form'>(initialData ? 'fill-form' : 'pick-category');
 
@@ -146,6 +148,7 @@ export function BookingForm({ initialData, onSubmit, onCancel, onDelete, loading
   const [rentalReturnBuffer, setRentalReturnBuffer] = useState<number>(initialDetails.return_buffer ?? 15);
 
   const [isCityPickerOpen, setIsCityPickerOpen] = useState(false);
+  const [dateError, setDateError] = useState('');
 
   const groupedCities = useMemo(() => cities.reduce((acc, city) => {
     if (!acc[city.country]) acc[city.country] = [];
@@ -214,7 +217,17 @@ export function BookingForm({ initialData, onSubmit, onCancel, onDelete, loading
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    onSubmit({ ...formData, details: buildDetails() });
+    const data = { ...formData, details: buildDetails() };
+    if (tripStartDate && data.start_date && data.start_date < tripStartDate) {
+      setDateError(`日期不可早於行程開始日（${tripStartDate}）`);
+      return;
+    }
+    if (tripEndDate && data.end_date && data.end_date > tripEndDate) {
+      setDateError(`日期不可晚於行程結束日（${tripEndDate}）`);
+      return;
+    }
+    setDateError('');
+    onSubmit(data);
   };
 
   const parsedStartDate = formData.start_date ? parseISO(formData.start_date) : null;
@@ -443,6 +456,9 @@ export function BookingForm({ initialData, onSubmit, onCancel, onDelete, loading
       <div>
         <label className="block text-[10px] font-bold text-zinc-400 uppercase tracking-wider mb-2">
           {formData.category === 'HOTEL' ? '入住 → 退房日期' : '出發 → 抵達日期'}
+          {tripStartDate && tripEndDate && (
+            <span className="ml-2 text-zinc-600 normal-case tracking-normal font-normal">({tripStartDate} — {tripEndDate})</span>
+          )}
         </label>
         <DateRangePicker
           category={formData.category}
@@ -454,6 +470,7 @@ export function BookingForm({ initialData, onSubmit, onCancel, onDelete, loading
             end_time:   formData.end_time,
           }}
           onChange={r => {
+            setDateError('');
             setFormData(prev => ({
               ...prev,
               start_date: r.start_date ? format(r.start_date, 'yyyy-MM-dd') : '',
@@ -461,6 +478,9 @@ export function BookingForm({ initialData, onSubmit, onCancel, onDelete, loading
             }));
           }}
         />
+        {dateError && (
+          <p className="mt-2 text-[11px] text-red-400 font-bold">{dateError}</p>
+        )}
       </div>
 
       {/* ─── 住宿時間設定 ─── */}

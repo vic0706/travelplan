@@ -194,6 +194,10 @@ export function TripDetails() {
   const [editingExpense,   setEditingExpense]   = useState<Expense | null>(null);
   const [editingBooking,   setEditingBooking]   = useState<Booking | null>(null);
 
+  const [copyTarget, setCopyTarget] = useState<Itinerary | null>(null);
+  const [copyTitle,  setCopyTitle]  = useState('');
+  const [copyDate,   setCopyDate]   = useState('');
+
   const [isEditMode, setIsEditMode] = useState(false);
 
   const [confirmConfig, setConfirmConfig] = useState<{
@@ -245,25 +249,35 @@ export function TripDetails() {
     });
   };
 
-  const handleCopyItinerary = async (item: Itinerary) => {
-    if (!id) return;
+  const handleCopyClick = (item: Itinerary) => {
+    setCopyTarget(item);
+    setCopyTitle(`${item.title}（複製）`);
+    setCopyDate(item.date || (selectedDate ? format(selectedDate, 'yyyy-MM-dd') : ''));
+  };
+
+  const handleCopyConfirm = async () => {
+    if (!id || !copyTarget || !copyTitle.trim() || !copyDate) return;
     try {
       const payload = {
-        ...item,
-        title: `${item.title}（複製）`,
+        ...copyTarget,
+        title: copyTitle,
+        date: copyDate,
         is_time_fixed: 0,
         start_time: '',
         end_time: '',
-        tags: Array.isArray(item.tags) ? item.tags : [],
-        sub_items: typeof item.sub_items === 'string' ? item.sub_items : '[]',
+        tags: Array.isArray(copyTarget.tags) ? copyTarget.tags : [],
+        sub_items: typeof copyTarget.sub_items === 'string' ? copyTarget.sub_items : '[]',
       };
       const { id: _id, trip_id: _tid, ...rest } = payload as any;
       const res = await apiFetch(`/api/trips/${id}/itineraries`, {
         method: 'POST',
         body: JSON.stringify(rest),
       });
-      if (res.ok) { showToast('活動已複製', 'success'); setTimeout(() => refreshTripData(), 300); }
-      else showToast('複製失敗', 'error');
+      if (res.ok) {
+        showToast('活動已複製', 'success');
+        setCopyTarget(null);
+        setTimeout(() => refreshTripData(), 300);
+      } else showToast('複製失敗', 'error');
     } catch { showToast('複製失敗', 'error'); }
   };
 
@@ -526,7 +540,7 @@ export function TripDetails() {
             onEditItinerary={(item) => { setEditingItinerary(item); setIsItineraryFormOpen(true); }}
             onEditNextTransport={(item) => { setEditingItinerary(item); setIsNextTransportFormOpen(true); }}
             onEditBooking={(booking) => { setEditingBooking(booking); setIsBookingFormOpen(true); }}
-            onCopyItinerary={(item) => handleCopyItinerary(item)}
+            onCopyItinerary={(item) => handleCopyClick(item)}
             onChangeDateItinerary={(item) => setChangingDateItem(item)}
           />
         )}
@@ -643,6 +657,8 @@ export function TripDetails() {
             <motion.div initial={{ y: '100%' }} animate={{ y: 0 }} exit={{ y: '100%' }} transition={{ duration: 0.22, ease: [0.32, 0.72, 0, 1] }} className="w-full max-w-md">
               <BookingForm
                 initialData={editingBooking}
+                tripStartDate={trip?.start_date}
+                tripEndDate={trip?.end_date}
                 onSubmit={async (data) => {
                   if (!id) return;
                   setBookingLoading(true);
@@ -732,6 +748,73 @@ export function TripDetails() {
                     </button>
                   );
                 })}
+              </div>
+              <div className="h-safe-bottom pb-4" />
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      <AnimatePresence>
+        {copyTarget && (
+          <div className="fixed inset-0 z-[100] flex items-end justify-center bg-black/80 backdrop-blur-sm">
+            <motion.div
+              initial={{ y: '100%' }}
+              animate={{ y: 0 }}
+              exit={{ y: '100%' }}
+              transition={{ duration: 0.22, ease: [0.32, 0.72, 0, 1] }}
+              className="w-full max-w-md bg-zinc-900 rounded-t-3xl border border-zinc-800 shadow-2xl"
+            >
+              <div className="flex items-center justify-between px-6 pt-5 pb-4 border-b border-zinc-800">
+                <div>
+                  <h3 className="text-white font-black text-base">複製活動</h3>
+                  <p className="text-zinc-500 text-xs mt-0.5">設定標題與目標日期</p>
+                </div>
+                <button onClick={() => setCopyTarget(null)} className="p-2 rounded-full text-zinc-400 hover:text-white hover:bg-zinc-800 transition-colors">
+                  <X size={18} />
+                </button>
+              </div>
+              <div className="px-4 pt-4 pb-2">
+                <input
+                  type="text"
+                  value={copyTitle}
+                  onChange={e => setCopyTitle(e.target.value)}
+                  className="w-full bg-zinc-800 border border-zinc-700 rounded-2xl px-4 py-3 text-white text-sm font-medium outline-none focus:border-orange-500 transition-colors"
+                  placeholder="活動名稱"
+                />
+              </div>
+              <div className="p-4 space-y-2 max-h-64 overflow-y-auto custom-scrollbar">
+                {dates.map(date => {
+                  const dateStr = format(date, 'yyyy-MM-dd');
+                  const isSelected = dateStr === copyDate;
+                  const isCurrent  = dateStr === copyTarget.date;
+                  return (
+                    <button
+                      key={dateStr}
+                      onClick={() => setCopyDate(dateStr)}
+                      className={`w-full py-3 px-4 rounded-2xl text-left transition-all flex items-center gap-3 border ${
+                        isSelected
+                          ? 'bg-orange-500/20 border-orange-500/40 text-orange-400'
+                          : 'bg-zinc-800/30 text-white hover:bg-orange-500/10 border-zinc-700/50 hover:text-orange-400'
+                      }`}
+                    >
+                      <span className="text-[10px] font-black uppercase tracking-widest w-8 text-zinc-500">
+                        {format(date, 'EEE')}
+                      </span>
+                      <span className="font-bold text-sm">{format(date, 'MM/dd')}</span>
+                      {isCurrent && <span className="text-[10px] text-zinc-500 ml-auto">原始日期</span>}
+                    </button>
+                  );
+                })}
+              </div>
+              <div className="px-4 pb-6">
+                <button
+                  onClick={handleCopyConfirm}
+                  disabled={!copyTitle.trim() || !copyDate}
+                  className="w-full py-4 bg-orange-500 hover:bg-orange-600 disabled:opacity-50 text-white font-black rounded-2xl text-sm uppercase tracking-widest shadow-lg shadow-orange-500/20 transition-all"
+                >
+                  確認複製
+                </button>
               </div>
               <div className="h-safe-bottom pb-4" />
             </motion.div>

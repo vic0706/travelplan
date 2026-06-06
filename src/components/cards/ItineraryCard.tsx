@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Car, Train, Bus, AlertTriangle, Star, Plus, Footprints, Bike, Navigation2, Sparkles, Clock, Asterisk, ChevronLeft, ChevronRight, ChevronDown, Motorbike, Copy, CalendarDays } from 'lucide-react';
+import { Car, Train, Bus, AlertTriangle, Star, Plus, Footprints, Bike, Navigation2, Sparkles, Clock, Asterisk, ChevronLeft, ChevronRight, ChevronDown, Motorbike, Copy, CalendarDays, MapPin } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Itinerary } from '../../types';
 import { DynamicIcon } from '../common/DynamicIcon';
@@ -156,6 +156,11 @@ export function ItineraryCard({
     if (subItemIdx !== null) {
       const sub = subItems[subItemIdx];
       if (!sub) return null;
+      const subNavUrl = (sub.lat && sub.lng)
+        ? `https://www.google.com/maps?q=${sub.lat},${sub.lng}`
+        : sub.address
+        ? `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(sub.address)}`
+        : null;
       return (
         <div>
           <button
@@ -172,6 +177,22 @@ export function ItineraryCard({
             </div>
           )}
           <h5 className="text-[13px] font-black text-white mb-2">{sub.title}</h5>
+          {sub.address && (
+            <div className="flex items-center gap-1.5 mb-2">
+              <MapPin size={10} className="text-zinc-500 shrink-0" />
+              <span className="text-[11px] text-zinc-400 flex-1 leading-tight">{sub.address}</span>
+              {subNavUrl && (
+                <a
+                  href={subNavUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="shrink-0 p-1.5 rounded-lg bg-orange-500/10 text-orange-400 hover:bg-orange-500/20 transition-colors"
+                >
+                  <Navigation2 size={12} />
+                </a>
+              )}
+            </div>
+          )}
           {sub.tags?.length > 0 && (
             <div className="flex flex-wrap gap-1 mb-2">
               {sub.tags.map((t: string) => (
@@ -203,12 +224,16 @@ export function ItineraryCard({
           <div className="space-y-1">
             <div className="text-[8px] font-black text-zinc-500 uppercase tracking-[0.15em]">子活動</div>
             {subItems.map((sub: any, idx: number) => {
-              const subHasDetails = !!(sub.notes || sub.tags?.length > 0);
+              const subHasDetails = !!sub.notes;
               const showTime = !!(sub.start_time && (item as any).is_time_fixed);
+              const subNavUrl = (sub.lat && sub.lng)
+                ? `https://www.google.com/maps?q=${sub.lat},${sub.lng}`
+                : sub.address
+                ? `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(sub.address)}`
+                : null;
               return (
-                <button
+                <div
                   key={idx}
-                  type="button"
                   onClick={subHasDetails ? (e) => { e.stopPropagation(); setSubItemIdx(idx); } : undefined}
                   className={clsx(
                     "w-full flex items-center gap-2 px-3 py-2.5 bg-white/5 border border-white/8 rounded-xl text-left transition-colors",
@@ -222,14 +247,30 @@ export function ItineraryCard({
                         {sub.start_time}{sub.end_time && sub.end_time !== sub.start_time ? ` — ${sub.end_time}` : ''}
                       </div>
                     )}
+                    {sub.address && (
+                      <div className="text-[9px] text-zinc-500 mt-0.5 truncate max-w-[180px]">{sub.address}</div>
+                    )}
                   </div>
-                  {subHasDetails && (
-                    <>
-                      <Asterisk size={9} strokeWidth={3} className="shrink-0 text-zinc-600" />
-                      <ChevronRight size={11} className="shrink-0 text-zinc-700" />
-                    </>
-                  )}
-                </button>
+                  <div className="flex items-center gap-1 shrink-0">
+                    {subNavUrl && (
+                      <a
+                        href={subNavUrl}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        onClick={(e) => e.stopPropagation()}
+                        className="p-1 rounded-lg text-zinc-500 hover:text-orange-400 transition-colors"
+                      >
+                        <Navigation2 size={12} />
+                      </a>
+                    )}
+                    {subHasDetails && (
+                      <>
+                        <Asterisk size={9} strokeWidth={3} className="text-zinc-600" />
+                        <ChevronRight size={11} className="text-zinc-700" />
+                      </>
+                    )}
+                  </div>
+                </div>
               );
             })}
           </div>

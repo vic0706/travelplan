@@ -1,14 +1,15 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { useAppStore } from '../../store';
-import { X, MapPin, Loader2, Plus, Trash2, Camera, Image as ImageIcon, Upload, Sparkles, Lock, Unlock, Search, Database, Check } from 'lucide-react';
+import { X, MapPin, Loader2, Plus, Trash2, Camera, Upload, Sparkles, Lock, Unlock, Check } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { apiFetch } from '../../utils/api';
 import { DynamicIcon } from '../common/DynamicIcon';
 import { ImageCropper, uploadImageToSupabase } from '../widgets/ImageCropper';
 import { LocationPicker } from '../pickers/LocationPicker';
+import { AddressSearchInput } from '../inputs/AddressSearchInput';
 import { clsx } from 'clsx';
 import { useLiveQuery } from 'dexie-react-hooks';
-import { db, getCachedPlaceSuggestions, cachePlaceSuggestions, getCachedPlaceDetails, cachePlaceDetails } from '../../db';
+import { db, getCachedPlaceSuggestions, cachePlaceSuggestions } from '../../db';
 
 interface ItineraryFormProps {
   tripId: number;
@@ -74,7 +75,6 @@ export function ItineraryForm({ tripId, date, onSuccess, onCancel, initialData, 
   const [isLocationPickerOpen, setIsLocationPickerOpen] = useState(false);
   const [suggestions, setSuggestions] = useState<any[]>([]);
   const [isSearching, setIsSearching] = useState(false);
-  const [fromCache, setFromCache] = useState(false);
   const sessionToken = useRef(Math.random().toString(36).substring(2));
 
   // Live-query: google_place_ids in THIS trip — checks both itineraries and bookings
@@ -98,6 +98,9 @@ export function ItineraryForm({ tripId, date, onSuccess, onCancel, initialData, 
   const [editingSubItem, setEditingSubItem] = useState<any>(null);
   const [croppingImage, setCroppingImage] = useState<string | null>(null);
   const [subItems, setSubItems] = useState<any[]>(safeParseArray(initialData?.sub_items));
+  const [subAddress, setSubAddress] = useState('');
+  const [subLat, setSubLat] = useState<number | null>(null);
+  const [subLng, setSubLng] = useState<number | null>(null);
 
   const [formData, setFormData] = useState({
     title: initialData?.title || '',
@@ -144,16 +147,32 @@ export function ItineraryForm({ tripId, date, onSuccess, onCancel, initialData, 
       .catch(() => {});
   }, [tripId, initialData]);
 
+  // 標題同步到地址欄（新增模式）
+  useEffect(() => {
+    if (!initialData && !isLocationManuallyEdited && !formData.google_place_id) {
+      setFormData(prev => ({ ...prev, address: prev.title }));
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [formData.title]);
+
+  // 子活動 Modal 開啟時初始化地址狀態
+  useEffect(() => {
+    if (isSubItemModalOpen) {
+      setSubAddress(editingSubItem?.address || '');
+      setSubLat(editingSubItem?.lat ?? null);
+      setSubLng(editingSubItem?.lng ?? null);
+    }
+  }, [isSubItemModalOpen, editingSubItem]);
+
   // 自動搜尋地點（帶 DB 快取）
   useEffect(() => {
     const timer = setTimeout(async () => {
       if (!isLocationManuallyEdited || formData.address.length < 2) { setSuggestions([]); return; }
       setIsSearching(true);
-      setFromCache(false);
       try {
         const q = formData.address;
         const cached = await getCachedPlaceSuggestions(q);
-        if (cached) { setSuggestions(cached); setFromCache(true); setIsSearching(false); return; }
+        if (cached) { setSuggestions(cached); setIsSearching(false); return; }
         const res = await apiFetch(`/api/places/autocomplete?q=${encodeURIComponent(q)}&session=${sessionToken.current}`);
         if (res.ok) {
           const data = await res.json() as any[];
@@ -171,44 +190,6 @@ export function ItineraryForm({ tripId, date, onSuccess, onCancel, initialData, 
     setFormData(prev => ({ ...prev, address: suggestion.description, google_place_id: suggestion.place_id }));
     setSuggestions([]);
     setIsLocationManuallyEdited(false);
-    // Details (coords, photo, rating…) are fetched only when user clicks 🔍
-  };
-
-  const handleFetchDetails = async () => {
-    if (!formData.google_place_id) return;
-    setIsSearching(true);
-    try {
-      const cached = await getCachedPlaceDetails(formData.google_place_id);
-      if (cached) {
-        applyPlaceDetails(cached);
-        return;
-      }
-      const res = await apiFetch(`/api/places/details?placeId=${formData.google_place_id}&session=${sessionToken.current}`);
-      if (res.ok) {
-        const details = await res.json();
-        await cachePlaceDetails(formData.google_place_id, details);
-        applyPlaceDetails(details);
-        sessionToken.current = Math.random().toString(36).substring(2);
-      }
-    } catch { alert('取得地點詳細資料失敗'); }
-    finally { setIsSearching(false); }
-  };
-
-  const applyPlaceDetails = (details: any) => {
-    if (details.location) {
-      setFormData(prev => ({
-        ...prev,
-        lat: details.location.latitude,
-        lng: details.location.longitude,
-        image_url: details.actual_photo_url || prev.image_url,
-        rating: details.rating || null,
-        reviews_count: details.userRatingCount || null,
-        opening_hours: details.regularOpeningHours ? JSON.stringify(details.regularOpeningHours) : '',
-        place_website: details.websiteUri || '',
-        place_phone: details.internationalPhoneNumber || '',
-        place_status: details.businessStatus || ''
-      }));
-    }
   };
 
   useEffect(() => {
@@ -419,12 +400,6 @@ export function ItineraryForm({ tripId, date, onSuccess, onCancel, initialData, 
           <div className="flex items-center justify-between mb-1.5 ml-1">
             <label className="text-[10px] font-bold text-zinc-500 uppercase tracking-widest">地點位址</label>
             <div className="flex items-center gap-2">
-              {fromCache && (
-                <div className="flex items-center gap-1 px-2 py-0.5 bg-blue-500/10 rounded-full border border-blue-500/20">
-                  <Database size={8} className="text-blue-400" />
-                  <span className="text-[8px] font-black text-blue-400 uppercase">快取</span>
-                </div>
-              )}
               {isKnownPlace && (
                 <div className="flex items-center gap-1 px-2 py-0.5 bg-orange-500/10 rounded-full border border-orange-500/20">
                   <Sparkles size={8} className="text-orange-500" />
@@ -445,16 +420,11 @@ export function ItineraryForm({ tripId, date, onSuccess, onCancel, initialData, 
             )} />
             <input type="text" value={formData.address}
               onChange={e => { setFormData(prev => ({ ...prev, address: e.target.value })); setIsLocationManuallyEdited(true); }}
-              className={clsx("w-full bg-[#242426] border rounded-2xl pl-11 pr-12 py-3.5 text-white text-xs focus:border-orange-500 outline-none transition-all",
+              onFocus={() => { if (!isLocationManuallyEdited) setIsLocationManuallyEdited(true); }}
+              className={clsx("w-full bg-[#242426] border rounded-2xl pl-11 pr-4 py-3.5 text-white text-xs focus:border-orange-500 outline-none transition-all",
                 isKnownPlace ? "border-orange-500/40" : "border-zinc-800"
               )}
               placeholder="輸入地點名稱搜尋..." />
-            <button type="button" onClick={handleFetchDetails} disabled={!formData.google_place_id}
-              className={clsx("absolute right-2 p-1.5 rounded-xl transition-all",
-                formData.google_place_id ? "bg-zinc-800 text-orange-500 hover:bg-orange-500 hover:text-white" : "text-zinc-700 cursor-not-allowed"
-              )}>
-              {isSearching ? <Loader2 size={14} className="animate-spin" /> : <Search size={14} />}
-            </button>
           </div>
 
           <AnimatePresence>
@@ -528,7 +498,10 @@ export function ItineraryForm({ tripId, date, onSuccess, onCancel, initialData, 
                   <div className="w-1.5 h-1.5 rounded-full bg-orange-500 shadow-[0_0_8px_rgba(249,115,22,0.5)]" />
                   <div>
                     <div className="text-xs font-bold text-white">{item.title}</div>
-                    <div className="text-[10px] text-zinc-500 font-mono mt-0.5">{item.start_time} — {item.end_time}</div>
+                    {item.address && <div className="text-[9px] text-zinc-500 mt-0.5 truncate max-w-[180px]">{item.address}</div>}
+                    {(item.start_time || item.end_time) && (
+                      <div className="text-[10px] text-zinc-500 font-mono mt-0.5">{item.start_time} — {item.end_time}</div>
+                    )}
                   </div>
                 </div>
                 <button type="button" onClick={e => { e.stopPropagation(); setSubItems(subItems.filter((_, i) => i !== idx)); }}
@@ -688,12 +661,12 @@ export function ItineraryForm({ tripId, date, onSuccess, onCancel, initialData, 
         {isSubItemModalOpen && (
           <div className="absolute inset-0 z-[110] flex items-center justify-center bg-black/80 backdrop-blur-md p-4">
             <motion.div initial={{ scale: 0.95, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0.95, opacity: 0 }}
-              className="bg-[#1c1c1e] border border-zinc-800 rounded-[28px] w-full max-w-[320px] p-6 shadow-3xl">
+              className="bg-[#1c1c1e] border border-zinc-800 rounded-[28px] w-full max-w-[340px] p-6 shadow-3xl">
               <div className="flex justify-between items-center mb-5">
                 <h3 className="font-bold text-white text-sm tracking-tight">子活動</h3>
                 <button type="button" onClick={() => setIsSubItemModalOpen(false)}><X size={18} className="text-zinc-500" /></button>
               </div>
-              {formData.start_time && formData.end_time && (
+              {isTimeFixed && formData.start_time && formData.end_time && (
                 <div className="mb-4 px-3 py-2 bg-zinc-900 rounded-xl border border-zinc-800 text-[10px] text-zinc-400 flex items-center gap-1.5">
                   <Lock size={10} className="text-orange-500" />
                   <span>時間限制：{formData.start_time} — {formData.end_time}</span>
@@ -704,31 +677,56 @@ export function ItineraryForm({ tripId, date, onSuccess, onCancel, initialData, 
                 const f = e.target as any;
                 const st = f.start_time.value;
                 const et = f.end_time.value;
-                if (formData.start_time && st < formData.start_time) { alert(`子活動開始時間不可早於主活動 ${formData.start_time}`); return; }
-                if (formData.end_time && et > formData.end_time) { alert(`子活動結束時間不可晚於主活動 ${formData.end_time}`); return; }
-                if (st >= et) { alert('結束時間必須晚於開始時間'); return; }
-                const newItem = { id: editingSubItem?.id || Date.now().toString(), title: f.title.value, start_time: st, end_time: et, notes: f.notes.value };
+                if (isTimeFixed) {
+                  if (!st || !et || st >= et) { alert('請填寫有效時間（開始 < 結束）'); return; }
+                  if (formData.start_time && st < formData.start_time) { alert(`子活動開始時間不可早於主活動 ${formData.start_time}`); return; }
+                  if (formData.end_time && et > formData.end_time) { alert(`子活動結束時間不可晚於主活動 ${formData.end_time}`); return; }
+                } else if (st && et && st >= et) {
+                  alert('結束時間必須晚於開始時間'); return;
+                }
+                const newItem = {
+                  id: editingSubItem?.id || Date.now().toString(),
+                  title: f.title.value,
+                  start_time: st,
+                  end_time: et,
+                  notes: f.notes.value,
+                  address: subAddress,
+                  lat: subLat ?? undefined,
+                  lng: subLng ?? undefined,
+                };
                 if (editingSubItem) setSubItems(subItems.map(i => i.id === editingSubItem.id ? newItem : i));
-                else setSubItems([...subItems, newItem].sort((a, b) => a.start_time.localeCompare(b.start_time)));
+                else setSubItems([...subItems, newItem].sort((a, b) => (a.start_time || '').localeCompare(b.start_time || '')));
                 setIsSubItemModalOpen(false);
               }} className="space-y-4">
                 <input type="text" name="title" required defaultValue={editingSubItem?.title} placeholder="子活動名稱"
                   className="w-full bg-[#242426] border border-zinc-800 rounded-xl px-4 py-2.5 text-white text-xs outline-none focus:border-orange-500 transition-all" />
+                <AddressSearchInput
+                  value={subAddress}
+                  onChange={v => { setSubAddress(v); setSubLat(null); setSubLng(null); }}
+                  onPlaceSelect={p => { setSubAddress(p.address); setSubLat(p.lat ?? null); setSubLng(p.lng ?? null); }}
+                  placeholder="地點（選填）..."
+                />
                 <div className="grid grid-cols-2 gap-3">
                   <div className="bg-[#242426] border border-zinc-800 rounded-xl px-3 py-2">
-                    <span className="block text-[8px] text-zinc-500 font-bold mb-1">開始</span>
-                    <input type="time" name="start_time" required
-                      defaultValue={editingSubItem?.start_time || formData.start_time}
-                      min={formData.start_time || undefined}
-                      max={formData.end_time || undefined}
+                    <span className="block text-[8px] text-zinc-500 font-bold mb-1">
+                      開始{!isTimeFixed && <span className="text-zinc-600 font-normal ml-1">（選填）</span>}
+                    </span>
+                    <input type="time" name="start_time"
+                      required={isTimeFixed}
+                      defaultValue={editingSubItem?.start_time || (isTimeFixed ? formData.start_time : '')}
+                      min={isTimeFixed ? (formData.start_time || undefined) : undefined}
+                      max={isTimeFixed ? (formData.end_time || undefined) : undefined}
                       className="bg-transparent text-white font-mono text-xs w-full outline-none [color-scheme:dark]" />
                   </div>
                   <div className="bg-[#242426] border border-zinc-800 rounded-xl px-3 py-2">
-                    <span className="block text-[8px] text-zinc-500 font-bold mb-1">結束</span>
-                    <input type="time" name="end_time" required
-                      defaultValue={editingSubItem?.end_time || formData.end_time}
-                      min={formData.start_time || undefined}
-                      max={formData.end_time || undefined}
+                    <span className="block text-[8px] text-zinc-500 font-bold mb-1">
+                      結束{!isTimeFixed && <span className="text-zinc-600 font-normal ml-1">（選填）</span>}
+                    </span>
+                    <input type="time" name="end_time"
+                      required={isTimeFixed}
+                      defaultValue={editingSubItem?.end_time || (isTimeFixed ? formData.end_time : '')}
+                      min={isTimeFixed ? (formData.start_time || undefined) : undefined}
+                      max={isTimeFixed ? (formData.end_time || undefined) : undefined}
                       className="bg-transparent text-white font-mono text-xs w-full outline-none [color-scheme:dark]" />
                   </div>
                 </div>
