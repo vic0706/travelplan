@@ -88,9 +88,13 @@ function calcTravelMins(gap: GapSlot, item: any, statements: any[], env: any): n
   const prev = gap.lastItem;
   if (prev.next_transport_time === 'auto') {
     const dist = getDistanceKm(gap.lastLat!, gap.lastLng!, item.lat, item.lng);
-    let speed = 4, buffer = 5;
-    if (prev.next_transport_mode === 'WALKING') { speed = 12; buffer = 2; }
-    if (prev.next_transport_mode === 'TRANSIT') { speed = 4;  buffer = 10; }
+    // speed = minutes per km (straight-line); haversine ≈ 0.7× road distance, so effective speed ≈ 0.7× of real pace
+    let speed = 2, buffer = 5; // default DRIVING ~30 km/h
+    const mode = (prev.next_transport_mode || '').toUpperCase();
+    if (mode === 'WALKING')     { speed = 12; buffer = 2; }   // ~5 km/h
+    if (mode === 'BICYCLING')   { speed = 6;  buffer = 3; }   // ~10 km/h
+    if (mode === 'MOTORCYCLING'){ speed = 2;  buffer = 3; }   // ~30 km/h
+    if (mode === 'TRANSIT')     { speed = 3;  buffer = 8; }   // ~20 km/h
     const mins = dist !== null ? Math.ceil(dist * speed) + buffer : 15;
     statements.push(env.DB.prepare(`UPDATE Itineraries SET next_transport_auto_time = ? WHERE id = ?`).bind(mins, prev.id));
     return mins;

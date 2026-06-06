@@ -98,11 +98,22 @@ export function ItineraryCard({
     }
   }, [collapseSignal]);
 
-  const getGoogleMapsLink = () => {
-    const dest = item.google_place_id
-      ? `place_id:${item.google_place_id}`
-      : encodeURIComponent(item.address || item.title);
-    return `http://googleusercontent.com/maps.google.com/maps?daddr=${dest}`;
+  const openGoogleMaps = () => {
+    let url: string;
+    if (item.lat && item.lng) {
+      url = `https://maps.google.com/maps?daddr=${item.lat},${item.lng}`;
+    } else {
+      const dest = encodeURIComponent(item.address || item.title);
+      url = `https://maps.google.com/maps?daddr=${dest}`;
+    }
+    // window.open is blocked in iOS PWA standalone mode; use location redirect via anchor
+    const a = document.createElement('a');
+    a.href = url;
+    a.target = '_blank';
+    a.rel = 'noopener noreferrer';
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
   };
 
   const getTransportIcon = () => {
@@ -273,7 +284,7 @@ export function ItineraryCard({
                 下一站
               </span>
               {item.next_transport_mode ? (
-                <div className="flex items-center gap-1 text-orange-400">
+                <div className="flex items-center gap-1 text-zinc-400">
                   {getTransportIcon()}
                   <span className="text-[10px] font-black tracking-tight flex items-center gap-0.5">
                     {manualVal > 0 ? `${manualVal}分` : autoVal > 0 ? <>{autoVal}分 <Sparkles size={9} /></> : '自動'}
@@ -307,7 +318,7 @@ export function ItineraryCard({
               下一站
             </span>
             {item.next_transport_mode ? (
-              <div className="flex items-center gap-1.5 text-orange-500">
+              <div className="flex items-center gap-1.5 text-zinc-400">
                 {getTransportIcon()}
                 <span className="text-[11px] font-black tracking-tight flex items-center gap-1">
                   {manualVal > 0 ? `${manualVal}分` : autoVal > 0 ? <>{autoVal}分 <Sparkles size={9} /></> : '自動'}
@@ -386,7 +397,7 @@ export function ItineraryCard({
             </>
           )}
           <button
-            onClick={(e) => { e.stopPropagation(); window.open(getGoogleMapsLink(), '_blank'); }}
+            onClick={(e) => { e.stopPropagation(); openGoogleMaps(); }}
             className="shrink-0 p-2 rounded-xl text-zinc-600 hover:text-orange-500 transition-colors active:scale-90"
           >
             <Navigation2 size={15} />
