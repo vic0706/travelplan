@@ -235,6 +235,13 @@ export function ItineraryCard({
           </div>
         )}
 
+        {/* AI 評論摘要 */}
+        {item.review_summary && (
+          <div className="text-[10px] text-zinc-400 leading-relaxed italic border-l-2 border-zinc-700 pl-2">
+            {item.review_summary}
+          </div>
+        )}
+
         {/* 警告 + 備註 */}
         {(hasWarning || item.notes) && (
           <div className="space-y-1.5">

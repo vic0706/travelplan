@@ -11,7 +11,7 @@ export async function syncPlaceDetails(env: Env, tripId: number) {
     let placeData: any = await env.KV.get(cacheKey, 'json');
     if (!placeData) {
       const res = await fetch(`https://places.googleapis.com/v1/places/${placeId}`, {
-        headers: { 'X-Goog-Api-Key': env.GOOGLE_MAPS_API_KEY, 'X-Goog-FieldMask': 'id,rating,userRatingCount,regularOpeningHours,websiteUri,internationalPhoneNumber,businessStatus,location,photos' }
+        headers: { 'X-Goog-Api-Key': env.GOOGLE_MAPS_API_KEY, 'X-Goog-FieldMask': 'id,rating,userRatingCount,currentOpeningHours,regularOpeningHours,reviewSummary,websiteUri,internationalPhoneNumber,businessStatus,location,photos' }
       });
       if (res.ok) { placeData = await res.json(); await env.KV.put(cacheKey, JSON.stringify(placeData), { expirationTtl: 604800 }); } else continue;
     }
@@ -22,16 +22,19 @@ export async function syncPlaceDetails(env: Env, tripId: number) {
     }
     const finalLat = item.lat || placeData.location?.latitude;
     const finalLng = item.lng || placeData.location?.longitude;
+    // Prefer currentOpeningHours (includes holiday overrides); fall back to regular weekly schedule
+    const openingHours = placeData.currentOpeningHours || placeData.regularOpeningHours || null;
     let warning = null;
     const status = placeData.businessStatus;
     if (status === 'CLOSED_TEMPORARILY') warning = '暫時停業';
     else if (status === 'CLOSED_PERMANENTLY') warning = '永久停業';
-    else if (placeData.regularOpeningHours?.periods) {
-      const isOpen = placeData.regularOpeningHours.periods.some((p: any) => p.open && p.open.day === new Date(item.date).getDay());
+    else if (openingHours?.periods) {
+      const isOpen = openingHours.periods.some((p: any) => p.open && p.open.day === new Date(item.date).getDay());
       if (!isOpen) warning = '排定日期可能公休';
     }
-    await env.DB.prepare(`UPDATE Itineraries SET rating = ?, reviews_count = ?, opening_hours = ?, place_website = ?, place_phone = ?, place_status = ?, sync_conflict_warning = ?, lat = ?, lng = ?, image_url = ? WHERE id = ?`)
-      .bind(placeData.rating || null, placeData.userRatingCount || null, placeData.regularOpeningHours ? JSON.stringify(placeData.regularOpeningHours) : null, placeData.websiteUri || null, placeData.internationalPhoneNumber || null, status || null, warning, finalLat, finalLng, finalImageUrl, item.id).run();
+    const reviewSummary = placeData.reviewSummary?.text?.text || null;
+    await env.DB.prepare(`UPDATE Itineraries SET rating = ?, reviews_count = ?, opening_hours = ?, place_website = ?, place_phone = ?, place_status = ?, review_summary = ?, sync_conflict_warning = ?, lat = ?, lng = ?, image_url = ? WHERE id = ?`)
+      .bind(placeData.rating || null, placeData.userRatingCount || null, openingHours ? JSON.stringify(openingHours) : null, placeData.websiteUri || null, placeData.internationalPhoneNumber || null, status || null, reviewSummary, warning, finalLat, finalLng, finalImageUrl, item.id).run();
   }
 }
 

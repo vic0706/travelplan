@@ -75,6 +75,7 @@ export interface Itinerary {
   place_website?: string;
   place_phone?: string;
   place_status?: string;
+  review_summary?: string;
   sync_conflict_warning?: string;
 }
 

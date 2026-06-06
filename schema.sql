@@ -112,6 +112,7 @@ CREATE TABLE Itineraries (
     place_website TEXT,
     place_phone TEXT,
     place_status TEXT,
+    review_summary TEXT,
     sync_conflict_warning TEXT,
 
     FOREIGN KEY (trip_id) REFERENCES Trips(id) ON DELETE CASCADE

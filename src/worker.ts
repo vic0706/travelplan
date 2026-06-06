@@ -72,7 +72,7 @@ app.get('/api/settings/categories', async (c) => {
 // 📍 Google Places API 代理 (避免前端直接暴露 API Key)
 // ==========================================
 
-// 1. 地點搜尋建議 (Autocomplete)
+// 1. 地點搜尋建議 — Autocomplete (New)，附 session token（autocomplete 請求本身免費）
 app.get('/api/places/autocomplete', async (c) => {
   const q = c.req.query('q');
   if (!q) return c.json([]);
@@ -82,11 +82,28 @@ app.get('/api/places/autocomplete', async (c) => {
   if (cached) return c.json(cached);
 
   try {
-    const url = `https://maps.googleapis.com/maps/api/place/autocomplete/json?input=${encodeURIComponent(q)}&language=zh-TW&key=${c.env.GOOGLE_MAPS_API_KEY}`;
-    const res = await fetch(url);
+    const sessionToken = c.req.query('session') || undefined;
+    const body: any = { input: q, languageCode: 'zh-TW' };
+    if (sessionToken) body.sessionToken = sessionToken;
+
+    const res = await fetch('https://places.googleapis.com/v1/places:autocomplete', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-Goog-Api-Key': c.env.GOOGLE_MAPS_API_KEY },
+      body: JSON.stringify(body),
+    });
     const data = await res.json() as any;
-    const predictions = data.predictions || [];
-    await c.env.KV.put(cacheKey, JSON.stringify(predictions), { expirationTtl: 86400 }); // 1 天
+    // Normalize to same shape as old API so frontend needs no change
+    const predictions = (data.suggestions || [])
+      .filter((s: any) => s.placePrediction)
+      .map((s: any) => ({
+        place_id:    s.placePrediction.placeId,
+        description: s.placePrediction.text?.text || '',
+        structured_formatting: {
+          main_text:      s.placePrediction.structuredFormat?.mainText?.text || '',
+          secondary_text: s.placePrediction.structuredFormat?.secondaryText?.text || '',
+        },
+      }));
+    await c.env.KV.put(cacheKey, JSON.stringify(predictions), { expirationTtl: 86400 });
     return c.json(predictions);
   } catch (error) {
     return c.json({ error: 'Failed to fetch autocomplete' }, 500);
@@ -110,7 +127,7 @@ app.get('/api/places/details', async (c) => {
     const res = await fetch(url, {
       headers: {
         'X-Goog-Api-Key': c.env.GOOGLE_MAPS_API_KEY,
-        'X-Goog-FieldMask': 'id,location,photos,displayName,formattedAddress,rating,userRatingCount,regularOpeningHours,websiteUri,internationalPhoneNumber,businessStatus'
+        'X-Goog-FieldMask': 'id,location,photos,displayName,formattedAddress,rating,userRatingCount,currentOpeningHours,regularOpeningHours,reviewSummary,websiteUri,internationalPhoneNumber,businessStatus'
       }
     });
 
