@@ -81,22 +81,56 @@ interface GapSlot {
 }
 
 /**
- * Estimates travel time using haversine straight-line distance + mode speed.
- * speed = minutes per km (straight-line ≈ 0.65× road, so speeds are adjusted accordingly).
+ * Fetches real travel duration via Google Distance Matrix API.
+ * KV-cached 24 h per origin/destination/mode pair to minimise API calls.
+ * Falls back to haversine if API is unavailable or coords are missing.
  */
-function calcTravelMins(gap: GapSlot, item: any, statements: any[], env: any): number {
+async function calcTravelMins(gap: GapSlot, item: any, statements: any[], env: any): Promise<number> {
   if (!gap.lastItem) return 0;
   const prev = gap.lastItem;
   const mode = (prev.next_transport_mode || '').toUpperCase();
 
   if (prev.next_transport_time === 'auto') {
-    const dist = getDistanceKm(gap.lastLat!, gap.lastLng!, item.lat, item.lng);
-    let speed = 2, buffer = 5; // default DRIVING ~30 km/h
-    if (mode === 'WALKING')     { speed = 12; buffer = 2; }  // ~5 km/h
-    if (mode === 'BICYCLING')   { speed = 6;  buffer = 3; }  // ~10 km/h
-    if (mode === 'MOTORCYCLING'){ speed = 2;  buffer = 3; }  // ~30 km/h
-    if (mode === 'TRANSIT')     { speed = 3;  buffer = 8; }  // ~20 km/h
-    const mins = dist !== null ? Math.ceil(dist * speed) + buffer : 15;
+    let mins = 15;
+
+    if (gap.lastLat && gap.lastLng && item.lat && item.lng && env.GOOGLE_MAPS_API_KEY) {
+      const googleMode = mode === 'WALKING' ? 'walking'
+        : mode === 'BICYCLING' ? 'bicycling'
+        : mode === 'TRANSIT'   ? 'transit'
+        : 'driving';
+      const cacheKey = `travel_time:${gap.lastLat.toFixed(4)},${gap.lastLng.toFixed(4)}:${item.lat.toFixed(4)},${item.lng.toFixed(4)}:${googleMode}`;
+      const cached: number | null = await env.KV.get(cacheKey, 'json');
+      if (cached !== null) {
+        mins = cached;
+      } else {
+        try {
+          const url = `https://maps.googleapis.com/maps/api/distancematrix/json`
+            + `?origins=${gap.lastLat},${gap.lastLng}`
+            + `&destinations=${item.lat},${item.lng}`
+            + `&mode=${googleMode}`
+            + `&key=${env.GOOGLE_MAPS_API_KEY}`;
+          const res = await fetch(url);
+          if (res.ok) {
+            const data = await res.json() as any;
+            const el = data.rows?.[0]?.elements?.[0];
+            if (el?.status === 'OK' && el.duration?.value) {
+              mins = Math.ceil(el.duration.value / 60);
+              await env.KV.put(cacheKey, JSON.stringify(mins), { expirationTtl: 86400 });
+            }
+          }
+        } catch { /* fall through to haversine */ }
+      }
+    } else {
+      // Haversine fallback when coords or API key unavailable
+      const dist = getDistanceKm(gap.lastLat!, gap.lastLng!, item.lat, item.lng);
+      let speed = 2, buffer = 5;
+      if (mode === 'WALKING')     { speed = 12; buffer = 2; }
+      if (mode === 'BICYCLING')   { speed = 6;  buffer = 3; }
+      if (mode === 'MOTORCYCLING'){ speed = 2;  buffer = 3; }
+      if (mode === 'TRANSIT')     { speed = 3;  buffer = 8; }
+      mins = dist !== null ? Math.ceil(dist * speed) + buffer : 15;
+    }
+
     statements.push(env.DB.prepare(`UPDATE Itineraries SET next_transport_auto_time = ? WHERE id = ?`).bind(mins, prev.id));
     return mins;
   }
@@ -105,7 +139,7 @@ function calcTravelMins(gap: GapSlot, item: any, statements: any[], env: any): n
   return 15;
 }
 
-function placeInGap(
+async function placeInGap(
   gap: GapSlot,
   item: any,
   stayDuration: number,
@@ -113,8 +147,8 @@ function placeInGap(
   windowEnd: number,
   statements: any[],
   env: any
-): boolean {
-  const travelMins = calcTravelMins(gap, item, statements, env);
+): Promise<boolean> {
+  const travelMins = await calcTravelMins(gap, item, statements, env);
   const startMins  = Math.max(gap.cursor + travelMins, windowStart);
   const endMins    = startMins + stayDuration;
 
@@ -240,7 +274,7 @@ export async function optimizeDailyItinerary(env: any, tripId: number, dateStr: 
       const pref = getPreferredWindow(item, dateStr);
       const winStart = Math.max(pref.start, gap.start);
       const winEnd   = Math.min(pref.end,   gap.end);
-      if (placeInGap(gap, item, stayDuration, winStart, winEnd, statements, env)) {
+      if (await placeInGap(gap, item, stayDuration, winStart, winEnd, statements, env)) {
         unplaced.delete(idx);
       }
     }
@@ -255,7 +289,7 @@ export async function optimizeDailyItinerary(env: any, tripId: number, dateStr: 
       const idx = smartItems.indexOf(item);
       if (!unplaced.has(idx)) continue;
       const stayDuration = parseInt(item.stay_duration) || 60;
-      if (placeInGap(gap, item, stayDuration, gap.start, gap.end, statements, env)) {
+      if (await placeInGap(gap, item, stayDuration, gap.start, gap.end, statements, env)) {
         unplaced.delete(idx);
       }
     }
