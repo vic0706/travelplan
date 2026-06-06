@@ -126,6 +126,37 @@ function placeInGap(
   return false;
 }
 
+/**
+ * Sorts items by nearest-neighbor greedy algorithm starting from anchorLat/anchorLng.
+ * Items without coords are appended at the end in original order.
+ */
+function sortByNearestNeighbor(items: any[], anchorLat: number | null, anchorLng: number | null): any[] {
+  const withCoords = items.filter(i => i.lat && i.lng);
+  const noCoords   = items.filter(i => !i.lat || !i.lng);
+
+  const ordered: any[] = [];
+  const remaining = [...withCoords];
+  let curLat = anchorLat;
+  let curLng = anchorLng;
+
+  while (remaining.length > 0) {
+    let bestIdx = 0;
+    let bestDist = Infinity;
+    for (let i = 0; i < remaining.length; i++) {
+      const dist = (curLat && curLng)
+        ? (getDistanceKm(curLat, curLng, remaining[i].lat, remaining[i].lng) ?? Infinity)
+        : Infinity;
+      if (dist < bestDist) { bestDist = dist; bestIdx = i; }
+    }
+    const picked = remaining.splice(bestIdx, 1)[0];
+    ordered.push(picked);
+    curLat = picked.lat;
+    curLng = picked.lng;
+  }
+
+  return [...ordered, ...noCoords];
+}
+
 export async function optimizeDailyItinerary(env: any, tripId: number, dateStr: string) {
   const { results: rawItems } = await env.DB.prepare(`
     SELECT * FROM Itineraries WHERE trip_id = ? AND date = ?
@@ -182,39 +213,75 @@ export async function optimizeDailyItinerary(env: any, tripId: number, dateStr: 
     return;
   }
 
-  for (const item of smartItems as any[]) {
-    const stayDuration = parseInt(item.stay_duration) || 60;
-    const pref = getPreferredWindow(item, dateStr);
-    let placed = false;
+  // For each gap, collect candidates that prefer this window, sort by proximity, then place.
+  // Track which items have been placed.
+  const unplaced = new Set(smartItems.map((_: any, idx: number) => idx));
 
-    // Pass 1: find a gap that overlaps with the preferred window
-    for (const gap of gaps) {
+  // Pass 1: preferred-window placement with nearest-neighbor ordering per gap
+  for (const gap of gaps) {
+    // Collect candidates whose preferred window overlaps this gap sufficiently
+    const candidates: Array<{ idx: number; item: any }> = [];
+    for (const idx of unplaced) {
+      const item = smartItems[idx];
+      const stayDuration = parseInt(item.stay_duration) || 60;
+      const pref = getPreferredWindow(item, dateStr);
       const winStart = Math.max(pref.start, gap.start);
       const winEnd   = Math.min(pref.end,   gap.end);
-      if (winEnd - winStart >= stayDuration && gap.cursor < winEnd) {
-        if (placeInGap(gap, item, stayDuration, winStart, winEnd, statements, env)) {
-          placed = true;
-          break;
-        }
+      if (winEnd - winStart >= stayDuration) {
+        candidates.push({ idx, item });
       }
     }
 
-    // Pass 2: fallback — fit into any available gap (ignoring time preference)
-    if (!placed) {
-      for (const gap of gaps) {
-        if (placeInGap(gap, item, stayDuration, gap.start, gap.end, statements, env)) {
-          placed = true;
-          break;
-        }
+    // Sort candidates by nearest-neighbor from gap's anchor point
+    const sorted = sortByNearestNeighbor(
+      candidates.map(c => c.item),
+      gap.lastLat,
+      gap.lastLng
+    );
+
+    for (const item of sorted) {
+      const idx = smartItems.indexOf(item);
+      if (!unplaced.has(idx)) continue;
+      const stayDuration = parseInt(item.stay_duration) || 60;
+      const pref = getPreferredWindow(item, dateStr);
+      const winStart = Math.max(pref.start, gap.start);
+      const winEnd   = Math.min(pref.end,   gap.end);
+      if (placeInGap(gap, item, stayDuration, winStart, winEnd, statements, env)) {
+        unplaced.delete(idx);
       }
     }
+  }
 
-    if (!placed) {
-      statements.push(
-        env.DB.prepare(`UPDATE Itineraries SET start_time = '', end_time = '', sync_conflict_warning = ? WHERE id = ?`)
-          .bind('⚠️ 無法插入，可用時間不足', item.id)
-      );
+  // Pass 2: fallback — fit remaining items into any gap (ignoring time preference), nearest-neighbor per gap
+  for (const gap of gaps) {
+    const candidates: Array<{ idx: number; item: any }> = [];
+    for (const idx of unplaced) {
+      candidates.push({ idx, item: smartItems[idx] });
     }
+
+    const sorted = sortByNearestNeighbor(
+      candidates.map(c => c.item),
+      gap.lastLat,
+      gap.lastLng
+    );
+
+    for (const item of sorted) {
+      const idx = smartItems.indexOf(item);
+      if (!unplaced.has(idx)) continue;
+      const stayDuration = parseInt(item.stay_duration) || 60;
+      if (placeInGap(gap, item, stayDuration, gap.start, gap.end, statements, env)) {
+        unplaced.delete(idx);
+      }
+    }
+  }
+
+  // Mark anything still unplaced
+  for (const idx of unplaced) {
+    const item = smartItems[idx];
+    statements.push(
+      env.DB.prepare(`UPDATE Itineraries SET start_time = '', end_time = '', sync_conflict_warning = ? WHERE id = ?`)
+        .bind('⚠️ 無法插入，可用時間不足', item.id)
+    );
   }
 
   if (statements.length > 0) await env.DB.batch(statements);

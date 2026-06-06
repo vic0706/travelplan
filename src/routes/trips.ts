@@ -270,11 +270,6 @@ trips.post('/:id/itineraries', async (c) => {
       place_website, place_phone
     ).run();
 
-    // 建立成功後，嘗試自動觸發 Google Places 同步（非阻塞）
-    if (google_place_id) {
-      c.executionCtx?.waitUntil?.(syncPlaceDetails(c.env, Number(tripId)).catch(console.error));
-    }
-
     return c.json({ id: meta.last_row_id, success: true }, 201);
   } catch (error: any) {
     console.error('[Itineraries POST]', error);
@@ -440,6 +435,18 @@ trips.post('/:id/optimize', async (c) => {
   }
 });
 
+trips.post('/:id/sync-places', async (c) => {
+  const tripId = c.req.param('id');
+  try {
+    const canEdit = await checkTripAccess(c, Number(tripId), 'edit');
+    if (!canEdit) return c.json({ error: 'Unauthorized' }, 403);
+    await syncPlaceDetails(c.env, Number(tripId));
+    return c.json({ success: true, message: '景點資訊已更新' });
+  } catch (error: any) {
+    return c.json({ error: error.message }, 500);
+  }
+});
+
 trips.post('/:id/compute', async (c) => {
   const tripId = c.req.param('id');
   try {
@@ -452,13 +459,15 @@ trips.post('/:id/compute', async (c) => {
     if (tripInfo.length === 0) return c.json({ error: 'Trip not found' }, 404);
     const trip = tripInfo[0] as any;
 
+    await syncPlaceDetails(c.env, Number(tripId));
+
     const start = new Date(trip.start_date);
     const end = new Date(trip.end_date);
     for (let d = new Date(start); d <= end; d.setDate(d.getDate() + 1)) {
       const dateStr = d.toISOString().split('T')[0];
       await getWeatherForDate(Number(tripId), dateStr, c.env, true);
     }
-    return c.json({ success: true, message: 'Weather data synced' });
+    return c.json({ success: true, message: '資訊已更新' });
   } catch (error: any) {
     return c.json({ error: error.message }, 500);
   }
