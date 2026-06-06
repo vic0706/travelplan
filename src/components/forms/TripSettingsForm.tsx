@@ -109,6 +109,8 @@ export function TripSettingsForm({ trip, onUpdate, onDelete, onClose, showToast 
           showToast?.(`排序完成，但有 ${data.unplacedCount} 個行程無法排入（時間不足）`, 'error');
         } else if (data.conflictCount > 0) {
           showToast?.(`排序完成，但有 ${data.conflictCount} 個行程時間重疊，請手動調整`, 'error');
+        } else if (data.missingTransportCount > 0) {
+          showToast?.(`排序完成，但有 ${data.missingTransportCount} 個行程尚未設定交通方式`, 'error');
         } else {
           showToast?.('行程排序完成', 'success');
         }

@@ -63,10 +63,10 @@ export function ItineraryTab({
                 );
               }
             }
-            // ACCOMMODATION / RENTAL: keep ItineraryCard UI but open BookingForm on edit;
-            // use booking image as fallback if the item has no image of its own
-            const isBookingLinked = (item.type === 'ACCOMMODATION' || item.type === 'RENTAL') && !!item.related_id;
-            const linkedBooking = isBookingLinked ? bookings.find(b => b.id === item.related_id) : undefined;
+            // Any item with related_id pointing to a known booking (non-TRANSPORTATION) → BookingForm
+            const linkedBooking = item.related_id
+              ? bookings.find(b => b.id === item.related_id)
+              : undefined;
             const displayItem = linkedBooking && !item.image_url
               ? { ...item, image_url: linkedBooking.image_url || '' }
               : item;
