@@ -187,6 +187,7 @@ export function TripDetails() {
   const [isItineraryFormOpen, setIsItineraryFormOpen]     = useState(false);
   const [isNextTransportFormOpen, setIsNextTransportFormOpen] = useState(false);
   const [isBookingFormOpen, setIsBookingFormOpen]         = useState(false);
+  const [bookingLoading, setBookingLoading]               = useState(false);
 
   const [editingItinerary, setEditingItinerary] = useState<Itinerary | null>(null);
   const [changingDateItem, setChangingDateItem] = useState<Itinerary | null>(null);
@@ -644,6 +645,7 @@ export function TripDetails() {
                 initialData={editingBooking}
                 onSubmit={async (data) => {
                   if (!id) return;
+                  setBookingLoading(true);
                   try {
                     const endpoint = editingBooking ? `/api/trips/${id}/bookings/${editingBooking.id}` : `/api/trips/${id}/bookings`;
                     const method = editingBooking ? 'PUT' : 'POST';
@@ -652,9 +654,11 @@ export function TripDetails() {
                     showToast('訂票已儲存', 'success');
                     setIsBookingFormOpen(false); setEditingBooking(null); setTimeout(() => refreshTripData(), 300);
                   } catch (e) { showToast('儲存訂票失敗', 'error'); }
+                  finally { setBookingLoading(false); }
                 }}
                 onCancel={() => { setIsBookingFormOpen(false); setEditingBooking(null); }}
                 onDelete={editingBooking ? () => handleDeleteBooking(editingBooking.id) : undefined}
+                loading={bookingLoading}
               />
             </motion.div>
           </div>
