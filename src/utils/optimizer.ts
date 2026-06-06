@@ -24,7 +24,6 @@ function minsToTime(mins: number) {
 const DAY_START = 9 * 60;   // 09:00
 const DAY_END   = 22 * 60;  // 22:00
 
-
 /**
  * Returns the preferred [start, end] window (in minutes from midnight) for a smart item.
  * Priority: opening_hours for that weekday > keyword inference (title/tags) > anytime
@@ -35,13 +34,11 @@ function getPreferredWindow(item: any, dateStr: string): { start: number; end: n
     try {
       const oh = JSON.parse(item.opening_hours);
       if (Array.isArray(oh.periods) && oh.periods.length > 0) {
-        // 24/7: single period, open day 0 hour 0 with no close
         const only = oh.periods[0];
         if (oh.periods.length === 1 && only.open?.day === 0 && only.open?.hour === 0 && !only.close) {
           return { start: DAY_START, end: DAY_END };
         }
-        // dateStr is 'YYYY-MM-DD'; new Date() gives local-time day-of-week
-        const dayOfWeek = new Date(dateStr + 'T00:00:00').getDay(); // 0=Sun
+        const dayOfWeek = new Date(dateStr + 'T00:00:00').getDay();
         const period = oh.periods.find((p: any) => p.open?.day === dayOfWeek);
         if (period?.open) {
           const openMins  = (period.open.hour  || 0) * 60 + (period.open.minute  || 0);
@@ -83,27 +80,101 @@ interface GapSlot {
   lastItem: any | null;
 }
 
-function calcTravelMins(gap: GapSlot, item: any, statements: any[], env: any): number {
+/** Maps our transport mode names to Google Distance Matrix mode values. */
+function toGoogleMode(mode: string): string {
+  switch (mode.toUpperCase()) {
+    case 'WALKING':   return 'walking';
+    case 'BICYCLING': return 'bicycling';
+    case 'TRANSIT':   return 'transit';
+    default:          return 'driving'; // DRIVING, MOTORCYCLING, CAR, etc.
+  }
+}
+
+/**
+ * Fallback haversine-based estimate when Google API is unavailable.
+ * speed = minutes per straight-line km.
+ */
+function haversineMins(dist: number | null, mode: string): number {
+  let speed = 2, buffer = 5;
+  switch (mode.toUpperCase()) {
+    case 'WALKING':     speed = 12; buffer = 2;  break;
+    case 'BICYCLING':   speed = 6;  buffer = 3;  break;
+    case 'MOTORCYCLING':speed = 2;  buffer = 3;  break;
+    case 'TRANSIT':     speed = 3;  buffer = 8;  break;
+  }
+  return dist !== null ? Math.ceil(dist * speed) + buffer : 15;
+}
+
+/**
+ * Fetches real driving/walking duration from Google Distance Matrix API.
+ * Results are KV-cached for 24 h to avoid repeat charges.
+ * Falls back to haversine estimate on any error.
+ */
+async function fetchGoogleTravelMins(
+  fromLat: number, fromLng: number,
+  toLat: number,   toLng: number,
+  googleMode: string,
+  env: any
+): Promise<number | null> {
+  if (!env.GOOGLE_MAPS_API_KEY) return null;
+
+  // Round to 4 dp (~11 m precision) for cache key stability
+  const cacheKey = `travel_time:${fromLat.toFixed(4)},${fromLng.toFixed(4)}:${toLat.toFixed(4)},${toLng.toFixed(4)}:${googleMode}`;
+  const cached: number | null = await env.KV.get(cacheKey, 'json');
+  if (cached !== null) return cached;
+
+  try {
+    const url = `https://maps.googleapis.com/maps/api/distancematrix/json`
+      + `?origins=${fromLat},${fromLng}`
+      + `&destinations=${toLat},${toLng}`
+      + `&mode=${googleMode}`
+      + `&key=${env.GOOGLE_MAPS_API_KEY}`;
+    const res = await fetch(url);
+    if (!res.ok) return null;
+    const data = await res.json() as any;
+    const el = data.rows?.[0]?.elements?.[0];
+    if (el?.status !== 'OK' || !el.duration?.value) return null;
+    const mins = Math.ceil(el.duration.value / 60);
+    await env.KV.put(cacheKey, JSON.stringify(mins), { expirationTtl: 86400 }); // 24 h
+    return mins;
+  } catch {
+    return null;
+  }
+}
+
+async function calcTravelMins(gap: GapSlot, item: any, statements: any[], env: any): Promise<number> {
   if (!gap.lastItem) return 0;
   const prev = gap.lastItem;
+  const mode = (prev.next_transport_mode || 'DRIVING');
+
   if (prev.next_transport_time === 'auto') {
-    const dist = getDistanceKm(gap.lastLat!, gap.lastLng!, item.lat, item.lng);
-    // speed = minutes per km (straight-line); haversine ≈ 0.7× road distance, so effective speed ≈ 0.7× of real pace
-    let speed = 2, buffer = 5; // default DRIVING ~30 km/h
-    const mode = (prev.next_transport_mode || '').toUpperCase();
-    if (mode === 'WALKING')     { speed = 12; buffer = 2; }   // ~5 km/h
-    if (mode === 'BICYCLING')   { speed = 6;  buffer = 3; }   // ~10 km/h
-    if (mode === 'MOTORCYCLING'){ speed = 2;  buffer = 3; }   // ~30 km/h
-    if (mode === 'TRANSIT')     { speed = 3;  buffer = 8; }   // ~20 km/h
-    const mins = dist !== null ? Math.ceil(dist * speed) + buffer : 15;
+    let mins: number;
+
+    if (gap.lastLat && gap.lastLng && item.lat && item.lng) {
+      const googleMins = await fetchGoogleTravelMins(
+        gap.lastLat, gap.lastLng, item.lat, item.lng,
+        toGoogleMode(mode), env
+      );
+      if (googleMins !== null) {
+        mins = googleMins;
+      } else {
+        // Google unavailable — haversine fallback
+        const dist = getDistanceKm(gap.lastLat, gap.lastLng, item.lat, item.lng);
+        mins = haversineMins(dist, mode);
+      }
+    } else {
+      mins = 15; // no coords at all
+    }
+
     statements.push(env.DB.prepare(`UPDATE Itineraries SET next_transport_auto_time = ? WHERE id = ?`).bind(mins, prev.id));
     return mins;
   }
+
   if (prev.next_transport_time) return parseInt(prev.next_transport_time.replace(/\D/g, '')) || 15;
-  return 15; // default when no transport info
+  return 15;
 }
 
-function placeInGap(
+async function placeInGap(
   gap: GapSlot,
   item: any,
   stayDuration: number,
@@ -111,8 +182,8 @@ function placeInGap(
   windowEnd: number,
   statements: any[],
   env: any
-): boolean {
-  const travelMins = calcTravelMins(gap, item, statements, env);
+): Promise<boolean> {
+  const travelMins = await calcTravelMins(gap, item, statements, env);
   const startMins  = Math.max(gap.cursor + travelMins, windowStart);
   const endMins    = startMins + stayDuration;
 
@@ -170,14 +241,12 @@ export async function optimizeDailyItinerary(env: any, tripId: number, dateStr: 
 
   const statements: any[] = [];
 
-  // Separate fixed vs smart; sort fixed by locked start_time
   const fixedItems = (rawItems as any[])
     .filter(i => i.is_time_fixed === 1)
     .sort((a: any, b: any) => timeToMins(a.start_time) - timeToMins(b.start_time));
 
   const smartItems = (rawItems as any[]).filter(i => i.is_time_fixed !== 1);
 
-  // Clear warnings on fixed items
   for (const item of fixedItems) {
     statements.push(env.DB.prepare(`UPDATE Itineraries SET sync_conflict_warning = null WHERE id = ?`).bind(item.id));
   }
@@ -217,31 +286,21 @@ export async function optimizeDailyItinerary(env: any, tripId: number, dateStr: 
     return;
   }
 
-  // For each gap, collect candidates that prefer this window, sort by proximity, then place.
-  // Track which items have been placed.
   const unplaced = new Set(smartItems.map((_: any, idx: number) => idx));
 
   // Pass 1: preferred-window placement with nearest-neighbor ordering per gap
   for (const gap of gaps) {
-    // Collect candidates whose preferred window overlaps this gap sufficiently
-    const candidates: Array<{ idx: number; item: any }> = [];
+    const candidates: any[] = [];
     for (const idx of unplaced) {
       const item = smartItems[idx];
       const stayDuration = parseInt(item.stay_duration) || 60;
       const pref = getPreferredWindow(item, dateStr);
       const winStart = Math.max(pref.start, gap.start);
       const winEnd   = Math.min(pref.end,   gap.end);
-      if (winEnd - winStart >= stayDuration) {
-        candidates.push({ idx, item });
-      }
+      if (winEnd - winStart >= stayDuration) candidates.push(item);
     }
 
-    // Sort candidates by nearest-neighbor from gap's anchor point
-    const sorted = sortByNearestNeighbor(
-      candidates.map(c => c.item),
-      gap.lastLat,
-      gap.lastLng
-    );
+    const sorted = sortByNearestNeighbor(candidates, gap.lastLat, gap.lastLng);
 
     for (const item of sorted) {
       const idx = smartItems.indexOf(item);
@@ -250,36 +309,27 @@ export async function optimizeDailyItinerary(env: any, tripId: number, dateStr: 
       const pref = getPreferredWindow(item, dateStr);
       const winStart = Math.max(pref.start, gap.start);
       const winEnd   = Math.min(pref.end,   gap.end);
-      if (placeInGap(gap, item, stayDuration, winStart, winEnd, statements, env)) {
+      if (await placeInGap(gap, item, stayDuration, winStart, winEnd, statements, env)) {
         unplaced.delete(idx);
       }
     }
   }
 
-  // Pass 2: fallback — fit remaining items into any gap (ignoring time preference), nearest-neighbor per gap
+  // Pass 2: fallback — any available gap, nearest-neighbor per gap
   for (const gap of gaps) {
-    const candidates: Array<{ idx: number; item: any }> = [];
-    for (const idx of unplaced) {
-      candidates.push({ idx, item: smartItems[idx] });
-    }
-
-    const sorted = sortByNearestNeighbor(
-      candidates.map(c => c.item),
-      gap.lastLat,
-      gap.lastLng
-    );
+    const candidates = [...unplaced].map(idx => smartItems[idx]);
+    const sorted = sortByNearestNeighbor(candidates, gap.lastLat, gap.lastLng);
 
     for (const item of sorted) {
       const idx = smartItems.indexOf(item);
       if (!unplaced.has(idx)) continue;
       const stayDuration = parseInt(item.stay_duration) || 60;
-      if (placeInGap(gap, item, stayDuration, gap.start, gap.end, statements, env)) {
+      if (await placeInGap(gap, item, stayDuration, gap.start, gap.end, statements, env)) {
         unplaced.delete(idx);
       }
     }
   }
 
-  // Mark anything still unplaced
   for (const idx of unplaced) {
     const item = smartItems[idx];
     statements.push(
