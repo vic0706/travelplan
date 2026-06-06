@@ -154,40 +154,39 @@ app.get('/api/places/details', async (c) => {
 });
 
 
-// 5. 匯率查詢 (frankfurter.app, KV 快取 1 小時)
-// frankfurter.app uses ECB data and only supports major currencies as base.
-// For unsupported bases (e.g. TWD, KRW), compute cross-rates via EUR.
+// 5. 匯率查詢 — KV 快取 1 小時
+// Primary: frankfurter.app (ECB, major currencies)
+// Fallback: fawazahmed0/currency-api via jsDelivr (supports TWD, KRW, VND, etc.)
 app.get('/api/exchange-rates', async (c) => {
   const base = c.req.query('base') || 'TWD';
   const cacheKey = `exchange_rates_v2:${base}`;
   const cached = await c.env.KV.get(cacheKey, 'json');
   if (cached) return c.json(cached);
   try {
-    // Try direct fetch first (works for USD, EUR, JPY, GBP, etc.)
-    const directRes = await fetch(`https://api.frankfurter.app/latest?from=${base}`);
-    if (directRes.ok) {
-      const data = await directRes.json() as any;
-      if (data.rates && Object.keys(data.rates).length > 0) {
-        await c.env.KV.put(cacheKey, JSON.stringify(data), { expirationTtl: 3600 });
-        return c.json(data);
+    // Try frankfurter.app first (USD, EUR, JPY, GBP, etc.)
+    const fRes = await fetch(`https://api.frankfurter.app/latest?from=${base}`);
+    if (fRes.ok) {
+      const fData = await fRes.json() as any;
+      if (fData.rates && Object.keys(fData.rates).length > 0) {
+        await c.env.KV.put(cacheKey, JSON.stringify(fData), { expirationTtl: 3600 });
+        return c.json(fData);
       }
     }
-    // Fallback: fetch EUR rates and compute cross-rates for unsupported base (e.g. TWD)
-    const eurRes = await fetch('https://api.frankfurter.app/latest?from=EUR');
-    if (eurRes.ok) {
-      const eurData = await eurRes.json() as any;
-      const eurRates = eurData.rates || {};
-      const basePerEur = eurRates[base]; // 1 EUR = basePerEur {base}
-      if (basePerEur) {
-        // rates[X] = how many X per 1 {base}
-        const crossRates: Record<string, number> = { EUR: 1 / basePerEur };
-        for (const [cur, rate] of Object.entries(eurRates) as [string, number][]) {
-          if (cur !== base) crossRates[cur] = rate / basePerEur;
-        }
-        const result = { base, rates: crossRates };
-        await c.env.KV.put(cacheKey, JSON.stringify(result), { expirationTtl: 3600 });
-        return c.json(result);
+    // Fallback: fawazahmed0 currency-api (covers TWD, KRW, VND, THB, etc.)
+    const cdnRes = await fetch(
+      `https://cdn.jsdelivr.net/gh/fawazahmed0/currency-api@1/latest/currencies/${base.toLowerCase()}.json`
+    );
+    if (cdnRes.ok) {
+      const cdnData = await cdnRes.json() as any;
+      const rawRates = cdnData[base.toLowerCase()] || {};
+      const rates: Record<string, number> = {};
+      for (const [cur, rate] of Object.entries(rawRates)) {
+        rates[cur.toUpperCase()] = rate as number;
       }
+      delete rates[base.toUpperCase()];
+      const result = { base, rates };
+      await c.env.KV.put(cacheKey, JSON.stringify(result), { expirationTtl: 3600 });
+      return c.json(result);
     }
     return c.json({ base, rates: {} });
   } catch {
