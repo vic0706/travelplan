@@ -63,12 +63,19 @@ export function ItineraryTab({
                 );
               }
             }
+            // ACCOMMODATION / RENTAL: keep ItineraryCard UI but open BookingForm on edit;
+            // use booking image as fallback if the item has no image of its own
+            const isBookingLinked = (item.type === 'ACCOMMODATION' || item.type === 'RENTAL') && !!item.related_id;
+            const linkedBooking = isBookingLinked ? bookings.find(b => b.id === item.related_id) : undefined;
+            const displayItem = linkedBooking && !item.image_url
+              ? { ...item, image_url: linkedBooking.image_url || '' }
+              : item;
             return (
               <div key={`itinerary-${item.id}`} className="space-y-2">
                 <ItineraryCard
-                  item={item} canEdit={canEdit}
+                  item={displayItem} canEdit={canEdit}
                   isConflicted={conflictedIdsInView.has(item.id)}
-                  onEdit={() => onEditItinerary(item)}
+                  onEdit={() => linkedBooking ? onEditBooking(linkedBooking) : onEditItinerary(item)}
                   showNextTransport={index < filteredItineraries.length - 1}
                   onEditNextTransport={() => onEditNextTransport(item)}
                   expandSignal={expandSignal} collapseSignal={collapseSignal}

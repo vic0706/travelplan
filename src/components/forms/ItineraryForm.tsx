@@ -214,6 +214,15 @@ export function ItineraryForm({ tripId, date, onSuccess, onCancel, initialData, 
     }
   };
 
+  // 固定時間模式：直接修改 end_time → 反向更新停留時長
+  const handleEndTimeChange = (newEnd: string) => {
+    setFormData(prev => ({ ...prev, end_time: newEnd }));
+    if (isTimeFixed && formData.start_time && newEnd) {
+      const newDuration = timeToMinutes(formData.start_time, newEnd);
+      if (newDuration > 0) setFixedStayDuration(newDuration);
+    }
+  };
+
   const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -338,7 +347,7 @@ export function ItineraryForm({ tripId, date, onSuccess, onCancel, initialData, 
                   <div className="flex flex-col items-center bg-zinc-900/60 rounded-xl p-3 border-l border-zinc-700/50">
                     <span className="text-[9px] text-zinc-500 mb-1 font-bold uppercase tracking-tighter">結束時間</span>
                     <input type="time" value={formData.end_time}
-                      onChange={e => setFormData(prev => ({ ...prev, end_time: e.target.value }))}
+                      onChange={e => handleEndTimeChange(e.target.value)}
                       className="bg-transparent text-white font-mono font-bold text-base outline-none [color-scheme:dark]" />
                   </div>
                 </div>

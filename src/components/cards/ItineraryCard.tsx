@@ -376,6 +376,31 @@ export function ItineraryCard({
                 {isCircuitBreaker && <span className="w-1.5 h-1.5 rounded-full bg-red-500 animate-pulse shrink-0" />}
               </div>
             )}
+            {/* Warning summary — visible without expanding */}
+            {(isConflicted || isCircuitBreaker || closedWarning || item.sync_conflict_warning) && (
+              <div className="flex flex-wrap items-center gap-x-2 gap-y-0 mt-0.5">
+                {isConflicted && (
+                  <span className="flex items-center gap-0.5 text-[10px] font-bold text-red-400">
+                    <AlertTriangle size={9} />行程時間重疊
+                  </span>
+                )}
+                {isCircuitBreaker && !isConflicted && (
+                  <span className="flex items-center gap-0.5 text-[10px] font-bold text-red-400">
+                    <AlertTriangle size={9} />尚未設定交通方式
+                  </span>
+                )}
+                {closedWarning && (
+                  <span className="flex items-center gap-0.5 text-[10px] font-bold text-yellow-500">
+                    <Clock size={9} />{closedWarning}
+                  </span>
+                )}
+                {item.sync_conflict_warning && !closedWarning && !isConflicted && (
+                  <span className="flex items-center gap-0.5 text-[10px] font-bold text-orange-400">
+                    <AlertTriangle size={9} />{item.sync_conflict_warning}
+                  </span>
+                )}
+              </div>
+            )}
           </div>
 
           {item.rating && (
@@ -428,10 +453,14 @@ export function ItineraryCard({
                   <img
                     src={item.image_url!}
                     alt={item.title}
-                    className={clsx('absolute inset-0 w-full h-full object-cover', isPast ? 'opacity-25' : 'opacity-85')}
+                    onClick={canEdit ? () => onEdit() : undefined}
+                    className={clsx('absolute inset-0 w-full h-full object-cover', canEdit && 'cursor-pointer', isPast ? 'opacity-25' : 'opacity-85')}
                   />
                 ) : (
-                  <div className="absolute inset-0 bg-zinc-900/70" />
+                  <div
+                    className={clsx('absolute inset-0 bg-zinc-900/70', canEdit && 'cursor-pointer')}
+                    onClick={canEdit ? () => onEdit() : undefined}
+                  />
                 )}
 
                 {/* 內容遮罩 - z-10，底部留出底部列空間 */}
