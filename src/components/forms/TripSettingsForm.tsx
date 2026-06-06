@@ -103,8 +103,13 @@ export function TripSettingsForm({ trip, onUpdate, onDelete, onClose, showToast 
     try {
       const res = await apiFetch(`/api/trips/${trip.id}/optimize`, { method: 'POST' });
       if (res.ok) {
+        const data = await res.json() as any;
         onUpdate();
-        showToast?.('行程排序完成', 'success');
+        if (data.unplacedCount > 0) {
+          showToast?.(`排序完成，但有 ${data.unplacedCount} 個行程無法排入（時間不足）`, 'error');
+        } else {
+          showToast?.('行程排序完成', 'success');
+        }
       } else {
         showToast?.('景點排序失敗', 'error');
       }

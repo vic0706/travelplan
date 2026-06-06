@@ -154,7 +154,24 @@ app.get('/api/places/details', async (c) => {
 });
 
 
-// 5. 健康檢查
+// 5. 匯率查詢 (frankfurter.app, KV 快取 1 小時)
+app.get('/api/exchange-rates', async (c) => {
+  const base = c.req.query('base') || 'TWD';
+  const cacheKey = `exchange_rates:${base}`;
+  const cached = await c.env.KV.get(cacheKey, 'json');
+  if (cached) return c.json(cached);
+  try {
+    const res = await fetch(`https://api.frankfurter.app/latest?from=${base}`);
+    if (!res.ok) return c.json({ base, rates: {} });
+    const data = await res.json() as any;
+    await c.env.KV.put(cacheKey, JSON.stringify(data), { expirationTtl: 3600 });
+    return c.json(data);
+  } catch {
+    return c.json({ base, rates: {} });
+  }
+});
+
+// 6. 健康檢查
 app.get('/health-check', (c) => c.json({ status: 'ok', time: Date.now() }));
 
 // 6. Cloudflare Worker 進入點

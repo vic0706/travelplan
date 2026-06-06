@@ -120,6 +120,12 @@ trips.post('/', async (c) => {
       JSON.stringify(currencies || []), 0, Date.now(), Date.now()
     ).run();
 
+    const creator = c.get('user');
+    if (creator) {
+      await c.env.DB.prepare('INSERT OR IGNORE INTO TripMembers (trip_id, user_id, role) VALUES (?, ?, ?)')
+        .bind(meta.last_row_id, creator.id, 'admin').run();
+    }
+
     return c.json({ id: meta.last_row_id });
   } catch (error: any) {
     return c.json({ error: error.message }, 500);
@@ -373,12 +379,24 @@ trips.put('/:id/members', async (c) => {
     const { user_ids } = await c.req.json();
     if (!Array.isArray(user_ids)) return c.json({ error: 'user_ids must be an array' }, 400);
 
-    // 先刪除現有成員，再重新寫入
+    // Preserve existing admin roles when rebuilding member list
+    const { results: adminMembers } = await c.env.DB.prepare(
+      "SELECT user_id FROM TripMembers WHERE trip_id = ? AND role = 'admin'"
+    ).bind(id).all();
+    const adminIds = new Set(adminMembers.map((a: any) => a.user_id));
+
     const statements = [
       c.env.DB.prepare('DELETE FROM TripMembers WHERE trip_id = ?').bind(id),
-      ...user_ids.map((uid: number) =>
-        c.env.DB.prepare('INSERT OR IGNORE INTO TripMembers (trip_id, user_id, role) VALUES (?, ?, ?)').bind(id, uid, 'Member')
-      )
+      ...adminIds.size > 0
+        ? [...adminIds].map((uid) =>
+            c.env.DB.prepare('INSERT OR IGNORE INTO TripMembers (trip_id, user_id, role) VALUES (?, ?, ?)').bind(id, uid, 'admin')
+          )
+        : [],
+      ...user_ids
+        .filter((uid: number) => !adminIds.has(uid))
+        .map((uid: number) =>
+          c.env.DB.prepare('INSERT OR IGNORE INTO TripMembers (trip_id, user_id, role) VALUES (?, ?, ?)').bind(id, uid, 'Member')
+        ),
     ];
     await c.env.DB.batch(statements);
 
@@ -429,7 +447,13 @@ trips.post('/:id/optimize', async (c) => {
       const dateStr = d.toISOString().split('T')[0];
       await optimizeDailyItinerary(c.env, Number(tripId), dateStr);
     }
-    return c.json({ success: true, message: 'Itinerary Optimized' });
+
+    const { results: unplacedRows } = await c.env.DB.prepare(
+      `SELECT COUNT(*) as count FROM Itineraries WHERE trip_id = ? AND sync_conflict_warning LIKE '⚠️ 無法插入%'`
+    ).bind(tripId).all();
+    const unplacedCount = (unplacedRows[0] as any)?.count ?? 0;
+
+    return c.json({ success: true, message: 'Itinerary Optimized', unplacedCount });
   } catch (error: any) {
     return c.json({ error: error.message }, 500);
   }
