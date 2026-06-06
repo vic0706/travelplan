@@ -155,17 +155,41 @@ app.get('/api/places/details', async (c) => {
 
 
 // 5. 匯率查詢 (frankfurter.app, KV 快取 1 小時)
+// frankfurter.app uses ECB data and only supports major currencies as base.
+// For unsupported bases (e.g. TWD, KRW), compute cross-rates via EUR.
 app.get('/api/exchange-rates', async (c) => {
   const base = c.req.query('base') || 'TWD';
-  const cacheKey = `exchange_rates:${base}`;
+  const cacheKey = `exchange_rates_v2:${base}`;
   const cached = await c.env.KV.get(cacheKey, 'json');
   if (cached) return c.json(cached);
   try {
-    const res = await fetch(`https://api.frankfurter.app/latest?from=${base}`);
-    if (!res.ok) return c.json({ base, rates: {} });
-    const data = await res.json() as any;
-    await c.env.KV.put(cacheKey, JSON.stringify(data), { expirationTtl: 3600 });
-    return c.json(data);
+    // Try direct fetch first (works for USD, EUR, JPY, GBP, etc.)
+    const directRes = await fetch(`https://api.frankfurter.app/latest?from=${base}`);
+    if (directRes.ok) {
+      const data = await directRes.json() as any;
+      if (data.rates && Object.keys(data.rates).length > 0) {
+        await c.env.KV.put(cacheKey, JSON.stringify(data), { expirationTtl: 3600 });
+        return c.json(data);
+      }
+    }
+    // Fallback: fetch EUR rates and compute cross-rates for unsupported base (e.g. TWD)
+    const eurRes = await fetch('https://api.frankfurter.app/latest?from=EUR');
+    if (eurRes.ok) {
+      const eurData = await eurRes.json() as any;
+      const eurRates = eurData.rates || {};
+      const basePerEur = eurRates[base]; // 1 EUR = basePerEur {base}
+      if (basePerEur) {
+        // rates[X] = how many X per 1 {base}
+        const crossRates: Record<string, number> = { EUR: 1 / basePerEur };
+        for (const [cur, rate] of Object.entries(eurRates) as [string, number][]) {
+          if (cur !== base) crossRates[cur] = rate / basePerEur;
+        }
+        const result = { base, rates: crossRates };
+        await c.env.KV.put(cacheKey, JSON.stringify(result), { expirationTtl: 3600 });
+        return c.json(result);
+      }
+    }
+    return c.json({ base, rates: {} });
   } catch {
     return c.json({ base, rates: {} });
   }

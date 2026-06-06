@@ -449,7 +449,7 @@ trips.post('/:id/optimize', async (c) => {
     }
 
     const { results: unplacedRows } = await c.env.DB.prepare(
-      `SELECT COUNT(*) as count FROM Itineraries WHERE trip_id = ? AND sync_conflict_warning LIKE '⚠️ 無法插入%'`
+      `SELECT COUNT(*) as count FROM Itineraries WHERE trip_id = ? AND sync_conflict_warning LIKE '%無法插入%'`
     ).bind(tripId).all();
     const unplacedCount = (unplacedRows[0] as any)?.count ?? 0;
 
