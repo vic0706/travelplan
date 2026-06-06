@@ -7,6 +7,7 @@ import { DynamicIcon } from '../common/DynamicIcon';
 import { ImageCropper, uploadImageToSupabase } from '../widgets/ImageCropper';
 import { LocationPicker } from '../pickers/LocationPicker';
 import { clsx } from 'clsx';
+import { useLiveQuery } from 'dexie-react-hooks';
 import { db, getCachedPlaceSuggestions, cachePlaceSuggestions, getCachedPlaceDetails, cachePlaceDetails } from '../../db';
 
 interface ItineraryFormProps {
@@ -72,10 +73,20 @@ export function ItineraryForm({ tripId, date, onSuccess, onCancel, initialData, 
   const [isDeleting, setIsDeleting] = useState(false);
   const [isLocationPickerOpen, setIsLocationPickerOpen] = useState(false);
   const [suggestions, setSuggestions] = useState<any[]>([]);
-  const [knownPlaceIds, setKnownPlaceIds] = useState<Set<string>>(new Set());
   const [isSearching, setIsSearching] = useState(false);
   const [fromCache, setFromCache] = useState(false);
   const sessionToken = useRef(Math.random().toString(36).substring(2));
+
+  // Live-query: google_place_ids already in THIS trip (auto-updates reactively)
+  const knownPlaceIds = useLiveQuery(
+    () => db.itineraries
+      .where('trip_id').equals(tripId)
+      .toArray()
+      .then(items => new Set(items.filter(i => i.google_place_id).map(i => i.google_place_id as string))),
+    [tripId],
+    new Set<string>()
+  ) ?? new Set<string>();
+
   const [editingSubItem, setEditingSubItem] = useState<any>(null);
   const [croppingImage, setCroppingImage] = useState<string | null>(null);
   const [subItems, setSubItems] = useState<any[]>(safeParseArray(initialData?.sub_items));
@@ -104,12 +115,6 @@ export function ItineraryForm({ tripId, date, onSuccess, onCancel, initialData, 
 
   const [isLocationManuallyEdited, setIsLocationManuallyEdited] = useState(false);
   const selectedCategory = storeCategories.find((c: any) => c.icon === formData.icon) || { color: '#808080', icon: 'MapPin' };
-
-  useEffect(() => {
-    db.itineraries.toArray().then(items => {
-      setKnownPlaceIds(new Set(items.map(i => i.google_place_id).filter(Boolean) as string[]));
-    });
-  }, []);
 
   // Auto-fill transport mode from most common mode in this trip (only for new items)
   useEffect(() => {
