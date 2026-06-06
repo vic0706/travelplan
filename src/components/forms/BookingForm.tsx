@@ -406,21 +406,37 @@ export function BookingForm({ initialData, onSubmit, onCancel, onDelete, loading
 
       {/* 飯店地址（Google Places 自動補全） */}
       {formData.category === 'HOTEL' && (
-        <AddressSearchInput
-          label="地址"
-          value={formData.start_location}
-          onChange={v => set('start_location', v)}
-          onPlaceSelect={place => {
-            setFormData(prev => ({
-              ...prev,
-              start_location:  place.address,
-              google_place_id: place.google_place_id || prev.google_place_id,
-              title:           prev.title || place.name || prev.title,
-              image_url:       prev.image_url || place.image_url || '',
-            }));
-          }}
-          placeholder="搜尋飯店或地址..."
-        />
+        <>
+          <AddressSearchInput
+            label="地址"
+            value={formData.start_location}
+            onChange={v => set('start_location', v)}
+            onPlaceSelect={place => {
+              setFormData(prev => ({
+                ...prev,
+                start_location:  place.address,
+                google_place_id: place.google_place_id || prev.google_place_id,
+                title:           prev.title || place.name || prev.title,
+                image_url:       prev.image_url || place.image_url || '',
+              }));
+            }}
+            placeholder="搜尋飯店或地址..."
+          />
+          {formData.image_url && (
+            <div className="relative rounded-2xl overflow-hidden h-32 bg-zinc-800">
+              <img src={formData.image_url} alt="" className="w-full h-full object-cover" />
+              <div className="absolute inset-0 bg-gradient-to-t from-black/60 to-transparent" />
+              <button
+                type="button"
+                onClick={() => set('image_url', '')}
+                className="absolute top-2 right-2 p-1.5 bg-black/60 rounded-full text-zinc-300 hover:text-white transition-colors"
+              >
+                <X size={12} />
+              </button>
+              <span className="absolute bottom-2 left-3 text-[10px] text-white/70 font-bold uppercase tracking-widest">封面圖片</span>
+            </div>
+          )}
+        </>
       )}
 
       {/* 日期範圍 */}

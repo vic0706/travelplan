@@ -121,8 +121,16 @@ bookings.post('/', async (c) => {
   const b = await c.req.json();
   const details = typeof b.details === 'string' ? JSON.parse(b.details) : (b.details || {});
 
-  // Auto-fetch cover image for hotel/rental bookings if none provided
+  // Auto-fetch cover image if none provided
   let imageUrl = b.image_url || '';
+  // 1. Try KV-cached Google Places photo (already fetched during autocomplete)
+  if (!imageUrl && b.google_place_id) {
+    try {
+      const cached = await c.env.KV.get(`place_details_v2:${b.google_place_id}`, 'json') as any;
+      if (cached?.actual_photo_url) imageUrl = cached.actual_photo_url;
+    } catch {}
+  }
+  // 2. Fall back to Unsplash for hotel/rental if still no image
   if (!imageUrl && (b.category === 'HOTEL' || b.category === 'RENTAL' || b.category === 'PRIVATE_TRANSFER')) {
     try { imageUrl = (await searchUnsplash(b.title, c.env)) || ''; } catch {}
   }
