@@ -140,6 +140,8 @@ bookings.put('/:bookingId', async (c) => {
   const tripId = c.req.param('id');
   const bookingId = c.req.param('bookingId');
   const b = await c.req.json();
+  const details = typeof b.details === 'string' ? JSON.parse(b.details) : (b.details || {});
+
   await c.env.DB.prepare(
     `UPDATE Bookings SET category=?, title=?, provider=?, order_id=?, start_date=?, start_time=?, end_date=?, end_time=?, start_location=?, end_location=?, notes=?, image_url=?, details=?, google_place_id=?
      WHERE id=? AND trip_id=?`
@@ -147,9 +149,18 @@ bookings.put('/:bookingId', async (c) => {
     b.category || '', b.title || '', b.provider || '', b.order_id || '',
     b.start_date || '', b.start_time || '', b.end_date || '', b.end_time || '',
     b.start_location || '', b.end_location || '', b.notes || '', b.image_url || '',
-    JSON.stringify(b.details || {}), b.google_place_id || '',
+    JSON.stringify(details), b.google_place_id || '',
     bookingId, tripId
   ).run();
+
+  // Regenerate linked itinerary items to reflect updated dates/times
+  await c.env.DB.prepare('DELETE FROM Itineraries WHERE trip_id=? AND related_id=?').bind(tripId, bookingId).run();
+  try {
+    await generateItineraryItems(c.env.DB, tripId, Number(bookingId), b, details, b.image_url || '');
+  } catch (err) {
+    console.error('[bookings PUT] generateItineraryItems failed:', err);
+  }
+
   return c.json({ success: true });
 });
 

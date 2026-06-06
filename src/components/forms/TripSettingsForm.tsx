@@ -109,8 +109,12 @@ export function TripSettingsForm({ trip, onUpdate, onDelete, onClose, showToast 
           showToast?.(`排序完成，但有 ${data.unplacedCount} 個行程無法排入（時間不足）`, 'error');
         } else if (data.conflictCount > 0) {
           showToast?.(`排序完成，但有 ${data.conflictCount} 個行程時間重疊，請手動調整`, 'error');
-        } else if (data.missingTransportCount > 0) {
-          showToast?.(`排序完成，但有 ${data.missingTransportCount} 個行程尚未設定交通方式`, 'error');
+        } else if (data.missingTransportDates?.length > 0) {
+          const dateLabel = data.missingTransportDates.map((d: string) => {
+            const parts = d.split('-');
+            return `${parseInt(parts[1])}/${parseInt(parts[2])}`;
+          }).join('、');
+          showToast?.(`排序完成，但 ${dateLabel} 有行程未設定交通方式`, 'error');
         } else {
           showToast?.('行程排序完成', 'success');
         }
@@ -182,7 +186,7 @@ export function TripSettingsForm({ trip, onUpdate, onDelete, onClose, showToast 
       <ConfirmDialog
         isOpen={isDeleteConfirmOpen}
         title="刪除行程"
-        message={`您確定要永久刪除「${trip.title}」嗎？\n所有相關的活動、記帳與預訂資料都將一併刪除，此操作無法復原。`}
+        message={`確定要刪除「${trip.title}」嗎？\n所有活動、記帳與預訂資料都將一併移除，此操作無法復原。`}
         confirmText="永久刪除"
         cancelText="取消"
         type="danger"

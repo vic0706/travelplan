@@ -467,7 +467,7 @@ trips.post('/:id/optimize', async (c) => {
     const conflictCount = (conflictRows[0] as any)?.count ?? 0;
 
     const { results: missingTransportRows } = await c.env.DB.prepare(`
-      SELECT COUNT(DISTINCT i1.id) as count
+      SELECT DISTINCT i1.date
       FROM Itineraries i1
       WHERE i1.trip_id = ?
         AND i1.start_time IS NOT NULL AND i1.start_time != ''
@@ -479,10 +479,11 @@ trips.post('/:id/optimize', async (c) => {
             AND i2.id != i1.id
             AND i2.start_time > i1.start_time
         )
+      ORDER BY i1.date
     `).bind(tripId).all();
-    const missingTransportCount = (missingTransportRows[0] as any)?.count ?? 0;
+    const missingTransportDates = missingTransportRows.map((r: any) => r.date as string);
 
-    return c.json({ success: true, message: 'Itinerary Optimized', unplacedCount, conflictCount, missingTransportCount });
+    return c.json({ success: true, message: 'Itinerary Optimized', unplacedCount, conflictCount, missingTransportDates });
   } catch (error: any) {
     return c.json({ error: error.message }, 500);
   }
