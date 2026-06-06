@@ -155,11 +155,11 @@ app.get('/api/places/details', async (c) => {
 
 
 // 5. 匯率查詢 — KV 快取 1 小時
-// Primary: frankfurter.app (ECB, major currencies)
-// Fallback: fawazahmed0/currency-api via jsDelivr (supports TWD, KRW, VND, etc.)
+// Primary: frankfurter.app (ECB, major currencies — USD/EUR/JPY/GBP/etc.)
+// Fallback: open.er-api.com (free, no key, 160+ currencies incl. TWD/KRW/VND/THB)
 app.get('/api/exchange-rates', async (c) => {
   const base = c.req.query('base') || 'TWD';
-  const cacheKey = `exchange_rates_v2:${base}`;
+  const cacheKey = `exchange_rates_v3:${base}`;
   const cached = await c.env.KV.get(cacheKey, 'json');
   if (cached) return c.json(cached);
   try {
@@ -172,21 +172,17 @@ app.get('/api/exchange-rates', async (c) => {
         return c.json(fData);
       }
     }
-    // Fallback: fawazahmed0 currency-api (covers TWD, KRW, VND, THB, etc.)
-    const cdnRes = await fetch(
-      `https://cdn.jsdelivr.net/gh/fawazahmed0/currency-api@1/latest/currencies/${base.toLowerCase()}.json`
-    );
-    if (cdnRes.ok) {
-      const cdnData = await cdnRes.json() as any;
-      const rawRates = cdnData[base.toLowerCase()] || {};
-      const rates: Record<string, number> = {};
-      for (const [cur, rate] of Object.entries(rawRates)) {
-        rates[cur.toUpperCase()] = rate as number;
+    // Fallback: open.er-api.com — supports TWD, KRW, VND, THB and 160+ currencies
+    const erRes = await fetch(`https://open.er-api.com/v6/latest/${base}`);
+    if (erRes.ok) {
+      const erData = await erRes.json() as any;
+      const rawRates: Record<string, number> = erData.rates || {};
+      delete rawRates[base];
+      if (Object.keys(rawRates).length > 0) {
+        const result = { base, rates: rawRates };
+        await c.env.KV.put(cacheKey, JSON.stringify(result), { expirationTtl: 3600 });
+        return c.json(result);
       }
-      delete rates[base.toUpperCase()];
-      const result = { base, rates };
-      await c.env.KV.put(cacheKey, JSON.stringify(result), { expirationTtl: 3600 });
-      return c.json(result);
     }
     return c.json({ base, rates: {} });
   } catch {

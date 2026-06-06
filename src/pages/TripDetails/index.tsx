@@ -342,7 +342,9 @@ export function TripDetails() {
 
   const getUserNameById = (uid: number) => {
     const found = tripUsers?.find(u => u.id === uid);
-    return found ? found.name : 'Unknown';
+    if (found) return found.name;
+    if (user && Number(user.id) === Number(uid)) return user.name;
+    return 'Unknown';
   };
 
   const tripCoverImageUrl = getTripCoverImage(trip);

@@ -453,7 +453,20 @@ trips.post('/:id/optimize', async (c) => {
     ).bind(tripId).all();
     const unplacedCount = (unplacedRows[0] as any)?.count ?? 0;
 
-    return c.json({ success: true, message: 'Itinerary Optimized', unplacedCount });
+    const { results: conflictRows } = await c.env.DB.prepare(`
+      SELECT COUNT(DISTINCT i1.id) as count
+      FROM Itineraries i1
+      INNER JOIN Itineraries i2 ON i1.trip_id = i2.trip_id
+        AND i1.date = i2.date AND i1.id != i2.id
+      WHERE i1.trip_id = ?
+        AND i1.start_time != '' AND i1.end_time != ''
+        AND i2.start_time != '' AND i2.end_time != ''
+        AND i1.end_time > i2.start_time
+        AND i1.start_time < i2.end_time
+    `).bind(tripId).all();
+    const conflictCount = (conflictRows[0] as any)?.count ?? 0;
+
+    return c.json({ success: true, message: 'Itinerary Optimized', unplacedCount, conflictCount });
   } catch (error: any) {
     return c.json({ error: error.message }, 500);
   }
