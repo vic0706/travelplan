@@ -3,6 +3,7 @@ import { X, MapPin, Loader2, Plane, Train, Ship, Car, Bed, Bus, ArrowLeft, Clock
 import { motion } from 'framer-motion';
 import { LocationPicker } from '../pickers/LocationPicker';
 import { DateRangePicker } from '../pickers/DateRangePicker';
+import { AddressSearchInput } from '../inputs/AddressSearchInput';
 import { BookingCategory } from '../../types';
 import { clsx } from 'clsx';
 import { format, parseISO } from 'date-fns';
@@ -367,29 +368,59 @@ export function BookingForm({ initialData, onSubmit, onCancel, onDelete, loading
       {/* 出發地 / 目的地（交通） */}
       {isTransport && (
         <div className="grid grid-cols-2 gap-3">
-          <div>
-            <label className="block text-[10px] font-bold text-zinc-400 uppercase tracking-wider mb-2">出發地</label>
-            <input type="text" value={formData.start_location} onChange={e => set('start_location', e.target.value)}
-              className="w-full bg-zinc-900 border border-zinc-800 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-orange-500 transition-colors text-sm"
-              placeholder={formData.category === 'FLIGHT' ? 'TPE' : '出發地'} />
-          </div>
-          <div>
-            <label className="block text-[10px] font-bold text-zinc-400 uppercase tracking-wider mb-2">目的地</label>
-            <input type="text" value={formData.end_location} onChange={e => set('end_location', e.target.value)}
-              className="w-full bg-zinc-900 border border-zinc-800 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-orange-500 transition-colors text-sm"
-              placeholder={formData.category === 'FLIGHT' ? 'NRT' : '目的地'} />
-          </div>
+          {formData.category === 'FLIGHT' ? (
+            <>
+              <div>
+                <label className="block text-[10px] font-bold text-zinc-400 uppercase tracking-wider mb-2">出發地</label>
+                <input type="text" value={formData.start_location} onChange={e => set('start_location', e.target.value)}
+                  className="w-full bg-zinc-900 border border-zinc-800 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-orange-500 transition-colors text-sm"
+                  placeholder="TPE" />
+              </div>
+              <div>
+                <label className="block text-[10px] font-bold text-zinc-400 uppercase tracking-wider mb-2">目的地</label>
+                <input type="text" value={formData.end_location} onChange={e => set('end_location', e.target.value)}
+                  className="w-full bg-zinc-900 border border-zinc-800 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-orange-500 transition-colors text-sm"
+                  placeholder="NRT" />
+              </div>
+            </>
+          ) : (
+            <>
+              <AddressSearchInput
+                label="出發地"
+                value={formData.start_location}
+                onChange={v => set('start_location', v)}
+                onPlaceSelect={place => set('start_location', place.address)}
+                placeholder="搜尋出發站..."
+              />
+              <AddressSearchInput
+                label="目的地"
+                value={formData.end_location}
+                onChange={v => set('end_location', v)}
+                onPlaceSelect={place => set('end_location', place.address)}
+                placeholder="搜尋目的站..."
+              />
+            </>
+          )}
         </div>
       )}
 
-      {/* 飯店地址 */}
+      {/* 飯店地址（Google Places 自動補全） */}
       {formData.category === 'HOTEL' && (
-        <div>
-          <label className="block text-[10px] font-bold text-zinc-400 uppercase tracking-wider mb-2">地址</label>
-          <input type="text" value={formData.start_location} onChange={e => set('start_location', e.target.value)}
-            className="w-full bg-zinc-900 border border-zinc-800 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-orange-500 transition-colors text-sm"
-            placeholder="飯店地址" />
-        </div>
+        <AddressSearchInput
+          label="地址"
+          value={formData.start_location}
+          onChange={v => set('start_location', v)}
+          onPlaceSelect={place => {
+            setFormData(prev => ({
+              ...prev,
+              start_location:  place.address,
+              google_place_id: place.google_place_id || prev.google_place_id,
+              title:           prev.title || place.name || prev.title,
+              image_url:       prev.image_url || place.image_url || '',
+            }));
+          }}
+          placeholder="搜尋飯店或地址..."
+        />
       )}
 
       {/* 日期範圍 */}
@@ -680,24 +711,22 @@ export function BookingForm({ initialData, onSubmit, onCancel, onDelete, loading
             </div>
           </div>
 
-          {/* 地點 */}
+          {/* 地點（Google Places 自動補全） */}
           <div className="grid grid-cols-2 gap-3 border-t border-zinc-800 pt-3">
-            <div>
-              <label className="block text-[10px] font-bold text-zinc-400 uppercase tracking-wider mb-2">
-                {formData.category === 'RENTAL' ? '取車地點' : '出發地點'}
-              </label>
-              <input type="text" value={formData.start_location} onChange={e => set('start_location', e.target.value)}
-                className="w-full bg-zinc-900 border border-zinc-800 rounded-xl px-3 py-2.5 text-white text-sm focus:outline-none focus:border-orange-500 transition-colors"
-                placeholder={formData.category === 'RENTAL' ? '取車地點' : '出發地點'} />
-            </div>
-            <div>
-              <label className="block text-[10px] font-bold text-zinc-400 uppercase tracking-wider mb-2">
-                {formData.category === 'RENTAL' ? '還車地點' : '目的地點'}
-              </label>
-              <input type="text" value={formData.end_location} onChange={e => set('end_location', e.target.value)}
-                className="w-full bg-zinc-900 border border-zinc-800 rounded-xl px-3 py-2.5 text-white text-sm focus:outline-none focus:border-orange-500 transition-colors"
-                placeholder={formData.category === 'RENTAL' ? '還車地點' : '目的地點'} />
-            </div>
+            <AddressSearchInput
+              label={formData.category === 'RENTAL' ? '取車地點' : '出發地點'}
+              value={formData.start_location}
+              onChange={v => set('start_location', v)}
+              onPlaceSelect={place => set('start_location', place.address)}
+              placeholder={formData.category === 'RENTAL' ? '搜尋取車地點...' : '搜尋出發地...'}
+            />
+            <AddressSearchInput
+              label={formData.category === 'RENTAL' ? '還車地點' : '目的地點'}
+              value={formData.end_location}
+              onChange={v => set('end_location', v)}
+              onPlaceSelect={place => set('end_location', place.address)}
+              placeholder={formData.category === 'RENTAL' ? '搜尋還車地點...' : '搜尋目的地...'}
+            />
           </div>
         </div>
       )}
