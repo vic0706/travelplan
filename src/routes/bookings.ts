@@ -167,6 +167,8 @@ bookings.put('/:bookingId', async (c) => {
 bookings.delete('/:bookingId', async (c) => {
   const tripId = c.req.param('id');
   const bookingId = c.req.param('bookingId');
+  // Delete linked itinerary items first, then the booking itself
+  await c.env.DB.prepare('DELETE FROM Itineraries WHERE trip_id=? AND related_id=?').bind(tripId, bookingId).run();
   await c.env.DB.prepare('DELETE FROM Bookings WHERE id=? AND trip_id=?').bind(bookingId, tripId).run();
   return c.json({ success: true });
 });
