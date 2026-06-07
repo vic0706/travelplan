@@ -117,7 +117,7 @@ class MissingTransportError extends Error {
  * KV-cached 30 days per pair. Falls back to haversine if API unavailable.
  * Throws MissingTransportError if transport info is absent or coords missing.
  */
-async function calcTravelMins(gap: GapSlot, item: any, statements: any[], env: any): Promise<number> {
+async function calcTravelMins(gap: GapSlot, item: any, statements: any[], metaStatements: any[], env: any): Promise<number> {
   if (!gap.lastItem) return 0;
   const prev = gap.lastItem;
   const rawMode = (prev.next_transport_mode || '').toUpperCase();
@@ -191,9 +191,15 @@ async function calcTravelMins(gap: GapSlot, item: any, statements: any[], env: a
       throw new MissingTransportError(prev.id, prev.title || String(prev.id));
     }
 
+    // Critical update — column exists since initial schema; must not be batched with new columns.
     statements.push(env.DB.prepare(
-      `UPDATE Itineraries SET next_transport_auto_time = ?, next_transport_resolved_mode = ?, next_transport_haversine_time = ? WHERE id = ?`
-    ).bind(mins, resolvedMode, haversineVal ?? mins, prev.id));
+      `UPDATE Itineraries SET next_transport_auto_time = ? WHERE id = ?`
+    ).bind(mins, prev.id));
+    // Metadata update — columns added in migration 0003; batched separately so a missing
+    // column on production does not roll back the critical update above.
+    metaStatements.push(env.DB.prepare(
+      `UPDATE Itineraries SET next_transport_resolved_mode = ?, next_transport_haversine_time = ? WHERE id = ?`
+    ).bind(resolvedMode, haversineVal ?? mins, prev.id));
     return mins;
   }
 
@@ -213,11 +219,12 @@ async function placeInGap(
   windowStart: number,
   windowEnd: number,
   statements: any[],
+  metaStatements: any[],
   env: any
 ): Promise<boolean> {
   let travelMins: number;
   try {
-    travelMins = await calcTravelMins(gap, item, statements, env);
+    travelMins = await calcTravelMins(gap, item, statements, metaStatements, env);
   } catch (e) {
     if (e instanceof MissingTransportError) {
       travelMins = 0; // no transport info → assume immediate adjacency
@@ -281,6 +288,7 @@ export async function optimizeDailyItinerary(env: any, tripId: number, dateStr: 
   if (rawItems.length === 0) return;
 
   const statements: any[] = [];
+  const metaStatements: any[] = [];
 
   const fixedItems = (rawItems as any[])
     .filter(i => i.is_time_fixed === 1)
@@ -354,7 +362,7 @@ export async function optimizeDailyItinerary(env: any, tripId: number, dateStr: 
       const pref = getPreferredWindow(item, dateStr);
       const winStart = Math.max(pref.start, gap.start);
       const winEnd   = Math.min(pref.end,   gap.end);
-      if (await placeInGap(gap, item, stayDuration, winStart, winEnd, statements, env)) {
+      if (await placeInGap(gap, item, stayDuration, winStart, winEnd, statements, metaStatements, env)) {
         unplaced.delete(idx);
       }
     }
@@ -369,7 +377,7 @@ export async function optimizeDailyItinerary(env: any, tripId: number, dateStr: 
       const idx = smartItems.indexOf(item);
       if (!unplaced.has(idx)) continue;
       const stayDuration = parseInt(item.stay_duration) || 60;
-      if (await placeInGap(gap, item, stayDuration, gap.start, gap.end, statements, env)) {
+      if (await placeInGap(gap, item, stayDuration, gap.start, gap.end, statements, metaStatements, env)) {
         unplaced.delete(idx);
       }
     }
@@ -392,11 +400,14 @@ export async function optimizeDailyItinerary(env: any, tripId: number, dateStr: 
     const nextFixed = fixedItems.find((b: any) => timeToMins(b.start_time) === gap.end);
     if (!nextFixed) continue;
     try {
-      await calcTravelMins(gap, nextFixed, statements, env);
+      await calcTravelMins(gap, nextFixed, statements, metaStatements, env);
     } catch { /* skip if no coords or transport info */ }
   }
 
   if (statements.length > 0) await env.DB.batch(statements);
+  // Metadata columns (migration 0003) — batch separately; if production DB is missing the
+  // columns this fails gracefully without rolling back the critical updates above.
+  if (metaStatements.length > 0) await env.DB.batch(metaStatements).catch(() => {});
 
   // Sub-item scheduling: assign start/end times to sub-items with duration > 0
   const allScheduled = [
