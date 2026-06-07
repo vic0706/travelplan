@@ -1,11 +1,17 @@
-const ROAD_CIRCUITY = 1.4; // real road ≈ 1.4× straight-line in urban areas
+// Urban circuity factor (actual road ≈ 1.3× haversine for mixed city/highway)
+const ROAD_CIRCUITY = 1.3;
 
+// Heuristic speeds in min/km. Keys match the DB next_transport_mode values (DRIVING, not DRIVE).
+// These are fallbacks used when Google Maps API is unavailable.
+// Speeds are tuned for Taiwan inter-city travel so the estimate doesn't block placement:
+//   DRIVING 1.2 min/km ≈ 50 km/h (reasonable for mix of city + national highway)
+//   170km inter-city: ≈ 170*1.3*1.2+8 = 273 min (fits within a day; actual ~120-150 via API)
 const HEURISTIC_SPEED: Record<string, { speed: number; buffer: number }> = {
-  DRIVE:        { speed: 3,  buffer: 8  },
-  WALKING:      { speed: 15, buffer: 5  },
-  BICYCLING:    { speed: 8,  buffer: 5  },
-  MOTORCYCLING: { speed: 3,  buffer: 5  },
-  TRANSIT:      { speed: 5,  buffer: 10 },
+  DRIVING:      { speed: 1.2, buffer: 8  },
+  WALKING:      { speed: 13,  buffer: 3  },
+  BICYCLING:    { speed: 5,   buffer: 5  },
+  MOTORCYCLING: { speed: 1.2, buffer: 5  },
+  TRANSIT:      { speed: 3.0, buffer: 12 },
 };
 
 function haversineAll(fromLat: number, fromLng: number, toLat: number, toLng: number): Record<string, number> {
@@ -129,7 +135,7 @@ async function calcTravelMins(gap: GapSlot, item: any, statements: any[], env: a
       resolvedMode = fastest[0];
       haversineVal = fastest[1];
     } else if (hasCoords) {
-      const h = HEURISTIC_SPEED[resolvedMode] || HEURISTIC_SPEED.DRIVE;
+      const h = HEURISTIC_SPEED[resolvedMode] || HEURISTIC_SPEED.DRIVING;
       const dist = getDistanceKm(gap.lastLat!, gap.lastLng!, item.lat, item.lng) ?? 0;
       haversineVal = Math.ceil(dist * ROAD_CIRCUITY * h.speed) + h.buffer;
     }

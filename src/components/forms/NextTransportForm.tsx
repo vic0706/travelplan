@@ -38,15 +38,15 @@ function haversineKm(lat1: number, lng1: number, lat2: number, lng2: number): nu
   return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
 }
 
-// Matches optimizer.ts HEURISTIC_SPEED (circuity 1.4×)
+// Matches optimizer.ts HEURISTIC_SPEED — keep in sync when changing either
 const HEURISTIC: Record<string, { speed: number; buffer: number }> = {
-  DRIVING:      { speed: 3,  buffer: 8  },
-  TRANSIT:      { speed: 5,  buffer: 10 },
-  WALKING:      { speed: 15, buffer: 5  },
-  BICYCLING:    { speed: 8,  buffer: 5  },
-  MOTORCYCLING: { speed: 3,  buffer: 5  },
+  DRIVING:      { speed: 1.2, buffer: 8  },
+  TRANSIT:      { speed: 3.0, buffer: 12 },
+  WALKING:      { speed: 13,  buffer: 3  },
+  BICYCLING:    { speed: 5,   buffer: 5  },
+  MOTORCYCLING: { speed: 1.2, buffer: 5  },
 };
-const ROAD_CIRCUITY = 1.4;
+const ROAD_CIRCUITY = 1.3;
 
 function haversineEstimate(dist: number, mode: string): number {
   const h = HEURISTIC[mode] || HEURISTIC.DRIVING;
@@ -249,13 +249,14 @@ export function NextTransportForm({ isOpen, onClose, itinerary, nextItinerary, o
               const Icon = m.icon;
               const isActive = mode === m.id;
               const est = estimates[m.id];
+              const showDualTime = isActive && isAutoTime && m.id !== 'CUSTOM' && m.id !== 'AUTO';
 
               return (
                 <button
                   key={m.id} type="button"
                   onClick={() => { setMode(m.id); if (m.id === 'AUTO') setIsAutoTime(true); }}
                   className={clsx(
-                    'flex flex-col items-center justify-center gap-1 py-2.5 rounded-2xl border transition-all active:scale-95',
+                    'flex flex-col items-center justify-center gap-0.5 py-2.5 rounded-2xl border transition-all active:scale-95',
                     isActive
                       ? 'bg-orange-500/10 border-orange-500/50 text-orange-500 shadow-inner'
                       : 'bg-[#242426] border-zinc-800 text-zinc-500 hover:bg-zinc-800 hover:text-white hover:border-zinc-500'
@@ -263,11 +264,22 @@ export function NextTransportForm({ isOpen, onClose, itinerary, nextItinerary, o
                 >
                   <Icon size={18} className="shrink-0" />
                   <span className="text-[9px] font-bold tracking-wide">{m.label}</span>
-                  {/* Always show haversine below each mode button */}
+                  {/* Non-active: haversine only; Active + auto-time: haversine + Google Maps */}
                   {m.id !== 'CUSTOM' && m.id !== 'AUTO' && (
-                    <span className={clsx('text-[9px] font-bold leading-none', isActive ? 'text-orange-400' : 'text-zinc-600')}>
-                      {est ? `~${est}分` : null}
-                    </span>
+                    <div className="flex flex-col items-center leading-none gap-0.5">
+                      <span className={clsx('text-[9px] font-bold', isActive ? 'text-orange-400' : 'text-zinc-600')}>
+                        {est ? `~${est}分` : null}
+                      </span>
+                      {showDualTime && (
+                        <span className="text-[9px] font-black text-orange-300 flex items-center gap-0.5">
+                          {loadingAccurate
+                            ? <Loader2 size={8} className="animate-spin" />
+                            : accurateMins !== null
+                              ? `=${accurateMins}分`
+                              : hasCoords ? '…' : null}
+                        </span>
+                      )}
+                    </div>
                   )}
                 </button>
               );
@@ -335,26 +347,11 @@ export function NextTransportForm({ isOpen, onClose, itinerary, nextItinerary, o
                 )}
               </div>
 
-              {/* Auto time: show haversine + Google Maps simultaneously */}
+              {/* Auto time: info text (actual times shown in mode button above) */}
               {(isAutoTime && mode !== 'CUSTOM') && (
-                <div className="space-y-2 pt-0.5">
-                  {estimates[mode] && (
-                    <div className="flex items-center justify-between text-[10px]">
-                      <span className="text-zinc-600 font-bold">📐 距離估算</span>
-                      <span className="text-zinc-500 font-black">~{estimates[mode]}分</span>
-                    </div>
-                  )}
-                  <div className="flex items-center justify-between text-[10px]">
-                    <span className="text-zinc-600 font-bold">🗺 Google Maps</span>
-                    <span className="font-black text-orange-400 flex items-center gap-1">
-                      {loadingAccurate
-                        ? <Loader2 size={11} className="animate-spin" />
-                        : accurateMins !== null
-                          ? <>{accurateMins}分 <Sparkles size={9} /></>
-                          : hasCoords ? '查詢中...' : '—'}
-                    </span>
-                  </div>
-                </div>
+                <p className="text-[10px] text-zinc-600 text-center font-bold italic pt-0.5">
+                  {hasCoords ? '交通時間顯示在上方交通選項中' : '請為兩個活動加入位置以取得時間估算'}
+                </p>
               )}
 
               {/* Manual time: number input + slider */}

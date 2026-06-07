@@ -106,7 +106,7 @@ export function TripSettingsForm({ trip, onUpdate, onDelete, onClose, showToast 
         const data = await res.json() as any;
         onUpdate();
         if (data.unplacedCount > 0) {
-          showToast?.(`排序完成，但有 ${data.unplacedCount} 個行程無法排入（時間不足）`, 'error');
+          showToast?.(`排序失敗：有 ${data.unplacedCount} 個行程無法排入時間內`, 'error');
         } else if (data.conflictCount > 0) {
           showToast?.(`排序完成，但有 ${data.conflictCount} 個行程時間重疊，請手動調整`, 'error');
         } else if (data.missingTransportDates?.length > 0) {
