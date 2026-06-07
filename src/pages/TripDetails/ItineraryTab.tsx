@@ -21,6 +21,8 @@ interface ItineraryTabProps {
   onEditItinerary: (item: Itinerary) => void;
   onEditNextTransport: (item: Itinerary) => void;
   onEditBooking: (booking: Booking) => void;
+  onCopyItinerary: (item: Itinerary) => void;
+  onChangeDateItinerary: (item: Itinerary) => void;
 }
 
 export function ItineraryTab({
@@ -28,6 +30,7 @@ export function ItineraryTab({
   bookings, canEdit, expandSignal, collapseSignal,
   isWeatherExpanded, onToggleWeather,
   onAddActivity, onEditItinerary, onEditNextTransport, onEditBooking,
+  onCopyItinerary, onChangeDateItinerary,
 }: ItineraryTabProps) {
   return (
     <div className="space-y-6">
@@ -60,15 +63,26 @@ export function ItineraryTab({
                 );
               }
             }
+            // Any item with related_id pointing to a known booking (non-TRANSPORTATION) → BookingForm
+            const linkedBooking = item.related_id
+              ? bookings.find(b => b.id === item.related_id)
+              : undefined;
+            const displayItem = linkedBooking && !item.image_url
+              ? { ...item, image_url: linkedBooking.image_url || '' }
+              : item;
             return (
               <div key={`itinerary-${item.id}`} className="space-y-2">
                 <ItineraryCard
-                  item={item} canEdit={canEdit}
+                  item={displayItem}
+                  nextItem={filteredItineraries[index + 1]}
+                  canEdit={canEdit}
                   isConflicted={conflictedIdsInView.has(item.id)}
-                  onEdit={() => onEditItinerary(item)}
+                  onEdit={() => linkedBooking ? onEditBooking(linkedBooking) : onEditItinerary(item)}
                   showNextTransport={index < filteredItineraries.length - 1}
                   onEditNextTransport={() => onEditNextTransport(item)}
                   expandSignal={expandSignal} collapseSignal={collapseSignal}
+                  onCopy={() => onCopyItinerary(item)}
+                  onChangeDate={() => onChangeDateItinerary(item)}
                 />
               </div>
             );

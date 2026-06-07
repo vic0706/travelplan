@@ -48,8 +48,12 @@ const safeParseArray = (data: any) => {
 };
 
 const parseInitialMembers = (membersData: any, currentUserId?: number) => {
-  if (!Array.isArray(membersData)) return currentUserId ? [currentUserId] : [];
-  return membersData.map(m => Number(typeof m === 'object' && m !== null ? m.user_id : m)).filter(Boolean);
+  const ids: number[] = Array.isArray(membersData)
+    ? membersData.map(m => Number(typeof m === 'object' && m !== null ? (m.id ?? m.user_id) : m)).filter(Boolean)
+    : [];
+  // Always include the current user (admin) even if they're not yet in TripMembers
+  if (currentUserId && !ids.includes(currentUserId)) ids.push(currentUserId);
+  return ids;
 };
 
 export function TripBaseForm({ initialData, onSubmit, onCancel, submitText, loading = false, extraButtons, onChange, hideSubmit = false }: TripBaseFormProps) {

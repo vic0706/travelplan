@@ -11,8 +11,14 @@ const getCroppedImg = async (imageSrc: string, pixelCrop: any): Promise<Blob> =>
   const ctx = canvas.getContext('2d');
   if (!ctx) throw new Error('No 2d context');
 
-  canvas.width = pixelCrop.width;
-  canvas.height = pixelCrop.height;
+  // Scale down to max 1200px to reduce file size while keeping good quality
+  const MAX_SIDE = 1200;
+  const scale = Math.min(1, MAX_SIDE / Math.max(pixelCrop.width, pixelCrop.height));
+  const outW = Math.round(pixelCrop.width * scale);
+  const outH = Math.round(pixelCrop.height * scale);
+
+  canvas.width = outW;
+  canvas.height = outH;
 
   ctx.drawImage(
     image,
@@ -22,15 +28,15 @@ const getCroppedImg = async (imageSrc: string, pixelCrop: any): Promise<Blob> =>
     pixelCrop.height,
     0,
     0,
-    pixelCrop.width,
-    pixelCrop.height
+    outW,
+    outH
   );
 
   return new Promise((resolve, reject) => {
     canvas.toBlob((file) => {
       if (file) resolve(file);
       else reject(new Error('Canvas is empty'));
-    }, 'image/jpeg', 0.9);
+    }, 'image/jpeg', 0.75);
   });
 };
 

@@ -1,7 +1,6 @@
 import React from 'react';
-import { Plus } from 'lucide-react';
+import { Plus, Plane, Train, Ship, Car, Bed, Bus } from 'lucide-react';
 import { isPast, isSameDay, parseISO } from 'date-fns';
-import { clsx } from 'clsx';
 import { Expense, Booking } from '../../types';
 import { FinanceOverview } from '../../components/widgets/FinanceOverview';
 import { BookingCard } from '../../components/cards/BookingCard';
@@ -19,9 +18,31 @@ interface InfoTabProps {
   onEditBooking: (booking: Booking) => void;
 }
 
+const GROUP_CONFIG = [
+  { cat: 'FLIGHT',           icon: Plane, label: '機票' },
+  { cat: 'TRAIN',            icon: Train, label: '火車 / 高鐵' },
+  { cat: 'FERRY',            icon: Ship,  label: '船票' },
+  { cat: 'BUS',              icon: Bus,   label: '公車 / 巴士' },
+  { cat: 'HOTEL',            icon: Bed,   label: '住宿' },
+  { cat: 'RENTAL',           icon: Car,   label: '租車' },
+  { cat: 'PRIVATE_TRANSFER', icon: Car,   label: '包車 / 接送' },
+] as const;
+
+function sortBookings(list: Booking[]): Booking[] {
+  const now = new Date();
+  return [...list].sort((a, b) => {
+    const dateA = parseISO(`${a.start_date}T${a.start_time || '00:00'}`);
+    const dateB = parseISO(`${b.start_date}T${b.start_time || '00:00'}`);
+    const aPast = isPast(dateA) && !isSameDay(dateA, now);
+    const bPast = isPast(dateB) && !isSameDay(dateB, now);
+    if (aPast && !bPast) return 1;
+    if (!aPast && bPast) return -1;
+    return dateA.getTime() - dateB.getTime();
+  });
+}
+
 export function InfoTab({
-  expenses, tripUsers, currency, bookings, bookingFilter, setBookingFilter,
-  availableBookingCategories, canEdit, onAddBooking, onEditBooking,
+  expenses, tripUsers, currency, bookings, canEdit, onAddBooking, onEditBooking,
 }: InfoTabProps) {
   return (
     <div className="space-y-6">
@@ -36,40 +57,31 @@ export function InfoTab({
         </div>
 
         {bookings.length > 0 ? (
-          <>
-            {availableBookingCategories.length > 2 && (
-              <div className="flex gap-2 overflow-x-auto no-scrollbar px-2 pb-2">
-                {availableBookingCategories.map(cat => (
-                  <button key={cat} onClick={() => setBookingFilter(cat)}
-                    className={clsx('px-4 py-1.5 rounded-full text-xs font-bold whitespace-nowrap transition-colors border',
-                      bookingFilter === cat
-                        ? 'bg-orange-500 text-white border-orange-500'
-                        : 'bg-zinc-900 border-zinc-800 text-zinc-400 hover:text-white hover:bg-zinc-800'
-                    )}>
-                    {cat === 'ALL' ? '全部' : cat}
-                  </button>
-                ))}
-              </div>
-            )}
-            <div className="grid grid-cols-1 gap-4">
-              {bookings
-                .filter(b => bookingFilter === 'ALL' || b.category === bookingFilter)
-                .sort((a, b) => {
-                  const now = new Date();
-                  const dateA = parseISO(`${a.start_date}T${a.start_time}`);
-                  const dateB = parseISO(`${b.start_date}T${b.start_time}`);
-                  const aPast = isPast(dateA) && !isSameDay(dateA, now);
-                  const bPast = isPast(dateB) && !isSameDay(dateB, now);
-                  if (aPast && !bPast) return 1;
-                  if (!aPast && bPast) return -1;
-                  return dateA.getTime() - dateB.getTime();
-                })
-                .map(booking => (
-                  <BookingCard key={booking.id} booking={booking} canEdit={canEdit}
-                    onEdit={() => onEditBooking(booking)} />
-                ))}
-            </div>
-          </>
+          <div className="space-y-6">
+            {GROUP_CONFIG.map(({ cat, icon: Icon, label }) => {
+              const group = sortBookings(bookings.filter(b => b.category === cat));
+              if (group.length === 0) return null;
+              return (
+                <div key={cat} className="space-y-3">
+                  {/* Group header */}
+                  <div className="flex items-center gap-2.5 px-1">
+                    <div className="w-6 h-6 rounded-lg bg-orange-500/10 flex items-center justify-center shrink-0">
+                      <Icon size={13} className="text-orange-400" />
+                    </div>
+                    <span className="text-[11px] font-black text-zinc-400 uppercase tracking-widest">{label}</span>
+                    <div className="flex-1 h-px bg-zinc-800" />
+                  </div>
+                  {/* Cards */}
+                  <div className="space-y-3">
+                    {group.map(booking => (
+                      <BookingCard key={booking.id} booking={booking} canEdit={canEdit}
+                        onEdit={() => onEditBooking(booking)} />
+                    ))}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
         ) : (
           <div className="bg-zinc-900/50 border border-dashed border-zinc-800 rounded-3xl p-12 text-center text-zinc-500">
             <p className="text-sm">尚無訂票資料</p>

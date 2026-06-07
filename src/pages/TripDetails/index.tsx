@@ -2,7 +2,7 @@ import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useAppStore } from '../../store';
 import { format, parseISO, addDays, differenceInDays, isSameDay, addMinutes, isBefore, startOfDay } from 'date-fns';
-import { Map, Info, Wallet, ArrowLeft, Settings, Edit3, ChevronsUpDown, ChevronsDownUp, Unlock, Loader2, Camera, CheckCircle2, XCircle } from 'lucide-react';
+import { Map, Info, Wallet, ArrowLeft, Settings, Edit3, ChevronsUpDown, ChevronsDownUp, Unlock, Loader2, Camera, CheckCircle2, XCircle, X } from 'lucide-react';
 import { Trip, Itinerary, Expense, Booking } from '../../types';
 import { clsx } from 'clsx';
 import { db } from '../../db';
@@ -118,6 +118,16 @@ export function TripDetails() {
   const { user } = useAppStore();
   const { refreshTripData } = useTripData(id);
 
+  // Read safe-area-inset-top for PWA header height calculation
+  const [safeTop, setSafeTop] = useState(0);
+  useEffect(() => {
+    const el = document.createElement('div');
+    el.style.cssText = 'position:fixed;top:0;height:env(safe-area-inset-top,0px);visibility:hidden;pointer-events:none;';
+    document.body.appendChild(el);
+    setSafeTop(el.offsetHeight || 0);
+    document.body.removeChild(el);
+  }, []);
+
   const trip     = useLiveQuery(() => db.trips.get(Number(id) || 0), [id]);
   const itineraries = useLiveQuery(() => db.itineraries.where('trip_id').equals(Number(id) || 0).toArray(), [id]) || [];
   const expenses = useLiveQuery(() => db.expenses.where('trip_id').equals(Number(id) || 0).toArray(), [id]) || [];
@@ -177,10 +187,16 @@ export function TripDetails() {
   const [isItineraryFormOpen, setIsItineraryFormOpen]     = useState(false);
   const [isNextTransportFormOpen, setIsNextTransportFormOpen] = useState(false);
   const [isBookingFormOpen, setIsBookingFormOpen]         = useState(false);
+  const [bookingLoading, setBookingLoading]               = useState(false);
 
   const [editingItinerary, setEditingItinerary] = useState<Itinerary | null>(null);
+  const [changingDateItem, setChangingDateItem] = useState<Itinerary | null>(null);
   const [editingExpense,   setEditingExpense]   = useState<Expense | null>(null);
   const [editingBooking,   setEditingBooking]   = useState<Booking | null>(null);
+
+  const [copyTarget, setCopyTarget] = useState<Itinerary | null>(null);
+  const [copyTitle,  setCopyTitle]  = useState('');
+  const [copyDate,   setCopyDate]   = useState('');
 
   const [isEditMode, setIsEditMode] = useState(false);
 
@@ -231,6 +247,59 @@ export function TripDetails() {
         } catch (err) { console.error(err); showToast('刪除訂票失敗', 'error'); }
       }
     });
+  };
+
+  const handleCopyClick = (item: Itinerary) => {
+    setCopyTarget(item);
+    setCopyTitle(`${item.title}（複製）`);
+    setCopyDate(item.date || (selectedDate ? format(selectedDate, 'yyyy-MM-dd') : ''));
+  };
+
+  const handleCopyConfirm = async () => {
+    if (!id || !copyTarget || !copyTitle.trim() || !copyDate) return;
+    try {
+      const payload = {
+        ...copyTarget,
+        title: copyTitle,
+        date: copyDate,
+        is_time_fixed: 0,
+        start_time: '',
+        end_time: '',
+        tags: Array.isArray(copyTarget.tags) ? copyTarget.tags : [],
+        sub_items: typeof copyTarget.sub_items === 'string' ? copyTarget.sub_items : '[]',
+      };
+      const { id: _id, trip_id: _tid, ...rest } = payload as any;
+      const res = await apiFetch(`/api/trips/${id}/itineraries`, {
+        method: 'POST',
+        body: JSON.stringify(rest),
+      });
+      if (res.ok) {
+        showToast('活動已複製', 'success');
+        setCopyTarget(null);
+        setTimeout(() => refreshTripData(), 300);
+      } else showToast('複製失敗', 'error');
+    } catch { showToast('複製失敗', 'error'); }
+  };
+
+  const handleChangeDateItinerary = async (item: Itinerary, newDate: string) => {
+    if (!id) return;
+    try {
+      const res = await apiFetch(`/api/trips/${id}/itineraries/${item.id}`, {
+        method: 'PUT',
+        body: JSON.stringify({
+          ...item,
+          date: newDate,
+          tags: Array.isArray(item.tags) ? item.tags : [],
+          sub_items: typeof item.sub_items === 'string' ? item.sub_items : '[]',
+        }),
+      });
+      if (res.ok) {
+        await db.itineraries.update(item.id, { date: newDate });
+        setChangingDateItem(null);
+        showToast('日期已更新', 'success');
+        setTimeout(() => refreshTripData(), 300);
+      } else showToast('更新日期失敗', 'error');
+    } catch { showToast('更新日期失敗', 'error'); }
   };
 
   const isMember = user && (
@@ -288,7 +357,9 @@ export function TripDetails() {
 
   const getUserNameById = (uid: number) => {
     const found = tripUsers?.find(u => u.id === uid);
-    return found ? found.name : 'Unknown';
+    if (found) return found.name;
+    if (user && Number(user.id) === Number(uid)) return user.name;
+    return 'Unknown';
   };
 
   const tripCoverImageUrl = getTripCoverImage(trip);
@@ -320,9 +391,8 @@ export function TripDetails() {
         {/* 單一 motion.div 動畫高度，避免 AnimatePresence 切換造成跑版 */}
         <motion.div
           className="relative w-full overflow-hidden"
-          animate={{ height: isCoverExpanded ? 220 : 130 }}
+          animate={{ height: (isCoverExpanded ? 220 : 130) + safeTop }}
           transition={{ duration: 0.32, ease: [0.32, 0.72, 0, 1] }}
-          style={{ paddingTop: 'env(safe-area-inset-top)' }}
         >
           {/* 封面圖 */}
           <img
@@ -334,8 +404,11 @@ export function TripDetails() {
           {/* 漸層遮罩 */}
           <div className="absolute inset-0 bg-gradient-to-b from-black/80 via-black/20 to-black/80 pointer-events-none" />
 
-          {/* 頂部工具列 */}
-          <div className="absolute top-0 left-0 right-0 flex items-center justify-between px-4 pt-3">
+          {/* 頂部工具列：top 從 safe-area-inset-top 開始，避免被狀態列遮住 */}
+          <div
+            className="absolute left-0 right-0 flex items-center justify-between px-4 pt-3"
+            style={{ top: safeTop }}
+          >
             <button
               onClick={() => navigate('/')}
               className="p-2 bg-black/40 backdrop-blur-md rounded-full text-white border border-white/20"
@@ -467,6 +540,8 @@ export function TripDetails() {
             onEditItinerary={(item) => { setEditingItinerary(item); setIsItineraryFormOpen(true); }}
             onEditNextTransport={(item) => { setEditingItinerary(item); setIsNextTransportFormOpen(true); }}
             onEditBooking={(booking) => { setEditingBooking(booking); setIsBookingFormOpen(true); }}
+            onCopyItinerary={(item) => handleCopyClick(item)}
+            onChangeDateItinerary={(item) => setChangingDateItem(item)}
           />
         )}
 
@@ -582,8 +657,11 @@ export function TripDetails() {
             <motion.div initial={{ y: '100%' }} animate={{ y: 0 }} exit={{ y: '100%' }} transition={{ duration: 0.22, ease: [0.32, 0.72, 0, 1] }} className="w-full max-w-md">
               <BookingForm
                 initialData={editingBooking}
+                tripStartDate={trip?.start_date}
+                tripEndDate={trip?.end_date}
                 onSubmit={async (data) => {
                   if (!id) return;
+                  setBookingLoading(true);
                   try {
                     const endpoint = editingBooking ? `/api/trips/${id}/bookings/${editingBooking.id}` : `/api/trips/${id}/bookings`;
                     const method = editingBooking ? 'PUT' : 'POST';
@@ -592,9 +670,11 @@ export function TripDetails() {
                     showToast('訂票已儲存', 'success');
                     setIsBookingFormOpen(false); setEditingBooking(null); setTimeout(() => refreshTripData(), 300);
                   } catch (e) { showToast('儲存訂票失敗', 'error'); }
+                  finally { setBookingLoading(false); }
                 }}
                 onCancel={() => { setIsBookingFormOpen(false); setEditingBooking(null); }}
                 onDelete={editingBooking ? () => handleDeleteBooking(editingBooking.id) : undefined}
+                loading={bookingLoading}
               />
             </motion.div>
           </div>
@@ -605,6 +685,11 @@ export function TripDetails() {
             isOpen={isNextTransportFormOpen}
             onClose={() => { setIsNextTransportFormOpen(false); setEditingItinerary(null); }}
             itinerary={editingItinerary}
+            nextItinerary={(() => {
+              const sorted = [...filteredItineraries].sort((a, b) => (a.start_time || '').localeCompare(b.start_time || ''));
+              const idx = sorted.findIndex(i => i.id === editingItinerary.id);
+              return idx >= 0 ? (sorted[idx + 1] ?? null) : null;
+            })()}
             onSave={async (data) => {
               if (!id) return;
               try {
@@ -618,6 +703,122 @@ export function TripDetails() {
               } catch (e) { showToast('儲存交通資訊失敗', 'error'); }
             }}
           />
+        )}
+      </AnimatePresence>
+
+      <AnimatePresence>
+        {changingDateItem && (
+          <div className="fixed inset-0 z-[100] flex items-end justify-center bg-black/80 backdrop-blur-sm">
+            <motion.div
+              initial={{ y: '100%' }}
+              animate={{ y: 0 }}
+              exit={{ y: '100%' }}
+              transition={{ duration: 0.22, ease: [0.32, 0.72, 0, 1] }}
+              className="w-full max-w-md bg-zinc-900 rounded-t-3xl border border-zinc-800 shadow-2xl"
+            >
+              <div className="flex items-center justify-between px-6 pt-5 pb-4 border-b border-zinc-800">
+                <div>
+                  <h3 className="text-white font-black text-base">移動活動至</h3>
+                  <p className="text-zinc-400 text-xs mt-0.5 truncate max-w-[220px]">{changingDateItem.title}</p>
+                </div>
+                <button onClick={() => setChangingDateItem(null)} className="p-2 rounded-full text-zinc-400 hover:text-white hover:bg-zinc-800 transition-colors">
+                  <X size={18} />
+                </button>
+              </div>
+              <div className="p-4 space-y-2 max-h-80 overflow-y-auto custom-scrollbar">
+                {dates.map(date => {
+                  const dateStr = format(date, 'yyyy-MM-dd');
+                  const isCurrent = dateStr === changingDateItem.date;
+                  return (
+                    <button
+                      key={dateStr}
+                      disabled={isCurrent}
+                      onClick={() => handleChangeDateItinerary(changingDateItem, dateStr)}
+                      className={`w-full py-3.5 px-4 rounded-2xl text-left transition-all flex items-center gap-3 ${
+                        isCurrent
+                          ? 'bg-zinc-800/50 text-zinc-500 cursor-not-allowed'
+                          : 'bg-zinc-800/30 text-white hover:bg-orange-500/20 hover:border-orange-500/40 border border-zinc-700/50 hover:text-orange-400 active:bg-orange-500/30'
+                      }`}
+                    >
+                      <span className={`text-[10px] font-black uppercase tracking-widest w-8 ${isCurrent ? 'text-zinc-600' : 'text-zinc-500'}`}>
+                        {format(date, 'EEE')}
+                      </span>
+                      <span className="font-bold text-sm">{format(date, 'MM/dd')}</span>
+                      {isCurrent && <span className="text-[10px] text-zinc-500 ml-auto">目前日期</span>}
+                    </button>
+                  );
+                })}
+              </div>
+              <div className="h-safe-bottom pb-4" />
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      <AnimatePresence>
+        {copyTarget && (
+          <div className="fixed inset-0 z-[100] flex items-end justify-center bg-black/80 backdrop-blur-sm">
+            <motion.div
+              initial={{ y: '100%' }}
+              animate={{ y: 0 }}
+              exit={{ y: '100%' }}
+              transition={{ duration: 0.22, ease: [0.32, 0.72, 0, 1] }}
+              className="w-full max-w-md bg-zinc-900 rounded-t-3xl border border-zinc-800 shadow-2xl"
+            >
+              <div className="flex items-center justify-between px-6 pt-5 pb-4 border-b border-zinc-800">
+                <div>
+                  <h3 className="text-white font-black text-base">複製活動</h3>
+                  <p className="text-zinc-500 text-xs mt-0.5">設定標題與目標日期</p>
+                </div>
+                <button onClick={() => setCopyTarget(null)} className="p-2 rounded-full text-zinc-400 hover:text-white hover:bg-zinc-800 transition-colors">
+                  <X size={18} />
+                </button>
+              </div>
+              <div className="px-4 pt-4 pb-2">
+                <input
+                  type="text"
+                  value={copyTitle}
+                  onChange={e => setCopyTitle(e.target.value)}
+                  className="w-full bg-zinc-800 border border-zinc-700 rounded-2xl px-4 py-3 text-white text-sm font-medium outline-none focus:border-orange-500 transition-colors"
+                  placeholder="活動名稱"
+                />
+              </div>
+              <div className="p-4 space-y-2 max-h-64 overflow-y-auto custom-scrollbar">
+                {dates.map(date => {
+                  const dateStr = format(date, 'yyyy-MM-dd');
+                  const isSelected = dateStr === copyDate;
+                  const isCurrent  = dateStr === copyTarget.date;
+                  return (
+                    <button
+                      key={dateStr}
+                      onClick={() => setCopyDate(dateStr)}
+                      className={`w-full py-3 px-4 rounded-2xl text-left transition-all flex items-center gap-3 border ${
+                        isSelected
+                          ? 'bg-orange-500/20 border-orange-500/40 text-orange-400'
+                          : 'bg-zinc-800/30 text-white hover:bg-orange-500/10 border-zinc-700/50 hover:text-orange-400'
+                      }`}
+                    >
+                      <span className="text-[10px] font-black uppercase tracking-widest w-8 text-zinc-500">
+                        {format(date, 'EEE')}
+                      </span>
+                      <span className="font-bold text-sm">{format(date, 'MM/dd')}</span>
+                      {isCurrent && <span className="text-[10px] text-zinc-500 ml-auto">原始日期</span>}
+                    </button>
+                  );
+                })}
+              </div>
+              <div className="px-4 pb-6">
+                <button
+                  onClick={handleCopyConfirm}
+                  disabled={!copyTitle.trim() || !copyDate}
+                  className="w-full py-4 bg-orange-500 hover:bg-orange-600 disabled:opacity-50 text-white font-black rounded-2xl text-sm uppercase tracking-widest shadow-lg shadow-orange-500/20 transition-all"
+                >
+                  確認複製
+                </button>
+              </div>
+              <div className="h-safe-bottom pb-4" />
+            </motion.div>
+          </div>
         )}
       </AnimatePresence>
 

@@ -120,6 +120,12 @@ trips.post('/', async (c) => {
       JSON.stringify(currencies || []), 0, Date.now(), Date.now()
     ).run();
 
+    const creator = c.get('user');
+    if (creator) {
+      await c.env.DB.prepare('INSERT OR IGNORE INTO TripMembers (trip_id, user_id, role) VALUES (?, ?, ?)')
+        .bind(meta.last_row_id, creator.id, 'admin').run();
+    }
+
     return c.json({ id: meta.last_row_id });
   } catch (error: any) {
     return c.json({ error: error.message }, 500);
@@ -208,22 +214,161 @@ trips.delete('/:id', async (c) => {
 // ✅ 修正：補上前端呼叫但後端不存在的 endpoints，導致 404 的根本原因
 // ==========================================
 
-// 獲取特定行程的所有活動
+// 獲取特定行程的所有活動（含子活動）
 trips.get('/:id/itineraries', async (c) => {
   const tripId = c.req.param('id');
   try {
     const canView = await checkTripAccess(c, Number(tripId), 'view');
     if (!canView) return c.json({ error: 'Unauthorized' }, 403);
 
-    const { results } = await c.env.DB.prepare(
+    const { results: items } = await c.env.DB.prepare(
       'SELECT * FROM Itineraries WHERE trip_id = ? ORDER BY date, start_time'
     ).bind(tripId).all();
 
-    return c.json(results.map((item: any) => ({
+    // Fetch all sub-items for these itineraries in one query
+    const ids = (items as any[]).map(i => i.id);
+    let subMap: Record<number, any[]> = {};
+    if (ids.length > 0) {
+      const placeholders = ids.map(() => '?').join(',');
+      const { results: subs } = await c.env.DB.prepare(
+        `SELECT * FROM SubItemItineraries WHERE itinerary_id IN (${placeholders}) ORDER BY display_order, id`
+      ).bind(...ids).all();
+      for (const s of subs as any[]) {
+        if (!subMap[s.itinerary_id]) subMap[s.itinerary_id] = [];
+        subMap[s.itinerary_id].push({ ...s, tags: s.tags ? s.tags : '[]' });
+      }
+    }
+
+    return c.json((items as any[]).map((item: any) => ({
       ...item,
       tags: item.tags ? JSON.parse(item.tags) : [],
-      sub_items: item.sub_items ?? '[]',
+      sub_items: subMap[item.id] || [],
     })));
+  } catch (error: any) {
+    return c.json({ error: error.message }, 500);
+  }
+});
+
+// 新增子活動
+trips.post('/:id/itineraries/:itemId/sub-items', async (c) => {
+  const tripId = c.req.param('id');
+  const itineraryId = c.req.param('itemId');
+  try {
+    const canEdit = await checkTripAccess(c, Number(tripId), 'edit');
+    if (!canEdit) return c.json({ error: 'Unauthorized' }, 403);
+
+    const body = await c.req.json().catch(() => ({}));
+    const {
+      title, address = '', lat = null, lng = null,
+      start_time = '', end_time = '', duration = 0,
+      notes = '', tags = '[]', display_order = 0,
+    } = body;
+    if (!title) return c.json({ error: 'title is required' }, 400);
+
+    const { meta } = await c.env.DB.prepare(`
+      INSERT INTO SubItemItineraries (itinerary_id, title, address, lat, lng, start_time, end_time, duration, notes, tags, display_order)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).bind(itineraryId, title, address, lat, lng, start_time, end_time, duration, notes,
+        typeof tags === 'string' ? tags : JSON.stringify(tags), display_order).run();
+
+    return c.json({ id: meta.last_row_id, success: true }, 201);
+  } catch (error: any) {
+    return c.json({ error: error.message }, 500);
+  }
+});
+
+// 更新子活動
+trips.put('/:id/itineraries/:itemId/sub-items/:subId', async (c) => {
+  const tripId = c.req.param('id');
+  const itineraryId = c.req.param('itemId');
+  const subId = c.req.param('subId');
+  try {
+    const canEdit = await checkTripAccess(c, Number(tripId), 'edit');
+    if (!canEdit) return c.json({ error: 'Unauthorized' }, 403);
+
+    const body = await c.req.json().catch(() => ({}));
+    const { title, address, lat, lng, start_time, end_time, duration, notes, tags, display_order } = body;
+
+    await c.env.DB.prepare(`
+      UPDATE SubItemItineraries SET
+        title = ?, address = ?, lat = ?, lng = ?,
+        start_time = ?, end_time = ?, duration = ?,
+        notes = ?, tags = ?, display_order = ?
+      WHERE id = ? AND itinerary_id = ?
+    `).bind(
+      title ?? '', address ?? '', lat ?? null, lng ?? null,
+      start_time ?? '', end_time ?? '', duration ?? 0,
+      notes ?? '', typeof tags === 'string' ? tags : JSON.stringify(tags ?? []),
+      display_order ?? 0,
+      subId, itineraryId
+    ).run();
+
+    return c.json({ success: true });
+  } catch (error: any) {
+    return c.json({ error: error.message }, 500);
+  }
+});
+
+// 刪除子活動
+trips.delete('/:id/itineraries/:itemId/sub-items/:subId', async (c) => {
+  const tripId = c.req.param('id');
+  const itineraryId = c.req.param('itemId');
+  const subId = c.req.param('subId');
+  try {
+    const canEdit = await checkTripAccess(c, Number(tripId), 'edit');
+    if (!canEdit) return c.json({ error: 'Unauthorized' }, 403);
+
+    await c.env.DB.prepare(
+      'DELETE FROM SubItemItineraries WHERE id = ? AND itinerary_id = ?'
+    ).bind(subId, itineraryId).run();
+
+    return c.json({ success: true });
+  } catch (error: any) {
+    return c.json({ error: error.message }, 500);
+  }
+});
+
+// 一次性資料遷移：將 sub_items JSON → SubItemItineraries table
+trips.post('/:id/migrate-sub-items', async (c) => {
+  const tripId = c.req.param('id');
+  try {
+    const canEdit = await checkTripAccess(c, Number(tripId), 'edit');
+    if (!canEdit) return c.json({ error: 'Unauthorized' }, 403);
+
+    const { results: items } = await c.env.DB.prepare(
+      "SELECT id, sub_items FROM Itineraries WHERE trip_id = ? AND sub_items != '[]' AND sub_items != '' AND sub_items IS NOT NULL"
+    ).bind(tripId).all();
+
+    const statements: any[] = [];
+    let migrated = 0;
+
+    for (const item of items as any[]) {
+      let subs: any[] = [];
+      try { subs = JSON.parse(item.sub_items); } catch { continue; }
+      if (!Array.isArray(subs) || subs.length === 0) continue;
+
+      // Skip if already migrated (check if any sub-items exist for this itinerary)
+      const { results: existing } = await c.env.DB.prepare(
+        'SELECT id FROM SubItemItineraries WHERE itinerary_id = ? LIMIT 1'
+      ).bind(item.id).all();
+      if ((existing as any[]).length > 0) continue;
+
+      subs.forEach((sub: any, idx: number) => {
+        statements.push(c.env.DB.prepare(`
+          INSERT INTO SubItemItineraries (itinerary_id, title, address, lat, lng, start_time, end_time, duration, notes, tags, display_order)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        `).bind(
+          item.id, sub.title || '', sub.address || '', sub.lat ?? null, sub.lng ?? null,
+          sub.start_time || '', sub.end_time || '', sub.duration || 0,
+          sub.notes || '', typeof sub.tags === 'string' ? sub.tags : JSON.stringify(sub.tags ?? []),
+          idx
+        ));
+        migrated++;
+      });
+    }
+
+    if (statements.length > 0) await c.env.DB.batch(statements);
+    return c.json({ success: true, migrated });
   } catch (error: any) {
     return c.json({ error: error.message }, 500);
   }
@@ -243,7 +388,10 @@ trips.post('/:id/itineraries', async (c) => {
       google_place_id = '', lat = null, lng = null,
       rating = null, reviews_count = null, opening_hours = '',
       place_website = '', place_phone = '',
-      next_transport_mode = '', next_transport_time = '', next_transport_auto_time = '',
+      // Default to AUTO mode — optimizer will pick the fastest transport when smart scheduling runs
+      next_transport_mode = 'AUTO', next_transport_time = 'auto', next_transport_auto_time = '',
+      next_transport_resolved_mode = '', next_transport_haversine_time = '',
+      next_transport_custom_label = '',
       sub_items = '[]', is_time_fixed = 0, stay_duration = '60',
       type = 'GENERAL', related_id = null, city_id = null,
     } = body;
@@ -258,22 +406,19 @@ trips.post('/:id/itineraries', async (c) => {
         image_url, notes, tags, icon, sub_items, type, related_id,
         is_time_fixed, stay_duration,
         next_transport_mode, next_transport_time, next_transport_auto_time,
+        next_transport_resolved_mode, next_transport_haversine_time, next_transport_custom_label,
         lat, lng, google_place_id, rating, reviews_count, opening_hours,
         place_website, place_phone
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).bind(
       tripId, city_id, date, start_time, end_time, title, address,
       image_url, notes, JSON.stringify(tags), icon, sub_items, type, related_id,
       is_time_fixed ? 1 : 0, String(stay_duration),
       next_transport_mode, next_transport_time, String(next_transport_auto_time),
+      next_transport_resolved_mode, next_transport_haversine_time, next_transport_custom_label,
       lat, lng, google_place_id, rating, reviews_count, opening_hours,
       place_website, place_phone
     ).run();
-
-    // 建立成功後，嘗試自動觸發 Google Places 同步（非阻塞）
-    if (google_place_id) {
-      c.executionCtx?.waitUntil?.(syncPlaceDetails(c.env, Number(tripId)).catch(console.error));
-    }
 
     return c.json({ id: meta.last_row_id, success: true }, 201);
   } catch (error: any) {
@@ -296,6 +441,7 @@ trips.put('/:id/itineraries/:itineraryId', async (c) => {
       image_url, google_place_id, lat, lng, rating, reviews_count,
       opening_hours, place_website, place_phone, place_status, sync_conflict_warning,
       next_transport_mode, next_transport_time, next_transport_auto_time,
+      next_transport_resolved_mode, next_transport_haversine_time, next_transport_custom_label,
       sub_items, is_time_fixed, stay_duration, type, related_id, city_id,
     } = body;
 
@@ -306,6 +452,7 @@ trips.put('/:id/itineraries/:itineraryId', async (c) => {
         sub_items = ?, type = ?, related_id = ?,
         is_time_fixed = ?, stay_duration = ?,
         next_transport_mode = ?, next_transport_time = ?, next_transport_auto_time = ?,
+        next_transport_resolved_mode = ?, next_transport_haversine_time = ?, next_transport_custom_label = ?,
         lat = ?, lng = ?, google_place_id = ?, rating = ?, reviews_count = ?,
         opening_hours = ?, place_website = ?, place_phone = ?,
         place_status = ?, sync_conflict_warning = ?
@@ -317,6 +464,7 @@ trips.put('/:id/itineraries/:itineraryId', async (c) => {
       sub_items ?? '[]', type ?? 'GENERAL', related_id ?? null,
       is_time_fixed ? 1 : 0, String(stay_duration ?? '60'),
       next_transport_mode ?? '', next_transport_time ?? '', String(next_transport_auto_time ?? ''),
+      next_transport_resolved_mode ?? '', String(next_transport_haversine_time ?? ''), next_transport_custom_label ?? '',
       lat ?? null, lng ?? null, google_place_id ?? '', rating ?? null, reviews_count ?? null,
       opening_hours ?? '', place_website ?? '', place_phone ?? '',
       place_status ?? null, sync_conflict_warning ?? null,
@@ -378,12 +526,24 @@ trips.put('/:id/members', async (c) => {
     const { user_ids } = await c.req.json();
     if (!Array.isArray(user_ids)) return c.json({ error: 'user_ids must be an array' }, 400);
 
-    // 先刪除現有成員，再重新寫入
+    // Preserve existing admin roles when rebuilding member list
+    const { results: adminMembers } = await c.env.DB.prepare(
+      "SELECT user_id FROM TripMembers WHERE trip_id = ? AND role = 'admin'"
+    ).bind(id).all();
+    const adminIds = new Set(adminMembers.map((a: any) => a.user_id));
+
     const statements = [
       c.env.DB.prepare('DELETE FROM TripMembers WHERE trip_id = ?').bind(id),
-      ...user_ids.map((uid: number) =>
-        c.env.DB.prepare('INSERT OR IGNORE INTO TripMembers (trip_id, user_id, role) VALUES (?, ?, ?)').bind(id, uid, 'Member')
-      )
+      ...adminIds.size > 0
+        ? [...adminIds].map((uid) =>
+            c.env.DB.prepare('INSERT OR IGNORE INTO TripMembers (trip_id, user_id, role) VALUES (?, ?, ?)').bind(id, uid, 'admin')
+          )
+        : [],
+      ...user_ids
+        .filter((uid: number) => !adminIds.has(uid))
+        .map((uid: number) =>
+          c.env.DB.prepare('INSERT OR IGNORE INTO TripMembers (trip_id, user_id, role) VALUES (?, ?, ?)').bind(id, uid, 'Member')
+        ),
     ];
     await c.env.DB.batch(statements);
 
@@ -428,13 +588,85 @@ trips.post('/:id/optimize', async (c) => {
     if (tripInfo.length === 0) return c.json({ error: 'Trip not found' }, 404);
     const trip = tripInfo[0] as any;
 
+    // Pre-check: smart items with no transport AND at least one other item on same day
+    const { results: missingRows } = await c.env.DB.prepare(`
+      SELECT DISTINCT i1.id, i1.title, i1.date FROM Itineraries i1
+      WHERE i1.trip_id = ?
+        AND i1.is_time_fixed = 0
+        AND (
+          ((i1.next_transport_mode IS NULL OR i1.next_transport_mode = '')
+           AND (i1.next_transport_time IS NULL OR i1.next_transport_time = ''))
+          OR
+          (i1.next_transport_time = 'auto' AND (i1.lat IS NULL OR i1.lng IS NULL))
+        )
+        AND EXISTS (
+          SELECT 1 FROM Itineraries i2
+          WHERE i2.trip_id = i1.trip_id AND i2.date = i1.date AND i2.id != i1.id
+            AND i2.is_time_fixed = 0
+        )
+      ORDER BY i1.date, i1.id
+    `).bind(tripId).all();
+
+    if (missingRows.length > 0) {
+      const items = missingRows.map((r: any) => r.title || `#${r.id}`);
+      return c.json({ success: false, error: 'MISSING_TRANSPORT', items }, 422);
+    }
+
     const start = new Date(trip.start_date);
     const end = new Date(trip.end_date);
     for (let d = new Date(start); d <= end; d.setDate(d.getDate() + 1)) {
       const dateStr = d.toISOString().split('T')[0];
       await optimizeDailyItinerary(c.env, Number(tripId), dateStr);
     }
-    return c.json({ success: true, message: 'Itinerary Optimized' });
+
+    const { results: unplacedRows } = await c.env.DB.prepare(
+      `SELECT COUNT(*) as count FROM Itineraries WHERE trip_id = ? AND sync_conflict_warning LIKE '%無法插入%'`
+    ).bind(tripId).all();
+    const unplacedCount = (unplacedRows[0] as any)?.count ?? 0;
+
+    const { results: conflictRows } = await c.env.DB.prepare(`
+      SELECT COUNT(DISTINCT i1.id) as count
+      FROM Itineraries i1
+      INNER JOIN Itineraries i2 ON i1.trip_id = i2.trip_id
+        AND i1.date = i2.date AND i1.id != i2.id
+      WHERE i1.trip_id = ?
+        AND i1.start_time != '' AND i1.end_time != ''
+        AND i2.start_time != '' AND i2.end_time != ''
+        AND i1.end_time > i2.start_time
+        AND i1.start_time < i2.end_time
+    `).bind(tripId).all();
+    const conflictCount = (conflictRows[0] as any)?.count ?? 0;
+
+    const { results: missingTransportRows } = await c.env.DB.prepare(`
+      SELECT DISTINCT i1.date
+      FROM Itineraries i1
+      WHERE i1.trip_id = ?
+        AND i1.start_time IS NOT NULL AND i1.start_time != ''
+        AND (i1.next_transport_mode IS NULL OR i1.next_transport_mode = '')
+        AND EXISTS (
+          SELECT 1 FROM Itineraries i2
+          WHERE i2.trip_id = i1.trip_id
+            AND i2.date = i1.date
+            AND i2.id != i1.id
+            AND i2.start_time > i1.start_time
+        )
+      ORDER BY i1.date
+    `).bind(tripId).all();
+    const missingTransportDates = missingTransportRows.map((r: any) => r.date as string);
+
+    return c.json({ success: true, message: 'Itinerary Optimized', unplacedCount, conflictCount, missingTransportDates });
+  } catch (error: any) {
+    return c.json({ error: error.message }, 500);
+  }
+});
+
+trips.post('/:id/sync-places', async (c) => {
+  const tripId = c.req.param('id');
+  try {
+    const canEdit = await checkTripAccess(c, Number(tripId), 'edit');
+    if (!canEdit) return c.json({ error: 'Unauthorized' }, 403);
+    await syncPlaceDetails(c.env, Number(tripId));
+    return c.json({ success: true, message: '景點資訊已更新' });
   } catch (error: any) {
     return c.json({ error: error.message }, 500);
   }
@@ -452,13 +684,15 @@ trips.post('/:id/compute', async (c) => {
     if (tripInfo.length === 0) return c.json({ error: 'Trip not found' }, 404);
     const trip = tripInfo[0] as any;
 
+    await syncPlaceDetails(c.env, Number(tripId));
+
     const start = new Date(trip.start_date);
     const end = new Date(trip.end_date);
     for (let d = new Date(start); d <= end; d.setDate(d.getDate() + 1)) {
       const dateStr = d.toISOString().split('T')[0];
       await getWeatherForDate(Number(tripId), dateStr, c.env, true);
     }
-    return c.json({ success: true, message: 'Weather data synced' });
+    return c.json({ success: true, message: '資訊已更新' });
   } catch (error: any) {
     return c.json({ error: error.message }, 500);
   }

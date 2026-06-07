@@ -12,6 +12,8 @@ import expenseRoutes from './routes/expenses';
 import placeRoutes from './routes/places';
 import mediaRoutes from './routes/media';
 import cities from './routes/cities';
+import travelTimeRoute from './routes/travelTime';
+import { checkApiQuota, trackApiCall, getApiUsage, saveApiLimit } from './utils/apiQuota';
 
 export interface Env {
   DB: D1Database;
@@ -50,6 +52,7 @@ app.route('/api/trips/:id/expenses', expenseRoutes);
 app.route('/api/places', placeRoutes);
 app.route('/api/media', mediaRoutes);
 app.route('/api/cities', cities);
+app.route('/api/travel-time', travelTimeRoute);
 
 // 3. 基礎城市查詢
 app.get('/api/cities', async (c) => {
@@ -72,7 +75,7 @@ app.get('/api/settings/categories', async (c) => {
 // 📍 Google Places API 代理 (避免前端直接暴露 API Key)
 // ==========================================
 
-// 1. 地點搜尋建議 (Autocomplete)
+// 1. 地點搜尋建議 — Autocomplete (New)，附 session token（autocomplete 請求本身免費）
 app.get('/api/places/autocomplete', async (c) => {
   const q = c.req.query('q');
   if (!q) return c.json([]);
@@ -82,13 +85,32 @@ app.get('/api/places/autocomplete', async (c) => {
   if (cached) return c.json(cached);
 
   try {
-    const url = `https://maps.googleapis.com/maps/api/place/autocomplete/json?input=${encodeURIComponent(q)}&language=zh-TW&key=${c.env.GOOGLE_MAPS_API_KEY}`;
-    const res = await fetch(url);
+    await checkApiQuota(c.env, 'places_autocomplete');
+    const sessionToken = c.req.query('session') || undefined;
+    const body: any = { input: q, languageCode: 'zh-TW' };
+    if (sessionToken) body.sessionToken = sessionToken;
+
+    const res = await fetch('https://places.googleapis.com/v1/places:autocomplete', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-Goog-Api-Key': c.env.GOOGLE_MAPS_API_KEY },
+      body: JSON.stringify(body),
+    });
+    await trackApiCall(c.env, 'places_autocomplete');
     const data = await res.json() as any;
-    const predictions = data.predictions || [];
-    await c.env.KV.put(cacheKey, JSON.stringify(predictions), { expirationTtl: 86400 }); // 1 天
+    const predictions = (data.suggestions || [])
+      .filter((s: any) => s.placePrediction)
+      .map((s: any) => ({
+        place_id:    s.placePrediction.placeId,
+        description: s.placePrediction.text?.text || '',
+        structured_formatting: {
+          main_text:      s.placePrediction.structuredFormat?.mainText?.text || '',
+          secondary_text: s.placePrediction.structuredFormat?.secondaryText?.text || '',
+        },
+      }));
+    await c.env.KV.put(cacheKey, JSON.stringify(predictions), { expirationTtl: 86400 });
     return c.json(predictions);
-  } catch (error) {
+  } catch (error: any) {
+    if (error?.code === 'API_QUOTA_EXCEEDED') return c.json({ error: 'API_QUOTA_EXCEEDED', api: 'places_autocomplete' }, 429);
     return c.json({ error: 'Failed to fetch autocomplete' }, 500);
   }
 });
@@ -106,13 +128,15 @@ app.get('/api/places/details', async (c) => {
   }
 
   try {
+    await checkApiQuota(c.env, 'place_details');
     const url = `https://places.googleapis.com/v1/places/${placeId}`;
     const res = await fetch(url, {
       headers: {
         'X-Goog-Api-Key': c.env.GOOGLE_MAPS_API_KEY,
-        'X-Goog-FieldMask': 'id,location,photos,displayName,formattedAddress,rating,userRatingCount,regularOpeningHours,websiteUri,internationalPhoneNumber,businessStatus'
+        'X-Goog-FieldMask': 'id,location,photos,displayName,formattedAddress,rating,userRatingCount,currentOpeningHours,regularOpeningHours,reviewSummary,websiteUri,internationalPhoneNumber,businessStatus'
       }
     });
+    await trackApiCall(c.env, 'place_details');
 
     const data = await res.json() as any;
 
@@ -127,17 +151,94 @@ app.get('/api/places/details', async (c) => {
     }
 
     const result = { ...data, actual_photo_url: photoUri };
-    // 寫入 KV，TTL 7 天（syncPlaceDetails 也讀這個 key）
     await c.env.KV.put(cacheKey, JSON.stringify(result), { expirationTtl: 604800 });
 
     return c.json({ ...result, from_cache: false });
-  } catch (error) {
+  } catch (error: any) {
+    if (error?.code === 'API_QUOTA_EXCEEDED') return c.json({ error: 'API_QUOTA_EXCEEDED', api: 'place_details' }, 429);
     return c.json({ error: 'Failed to fetch place details' }, 500);
   }
 });
 
 
-// 5. 健康檢查
+// 5. 匯率查詢 — KV 快取 1 小時
+// Primary: frankfurter.app (ECB, major currencies — USD/EUR/JPY/GBP/etc.)
+// Fallback: open.er-api.com (free, no key, 160+ currencies incl. TWD/KRW/VND/THB)
+app.get('/api/exchange-rates', async (c) => {
+  const base = c.req.query('base') || 'TWD';
+  const cacheKey = `exchange_rates_v3:${base}`;
+  const cached = await c.env.KV.get(cacheKey, 'json');
+  if (cached) return c.json(cached);
+  try {
+    // Try frankfurter.app first (USD, EUR, JPY, GBP, etc.)
+    const fRes = await fetch(`https://api.frankfurter.app/latest?from=${base}`);
+    if (fRes.ok) {
+      const fData = await fRes.json() as any;
+      if (fData.rates && Object.keys(fData.rates).length > 0) {
+        await c.env.KV.put(cacheKey, JSON.stringify(fData), { expirationTtl: 3600 });
+        return c.json(fData);
+      }
+    }
+    // Fallback: open.er-api.com — supports TWD, KRW, VND, THB and 160+ currencies
+    const erRes = await fetch(`https://open.er-api.com/v6/latest/${base}`);
+    if (erRes.ok) {
+      const erData = await erRes.json() as any;
+      const rawRates: Record<string, number> = erData.rates || {};
+      delete rawRates[base];
+      if (Object.keys(rawRates).length > 0) {
+        const result = { base, rates: rawRates };
+        await c.env.KV.put(cacheKey, JSON.stringify(result), { expirationTtl: 3600 });
+        return c.json(result);
+      }
+    }
+    return c.json({ base, rates: {} });
+  } catch {
+    return c.json({ base, rates: {} });
+  }
+});
+
+// ── Settings endpoints ────────────────────────────────────────────────────────
+
+app.get('/api/settings', async (c) => {
+  try {
+    const { results } = await c.env.DB.prepare('SELECT key_name, value FROM App_Settings').all();
+    const settings: Record<string, string> = {};
+    for (const row of results as any[]) settings[row.key_name] = row.value;
+    return c.json(settings);
+  } catch { return c.json({}, 500); }
+});
+
+app.put('/api/settings', async (c) => {
+  const body = await c.req.json().catch(() => ({}));
+  try {
+    const stmts = Object.entries(body).map(([key, val]) =>
+      c.env.DB.prepare(
+        `INSERT INTO App_Settings (key_name, value) VALUES (?, ?)
+         ON CONFLICT(key_name) DO UPDATE SET value = excluded.value`
+      ).bind(key, String(val))
+    );
+    if (stmts.length > 0) await c.env.DB.batch(stmts);
+    return c.json({ success: true });
+  } catch (e: any) { return c.json({ error: e.message }, 500); }
+});
+
+app.get('/api/settings/api-usage', async (c) => {
+  try {
+    const usage = await getApiUsage(c.env);
+    return c.json(usage);
+  } catch (e: any) { return c.json({ error: e.message }, 500); }
+});
+
+app.put('/api/settings/api-limit', async (c) => {
+  const { apiName, limit } = await c.req.json().catch(() => ({}));
+  if (!apiName || limit == null) return c.json({ error: 'Missing apiName or limit' }, 400);
+  try {
+    await saveApiLimit(c.env, apiName, Number(limit));
+    return c.json({ success: true });
+  } catch (e: any) { return c.json({ error: e.message }, 500); }
+});
+
+// 6. 健康檢查
 app.get('/health-check', (c) => c.json({ status: 'ok', time: Date.now() }));
 
 // 6. Cloudflare Worker 進入點

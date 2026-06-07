@@ -1,14 +1,15 @@
 import React, { useEffect, useState } from 'react';
 import { useAppStore } from '../store';
-import { Save, Database, Loader2, Plus, Trash2, Tag, ArrowLeft, Image as ImageIcon, ChevronRight } from 'lucide-react';
+import { Save, Database, Loader2, Plus, Trash2, Tag, ArrowLeft, Image as ImageIcon, ChevronRight, Activity } from 'lucide-react';
 import { apiFetch } from '../utils/api';
 import { ImageCropper, uploadImageToSupabase } from '../components/widgets/ImageCropper';
 import { motion, AnimatePresence } from 'framer-motion';
 import { DynamicIcon } from '../components/common/DynamicIcon';
+import { API_FREE_LIMITS } from '../utils/apiQuota';
 
 export function AdminSettings() {
   const { user } = useAppStore();
-  const [view, setView] = useState<'main' | 'categories' | 'system'>('main');
+  const [view, setView] = useState<'main' | 'categories' | 'system' | 'api'>('main');
   const [settings, setSettings] = useState<any>({});
   const [categories, setCategories] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
@@ -19,6 +20,12 @@ export function AdminSettings() {
   const [newCat, setNewCat] = useState({ id: 0, name: '', icon: 'Circle', color: '#808080' });
   const [addingCat, setAddingCat] = useState(false);
   const [editingCatId, setEditingCatId] = useState<number | null>(null);
+
+  // Google API usage state
+  const [apiUsage, setApiUsage] = useState<Record<string, { count: number; limit: number; freeLimit: number }>>({});
+  const [apiUsageLoading, setApiUsageLoading] = useState(false);
+  const [savingLimit, setSavingLimit] = useState<string | null>(null);
+  const [editingLimits, setEditingLimits] = useState<Record<string, number>>({});
 
   // Image Upload State
   const [isCropperOpen, setIsCropperOpen] = useState(false);
@@ -32,13 +39,8 @@ export function AdminSettings() {
           apiFetch('/api/settings'),
           apiFetch('/api/settings/categories')
         ]);
-        
-        if (settingsRes.ok) {
-          setSettings(await settingsRes.json());
-        }
-        if (catsRes.ok) {
-          setCategories(await catsRes.json());
-        }
+        if (settingsRes.ok) setSettings(await settingsRes.json());
+        if (catsRes.ok) setCategories(await catsRes.json());
       } catch (err) {
         console.error('Failed to fetch data:', err);
       } finally {
@@ -47,6 +49,10 @@ export function AdminSettings() {
     };
     fetchData();
   }, []);
+
+  useEffect(() => {
+    if (view === 'api') fetchApiUsage();
+  }, [view]);
 
   const handleSave = async () => {
     setSaving(true);
@@ -175,6 +181,33 @@ export function AdminSettings() {
     }
   };
 
+  const fetchApiUsage = async () => {
+    setApiUsageLoading(true);
+    try {
+      const res = await apiFetch('/api/settings/api-usage');
+      if (res.ok) {
+        const data = await res.json() as any;
+        setApiUsage(data);
+        const limits: Record<string, number> = {};
+        for (const [k, v] of Object.entries(data)) limits[k] = (v as any).limit;
+        setEditingLimits(limits);
+      }
+    } catch { /* silent */ }
+    finally { setApiUsageLoading(false); }
+  };
+
+  const handleSaveApiLimit = async (apiName: string) => {
+    setSavingLimit(apiName);
+    try {
+      const res = await apiFetch('/api/settings/api-limit', {
+        method: 'PUT',
+        body: JSON.stringify({ apiName, limit: editingLimits[apiName] })
+      });
+      if (res.ok) await fetchApiUsage();
+    } catch { /* silent */ }
+    finally { setSavingLimit(null); }
+  };
+
   if (user?.role !== 'Admin') return <div className="p-8 text-center text-zinc-500">存取被拒</div>;
 
   if (loading) return <div className="flex justify-center p-8"><Loader2 className="animate-spin text-orange-500" /></div>;
@@ -190,7 +223,7 @@ export function AdminSettings() {
             </button>
           )}
           <h2 className="text-2xl font-semibold text-white tracking-tight">
-            {view === 'main' ? '設定' : view === 'categories' ? '類別管理' : '系統設定'}
+            {view === 'main' ? '設定' : view === 'categories' ? '類別管理' : view === 'api' ? 'Google API 用量' : '系統設定'}
           </h2>
         </div>
         {view !== 'main' && (
@@ -238,7 +271,7 @@ export function AdminSettings() {
                 </div>
               </button>
 
-              <button 
+              <button
                 onClick={() => setView('system')}
                 className="bg-zinc-900 border border-zinc-800 p-6 rounded-3xl text-left hover:bg-zinc-800 transition-all group"
               >
@@ -249,6 +282,22 @@ export function AdminSettings() {
                   <div>
                     <h3 className="text-lg font-bold text-white">系統設定</h3>
                     <p className="text-sm text-zinc-500 mt-1">應用程式設定、背景圖片與快取</p>
+                  </div>
+                  <ChevronRight className="text-zinc-600 group-hover:text-white transition-colors" />
+                </div>
+              </button>
+
+              <button
+                onClick={() => setView('api')}
+                className="bg-zinc-900 border border-zinc-800 p-6 rounded-3xl text-left hover:bg-zinc-800 transition-all group"
+              >
+                <div className="w-12 h-12 rounded-full bg-green-500/10 flex items-center justify-center mb-4 group-hover:scale-110 transition-transform">
+                  <Activity className="text-green-500" size={24} />
+                </div>
+                <div className="flex items-center justify-between">
+                  <div>
+                    <h3 className="text-lg font-bold text-white">Google API 用量</h3>
+                    <p className="text-sm text-zinc-500 mt-1">監控本月 API 使用次數與免費上限</p>
                   </div>
                   <ChevronRight className="text-zinc-600 group-hover:text-white transition-colors" />
                 </div>
@@ -348,6 +397,78 @@ export function AdminSettings() {
                   </div>
                 </div>
               </div>
+            </motion.div>
+          )}
+
+          {view === 'api' && (
+            <motion.div
+              key="api"
+              initial={{ opacity: 0, x: 20 }}
+              animate={{ opacity: 1, x: 0 }}
+              exit={{ opacity: 0, x: 20 }}
+              className="space-y-4"
+            >
+              {apiUsageLoading ? (
+                <div className="flex justify-center py-12"><Loader2 className="animate-spin text-orange-500" size={28} /></div>
+              ) : (
+                <>
+                  <p className="text-xs text-zinc-500 px-1">本月免費額度（各 API 獨立計算，每月 1 號重置）</p>
+                  {Object.entries(apiUsage).map(([apiName, { count, limit, freeLimit }]) => {
+                    const pct = Math.min(100, Math.round((count / freeLimit) * 100));
+                    const isOver = count >= limit;
+                    const API_LABELS: Record<string, string> = {
+                      places_autocomplete: 'Places Autocomplete',
+                      place_details:       'Place Details',
+                      place_search:        'Place Search',
+                      route_matrix:        'Route Matrix',
+                      compute_routes:      'Compute Routes',
+                    };
+                    return (
+                      <div key={apiName} className="bg-zinc-900 border border-zinc-800 rounded-2xl p-5 space-y-3">
+                        <div className="flex items-center justify-between">
+                          <div>
+                            <p className="text-sm font-bold text-white">{API_LABELS[apiName] || apiName}</p>
+                            <p className="text-[11px] text-zinc-500 mt-0.5">
+                              本月 {count.toLocaleString()} / 免費上限 {freeLimit.toLocaleString()} 次
+                            </p>
+                          </div>
+                          {isOver && (
+                            <span className="text-[10px] font-black text-red-500 uppercase tracking-widest bg-red-500/10 px-2 py-1 rounded-full">封鎖中</span>
+                          )}
+                        </div>
+                        <div className="h-2 bg-zinc-800 rounded-full overflow-hidden">
+                          <div
+                            className={`h-full rounded-full transition-all ${pct >= 100 ? 'bg-red-500' : pct >= 80 ? 'bg-yellow-500' : 'bg-green-500'}`}
+                            style={{ width: `${pct}%` }}
+                          />
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <label className="text-[10px] text-zinc-500 font-bold whitespace-nowrap">封鎖閾值</label>
+                          <input
+                            type="number" min="0" max={freeLimit}
+                            value={editingLimits[apiName] ?? limit}
+                            onChange={e => setEditingLimits(prev => ({ ...prev, [apiName]: parseInt(e.target.value) || 0 }))}
+                            className="flex-1 bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-1.5 text-white text-sm focus:outline-none focus:border-orange-500"
+                          />
+                          <button
+                            onClick={() => handleSaveApiLimit(apiName)}
+                            disabled={savingLimit === apiName}
+                            className="px-3 py-1.5 bg-orange-500 text-white text-xs font-bold rounded-lg hover:bg-orange-600 transition-colors disabled:opacity-50"
+                          >
+                            {savingLimit === apiName ? <Loader2 size={14} className="animate-spin" /> : '儲存'}
+                          </button>
+                        </div>
+                      </div>
+                    );
+                  })}
+                  <button
+                    onClick={fetchApiUsage}
+                    className="w-full py-3 bg-zinc-800 text-zinc-400 hover:text-white text-xs font-bold rounded-2xl transition-colors"
+                  >
+                    重新整理用量
+                  </button>
+                </>
+              )}
             </motion.div>
           )}
 

@@ -49,7 +49,7 @@ export class TravelPlanDB extends Dexie {
   trips!: Table<Trip, number>;
   tripMembers!: Table<TripMember, [number, number]>;
   itineraries!: Table<Itinerary, number>;
-  subItineraries!: Table<SubItinerary, string>;
+  subItineraries!: Table<SubItinerary, number>;
   expenses!: Table<Expense, number>;
   bookings!: Table<Booking, number>;
   cities!: Table<City, number>;
@@ -76,6 +76,20 @@ export class TravelPlanDB extends Dexie {
       tripMembers: '[trip_id+user_id], trip_id, user_id',
       itineraries: 'id, trip_id, date, start_time, google_place_id',
       subItineraries: 'id, itinerary_id, start_time',
+      expenses: 'id, trip_id, date, payer_id',
+      bookings: 'id, trip_id, start_date, category, google_place_id',
+      cities: 'id, name, country',
+      appSettings: 'id, key_name',
+      placesCache: 'query, cachedAt',
+      placeDetailsCache: 'place_id, cachedAt'
+    });
+    // v12: subItineraries uses DB autoincrement id (number), compound index for ordering
+    this.version(12).stores({
+      users: 'id, role, allow_login',
+      trips: 'id, title, start_date, end_date, visible_status, is_public, last_accessed',
+      tripMembers: '[trip_id+user_id], trip_id, user_id',
+      itineraries: 'id, trip_id, date, start_time, google_place_id',
+      subItineraries: '++id, itinerary_id, [itinerary_id+display_order], start_time',
       expenses: 'id, trip_id, date, payer_id',
       bookings: 'id, trip_id, start_date, category, google_place_id',
       cities: 'id, name, country',

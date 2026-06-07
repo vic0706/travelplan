@@ -46,13 +46,13 @@ export function TripSettingsForm({ trip, onUpdate, onDelete, onClose, showToast 
         setPendingSaveData(null);
 
         // ✅ 改成底部 toast 而非 inline 文字
-        showToast?.('Settings saved', 'success');
+        showToast?.('設定已儲存', 'success');
         setTimeout(() => onUpdate(), 300);
       } else {
-        showToast?.('Save failed', 'error');
+        showToast?.('儲存失敗', 'error');
       }
     } catch (err: any) {
-      showToast?.('Save failed', 'error');
+      showToast?.('儲存失敗', 'error');
     } finally {
       setLoading(false);
     }
@@ -79,7 +79,7 @@ export function TripSettingsForm({ trip, onUpdate, onDelete, onClose, showToast 
       }
       await performSave(data, true);
     } catch (err: any) {
-      showToast?.('Save failed', 'error');
+      showToast?.('儲存失敗', 'error');
       setLoading(false);
     }
   };
@@ -89,10 +89,11 @@ export function TripSettingsForm({ trip, onUpdate, onDelete, onClose, showToast 
     try {
       const res = await apiFetch(`/api/trips/${trip.id}/compute`, { method: 'POST' });
       if (res.ok) {
+        try { await apiFetch(`/api/trips/${trip.id}/sync-places`, { method: 'POST' }); } catch { /* ignore */ }
         onUpdate();
-        showToast?.('Weather & places updated', 'success');
+        showToast?.('天氣與景點資訊已更新', 'success');
       } else {
-        showToast?.('Compute failed', 'error');
+        showToast?.('更新資訊失敗', 'error');
       }
     } finally { setIsComputing(false); }
   };
@@ -102,10 +103,23 @@ export function TripSettingsForm({ trip, onUpdate, onDelete, onClose, showToast 
     try {
       const res = await apiFetch(`/api/trips/${trip.id}/optimize`, { method: 'POST' });
       if (res.ok) {
+        const data = await res.json() as any;
         onUpdate();
-        showToast?.('Itinerary optimized', 'success');
+        if (data.unplacedCount > 0) {
+          showToast?.(`排序失敗：有 ${data.unplacedCount} 個行程無法排入時間內`, 'error');
+        } else if (data.conflictCount > 0) {
+          showToast?.(`排序完成，但有 ${data.conflictCount} 個行程時間重疊，請手動調整`, 'error');
+        } else if (data.missingTransportDates?.length > 0) {
+          const dateLabel = data.missingTransportDates.map((d: string) => {
+            const parts = d.split('-');
+            return `${parseInt(parts[1])}/${parseInt(parts[2])}`;
+          }).join('、');
+          showToast?.(`排序完成，但 ${dateLabel} 有行程未設定交通方式`, 'error');
+        } else {
+          showToast?.('行程排序完成', 'success');
+        }
       } else {
-        showToast?.('Optimize failed', 'error');
+        showToast?.('景點排序失敗', 'error');
       }
     } finally { setIsOptimizing(false); }
   };
@@ -124,7 +138,7 @@ export function TripSettingsForm({ trip, onUpdate, onDelete, onClose, showToast 
           >
             {isComputing ? <Loader2 size={20} className="animate-spin shrink-0" /> : <Cpu size={20} className="shrink-0" />}
             <div className="text-left">
-              <div className="text-xs font-black tracking-wide leading-none">運算</div>
+              <div className="text-xs font-black tracking-wide leading-none">更新資訊</div>
               <div className="text-[9px] text-orange-500/60 mt-0.5 leading-none">更新天氣・景點資料</div>
             </div>
           </button>
@@ -137,8 +151,8 @@ export function TripSettingsForm({ trip, onUpdate, onDelete, onClose, showToast 
           >
             {isOptimizing ? <Loader2 size={20} className="animate-spin shrink-0" /> : <Wand2 size={20} className="shrink-0" />}
             <div className="text-left">
-              <div className="text-xs font-black tracking-wide leading-none">優化</div>
-              <div className="text-[9px] text-orange-500/60 mt-0.5 leading-none">AI 重排行程順序</div>
+              <div className="text-xs font-black tracking-wide leading-none">景點排序</div>
+              <div className="text-[9px] text-orange-500/60 mt-0.5 leading-none">AI 智慧排序行程</div>
             </div>
           </button>
         </div>
@@ -172,7 +186,7 @@ export function TripSettingsForm({ trip, onUpdate, onDelete, onClose, showToast 
       <ConfirmDialog
         isOpen={isDeleteConfirmOpen}
         title="刪除行程"
-        message={`您確定要永久刪除「${trip.title}」嗎？\n所有相關的活動、記帳與預訂資料都將一併刪除，此操作無法復原。`}
+        message={`確定要刪除「${trip.title}」嗎？\n所有活動、記帳與預訂資料都將一併移除，此操作無法復原。`}
         confirmText="永久刪除"
         cancelText="取消"
         type="danger"

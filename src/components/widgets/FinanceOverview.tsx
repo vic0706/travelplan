@@ -1,9 +1,10 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip, Legend } from 'recharts';
 import { Expense, User } from '../../types';
 import { motion, AnimatePresence } from 'framer-motion';
 import { X, Wallet, ArrowRight, Copy, Check } from 'lucide-react';
-import { useAppStore } from '../../store'; // ✅ 修正：從 store 取 categories，移除 apiFetch
+import { useAppStore } from '../../store';
+import { apiFetch } from '../../utils/api';
 
 interface FinanceOverviewProps {
   expenses: Expense[];
@@ -11,24 +12,45 @@ interface FinanceOverviewProps {
   currency: string;
 }
 
+// 1 unit of baseCurrency costs `rates[foreignCurrency]` foreignCurrency units
+// → to convert foreignAmount → baseCurrency: foreignAmount / rates[foreignCurrency]
+function convertToBase(amount: number, expCurrency: string, baseCurrency: string, rates: Record<string, number> | null): number {
+  if (!expCurrency || expCurrency === baseCurrency || !rates) return amount;
+  const rate = rates[expCurrency];
+  return rate ? amount / rate : amount;
+}
+
 export function FinanceOverview({ expenses, members, currency }: FinanceOverviewProps) {
   const [showSplitModal, setShowSplitModal] = useState(false);
   const [copiedText, setCopiedText] = useState<string | null>(null);
+  const [rates, setRates] = useState<Record<string, number> | null>(null);
 
-  // ✅ 修正：直接從 store 取，App.tsx 已全局初始化，不需要再 fetch
   const { categories } = useAppStore();
 
+  const hasMultipleCurrencies = useMemo(
+    () => expenses.some(e => e.currency && e.currency !== currency),
+    [expenses, currency]
+  );
+
+  useEffect(() => {
+    if (!hasMultipleCurrencies) { setRates(null); return; }
+    apiFetch(`/api/exchange-rates?base=${currency}`)
+      .then(r => r.json())
+      .then((data: any) => setRates(data.rates || {}))
+      .catch(() => setRates({}));
+  }, [hasMultipleCurrencies, currency]);
+
   const totalAmount = useMemo(() => {
-    return expenses.reduce((sum, exp) => sum + exp.amount, 0);
-  }, [expenses]);
+    return expenses.reduce((sum, exp) => sum + convertToBase(exp.amount, exp.currency, currency, rates), 0);
+  }, [expenses, rates, currency]);
 
   const categoryData = useMemo(() => {
     const data: Record<string, number> = {};
     expenses.forEach(exp => {
       const cat = exp.category || 'Other';
-      data[cat] = (data[cat] || 0) + exp.amount;
+      data[cat] = (data[cat] || 0) + convertToBase(exp.amount, exp.currency, currency, rates);
     });
-    
+
     return Object.entries(data).map(([name, value]) => {
       const catDef = categories.find((c: any) => c.name === name);
       return {
@@ -37,7 +59,7 @@ export function FinanceOverview({ expenses, members, currency }: FinanceOverview
         color: catDef?.color || '#808080'
       };
     }).sort((a, b) => b.value - a.value);
-  }, [expenses, categories]);
+  }, [expenses, categories, rates, currency]);
 
   const debts = useMemo(() => {
     const balances: Record<number, number> = {};
@@ -48,8 +70,9 @@ export function FinanceOverview({ expenses, members, currency }: FinanceOverview
       const splitAmong = exp.split_members;
       if (splitAmong.length === 0) return;
 
-      const amountPerPerson = exp.amount / splitAmong.length;
-      balances[paidBy] = (balances[paidBy] || 0) + exp.amount;
+      const converted = convertToBase(exp.amount, exp.currency, currency, rates);
+      const amountPerPerson = converted / splitAmong.length;
+      balances[paidBy] = (balances[paidBy] || 0) + converted;
       splitAmong.forEach(memberId => {
         balances[memberId] = (balances[memberId] || 0) - amountPerPerson;
       });
@@ -108,7 +131,12 @@ export function FinanceOverview({ expenses, members, currency }: FinanceOverview
       <div className="grid grid-cols-2 gap-4">
         <div className="bg-zinc-900 border border-zinc-800 p-4 rounded-2xl">
           <p className="text-zinc-500 text-xs font-medium uppercase tracking-wider mb-1">費用總計</p>
-          <p className="text-2xl font-bold text-white font-mono">{currency} {totalAmount.toLocaleString()}</p>
+          <p className="text-2xl font-bold text-white font-mono">
+            {hasMultipleCurrencies ? '≈ ' : ''}{currency} {Math.round(totalAmount).toLocaleString()}
+          </p>
+          {hasMultipleCurrencies && (
+            <p className="text-[10px] text-zinc-600 mt-1">已換算為 {currency}</p>
+          )}
         </div>
         <button
           onClick={() => setShowSplitModal(true)}
@@ -193,7 +221,7 @@ export function FinanceOverview({ expenses, members, currency }: FinanceOverview
 
                         <div className="text-center py-2 bg-zinc-900 rounded-xl border border-zinc-800">
                           <span className="text-2xl font-mono font-bold text-orange-500">
-                            {currency} {transfer.amount.toLocaleString(undefined, { maximumFractionDigits: 0 })}
+                            {hasMultipleCurrencies ? '≈ ' : ''}{currency} {Math.round(transfer.amount).toLocaleString()}
                           </span>
                         </div>
 

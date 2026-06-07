@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Car, Train, Bus, AlertTriangle, Star, Plus, Footprints, Bike, Navigation2, Sparkles, Clock, Asterisk, ChevronLeft, ChevronRight, ChevronDown, Motorbike } from 'lucide-react';
+import { Car, Train, Bus, AlertTriangle, Star, Plus, Footprints, Bike, Navigation2, Sparkles, Clock, Asterisk, ChevronLeft, ChevronRight, ChevronDown, Motorbike, Copy, CalendarDays, MapPin } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Itinerary } from '../../types';
 import { DynamicIcon } from '../common/DynamicIcon';
@@ -8,6 +8,7 @@ import { clsx } from 'clsx';
 
 interface ItineraryCardProps {
   item: Itinerary;
+  nextItem?: Itinerary;
   canEdit?: boolean;
   isConflicted?: boolean;
   onEdit: () => void;
@@ -16,6 +17,8 @@ interface ItineraryCardProps {
   expandSignal?: number;
   collapseSignal?: number;
   isDragOverlay?: boolean;
+  onCopy?: () => void;
+  onChangeDate?: () => void;
 }
 
 const safeParse = (data: any) => {
@@ -40,8 +43,8 @@ const checkIsClosed = (dateStr: string, openingHoursJson?: string | null) => {
 };
 
 export function ItineraryCard({
-  item, canEdit, isConflicted, onEdit, showNextTransport, onEditNextTransport,
-  expandSignal, collapseSignal, isDragOverlay,
+  item, nextItem, canEdit, isConflicted, onEdit, showNextTransport, onEditNextTransport,
+  expandSignal, collapseSignal, isDragOverlay, onCopy, onChangeDate,
 }: ItineraryCardProps) {
   const { categories } = useAppStore();
   const category = (categories || []).find((c: any) => c.icon === item.icon) || { color: '#808080' };
@@ -54,7 +57,7 @@ export function ItineraryCard({
 
   const closedWarning    = checkIsClosed(item.date, item.opening_hours);
   const hasWarning       = !!closedWarning || !!item.sync_conflict_warning || !!isConflicted;
-  const isCircuitBreaker = canEdit && !!item.start_time && (!item.next_transport_mode || item.next_transport_mode === '');
+  const isCircuitBreaker = canEdit && !!showNextTransport && !!item.start_time && (!item.next_transport_mode || item.next_transport_mode === '');
 
   const hasContent = !!item.rating || subItems.length > 0 || tags.length > 0 || !!item.notes || hasWarning;
   const hasPhoto   = !!item.image_url;
@@ -96,21 +99,45 @@ export function ItineraryCard({
     }
   }, [collapseSignal]);
 
-  const getGoogleMapsLink = () => {
-    const dest = item.google_place_id
-      ? `place_id:${item.google_place_id}`
-      : encodeURIComponent(item.address || item.title);
-    return `http://googleusercontent.com/maps.google.com/maps?daddr=${dest}`;
+  const openGoogleMaps = () => {
+    let url: string;
+    if ((item as any).google_place_id) {
+      url = `https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(item.title)}&destination_place_id=${(item as any).google_place_id}`;
+    } else if (item.lat && item.lng) {
+      url = `https://maps.google.com/maps?daddr=${encodeURIComponent(item.title)}@${item.lat},${item.lng}`;
+    } else {
+      const dest = encodeURIComponent(item.address || item.title);
+      url = `https://maps.google.com/maps?daddr=${dest}`;
+    }
+    // window.open is blocked in iOS PWA standalone mode; use location redirect via anchor
+    const a = document.createElement('a');
+    a.href = url;
+    a.target = '_blank';
+    a.rel = 'noopener noreferrer';
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
   };
 
-  const getTransportIcon = () => {
-    switch (item.next_transport_mode?.toLowerCase()) {
-      case 'transit': case 'train': return <Train size={14} />;
-      case 'bus':       return <Bus size={14} />;
-      case 'walking':   return <Footprints size={14} />;
-      case 'bicycling':    return <Bike size={14} />;
-      case 'motorcycling': return <Motorbike size={14} />;
-      default:             return <Car size={14} />;
+  // Use the optimizer-resolved mode (when AUTO) or the user-set mode
+  const displayMode = (item.next_transport_resolved_mode || item.next_transport_mode || '').toLowerCase();
+  const isAutoUnresolved = (item.next_transport_mode || '').toUpperCase() === 'AUTO' && !item.next_transport_resolved_mode;
+
+  const getTransportIcon = (size = 14) => {
+    if (isAutoUnresolved) return <Sparkles size={size} />;
+    if (displayMode === 'custom') {
+      const label = (item as any).next_transport_custom_label;
+      return label
+        ? <span className="text-[9px] font-black leading-none">{label}</span>
+        : <Sparkles size={size} />;
+    }
+    switch (displayMode) {
+      case 'transit': case 'train': return <Train size={size} />;
+      case 'bus':          return <Bus size={size} />;
+      case 'walking':      return <Footprints size={size} />;
+      case 'bicycling':    return <Bike size={size} />;
+      case 'motorcycling': return <Motorbike size={size} />;
+      default:             return <Car size={size} />;
     }
   };
 
@@ -143,6 +170,11 @@ export function ItineraryCard({
     if (subItemIdx !== null) {
       const sub = subItems[subItemIdx];
       if (!sub) return null;
+      const subNavUrl = (sub.lat && sub.lng)
+        ? `https://maps.google.com/maps?daddr=${encodeURIComponent(sub.title || '')}@${sub.lat},${sub.lng}`
+        : sub.address
+        ? `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(sub.address)}`
+        : null;
       return (
         <div>
           <button
@@ -158,7 +190,26 @@ export function ItineraryCard({
               {sub.start_time}{sub.end_time && sub.end_time !== sub.start_time ? ` — ${sub.end_time}` : ''}
             </div>
           )}
-          <h5 className="text-[13px] font-black text-white mb-2">{sub.title}</h5>
+          <h5 className="text-[13px] font-black text-white mb-1">{sub.title}</h5>
+          {sub.duration > 0 && (
+            <div className="text-[9px] text-orange-400/70 mb-2">{sub.duration} 分鐘</div>
+          )}
+          {sub.address && (
+            <div className="flex items-center gap-1.5 mb-2">
+              <MapPin size={10} className="text-zinc-500 shrink-0" />
+              <span className="text-[11px] text-zinc-400 flex-1 leading-tight">{sub.address}</span>
+              {subNavUrl && (
+                <a
+                  href={subNavUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="shrink-0 p-1.5 rounded-lg bg-orange-500/10 text-orange-400 hover:bg-orange-500/20 transition-colors"
+                >
+                  <Navigation2 size={12} />
+                </a>
+              )}
+            </div>
+          )}
           {sub.tags?.length > 0 && (
             <div className="flex flex-wrap gap-1 mb-2">
               {sub.tags.map((t: string) => (
@@ -190,35 +241,68 @@ export function ItineraryCard({
           <div className="space-y-1">
             <div className="text-[8px] font-black text-zinc-500 uppercase tracking-[0.15em]">子活動</div>
             {subItems.map((sub: any, idx: number) => {
-              const subHasDetails = !!(sub.notes || sub.tags?.length > 0);
-              const showTime = !!(sub.start_time && (item as any).is_time_fixed);
+              const subHasDetails = !!sub.notes;
+              const showTime = !!sub.start_time;
+              const subNavUrl = (sub.lat && sub.lng)
+                ? `https://maps.google.com/maps?daddr=${encodeURIComponent(sub.title || '')}@${sub.lat},${sub.lng}`
+                : sub.address
+                ? `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(sub.address)}`
+                : null;
               return (
-                <button
+                <div
                   key={idx}
-                  type="button"
                   onClick={subHasDetails ? (e) => { e.stopPropagation(); setSubItemIdx(idx); } : undefined}
                   className={clsx(
-                    "w-full flex items-center gap-2 px-3 py-2.5 bg-white/5 border border-white/8 rounded-xl text-left transition-colors",
+                    "w-full flex items-center gap-3 px-3 py-3 bg-white/5 border border-white/10 rounded-xl relative overflow-hidden transition-colors",
                     subHasDetails ? "active:bg-white/10 cursor-pointer" : "cursor-default"
                   )}
                 >
-                  <div className="flex-1 min-w-0">
-                    <div className="text-[12px] font-semibold text-zinc-100 truncate">{sub.title}</div>
+                  {/* Left accent */}
+                  <div className="absolute left-0 top-0 bottom-0 w-0.5 bg-orange-500/50 rounded-r-full" />
+                  <div className="flex-1 min-w-0 pl-0.5">
+                    <div className="text-[13px] font-bold text-white truncate">{sub.title}</div>
                     {showTime && (
-                      <div className="font-mono text-[9px] text-zinc-500 mt-0.5">
+                      <div className="font-mono text-[10px] text-zinc-500 mt-0.5">
                         {sub.start_time}{sub.end_time && sub.end_time !== sub.start_time ? ` — ${sub.end_time}` : ''}
                       </div>
                     )}
+                    {Array.isArray(sub.tags) && (sub.tags as string[]).length > 0 && (
+                      <div className="flex flex-wrap gap-1 mt-0.5">
+                        {(sub.tags as string[]).map((t: string) => (
+                          <span key={t} className="text-[8px] font-bold text-orange-400/70 bg-orange-400/10 px-1 py-0.5 rounded border border-orange-400/15">#{t}</span>
+                        ))}
+                      </div>
+                    )}
                   </div>
-                  {subHasDetails && (
-                    <>
-                      <Asterisk size={9} strokeWidth={3} className="shrink-0 text-zinc-600" />
-                      <ChevronRight size={11} className="shrink-0 text-zinc-700" />
-                    </>
-                  )}
-                </button>
+                  <div className="flex items-center gap-1 shrink-0">
+                    {subNavUrl && (
+                      <a
+                        href={subNavUrl}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        onClick={(e) => e.stopPropagation()}
+                        className="p-1.5 rounded-lg text-zinc-500 hover:text-orange-400 active:bg-white/10 transition-colors"
+                      >
+                        <Navigation2 size={13} />
+                      </a>
+                    )}
+                    {subHasDetails && (
+                      <>
+                        <Asterisk size={9} strokeWidth={3} className="text-zinc-600" />
+                        <ChevronRight size={11} className="text-zinc-700" />
+                      </>
+                    )}
+                  </div>
+                </div>
               );
             })}
+          </div>
+        )}
+
+        {/* AI 評論摘要 */}
+        {item.review_summary && (
+          <div className="text-[10px] text-zinc-400 leading-relaxed italic border-l-2 border-zinc-700 pl-2">
+            {item.review_summary}
           </div>
         )}
 
@@ -267,19 +351,19 @@ export function ItineraryCard({
               onClick={(e) => { e.stopPropagation(); if (canEdit && onEditNextTransport) onEditNextTransport(); }}
               className={clsx('flex items-center gap-1.5 px-2 py-1 rounded-lg transition-colors',
                 canEdit ? 'cursor-pointer hover:bg-white/5 active:bg-white/10' : 'cursor-default')}>
-              <span className="text-[9px] font-black uppercase tracking-[0.15em] text-white/40">
-                下一站
-              </span>
               {item.next_transport_mode ? (
-                <div className="flex items-center gap-1 text-orange-400">
-                  {getTransportIcon()}
+                <div className="flex items-center gap-1 text-zinc-400">
+                  {getTransportIcon(12)}
                   <span className="text-[10px] font-black tracking-tight flex items-center gap-0.5">
                     {manualVal > 0 ? `${manualVal}分` : autoVal > 0 ? <>{autoVal}分 <Sparkles size={9} /></> : '自動'}
                   </span>
+                  {nextItem && (
+                    <span className="text-[9px] text-white/30 font-bold truncate max-w-[60px]">→ {nextItem.title}</span>
+                  )}
                 </div>
               ) : (
                 <div className="flex items-center gap-0.5 text-white/30">
-                  <Plus size={10} /><span className="text-[9px] font-bold">設定</span>
+                  <Plus size={10} /><span className="text-[9px] font-bold">設定交通</span>
                 </div>
               )}
             </button>
@@ -301,15 +385,15 @@ export function ItineraryCard({
             onClick={(e) => { e.stopPropagation(); if (canEdit && onEditNextTransport) onEditNextTransport(); }}
             className={clsx('flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl transition-colors',
               canEdit ? 'cursor-pointer hover:bg-zinc-800/30 active:bg-zinc-800/50' : 'cursor-default')}>
-            <span className="text-[9px] font-black uppercase tracking-[0.15em] text-zinc-500">
-              下一站
-            </span>
             {item.next_transport_mode ? (
-              <div className="flex items-center gap-1.5 text-orange-500">
+              <div className="flex items-center gap-1.5 text-zinc-400">
                 {getTransportIcon()}
                 <span className="text-[11px] font-black tracking-tight flex items-center gap-1">
                   {manualVal > 0 ? `${manualVal}分` : autoVal > 0 ? <>{autoVal}分 <Sparkles size={9} /></> : '自動'}
                 </span>
+                {nextItem && (
+                  <span className="text-[10px] text-zinc-600 font-bold truncate max-w-[80px]">→ {nextItem.title}</span>
+                )}
               </div>
             ) : (
               <div className="flex items-center gap-1 text-zinc-600">
@@ -356,6 +440,31 @@ export function ItineraryCard({
                 {isCircuitBreaker && <span className="w-1.5 h-1.5 rounded-full bg-red-500 animate-pulse shrink-0" />}
               </div>
             )}
+            {/* Warning summary — visible without expanding */}
+            {(isConflicted || isCircuitBreaker || closedWarning || item.sync_conflict_warning) && (
+              <div className="flex flex-wrap items-center gap-x-2 gap-y-0 mt-0.5">
+                {isConflicted && (
+                  <span className="flex items-center gap-0.5 text-[10px] font-bold text-red-400">
+                    <AlertTriangle size={9} />行程時間重疊
+                  </span>
+                )}
+                {isCircuitBreaker && !isConflicted && (
+                  <span className="flex items-center gap-0.5 text-[10px] font-bold text-red-400">
+                    <AlertTriangle size={9} />尚未設定交通方式
+                  </span>
+                )}
+                {closedWarning && (
+                  <span className="flex items-center gap-0.5 text-[10px] font-bold text-yellow-500">
+                    <Clock size={9} />{closedWarning}
+                  </span>
+                )}
+                {item.sync_conflict_warning && !closedWarning && !isConflicted && (
+                  <span className="flex items-center gap-0.5 text-[10px] font-bold text-orange-400">
+                    <AlertTriangle size={9} />{item.sync_conflict_warning}
+                  </span>
+                )}
+              </div>
+            )}
           </div>
 
           {item.rating && (
@@ -365,8 +474,26 @@ export function ItineraryCard({
             </div>
           )}
 
+          {canEdit && (
+            <>
+              <button
+                onClick={(e) => { e.stopPropagation(); onCopy?.(); }}
+                className="shrink-0 p-2 rounded-xl text-zinc-600 hover:text-orange-500 transition-colors active:scale-90"
+                title="複製活動"
+              >
+                <Copy size={15} />
+              </button>
+              <button
+                onClick={(e) => { e.stopPropagation(); onChangeDate?.(); }}
+                className="shrink-0 p-2 rounded-xl text-zinc-600 hover:text-orange-500 transition-colors active:scale-90"
+                title="更改日期"
+              >
+                <CalendarDays size={15} />
+              </button>
+            </>
+          )}
           <button
-            onClick={(e) => { e.stopPropagation(); window.open(getGoogleMapsLink(), '_blank'); }}
+            onClick={(e) => { e.stopPropagation(); openGoogleMaps(); }}
             className="shrink-0 p-2 rounded-xl text-zinc-600 hover:text-orange-500 transition-colors active:scale-90"
           >
             <Navigation2 size={15} />
@@ -390,10 +517,14 @@ export function ItineraryCard({
                   <img
                     src={item.image_url!}
                     alt={item.title}
-                    className={clsx('absolute inset-0 w-full h-full object-cover', isPast ? 'opacity-25' : 'opacity-85')}
+                    onClick={canEdit ? () => onEdit() : undefined}
+                    className={clsx('absolute inset-0 w-full h-full object-cover', canEdit && 'cursor-pointer', isPast ? 'opacity-25' : 'opacity-85')}
                   />
                 ) : (
-                  <div className="absolute inset-0 bg-zinc-900/70" />
+                  <div
+                    className={clsx('absolute inset-0 bg-zinc-900/70', canEdit && 'cursor-pointer')}
+                    onClick={canEdit ? () => onEdit() : undefined}
+                  />
                 )}
 
                 {/* 內容遮罩 - z-10，底部留出底部列空間 */}
@@ -406,17 +537,10 @@ export function ItineraryCard({
                       transition={{ duration: 0.15 }}
                       className="absolute inset-0 z-10 bg-black/88 backdrop-blur-md"
                     >
-                      {/* 評價數量 - 右上角徽章 */}
-                      {subItemIdx === null && (item as any).reviews_count && item.rating && (
-                        <div className="absolute top-2 right-2 z-20 pointer-events-none">
-                          <span className="text-[9px] text-yellow-500/70 bg-black/40 backdrop-blur-sm rounded-md px-1.5 py-0.5">
-                            ({(item as any).reviews_count.toLocaleString()} 評)
-                          </span>
-                        </div>
-                      )}
                       <div
                         ref={overlayScrollRef}
                         onScroll={checkOverlayScroll}
+                        onClick={canEdit ? () => onEdit() : undefined}
                         className="absolute inset-0 overflow-y-auto no-scrollbar p-3 pb-11"
                       >
                         {renderOverlayContent()}

@@ -1,13 +1,15 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { useAppStore } from '../../store';
-import { X, MapPin, Loader2, Plus, Trash2, Camera, Image as ImageIcon, Upload, Sparkles, Lock, Unlock, Search, Database, Check } from 'lucide-react';
+import { X, MapPin, Loader2, Plus, Trash2, Camera, Upload, Sparkles, Lock, Unlock, Check, AlertTriangle } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { apiFetch } from '../../utils/api';
 import { DynamicIcon } from '../common/DynamicIcon';
 import { ImageCropper, uploadImageToSupabase } from '../widgets/ImageCropper';
 import { LocationPicker } from '../pickers/LocationPicker';
+import { AddressSearchInput } from '../inputs/AddressSearchInput';
 import { clsx } from 'clsx';
-import { db, getCachedPlaceSuggestions, cachePlaceSuggestions, getCachedPlaceDetails, cachePlaceDetails } from '../../db';
+import { useLiveQuery } from 'dexie-react-hooks';
+import { db, getCachedPlaceSuggestions, cachePlaceSuggestions } from '../../db';
 
 interface ItineraryFormProps {
   tripId: number;
@@ -72,13 +74,42 @@ export function ItineraryForm({ tripId, date, onSuccess, onCancel, initialData, 
   const [isDeleting, setIsDeleting] = useState(false);
   const [isLocationPickerOpen, setIsLocationPickerOpen] = useState(false);
   const [suggestions, setSuggestions] = useState<any[]>([]);
-  const [knownPlaceIds, setKnownPlaceIds] = useState<Set<string>>(new Set());
   const [isSearching, setIsSearching] = useState(false);
-  const [fromCache, setFromCache] = useState(false);
   const sessionToken = useRef(Math.random().toString(36).substring(2));
+
+  // Live-query: google_place_ids in THIS trip — checks both itineraries and bookings
+  const knownPlaceIds = useLiveQuery(
+    async () => {
+      const [itinItems, bookingItems] = await Promise.all([
+        db.itineraries.where('trip_id').equals(tripId).toArray(),
+        db.bookings.where('trip_id').equals(tripId).toArray(),
+      ]);
+      const ids = new Set<string>();
+      for (const item of [...itinItems, ...bookingItems]) {
+        const pid = (item as any).google_place_id;
+        if (pid) ids.add(pid);
+      }
+      return ids;
+    },
+    [tripId],
+    new Set<string>()
+  ) ?? new Set<string>();
+
   const [editingSubItem, setEditingSubItem] = useState<any>(null);
   const [croppingImage, setCroppingImage] = useState<string | null>(null);
   const [subItems, setSubItems] = useState<any[]>(safeParseArray(initialData?.sub_items));
+  const [subAddress, setSubAddress] = useState('');
+  const [subLat, setSubLat] = useState<number | null>(null);
+  const [subLng, setSubLng] = useState<number | null>(null);
+  const [subTitle, setSubTitle] = useState('');
+  const [subIsAddrEdited, setSubIsAddrEdited] = useState(false);
+  const [subDuration, setSubDuration] = useState(30);
+  const [subStartTime, setSubStartTime] = useState('');
+  const [subEndTime, setSubEndTime] = useState('');
+  const [subSaving, setSubSaving] = useState(false);
+  const [showDurationWarn, setShowDurationWarn] = useState(false);
+  const [durationWarnInfo, setDurationWarnInfo] = useState({ total: 0, parent: 0 });
+  const [pendingSaveItem, setPendingSaveItem] = useState<any>(null);
 
   const [formData, setFormData] = useState({
     title: initialData?.title || '',
@@ -105,22 +136,65 @@ export function ItineraryForm({ tripId, date, onSuccess, onCancel, initialData, 
   const [isLocationManuallyEdited, setIsLocationManuallyEdited] = useState(false);
   const selectedCategory = storeCategories.find((c: any) => c.icon === formData.icon) || { color: '#808080', icon: 'MapPin' };
 
+  // Auto-fill transport mode from most common mode in this trip (only for new items)
   useEffect(() => {
-    db.itineraries.toArray().then(items => {
-      setKnownPlaceIds(new Set(items.map(i => i.google_place_id).filter(Boolean) as string[]));
-    });
-  }, []);
+    if (initialData) return;
+    apiFetch(`/api/trips/${tripId}/itineraries`)
+      .then(r => r.ok ? r.json() : [])
+      .then((items: any[]) => {
+        const counts: Record<string, number> = {};
+        for (const i of items) {
+          if (i.next_transport_mode) counts[i.next_transport_mode] = (counts[i.next_transport_mode] || 0) + 1;
+        }
+        const mostCommon = Object.entries(counts).sort((a, b) => b[1] - a[1])[0]?.[0] || 'DRIVING';
+        setFormData(prev => ({
+          ...prev,
+          next_transport_mode: prev.next_transport_mode || mostCommon,
+          next_transport_time: prev.next_transport_time || 'auto',
+        }));
+      })
+      .catch(() => {});
+  }, [tripId, initialData]);
+
+  // 標題同步到地址欄（新增模式）
+  useEffect(() => {
+    if (!initialData && !isLocationManuallyEdited && !formData.google_place_id) {
+      setFormData(prev => ({ ...prev, address: prev.title }));
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [formData.title]);
+
+  // 子活動 Modal 開啟時初始化所有狀態
+  useEffect(() => {
+    if (isSubItemModalOpen) {
+      setSubTitle(editingSubItem?.title || '');
+      setSubAddress(editingSubItem?.address || '');
+      setSubLat(editingSubItem?.lat ?? null);
+      setSubLng(editingSubItem?.lng ?? null);
+      setSubIsAddrEdited(false);
+      setSubDuration(editingSubItem?.duration || 30);
+      setSubStartTime(editingSubItem?.start_time || (isTimeFixed ? formData.start_time : ''));
+      setSubEndTime(editingSubItem?.end_time || (isTimeFixed ? formData.end_time : ''));
+    }
+  }, [isSubItemModalOpen, editingSubItem]);
+
+  // 子活動標題同步到地址欄（未手動編輯地址時）
+  useEffect(() => {
+    if (isSubItemModalOpen && !subIsAddrEdited && !subLat) {
+      setSubAddress(subTitle);
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [subTitle]);
 
   // 自動搜尋地點（帶 DB 快取）
   useEffect(() => {
     const timer = setTimeout(async () => {
       if (!isLocationManuallyEdited || formData.address.length < 2) { setSuggestions([]); return; }
       setIsSearching(true);
-      setFromCache(false);
       try {
         const q = formData.address;
         const cached = await getCachedPlaceSuggestions(q);
-        if (cached) { setSuggestions(cached); setFromCache(true); setIsSearching(false); return; }
+        if (cached) { setSuggestions(cached); setIsSearching(false); return; }
         const res = await apiFetch(`/api/places/autocomplete?q=${encodeURIComponent(q)}&session=${sessionToken.current}`);
         if (res.ok) {
           const data = await res.json() as any[];
@@ -134,61 +208,10 @@ export function ItineraryForm({ tripId, date, onSuccess, onCancel, initialData, 
     return () => clearTimeout(timer);
   }, [formData.address, isLocationManuallyEdited]);
 
-  const handleSuggestionSelect = async (suggestion: any) => {
+  const handleSuggestionSelect = (suggestion: any) => {
     setFormData(prev => ({ ...prev, address: suggestion.description, google_place_id: suggestion.place_id }));
     setSuggestions([]);
     setIsLocationManuallyEdited(false);
-    // Auto-fetch place details (coordinates + photo) on selection
-    setIsSearching(true);
-    try {
-      const cached = await getCachedPlaceDetails(suggestion.place_id);
-      if (cached) { applyPlaceDetails(cached); return; }
-      const res = await apiFetch(`/api/places/details?placeId=${suggestion.place_id}&session=${sessionToken.current}`);
-      if (res.ok) {
-        const details = await res.json();
-        await cachePlaceDetails(suggestion.place_id, details);
-        applyPlaceDetails(details);
-        sessionToken.current = Math.random().toString(36).substring(2);
-      }
-    } catch { /* silent */ }
-    finally { setIsSearching(false); }
-  };
-
-  const handleFetchDetails = async () => {
-    if (!formData.google_place_id) return;
-    setIsSearching(true);
-    try {
-      const cached = await getCachedPlaceDetails(formData.google_place_id);
-      if (cached) {
-        applyPlaceDetails(cached);
-        return;
-      }
-      const res = await apiFetch(`/api/places/details?placeId=${formData.google_place_id}&session=${sessionToken.current}`);
-      if (res.ok) {
-        const details = await res.json();
-        await cachePlaceDetails(formData.google_place_id, details);
-        applyPlaceDetails(details);
-        sessionToken.current = Math.random().toString(36).substring(2);
-      }
-    } catch { alert('取得地點詳細資料失敗'); }
-    finally { setIsSearching(false); }
-  };
-
-  const applyPlaceDetails = (details: any) => {
-    if (details.location) {
-      setFormData(prev => ({
-        ...prev,
-        lat: details.location.latitude,
-        lng: details.location.longitude,
-        image_url: details.actual_photo_url || prev.image_url,
-        rating: details.rating || null,
-        reviews_count: details.userRatingCount || null,
-        opening_hours: details.regularOpeningHours ? JSON.stringify(details.regularOpeningHours) : '',
-        place_website: details.websiteUri || '',
-        place_phone: details.internationalPhoneNumber || '',
-        place_status: details.businessStatus || ''
-      }));
-    }
   };
 
   useEffect(() => {
@@ -212,6 +235,55 @@ export function ItineraryForm({ tripId, date, onSuccess, onCancel, initialData, 
     if (formData.start_time) {
       setFormData(prev => ({ ...prev, end_time: addMinutesToTime(prev.start_time, mins) }));
     }
+  };
+
+  // 固定時間模式：直接修改 end_time → 反向更新停留時長
+  const handleEndTimeChange = (newEnd: string) => {
+    setFormData(prev => ({ ...prev, end_time: newEnd }));
+    if (isTimeFixed && formData.start_time && newEnd) {
+      const newDuration = timeToMinutes(formData.start_time, newEnd);
+      if (newDuration > 0) setFixedStayDuration(newDuration);
+    }
+  };
+
+  const handleSubDurationChange = (mins: number) => {
+    setSubDuration(mins);
+    if (isTimeFixed && subStartTime) setSubEndTime(addMinutesToTime(subStartTime, mins));
+  };
+
+  const handleSubStartChange = (t: string) => {
+    setSubStartTime(t);
+    if (isTimeFixed && subDuration) setSubEndTime(addMinutesToTime(t, subDuration));
+  };
+
+  const executeSubItemSave = async (itemToSave: any) => {
+    if (initialData?.id) {
+      setSubSaving(true);
+      try {
+        if (editingSubItem?.id && typeof editingSubItem.id === 'number') {
+          await apiFetch(`/api/trips/${tripId}/itineraries/${initialData.id}/sub-items/${editingSubItem.id}`, {
+            method: 'PUT', body: JSON.stringify({ ...itemToSave, display_order: editingSubItem.display_order ?? 0 })
+          });
+          setSubItems((prev: any[]) => prev.map((i: any) => i.id === editingSubItem.id ? { ...i, ...itemToSave } : i));
+        } else {
+          const res = await apiFetch(`/api/trips/${tripId}/itineraries/${initialData.id}/sub-items`, {
+            method: 'POST', body: JSON.stringify({ ...itemToSave, display_order: subItems.length })
+          });
+          if (res.ok) {
+            const { id: newId } = await res.json() as any;
+            setSubItems((prev: any[]) => [...prev, { ...itemToSave, id: newId, display_order: prev.length }]);
+          }
+        }
+      } catch { showToast?.('子活動儲存失敗', 'error'); }
+      finally { setSubSaving(false); }
+    } else {
+      if (editingSubItem) {
+        setSubItems((prev: any[]) => prev.map((i: any) => i.id === editingSubItem.id ? { ...i, ...itemToSave } : i));
+      } else {
+        setSubItems((prev: any[]) => [...prev, { ...itemToSave, id: `tmp_${Date.now()}` }]);
+      }
+    }
+    setIsSubItemModalOpen(false);
   };
 
   const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -250,16 +322,27 @@ export function ItineraryForm({ tripId, date, onSuccess, onCancel, initialData, 
         trip_id: tripId,
         date,
         tags: formData.tags.split(',').map(t => t.trim()).filter(Boolean),
-        sub_items: JSON.stringify(subItems),
         is_time_fixed: isTimeFixed ? 1 : 0,
-        stay_duration: isTimeFixed ? fixedStayDuration.toString() : stayDuration.toString()
+        stay_duration: isTimeFixed ? fixedStayDuration.toString() : stayDuration.toString(),
+        time_preference: 'anytime'
       };
       const res = await apiFetch(
         initialData ? `/api/trips/${tripId}/itineraries/${initialData.id}` : `/api/trips/${tripId}/itineraries`,
         { method: initialData ? 'PUT' : 'POST', body: JSON.stringify(payload) }
       );
-      if (res.ok) { showToast?.('活動已儲存', 'success'); onSuccess(); }
-      else { showToast?.('儲存活動失敗', 'error'); setError('儲存活動失敗'); }
+      if (res.ok) {
+        // For new activities, batch-save any pending sub-items
+        if (!initialData && subItems.length > 0) {
+          const { id: newId } = await res.json() as any;
+          await Promise.all(subItems.map((sub, idx) =>
+            apiFetch(`/api/trips/${tripId}/itineraries/${newId}/sub-items`, {
+              method: 'POST',
+              body: JSON.stringify({ ...sub, display_order: idx })
+            })
+          ));
+        }
+        showToast?.('活動已儲存', 'success'); onSuccess();
+      } else { showToast?.('儲存活動失敗', 'error'); setError('儲存活動失敗'); }
     } catch { showToast?.('儲存活動失敗', 'error'); setError('儲存活動失敗'); }
     finally { setLoading(false); }
   };
@@ -337,7 +420,7 @@ export function ItineraryForm({ tripId, date, onSuccess, onCancel, initialData, 
                   <div className="flex flex-col items-center bg-zinc-900/60 rounded-xl p-3 border-l border-zinc-700/50">
                     <span className="text-[9px] text-zinc-500 mb-1 font-bold uppercase tracking-tighter">結束時間</span>
                     <input type="time" value={formData.end_time}
-                      onChange={e => setFormData(prev => ({ ...prev, end_time: e.target.value }))}
+                      onChange={e => handleEndTimeChange(e.target.value)}
                       className="bg-transparent text-white font-mono font-bold text-base outline-none [color-scheme:dark]" />
                   </div>
                 </div>
@@ -378,6 +461,7 @@ export function ItineraryForm({ tripId, date, onSuccess, onCancel, initialData, 
                 <div className="flex justify-between px-1 text-[9px] font-black text-zinc-600">
                   <span>0分</span><span>2時</span><span>4時</span><span>6時</span><span>8時</span>
                 </div>
+
               </motion.div>
             )}
           </AnimatePresence>
@@ -388,12 +472,6 @@ export function ItineraryForm({ tripId, date, onSuccess, onCancel, initialData, 
           <div className="flex items-center justify-between mb-1.5 ml-1">
             <label className="text-[10px] font-bold text-zinc-500 uppercase tracking-widest">地點位址</label>
             <div className="flex items-center gap-2">
-              {fromCache && (
-                <div className="flex items-center gap-1 px-2 py-0.5 bg-blue-500/10 rounded-full border border-blue-500/20">
-                  <Database size={8} className="text-blue-400" />
-                  <span className="text-[8px] font-black text-blue-400 uppercase">快取</span>
-                </div>
-              )}
               {isKnownPlace && (
                 <div className="flex items-center gap-1 px-2 py-0.5 bg-orange-500/10 rounded-full border border-orange-500/20">
                   <Sparkles size={8} className="text-orange-500" />
@@ -414,16 +492,11 @@ export function ItineraryForm({ tripId, date, onSuccess, onCancel, initialData, 
             )} />
             <input type="text" value={formData.address}
               onChange={e => { setFormData(prev => ({ ...prev, address: e.target.value })); setIsLocationManuallyEdited(true); }}
-              className={clsx("w-full bg-[#242426] border rounded-2xl pl-11 pr-12 py-3.5 text-white text-xs focus:border-orange-500 outline-none transition-all",
+              onFocus={() => { if (!isLocationManuallyEdited) setIsLocationManuallyEdited(true); }}
+              className={clsx("w-full bg-[#242426] border rounded-2xl pl-11 pr-4 py-3.5 text-white text-xs focus:border-orange-500 outline-none transition-all",
                 isKnownPlace ? "border-orange-500/40" : "border-zinc-800"
               )}
               placeholder="輸入地點名稱搜尋..." />
-            <button type="button" onClick={handleFetchDetails} disabled={!formData.google_place_id}
-              className={clsx("absolute right-2 p-1.5 rounded-xl transition-all",
-                formData.google_place_id ? "bg-zinc-800 text-orange-500 hover:bg-orange-500 hover:text-white" : "text-zinc-700 cursor-not-allowed"
-              )}>
-              {isSearching ? <Loader2 size={14} className="animate-spin" /> : <Search size={14} />}
-            </button>
           </div>
 
           <AnimatePresence>
@@ -435,10 +508,13 @@ export function ItineraryForm({ tripId, date, onSuccess, onCancel, initialData, 
                     const isKnown = knownPlaceIds.has(s.place_id);
                     return (
                       <button key={idx} type="button" onClick={() => handleSuggestionSelect(s)}
-                        className="w-full px-4 py-3 flex items-start gap-3 hover:bg-zinc-800 text-left border-b border-zinc-800/50 last:border-0 group">
+                        className={clsx(
+                          "w-full px-4 py-3 flex items-start gap-3 text-left border-b border-zinc-800/50 last:border-0 group transition-colors",
+                          isKnown ? "bg-orange-500/5 hover:bg-orange-500/10" : "hover:bg-zinc-800"
+                        )}>
                         <MapPin size={14} className={clsx("mt-0.5 shrink-0 transition-colors", isKnown ? "text-orange-500" : "text-zinc-600 group-hover:text-orange-500")} />
                         <div className="flex-1 min-w-0">
-                          <div className="text-xs font-bold text-white truncate flex items-center gap-1.5">
+                          <div className={clsx("text-xs font-bold truncate flex items-center gap-1.5", isKnown ? "text-orange-400" : "text-white")}>
                             {s.structured_formatting.main_text}
                             {isKnown && (
                               <span className="inline-flex items-center gap-0.5 bg-orange-500/15 text-orange-400 text-[8px] font-black px-1.5 py-0.5 rounded-full border border-orange-500/20 shrink-0">
@@ -446,7 +522,7 @@ export function ItineraryForm({ tripId, date, onSuccess, onCancel, initialData, 
                               </span>
                             )}
                           </div>
-                          <div className="text-[10px] text-zinc-500 truncate">{s.structured_formatting.secondary_text}</div>
+                          <div className={clsx("text-[10px] truncate", isKnown ? "text-orange-400/50" : "text-zinc-500")}>{s.structured_formatting.secondary_text}</div>
                         </div>
                       </button>
                     );
@@ -494,7 +570,10 @@ export function ItineraryForm({ tripId, date, onSuccess, onCancel, initialData, 
                   <div className="w-1.5 h-1.5 rounded-full bg-orange-500 shadow-[0_0_8px_rgba(249,115,22,0.5)]" />
                   <div>
                     <div className="text-xs font-bold text-white">{item.title}</div>
-                    <div className="text-[10px] text-zinc-500 font-mono mt-0.5">{item.start_time} — {item.end_time}</div>
+                    {item.address && <div className="text-[9px] text-zinc-500 mt-0.5 truncate max-w-[180px]">{item.address}</div>}
+                    {(item.start_time || item.end_time) && (
+                      <div className="text-[10px] text-zinc-500 font-mono mt-0.5">{item.start_time} — {item.end_time}</div>
+                    )}
                   </div>
                 </div>
                 <button type="button" onClick={e => { e.stopPropagation(); setSubItems(subItems.filter((_, i) => i !== idx)); }}
@@ -654,54 +733,174 @@ export function ItineraryForm({ tripId, date, onSuccess, onCancel, initialData, 
         {isSubItemModalOpen && (
           <div className="absolute inset-0 z-[110] flex items-center justify-center bg-black/80 backdrop-blur-md p-4">
             <motion.div initial={{ scale: 0.95, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0.95, opacity: 0 }}
-              className="bg-[#1c1c1e] border border-zinc-800 rounded-[28px] w-full max-w-[320px] p-6 shadow-3xl">
+              className="bg-[#1c1c1e] border border-zinc-800 rounded-[28px] w-full max-w-[360px] p-6 shadow-3xl max-h-[80vh] overflow-y-auto">
               <div className="flex justify-between items-center mb-5">
-                <h3 className="font-bold text-white text-sm tracking-tight">子活動</h3>
+                <h3 className="font-bold text-white text-sm tracking-tight">
+                  {editingSubItem ? '編輯子活動' : '新增子活動'}
+                </h3>
                 <button type="button" onClick={() => setIsSubItemModalOpen(false)}><X size={18} className="text-zinc-500" /></button>
               </div>
-              {formData.start_time && formData.end_time && (
+              {isTimeFixed && formData.start_time && formData.end_time && (
                 <div className="mb-4 px-3 py-2 bg-zinc-900 rounded-xl border border-zinc-800 text-[10px] text-zinc-400 flex items-center gap-1.5">
                   <Lock size={10} className="text-orange-500" />
-                  <span>時間限制：{formData.start_time} — {formData.end_time}</span>
+                  <span>主活動時段：{formData.start_time} — {formData.end_time}</span>
                 </div>
               )}
-              <form onSubmit={e => {
+              {!isTimeFixed && (
+                <div className="mb-4 px-3 py-2 bg-orange-500/8 rounded-xl border border-orange-500/20 text-[10px] text-orange-400 flex items-center gap-1.5">
+                  <Sparkles size={10} />
+                  <span>智慧排程：填寫停留時間，系統將自動安排順序與時段</span>
+                </div>
+              )}
+              <form onSubmit={async e => {
                 e.preventDefault();
-                const f = e.target as any;
-                const st = f.start_time.value;
-                const et = f.end_time.value;
-                if (formData.start_time && st < formData.start_time) { alert(`子活動開始時間不可早於主活動 ${formData.start_time}`); return; }
-                if (formData.end_time && et > formData.end_time) { alert(`子活動結束時間不可晚於主活動 ${formData.end_time}`); return; }
-                if (st >= et) { alert('結束時間必須晚於開始時間'); return; }
-                const newItem = { id: editingSubItem?.id || Date.now().toString(), title: f.title.value, start_time: st, end_time: et, notes: f.notes.value };
-                if (editingSubItem) setSubItems(subItems.map(i => i.id === editingSubItem.id ? newItem : i));
-                else setSubItems([...subItems, newItem].sort((a, b) => a.start_time.localeCompare(b.start_time)));
-                setIsSubItemModalOpen(false);
+                const f = e.target as HTMLFormElement;
+                const notesEl = f.elements.namedItem('notes') as HTMLTextAreaElement;
+
+                // Time validation (fixed mode)
+                if (isTimeFixed) {
+                  if (!subStartTime || !subEndTime || subStartTime >= subEndTime) {
+                    alert('請設定有效時間（開始 < 結束）'); return;
+                  }
+                  if (formData.start_time && subStartTime < formData.start_time) {
+                    alert(`子活動開始時間不可早於主活動 ${formData.start_time}`); return;
+                  }
+                  if (formData.end_time && subEndTime > formData.end_time) {
+                    alert(`子活動結束時間不可晚於主活動 ${formData.end_time}`); return;
+                  }
+                }
+
+                const newItem: any = {
+                  title: subTitle,
+                  start_time: isTimeFixed ? subStartTime : '',
+                  end_time: isTimeFixed ? subEndTime : '',
+                  notes: notesEl?.value || '',
+                  address: subAddress,
+                  lat: subLat ?? undefined,
+                  lng: subLng ?? undefined,
+                  duration: subDuration,
+                };
+
+                // Duration validation
+                const proposedItems = editingSubItem
+                  ? subItems.map((i: any) => i.id === editingSubItem.id ? { ...i, duration: subDuration } : i)
+                  : [...subItems, { duration: subDuration }];
+                const totalSubDuration = proposedItems.reduce((acc: number, i: any) => acc + (Number(i.duration) || 0), 0);
+                const parentDuration = (() => {
+                  if (isTimeFixed && formData.start_time && formData.end_time) {
+                    const [sh, sm] = formData.start_time.split(':').map(Number);
+                    const [eh, em] = formData.end_time.split(':').map(Number);
+                    return (eh * 60 + em) - (sh * 60 + sm);
+                  }
+                  return stayDuration || 0;
+                })();
+                if (parentDuration > 0 && totalSubDuration > parentDuration) {
+                  setDurationWarnInfo({ total: totalSubDuration, parent: parentDuration });
+                  setPendingSaveItem(newItem);
+                  setShowDurationWarn(true);
+                  return;
+                }
+
+                await executeSubItemSave(newItem);
               }} className="space-y-4">
-                <input type="text" name="title" required defaultValue={editingSubItem?.title} placeholder="子活動名稱"
-                  className="w-full bg-[#242426] border border-zinc-800 rounded-xl px-4 py-2.5 text-white text-xs outline-none focus:border-orange-500 transition-all" />
-                <div className="grid grid-cols-2 gap-3">
-                  <div className="bg-[#242426] border border-zinc-800 rounded-xl px-3 py-2">
-                    <span className="block text-[8px] text-zinc-500 font-bold mb-1">開始</span>
-                    <input type="time" name="start_time" required
-                      defaultValue={editingSubItem?.start_time || formData.start_time}
-                      min={formData.start_time || undefined}
-                      max={formData.end_time || undefined}
-                      className="bg-transparent text-white font-mono text-xs w-full outline-none [color-scheme:dark]" />
+                {/* Title */}
+                <input type="text" required value={subTitle} onChange={e => setSubTitle(e.target.value)} placeholder="子活動名稱"
+                  className="w-full bg-[#242426] border border-zinc-800 rounded-xl px-4 py-2.5 text-white text-sm outline-none focus:border-orange-500 transition-all" />
+                {/* Address */}
+                <AddressSearchInput
+                  value={subAddress}
+                  onChange={v => { setSubAddress(v); setSubLat(null); setSubLng(null); setSubIsAddrEdited(true); }}
+                  onPlaceSelect={p => { setSubAddress(p.address); setSubLat(p.lat ?? null); setSubLng(p.lng ?? null); setSubIsAddrEdited(true); }}
+                  placeholder="地點（選填）..."
+                />
+                {/* Duration slider — always visible */}
+                <div className="bg-[#242426] border border-zinc-800 rounded-xl px-3 py-2.5 space-y-2">
+                  <div className="flex items-center justify-between">
+                    <span className="text-[8px] text-zinc-500 font-bold uppercase tracking-widest">預計停留時間</span>
+                    <div className="flex items-center gap-1">
+                      <input type="number" min="5" max="480" step="5" value={subDuration}
+                        onChange={e => handleSubDurationChange(Math.max(5, parseInt(e.target.value) || 5))}
+                        className="w-14 text-right bg-transparent text-white font-mono text-sm outline-none" />
+                      <span className="text-[10px] text-zinc-500">分</span>
+                    </div>
                   </div>
-                  <div className="bg-[#242426] border border-zinc-800 rounded-xl px-3 py-2">
-                    <span className="block text-[8px] text-zinc-500 font-bold mb-1">結束</span>
-                    <input type="time" name="end_time" required
-                      defaultValue={editingSubItem?.end_time || formData.end_time}
-                      min={formData.start_time || undefined}
-                      max={formData.end_time || undefined}
-                      className="bg-transparent text-white font-mono text-xs w-full outline-none [color-scheme:dark]" />
+                  <input type="range" min="5" max="480" step="5" value={subDuration}
+                    onChange={e => handleSubDurationChange(parseInt(e.target.value))}
+                    className="w-full accent-orange-500" />
+                  <div className="flex justify-between text-[8px] text-zinc-600">
+                    <span>5分</span><span>2時</span><span>4時</span><span>6時</span><span>8時</span>
                   </div>
                 </div>
+                {/* Fixed mode: start time + auto end time */}
+                {isTimeFixed && (
+                  <div className="grid grid-cols-2 gap-3">
+                    <div className="bg-[#242426] border border-zinc-800 rounded-xl px-3 py-2">
+                      <span className="block text-[8px] text-zinc-500 font-bold mb-1">開始時間</span>
+                      <input type="time" value={subStartTime}
+                        onChange={e => handleSubStartChange(e.target.value)}
+                        min={formData.start_time || undefined}
+                        max={formData.end_time || undefined}
+                        className="bg-transparent text-white font-mono text-sm w-full outline-none [color-scheme:dark]" />
+                    </div>
+                    <div className="bg-[#242426] border border-zinc-800 rounded-xl px-3 py-2">
+                      <span className="block text-[8px] text-zinc-500 font-bold mb-1">結束時間</span>
+                      <div className="font-mono text-sm text-zinc-300 pt-0.5">{subEndTime || '—'}</div>
+                      <div className="text-[8px] text-zinc-600 mt-0.5">自動計算</div>
+                    </div>
+                  </div>
+                )}
+                {/* Notes */}
                 <textarea name="notes" defaultValue={editingSubItem?.notes} placeholder="備注..."
-                  className="w-full bg-[#242426] border border-zinc-800 rounded-xl px-4 py-2.5 text-white text-xs outline-none min-h-[60px] focus:border-orange-500 transition-all" />
-                <button type="submit" className="w-full py-3.5 bg-orange-500 text-white rounded-2xl font-black text-xs uppercase tracking-widest shadow-lg shadow-orange-500/20 active:scale-95 transition-all">儲存子活動</button>
+                  className="w-full bg-[#242426] border border-zinc-800 rounded-xl px-4 py-2.5 text-white text-sm outline-none min-h-[60px] focus:border-orange-500 transition-all" />
+                <button type="submit" disabled={subSaving}
+                  className="w-full py-3.5 bg-orange-500 text-white rounded-2xl font-black text-xs uppercase tracking-widest shadow-lg shadow-orange-500/20 active:scale-95 transition-all disabled:opacity-50">
+                  {subSaving ? '儲存中...' : '儲存子活動'}
+                </button>
               </form>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      {/* 子活動時間超出警告 */}
+      <AnimatePresence>
+        {showDurationWarn && (
+          <div className="absolute inset-0 z-[120] flex items-center justify-center bg-black/90 backdrop-blur-sm p-6">
+            <motion.div initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.95 }}
+              className="bg-zinc-900 border border-zinc-800 rounded-3xl p-6 w-full max-w-sm shadow-2xl">
+              <div className="flex items-start gap-3 mb-5">
+                <div className="w-10 h-10 rounded-2xl bg-yellow-500/10 flex items-center justify-center shrink-0">
+                  <AlertTriangle size={20} className="text-yellow-500" />
+                </div>
+                <div>
+                  <h3 className="text-base font-bold text-white mb-1">時間衝突</h3>
+                  <p className="text-sm text-zinc-400 leading-relaxed">
+                    子活動總時間 <span className="text-yellow-400 font-bold">{durationWarnInfo.total} 分</span> 超過主活動的 <span className="text-orange-400 font-bold">{durationWarnInfo.parent} 分</span>，請縮短子活動或拉長主活動。
+                  </p>
+                </div>
+              </div>
+              <div className="flex flex-col gap-2">
+                <button type="button"
+                  onClick={async () => {
+                    const newDur = durationWarnInfo.total;
+                    if (isTimeFixed) {
+                      handleFixedDurationChange(newDur);
+                    } else {
+                      setStayDuration(newDur);
+                    }
+                    setShowDurationWarn(false);
+                    if (pendingSaveItem) await executeSubItemSave(pendingSaveItem);
+                    setPendingSaveItem(null);
+                  }}
+                  className="w-full py-3.5 bg-orange-500 text-white rounded-2xl font-black text-xs uppercase tracking-widest shadow-lg shadow-orange-500/20 active:scale-95 transition-all">
+                  拉長主活動（延伸至 {durationWarnInfo.total} 分鐘）
+                </button>
+                <button type="button"
+                  onClick={() => { setShowDurationWarn(false); setPendingSaveItem(null); }}
+                  className="w-full py-3 bg-zinc-800 text-zinc-400 rounded-2xl font-bold text-xs hover:bg-zinc-700 transition-colors">
+                  取消（調整子活動）
+                </button>
+              </div>
             </motion.div>
           </div>
         )}

@@ -8,31 +8,33 @@ cities.post('/search', async (c) => {
   const { query } = await c.req.json();
   const apiKey = c.env.GOOGLE_MAPS_API_KEY; // 💡 這裡正確讀取你的 Worker ENV
 
-  // 1. 直接從後端發動請求給 Google Geocoding API
-  const googleUrl = `https://maps.googleapis.com/maps/api/geocode/json?address=${encodeURIComponent(query)}&key=${apiKey}`;
+  // 1. Geocoding API v4 (replaces legacy geocode/json)
+  const googleUrl = `https://geocode.googleapis.com/v4/geocode/address?address=${encodeURIComponent(query)}&key=${apiKey}`;
   const response = await fetch(googleUrl);
   const data: any = await response.json();
 
-  if (data.status !== 'OK' || !data.results[0]) {
+  if (!data.results?.length) {
     return c.json({ error: 'Google Maps 找不到該地點' }, 400);
   }
 
   const place = data.results[0];
-  const { lat, lng } = place.geometry.location;
-  const components = place.address_components;
-  
-  const getComp = (type: string) => components.find((c: any) => c.types.includes(type))?.long_name;
+  const lat: number = place.geocode.location.latitude;
+  const lng: number = place.geocode.location.longitude;
+  const components = place.addressComponents || [];
+
+  // v4: field is longText instead of long_name
+  const getComp = (type: string) => components.find((c: any) => c.types?.includes(type))?.longText;
   const country = getComp('country') || '';
-  const cityName = getComp('locality') || getComp('administrative_area_level_1') || place.formatted_address.split(',')[0];
+  const cityName = getComp('locality') || getComp('administrative_area_level_1') || (place.formattedAddress || '').split(',')[0];
 
   // 2. 檢查資料庫是否已存在
-  let existing = await c.env.DB.prepare('SELECT id FROM Cities WHERE google_place_id = ?').bind(place.place_id).first();
+  let existing = await c.env.DB.prepare('SELECT id FROM Cities WHERE google_place_id = ?').bind(place.placeId).first();
 
   if (!existing) {
     // 3. 寫入 D1
     const info = await c.env.DB.prepare(
       'INSERT INTO Cities (name, country, lat, lng, google_place_id) VALUES (?, ?, ?, ?, ?)'
-    ).bind(cityName, country, lat, lng, place.place_id).run();
+    ).bind(cityName, country, lat, lng, place.placeId).run();
     
     return c.json({ id: info.meta.last_row_id, name: cityName });
   }

@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useMemo } from 'react';
 import { Plus } from 'lucide-react';
 import { clsx } from 'clsx';
 import { Expense } from '../../types';
@@ -15,7 +15,14 @@ interface FinanceTabProps {
 export function FinanceTab({
   filteredExpenses, currency, canEdit, getUserNameById, onAddExpense, onEditExpense,
 }: FinanceTabProps) {
-  const dailyTotal = filteredExpenses.reduce((sum, e) => sum + e.amount, 0);
+  const currencyTotals = useMemo(() => {
+    const acc: Record<string, number> = {};
+    filteredExpenses.forEach(e => {
+      const cur = e.currency || currency;
+      acc[cur] = (acc[cur] || 0) + e.amount;
+    });
+    return Object.entries(acc);
+  }, [filteredExpenses, currency]);
 
   return (
     <div className="space-y-4">
@@ -23,9 +30,19 @@ export function FinanceTab({
         <h3 className="text-lg font-bold text-white">每日支出</h3>
         <div className="text-right">
           <div className="text-[10px] text-zinc-500 font-bold uppercase tracking-widest mb-0.5">當日合計</div>
-          <div className="text-xl font-bold text-white font-mono">
-            {currency} {dailyTotal.toLocaleString()}
-          </div>
+          {currencyTotals.length === 1 ? (
+            <div className="text-xl font-bold text-white font-mono">
+              {currencyTotals[0][0]} {currencyTotals[0][1].toLocaleString()}
+            </div>
+          ) : (
+            <div className="space-y-0.5">
+              {currencyTotals.map(([cur, amount]) => (
+                <div key={cur} className="text-sm font-bold text-white font-mono">
+                  {cur} {amount.toLocaleString()}
+                </div>
+              ))}
+            </div>
+          )}
         </div>
       </div>
 
