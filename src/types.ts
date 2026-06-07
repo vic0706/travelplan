@@ -90,6 +90,7 @@ export interface SubItinerary {
   address?: string;
   lat?: number;
   lng?: number;
+  duration?: number; // minutes — for smart scheduling duration check
 }
 
 export interface Expense {

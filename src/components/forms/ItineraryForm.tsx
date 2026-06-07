@@ -101,6 +101,8 @@ export function ItineraryForm({ tripId, date, onSuccess, onCancel, initialData, 
   const [subAddress, setSubAddress] = useState('');
   const [subLat, setSubLat] = useState<number | null>(null);
   const [subLng, setSubLng] = useState<number | null>(null);
+  const [subTitle, setSubTitle] = useState('');
+  const [subIsAddrEdited, setSubIsAddrEdited] = useState(false);
 
   const [formData, setFormData] = useState({
     title: initialData?.title || '',
@@ -158,11 +160,21 @@ export function ItineraryForm({ tripId, date, onSuccess, onCancel, initialData, 
   // 子活動 Modal 開啟時初始化地址狀態
   useEffect(() => {
     if (isSubItemModalOpen) {
+      setSubTitle(editingSubItem?.title || '');
       setSubAddress(editingSubItem?.address || '');
       setSubLat(editingSubItem?.lat ?? null);
       setSubLng(editingSubItem?.lng ?? null);
+      setSubIsAddrEdited(false);
     }
   }, [isSubItemModalOpen, editingSubItem]);
+
+  // 子活動標題同步到地址欄（未手動編輯地址時）
+  useEffect(() => {
+    if (isSubItemModalOpen && !subIsAddrEdited && !subLat) {
+      setSubAddress(subTitle);
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [subTitle]);
 
   // 自動搜尋地點（帶 DB 快取）
   useEffect(() => {
@@ -672,66 +684,108 @@ export function ItineraryForm({ tripId, date, onSuccess, onCancel, initialData, 
                   <span>時間限制：{formData.start_time} — {formData.end_time}</span>
                 </div>
               )}
+              {!isTimeFixed && (
+                <div className="mb-4 px-3 py-2 bg-orange-500/8 rounded-xl border border-orange-500/20 text-[10px] text-orange-400 flex items-center gap-1.5">
+                  <Sparkles size={10} />
+                  <span>智慧排程：時間由系統自動安排，填寫預計停留時間即可</span>
+                </div>
+              )}
               <form onSubmit={e => {
                 e.preventDefault();
                 const f = e.target as any;
-                const st = f.start_time.value;
-                const et = f.end_time.value;
+                const st = isTimeFixed ? (f.start_time?.value || '') : '';
+                const et = isTimeFixed ? (f.end_time?.value || '') : '';
                 if (isTimeFixed) {
                   if (!st || !et || st >= et) { alert('請填寫有效時間（開始 < 結束）'); return; }
                   if (formData.start_time && st < formData.start_time) { alert(`子活動開始時間不可早於主活動 ${formData.start_time}`); return; }
                   if (formData.end_time && et > formData.end_time) { alert(`子活動結束時間不可晚於主活動 ${formData.end_time}`); return; }
-                } else if (st && et && st >= et) {
-                  alert('結束時間必須晚於開始時間'); return;
                 }
+                const newDuration = parseInt(f.duration?.value || '0') || 0;
                 const newItem = {
                   id: editingSubItem?.id || Date.now().toString(),
-                  title: f.title.value,
+                  title: subTitle,
                   start_time: st,
                   end_time: et,
                   notes: f.notes.value,
                   address: subAddress,
                   lat: subLat ?? undefined,
                   lng: subLng ?? undefined,
+                  duration: newDuration || undefined,
                 };
+                // Duration validation
+                const proposedItems = editingSubItem
+                  ? subItems.map(i => i.id === editingSubItem.id ? newItem : i)
+                  : [...subItems, newItem];
+                const totalSubDuration = proposedItems.reduce((acc: number, i: any) => acc + (parseInt(i.duration || '0') || 0), 0);
+                const parentDuration = (() => {
+                  if (isTimeFixed && formData.start_time && formData.end_time) {
+                    const [sh, sm] = formData.start_time.split(':').map(Number);
+                    const [eh, em] = formData.end_time.split(':').map(Number);
+                    return (eh * 60 + em) - (sh * 60 + sm);
+                  }
+                  return stayDuration || 0;
+                })();
+                if (parentDuration > 0 && totalSubDuration > parentDuration) {
+                  alert(`子活動總時間 ${totalSubDuration} 分鐘超過主活動安排的 ${parentDuration} 分鐘，請縮短子活動或增加主活動停留時間`);
+                  return;
+                }
                 if (editingSubItem) setSubItems(subItems.map(i => i.id === editingSubItem.id ? newItem : i));
                 else setSubItems([...subItems, newItem].sort((a, b) => (a.start_time || '').localeCompare(b.start_time || '')));
                 setIsSubItemModalOpen(false);
               }} className="space-y-4">
-                <input type="text" name="title" required defaultValue={editingSubItem?.title} placeholder="子活動名稱"
-                  className="w-full bg-[#242426] border border-zinc-800 rounded-xl px-4 py-2.5 text-white text-xs outline-none focus:border-orange-500 transition-all" />
+                <input type="text" required value={subTitle} onChange={e => setSubTitle(e.target.value)} placeholder="子活動名稱"
+                  className="w-full bg-[#242426] border border-zinc-800 rounded-xl px-4 py-2.5 text-white text-sm outline-none focus:border-orange-500 transition-all" />
                 <AddressSearchInput
                   value={subAddress}
-                  onChange={v => { setSubAddress(v); setSubLat(null); setSubLng(null); }}
-                  onPlaceSelect={p => { setSubAddress(p.address); setSubLat(p.lat ?? null); setSubLng(p.lng ?? null); }}
+                  onChange={v => { setSubAddress(v); setSubLat(null); setSubLng(null); setSubIsAddrEdited(true); }}
+                  onPlaceSelect={p => { setSubAddress(p.address); setSubLat(p.lat ?? null); setSubLng(p.lng ?? null); setSubIsAddrEdited(true); }}
                   placeholder="地點（選填）..."
                 />
-                <div className="grid grid-cols-2 gap-3">
-                  <div className="bg-[#242426] border border-zinc-800 rounded-xl px-3 py-2">
-                    <span className="block text-[8px] text-zinc-500 font-bold mb-1">
-                      開始{!isTimeFixed && <span className="text-zinc-600 font-normal ml-1">（選填）</span>}
-                    </span>
-                    <input type="time" name="start_time"
-                      required={isTimeFixed}
-                      defaultValue={editingSubItem?.start_time || (isTimeFixed ? formData.start_time : '')}
-                      min={isTimeFixed ? (formData.start_time || undefined) : undefined}
-                      max={isTimeFixed ? (formData.end_time || undefined) : undefined}
-                      className="bg-transparent text-white font-mono text-xs w-full outline-none [color-scheme:dark]" />
+                {/* 固定時間模式才顯示時間欄 */}
+                {isTimeFixed && (
+                  <div className="grid grid-cols-2 gap-3">
+                    <div className="bg-[#242426] border border-zinc-800 rounded-xl px-3 py-2">
+                      <span className="block text-[8px] text-zinc-500 font-bold mb-1">開始</span>
+                      <input type="time" name="start_time"
+                        required
+                        defaultValue={editingSubItem?.start_time || formData.start_time}
+                        min={formData.start_time || undefined}
+                        max={formData.end_time || undefined}
+                        className="bg-transparent text-white font-mono text-xs w-full outline-none [color-scheme:dark]" />
+                    </div>
+                    <div className="bg-[#242426] border border-zinc-800 rounded-xl px-3 py-2">
+                      <span className="block text-[8px] text-zinc-500 font-bold mb-1">結束</span>
+                      <input type="time" name="end_time"
+                        required
+                        defaultValue={editingSubItem?.end_time || formData.end_time}
+                        min={formData.start_time || undefined}
+                        max={formData.end_time || undefined}
+                        className="bg-transparent text-white font-mono text-xs w-full outline-none [color-scheme:dark]" />
+                    </div>
                   </div>
-                  <div className="bg-[#242426] border border-zinc-800 rounded-xl px-3 py-2">
-                    <span className="block text-[8px] text-zinc-500 font-bold mb-1">
-                      結束{!isTimeFixed && <span className="text-zinc-600 font-normal ml-1">（選填）</span>}
-                    </span>
-                    <input type="time" name="end_time"
-                      required={isTimeFixed}
-                      defaultValue={editingSubItem?.end_time || (isTimeFixed ? formData.end_time : '')}
-                      min={isTimeFixed ? (formData.start_time || undefined) : undefined}
-                      max={isTimeFixed ? (formData.end_time || undefined) : undefined}
-                      className="bg-transparent text-white font-mono text-xs w-full outline-none [color-scheme:dark]" />
+                )}
+                {/* 智慧排程：只填預計停留時間 */}
+                {!isTimeFixed && (
+                  <div className="bg-[#242426] border border-zinc-800 rounded-xl px-3 py-2.5">
+                    <span className="block text-[8px] text-zinc-500 font-bold mb-1">預計停留（分鐘）</span>
+                    <input type="number" name="duration" min="1" max="480"
+                      defaultValue={editingSubItem?.duration || ''}
+                      placeholder="例：30"
+                      className="bg-transparent text-white font-mono text-sm w-full outline-none placeholder:text-zinc-700" />
                   </div>
-                </div>
+                )}
+                {/* 固定時間：也可填 duration（選填） */}
+                {isTimeFixed && (
+                  <div className="bg-[#242426] border border-zinc-800 rounded-xl px-3 py-2.5">
+                    <span className="block text-[8px] text-zinc-500 font-bold mb-1">預計停留（分鐘，選填）</span>
+                    <input type="number" name="duration" min="1" max="480"
+                      defaultValue={editingSubItem?.duration || ''}
+                      placeholder="例：30"
+                      className="bg-transparent text-white font-mono text-sm w-full outline-none placeholder:text-zinc-700" />
+                  </div>
+                )}
                 <textarea name="notes" defaultValue={editingSubItem?.notes} placeholder="備注..."
-                  className="w-full bg-[#242426] border border-zinc-800 rounded-xl px-4 py-2.5 text-white text-xs outline-none min-h-[60px] focus:border-orange-500 transition-all" />
+                  className="w-full bg-[#242426] border border-zinc-800 rounded-xl px-4 py-2.5 text-white text-sm outline-none min-h-[60px] focus:border-orange-500 transition-all" />
                 <button type="submit" className="w-full py-3.5 bg-orange-500 text-white rounded-2xl font-black text-xs uppercase tracking-widest shadow-lg shadow-orange-500/20 active:scale-95 transition-all">儲存子活動</button>
               </form>
             </motion.div>

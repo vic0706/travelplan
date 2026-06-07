@@ -100,8 +100,10 @@ export function ItineraryCard({
 
   const openGoogleMaps = () => {
     let url: string;
-    if (item.lat && item.lng) {
-      url = `https://maps.google.com/maps?daddr=${item.lat},${item.lng}`;
+    if ((item as any).google_place_id) {
+      url = `https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(item.title)}&destination_place_id=${(item as any).google_place_id}`;
+    } else if (item.lat && item.lng) {
+      url = `https://maps.google.com/maps?daddr=${encodeURIComponent(item.title)}@${item.lat},${item.lng}`;
     } else {
       const dest = encodeURIComponent(item.address || item.title);
       url = `https://maps.google.com/maps?daddr=${dest}`;
@@ -157,7 +159,7 @@ export function ItineraryCard({
       const sub = subItems[subItemIdx];
       if (!sub) return null;
       const subNavUrl = (sub.lat && sub.lng)
-        ? `https://www.google.com/maps?q=${sub.lat},${sub.lng}`
+        ? `https://maps.google.com/maps?daddr=${encodeURIComponent(sub.title || '')}@${sub.lat},${sub.lng}`
         : sub.address
         ? `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(sub.address)}`
         : null;
@@ -176,7 +178,10 @@ export function ItineraryCard({
               {sub.start_time}{sub.end_time && sub.end_time !== sub.start_time ? ` — ${sub.end_time}` : ''}
             </div>
           )}
-          <h5 className="text-[13px] font-black text-white mb-2">{sub.title}</h5>
+          <h5 className="text-[13px] font-black text-white mb-1">{sub.title}</h5>
+          {sub.duration > 0 && (
+            <div className="text-[9px] text-orange-400/70 mb-2">{sub.duration} 分鐘</div>
+          )}
           {sub.address && (
             <div className="flex items-center gap-1.5 mb-2">
               <MapPin size={10} className="text-zinc-500 shrink-0" />
@@ -227,7 +232,7 @@ export function ItineraryCard({
               const subHasDetails = !!sub.notes;
               const showTime = !!(sub.start_time && (item as any).is_time_fixed);
               const subNavUrl = (sub.lat && sub.lng)
-                ? `https://www.google.com/maps?q=${sub.lat},${sub.lng}`
+                ? `https://maps.google.com/maps?daddr=${encodeURIComponent(sub.title || '')}@${sub.lat},${sub.lng}`
                 : sub.address
                 ? `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(sub.address)}`
                 : null;
@@ -236,19 +241,24 @@ export function ItineraryCard({
                   key={idx}
                   onClick={subHasDetails ? (e) => { e.stopPropagation(); setSubItemIdx(idx); } : undefined}
                   className={clsx(
-                    "w-full flex items-center gap-2 px-3 py-2.5 bg-white/5 border border-white/8 rounded-xl text-left transition-colors",
+                    "w-full flex items-center gap-3 px-3 py-3 bg-white/5 border border-white/10 rounded-xl relative overflow-hidden transition-colors",
                     subHasDetails ? "active:bg-white/10 cursor-pointer" : "cursor-default"
                   )}
                 >
-                  <div className="flex-1 min-w-0">
-                    <div className="text-[12px] font-semibold text-zinc-100 truncate">{sub.title}</div>
+                  {/* Left accent */}
+                  <div className="absolute left-0 top-0 bottom-0 w-0.5 bg-orange-500/50 rounded-r-full" />
+                  <div className="flex-1 min-w-0 pl-0.5">
+                    <div className="text-[13px] font-bold text-white truncate">{sub.title}</div>
                     {showTime && (
-                      <div className="font-mono text-[9px] text-zinc-500 mt-0.5">
+                      <div className="font-mono text-[10px] text-zinc-500 mt-0.5">
                         {sub.start_time}{sub.end_time && sub.end_time !== sub.start_time ? ` — ${sub.end_time}` : ''}
                       </div>
                     )}
                     {sub.address && (
                       <div className="text-[9px] text-zinc-500 mt-0.5 truncate max-w-[180px]">{sub.address}</div>
+                    )}
+                    {sub.duration > 0 && (
+                      <div className="text-[9px] text-orange-400/70 mt-0.5">{sub.duration} 分鐘</div>
                     )}
                   </div>
                   <div className="flex items-center gap-1 shrink-0">
@@ -258,9 +268,9 @@ export function ItineraryCard({
                         target="_blank"
                         rel="noopener noreferrer"
                         onClick={(e) => e.stopPropagation()}
-                        className="p-1 rounded-lg text-zinc-500 hover:text-orange-400 transition-colors"
+                        className="p-1.5 rounded-lg text-zinc-500 hover:text-orange-400 active:bg-white/10 transition-colors"
                       >
-                        <Navigation2 size={12} />
+                        <Navigation2 size={13} />
                       </a>
                     )}
                     {subHasDetails && (
