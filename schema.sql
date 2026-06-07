@@ -101,7 +101,9 @@ CREATE TABLE Itineraries (
     next_transport_mode TEXT DEFAULT '',
     next_transport_time TEXT DEFAULT '',
     next_transport_auto_time TEXT DEFAULT '',
-    
+    next_transport_resolved_mode TEXT DEFAULT '',
+    next_transport_haversine_time TEXT DEFAULT '',
+
     -- Google Places API 豐富化欄位
     lat REAL,
     lng REAL,

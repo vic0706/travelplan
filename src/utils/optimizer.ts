@@ -1,3 +1,22 @@
+const ROAD_CIRCUITY = 1.4; // real road ≈ 1.4× straight-line in urban areas
+
+const HEURISTIC_SPEED: Record<string, { speed: number; buffer: number }> = {
+  DRIVE:        { speed: 3,  buffer: 8  },
+  WALKING:      { speed: 15, buffer: 5  },
+  BICYCLING:    { speed: 8,  buffer: 5  },
+  MOTORCYCLING: { speed: 3,  buffer: 5  },
+  TRANSIT:      { speed: 5,  buffer: 10 },
+};
+
+function haversineAll(fromLat: number, fromLng: number, toLat: number, toLng: number): Record<string, number> {
+  const dist = getDistanceKm(fromLat, fromLng, toLat, toLng) ?? 0;
+  const result: Record<string, number> = {};
+  for (const [mode, { speed, buffer }] of Object.entries(HEURISTIC_SPEED)) {
+    result[mode] = Math.ceil(dist * ROAD_CIRCUITY * speed) + buffer;
+  }
+  return result;
+}
+
 function getDistanceKm(lat1: number, lon1: number, lat2: number, lon2: number) {
   if (!lat1 || !lon1 || !lat2 || !lon2) return null;
   try {
@@ -95,17 +114,31 @@ class MissingTransportError extends Error {
 async function calcTravelMins(gap: GapSlot, item: any, statements: any[], env: any): Promise<number> {
   if (!gap.lastItem) return 0;
   const prev = gap.lastItem;
-  const mode = (prev.next_transport_mode || '').toUpperCase();
+  const rawMode = (prev.next_transport_mode || '').toUpperCase();
 
   if (prev.next_transport_time === 'auto') {
     const hasCoords = !!(gap.lastLat && gap.lastLng && item.lat && item.lng);
     let mins: number | null = null;
+    let resolvedMode = rawMode || 'DRIVE';
+    let haversineVal: number | null = null;
+
+    // AUTO mode: pick the fastest transport by haversine estimate
+    if (rawMode === 'AUTO' && hasCoords) {
+      const estimates = haversineAll(gap.lastLat!, gap.lastLng!, item.lat, item.lng);
+      const fastest = Object.entries(estimates).sort((a, b) => a[1] - b[1])[0];
+      resolvedMode = fastest[0];
+      haversineVal = fastest[1];
+    } else if (hasCoords) {
+      const h = HEURISTIC_SPEED[resolvedMode] || HEURISTIC_SPEED.DRIVE;
+      const dist = getDistanceKm(gap.lastLat!, gap.lastLng!, item.lat, item.lng) ?? 0;
+      haversineVal = Math.ceil(dist * ROAD_CIRCUITY * h.speed) + h.buffer;
+    }
 
     if (hasCoords && env.GOOGLE_MAPS_API_KEY) {
-      const travelMode = mode === 'WALKING'      ? 'WALK'
-        : mode === 'BICYCLING'    ? 'BICYCLE'
-        : mode === 'TRANSIT'      ? 'TRANSIT'
-        : mode === 'MOTORCYCLING' ? 'TWO_WHEELER'
+      const travelMode = resolvedMode === 'WALKING'      ? 'WALK'
+        : resolvedMode === 'BICYCLING'    ? 'BICYCLE'
+        : resolvedMode === 'TRANSIT'      ? 'TRANSIT'
+        : resolvedMode === 'MOTORCYCLING' ? 'TWO_WHEELER'
         : 'DRIVE';
       const cacheKey = `travel_time:${gap.lastLat!.toFixed(4)},${gap.lastLng!.toFixed(4)}:${item.lat.toFixed(4)},${item.lng.toFixed(4)}:${travelMode.toLowerCase()}`;
       const cached: number | null = await env.KV.get(cacheKey, 'json');
@@ -144,25 +177,17 @@ async function calcTravelMins(gap: GapSlot, item: any, statements: any[], env: a
     }
 
     // Haversine fallback when API unavailable or failed
-    // ROAD_CIRCUITY: real road distance ≈ 1.4× straight-line in urban areas
-    if (mins === null && hasCoords) {
-      const dist = getDistanceKm(gap.lastLat!, gap.lastLng!, item.lat, item.lng);
-      if (dist !== null) {
-        const ROAD_CIRCUITY = 1.4;
-        let speed = 3, buffer = 8;                              // DRIVE: ~20 km/h avg with lights
-        if (mode === 'WALKING')      { speed = 15; buffer = 5; } // ~4 km/h
-        if (mode === 'BICYCLING')    { speed = 8;  buffer = 5; } // ~7.5 km/h
-        if (mode === 'MOTORCYCLING') { speed = 3;  buffer = 5; }
-        if (mode === 'TRANSIT')      { speed = 5;  buffer = 10; }
-        mins = Math.ceil(dist * ROAD_CIRCUITY * speed) + buffer;
-      }
+    if (mins === null && hasCoords && haversineVal !== null) {
+      mins = haversineVal;
     }
 
     if (mins === null) {
       throw new MissingTransportError(prev.id, prev.title || String(prev.id));
     }
 
-    statements.push(env.DB.prepare(`UPDATE Itineraries SET next_transport_auto_time = ? WHERE id = ?`).bind(mins, prev.id));
+    statements.push(env.DB.prepare(
+      `UPDATE Itineraries SET next_transport_auto_time = ?, next_transport_resolved_mode = ?, next_transport_haversine_time = ? WHERE id = ?`
+    ).bind(mins, resolvedMode, haversineVal ?? mins, prev.id));
     return mins;
   }
 
@@ -350,6 +375,19 @@ export async function optimizeDailyItinerary(env: any, tripId: number, dateStr: 
       env.DB.prepare(`UPDATE Itineraries SET start_time = '', end_time = '', sync_conflict_warning = ? WHERE id = ?`)
         .bind('⚠️ 無法插入，可用時間不足', item.id)
     );
+  }
+
+  // Gap post-pass: calculate travel from the last smart item in each gap to the
+  // immediately following fixed item. Without this, the last smart item before a
+  // fixed boundary (e.g., 逢甲夜市 → 返回黑金文旅) would never get its auto_time set.
+  for (const gap of gaps) {
+    const lastSmart = gap.lastItem;
+    if (!lastSmart || lastSmart.next_transport_time !== 'auto') continue;
+    const nextFixed = fixedItems.find((b: any) => timeToMins(b.start_time) === gap.end);
+    if (!nextFixed) continue;
+    try {
+      await calcTravelMins(gap, nextFixed, statements, env);
+    } catch { /* skip if no coords or transport info */ }
   }
 
   if (statements.length > 0) await env.DB.batch(statements);

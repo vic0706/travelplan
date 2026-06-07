@@ -73,7 +73,9 @@ export function ItineraryTab({
             return (
               <div key={`itinerary-${item.id}`} className="space-y-2">
                 <ItineraryCard
-                  item={displayItem} canEdit={canEdit}
+                  item={displayItem}
+                  nextItem={filteredItineraries[index + 1]}
+                  canEdit={canEdit}
                   isConflicted={conflictedIdsInView.has(item.id)}
                   onEdit={() => linkedBooking ? onEditBooking(linkedBooking) : onEditItinerary(item)}
                   showNextTransport={index < filteredItineraries.length - 1}

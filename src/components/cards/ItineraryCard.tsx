@@ -8,6 +8,7 @@ import { clsx } from 'clsx';
 
 interface ItineraryCardProps {
   item: Itinerary;
+  nextItem?: Itinerary;
   canEdit?: boolean;
   isConflicted?: boolean;
   onEdit: () => void;
@@ -42,7 +43,7 @@ const checkIsClosed = (dateStr: string, openingHoursJson?: string | null) => {
 };
 
 export function ItineraryCard({
-  item, canEdit, isConflicted, onEdit, showNextTransport, onEditNextTransport,
+  item, nextItem, canEdit, isConflicted, onEdit, showNextTransport, onEditNextTransport,
   expandSignal, collapseSignal, isDragOverlay, onCopy, onChangeDate,
 }: ItineraryCardProps) {
   const { categories } = useAppStore();
@@ -118,14 +119,19 @@ export function ItineraryCard({
     document.body.removeChild(a);
   };
 
-  const getTransportIcon = () => {
-    switch (item.next_transport_mode?.toLowerCase()) {
-      case 'transit': case 'train': return <Train size={14} />;
-      case 'bus':       return <Bus size={14} />;
-      case 'walking':   return <Footprints size={14} />;
-      case 'bicycling':    return <Bike size={14} />;
-      case 'motorcycling': return <Motorbike size={14} />;
-      default:             return <Car size={14} />;
+  // Use the optimizer-resolved mode (when AUTO) or the user-set mode
+  const displayMode = (item.next_transport_resolved_mode || item.next_transport_mode || '').toLowerCase();
+  const isAutoUnresolved = (item.next_transport_mode || '').toUpperCase() === 'AUTO' && !item.next_transport_resolved_mode;
+
+  const getTransportIcon = (size = 14) => {
+    if (isAutoUnresolved) return <Sparkles size={size} />;
+    switch (displayMode) {
+      case 'transit': case 'train': return <Train size={size} />;
+      case 'bus':          return <Bus size={size} />;
+      case 'walking':      return <Footprints size={size} />;
+      case 'bicycling':    return <Bike size={size} />;
+      case 'motorcycling': return <Motorbike size={size} />;
+      default:             return <Car size={size} />;
     }
   };
 
@@ -339,19 +345,19 @@ export function ItineraryCard({
               onClick={(e) => { e.stopPropagation(); if (canEdit && onEditNextTransport) onEditNextTransport(); }}
               className={clsx('flex items-center gap-1.5 px-2 py-1 rounded-lg transition-colors',
                 canEdit ? 'cursor-pointer hover:bg-white/5 active:bg-white/10' : 'cursor-default')}>
-              <span className="text-[9px] font-black uppercase tracking-[0.15em] text-white/40">
-                下一站
-              </span>
               {item.next_transport_mode ? (
                 <div className="flex items-center gap-1 text-zinc-400">
-                  {getTransportIcon()}
+                  {getTransportIcon(12)}
                   <span className="text-[10px] font-black tracking-tight flex items-center gap-0.5">
                     {manualVal > 0 ? `${manualVal}分` : autoVal > 0 ? <>{autoVal}分 <Sparkles size={9} /></> : '自動'}
                   </span>
+                  {nextItem && (
+                    <span className="text-[9px] text-white/30 font-bold truncate max-w-[60px]">→ {nextItem.title}</span>
+                  )}
                 </div>
               ) : (
                 <div className="flex items-center gap-0.5 text-white/30">
-                  <Plus size={10} /><span className="text-[9px] font-bold">設定</span>
+                  <Plus size={10} /><span className="text-[9px] font-bold">設定交通</span>
                 </div>
               )}
             </button>
@@ -373,15 +379,15 @@ export function ItineraryCard({
             onClick={(e) => { e.stopPropagation(); if (canEdit && onEditNextTransport) onEditNextTransport(); }}
             className={clsx('flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl transition-colors',
               canEdit ? 'cursor-pointer hover:bg-zinc-800/30 active:bg-zinc-800/50' : 'cursor-default')}>
-            <span className="text-[9px] font-black uppercase tracking-[0.15em] text-zinc-500">
-              下一站
-            </span>
             {item.next_transport_mode ? (
               <div className="flex items-center gap-1.5 text-zinc-400">
                 {getTransportIcon()}
                 <span className="text-[11px] font-black tracking-tight flex items-center gap-1">
                   {manualVal > 0 ? `${manualVal}分` : autoVal > 0 ? <>{autoVal}分 <Sparkles size={9} /></> : '自動'}
                 </span>
+                {nextItem && (
+                  <span className="text-[10px] text-zinc-600 font-bold truncate max-w-[80px]">→ {nextItem.title}</span>
+                )}
               </div>
             ) : (
               <div className="flex items-center gap-1 text-zinc-600">

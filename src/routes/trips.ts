@@ -388,7 +388,9 @@ trips.post('/:id/itineraries', async (c) => {
       google_place_id = '', lat = null, lng = null,
       rating = null, reviews_count = null, opening_hours = '',
       place_website = '', place_phone = '',
-      next_transport_mode = '', next_transport_time = '', next_transport_auto_time = '',
+      // Default to AUTO mode — optimizer will pick the fastest transport when smart scheduling runs
+      next_transport_mode = 'AUTO', next_transport_time = 'auto', next_transport_auto_time = '',
+      next_transport_resolved_mode = '', next_transport_haversine_time = '',
       sub_items = '[]', is_time_fixed = 0, stay_duration = '60',
       type = 'GENERAL', related_id = null, city_id = null,
     } = body;
@@ -403,14 +405,16 @@ trips.post('/:id/itineraries', async (c) => {
         image_url, notes, tags, icon, sub_items, type, related_id,
         is_time_fixed, stay_duration,
         next_transport_mode, next_transport_time, next_transport_auto_time,
+        next_transport_resolved_mode, next_transport_haversine_time,
         lat, lng, google_place_id, rating, reviews_count, opening_hours,
         place_website, place_phone
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).bind(
       tripId, city_id, date, start_time, end_time, title, address,
       image_url, notes, JSON.stringify(tags), icon, sub_items, type, related_id,
       is_time_fixed ? 1 : 0, String(stay_duration),
       next_transport_mode, next_transport_time, String(next_transport_auto_time),
+      next_transport_resolved_mode, next_transport_haversine_time,
       lat, lng, google_place_id, rating, reviews_count, opening_hours,
       place_website, place_phone
     ).run();
@@ -436,6 +440,7 @@ trips.put('/:id/itineraries/:itineraryId', async (c) => {
       image_url, google_place_id, lat, lng, rating, reviews_count,
       opening_hours, place_website, place_phone, place_status, sync_conflict_warning,
       next_transport_mode, next_transport_time, next_transport_auto_time,
+      next_transport_resolved_mode, next_transport_haversine_time,
       sub_items, is_time_fixed, stay_duration, type, related_id, city_id,
     } = body;
 
@@ -446,6 +451,7 @@ trips.put('/:id/itineraries/:itineraryId', async (c) => {
         sub_items = ?, type = ?, related_id = ?,
         is_time_fixed = ?, stay_duration = ?,
         next_transport_mode = ?, next_transport_time = ?, next_transport_auto_time = ?,
+        next_transport_resolved_mode = ?, next_transport_haversine_time = ?,
         lat = ?, lng = ?, google_place_id = ?, rating = ?, reviews_count = ?,
         opening_hours = ?, place_website = ?, place_phone = ?,
         place_status = ?, sync_conflict_warning = ?
@@ -457,6 +463,7 @@ trips.put('/:id/itineraries/:itineraryId', async (c) => {
       sub_items ?? '[]', type ?? 'GENERAL', related_id ?? null,
       is_time_fixed ? 1 : 0, String(stay_duration ?? '60'),
       next_transport_mode ?? '', next_transport_time ?? '', String(next_transport_auto_time ?? ''),
+      next_transport_resolved_mode ?? '', String(next_transport_haversine_time ?? ''),
       lat ?? null, lng ?? null, google_place_id ?? '', rating ?? null, reviews_count ?? null,
       opening_hours ?? '', place_website ?? '', place_phone ?? '',
       place_status ?? null, sync_conflict_warning ?? null,
