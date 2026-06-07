@@ -66,6 +66,7 @@ export interface Itinerary {
   next_transport_auto_time?: string;
   next_transport_resolved_mode?: string;
   next_transport_haversine_time?: string;
+  next_transport_custom_label?: string;
   lat?: number;
   lng?: number;
   

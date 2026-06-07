@@ -125,6 +125,12 @@ export function ItineraryCard({
 
   const getTransportIcon = (size = 14) => {
     if (isAutoUnresolved) return <Sparkles size={size} />;
+    if (displayMode === 'custom') {
+      const label = (item as any).next_transport_custom_label;
+      return label
+        ? <span className="text-[9px] font-black leading-none">{label}</span>
+        : <Sparkles size={size} />;
+    }
     switch (displayMode) {
       case 'transit': case 'train': return <Train size={size} />;
       case 'bus':          return <Bus size={size} />;

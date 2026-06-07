@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { X, Footprints, Bus, Car, Bike, Clock, Loader2, Sparkles, Motorbike, Pencil } from 'lucide-react';
+import { X, Footprints, Bus, Car, Bike, Clock, Loader2, Sparkles, Motorbike, Pencil, MapPin } from 'lucide-react';
 import { clsx } from 'clsx';
 import { Itinerary } from '../../types';
 import { motion } from 'framer-motion';
@@ -16,6 +16,7 @@ interface NextTransportFormProps {
     next_transport_auto_time: string;
     next_transport_haversine_time: string;
     next_transport_resolved_mode: string;
+    next_transport_custom_label: string;
   }) => Promise<void>;
 }
 
@@ -29,7 +30,6 @@ const TRANSPORT_MODES = [
   { id: 'CUSTOM',       label: '自訂',    icon: Pencil },
 ];
 
-// Haversine distance in km
 function haversineKm(lat1: number, lng1: number, lat2: number, lng2: number): number {
   const R = 6371;
   const dLat = (lat2 - lat1) * Math.PI / 180;
@@ -38,7 +38,7 @@ function haversineKm(lat1: number, lng1: number, lat2: number, lng2: number): nu
   return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
 }
 
-// Matches optimizer.ts HEURISTIC_SPEED (circuity 1.4× applied here)
+// Matches optimizer.ts HEURISTIC_SPEED (circuity 1.4×)
 const HEURISTIC: Record<string, { speed: number; buffer: number }> = {
   DRIVING:      { speed: 3,  buffer: 8  },
   TRANSIT:      { speed: 5,  buffer: 10 },
@@ -60,26 +60,31 @@ function fastestHaversineMode(dist: number): string {
 }
 
 export function NextTransportForm({ isOpen, onClose, itinerary, nextItinerary, onSave }: NextTransportFormProps) {
-  const [mode, setMode] = useState('DRIVING');
-  const [duration, setDuration] = useState<number>(15);
+  const [mode, setMode] = useState('AUTO');
+  const [isAutoTime, setIsAutoTime] = useState(true);
+  const [duration, setDuration] = useState(15);
+  const [customLabel, setCustomLabel] = useState('');
   const [loading, setLoading] = useState(false);
 
   // Haversine estimates for all modes (instant, free)
   const [estimates, setEstimates] = useState<Record<string, number>>({});
-  // Accurate API time for the currently selected mode
+  // Google Maps time for selected specific mode (when isAutoTime=true)
   const [accurateMins, setAccurateMins] = useState<number | null>(null);
   const [loadingAccurate, setLoadingAccurate] = useState(false);
+  // Google Maps time for AUTO mode's fastest haversine candidate
+  const [autoAccurateMins, setAutoAccurateMins] = useState<number | null>(null);
 
-  // Compute haversine estimates when form opens
+  const hasCoords = !!(itinerary?.lat && itinerary?.lng && nextItinerary?.lat && nextItinerary?.lng);
+
+  // Compute haversine estimates when form opens or coords change
   useEffect(() => {
     if (!isOpen) return;
-    const from = itinerary;
-    const to = nextItinerary;
+    const from = itinerary, to = nextItinerary;
     if (from?.lat && from?.lng && to?.lat && to?.lng) {
       const dist = haversineKm(from.lat, from.lng, to.lat, to.lng);
       const est: Record<string, number> = {};
       for (const m of TRANSPORT_MODES) {
-        if (m.id !== 'CUSTOM') est[m.id] = haversineEstimate(dist, m.id);
+        if (m.id !== 'CUSTOM' && m.id !== 'AUTO') est[m.id] = haversineEstimate(dist, m.id);
       }
       setEstimates(est);
     } else {
@@ -87,13 +92,10 @@ export function NextTransportForm({ isOpen, onClose, itinerary, nextItinerary, o
     }
   }, [isOpen, itinerary?.lat, itinerary?.lng, nextItinerary?.lat, nextItinerary?.lng]);
 
-  // Fetch accurate travel time for selected mode via Compute Routes API
+  // Fetch Google Maps time for selected specific mode (non-AUTO, non-CUSTOM, isAutoTime)
   const fetchAccurateTime = useCallback(async (selectedMode: string) => {
-    if (selectedMode === 'CUSTOM') { setAccurateMins(null); return; }
-    const from = itinerary;
-    const to = nextItinerary;
+    const from = itinerary, to = nextItinerary;
     if (!from?.lat || !from?.lng || !to?.lat || !to?.lng) { setAccurateMins(null); return; }
-
     setLoadingAccurate(true);
     setAccurateMins(null);
     try {
@@ -109,33 +111,50 @@ export function NextTransportForm({ isOpen, onClose, itinerary, nextItinerary, o
     finally { setLoadingAccurate(false); }
   }, [itinerary?.lat, itinerary?.lng, nextItinerary?.lat, nextItinerary?.lng]);
 
-  // Load existing data and trigger API fetch when form opens
+  // Fetch Google Maps time for AUTO mode's fastest haversine candidate
+  useEffect(() => {
+    if (!isOpen || mode !== 'AUTO' || !hasCoords) { setAutoAccurateMins(null); return; }
+    const from = itinerary, to = nextItinerary;
+    if (!from?.lat || !from?.lng || !to?.lat || !to?.lng) return;
+    const dist = haversineKm(from.lat, from.lng, to.lat, to.lng);
+    const best = fastestHaversineMode(dist);
+    setAutoAccurateMins(null);
+    apiFetch('/api/travel-time', {
+      method: 'POST',
+      body: JSON.stringify({ fromLat: from.lat, fromLng: from.lng, toLat: to.lat, toLng: to.lng, mode: best }),
+    }).then(r => r.ok ? r.json() : null)
+      .then((d: any) => { if (d?.mins != null) setAutoAccurateMins(d.mins); })
+      .catch(() => {});
+  }, [isOpen, mode, itinerary?.lat, itinerary?.lng, nextItinerary?.lat, nextItinerary?.lng]);
+
+  // Load existing data when form opens
   useEffect(() => {
     if (!isOpen || !itinerary) return;
     const storedMode = (itinerary.next_transport_mode || 'AUTO').toUpperCase();
-    const isAutoMode = storedMode === 'AUTO' || itinerary.next_transport_time === 'auto';
+    const isAutoMode = storedMode === 'AUTO';
+    const storedIsAutoTime = isAutoMode || itinerary.next_transport_time === 'auto';
+    const storedDuration = (() => {
+      if (storedIsAutoTime || isAutoMode) return 15;
+      const mins = parseInt((itinerary.next_transport_time || '').replace(/\D/g, ''));
+      return mins || 15;
+    })();
 
-    let initialMode = isAutoMode ? 'AUTO' : storedMode;
-    let initialDuration = 0;
-
-    if (!isAutoMode) {
-      const mins = itinerary.next_transport_time
-        ? parseInt(itinerary.next_transport_time.replace(/\D/g, ''))
-        : 15;
-      initialDuration = mins || 15;
-    }
-
-    setMode(initialMode);
-    setDuration(initialDuration);
+    setMode(isAutoMode ? 'AUTO' : storedMode);
+    setIsAutoTime(isAutoMode ? true : storedIsAutoTime);
+    setDuration(storedDuration);
+    setCustomLabel((itinerary as any).next_transport_custom_label || '');
     setAccurateMins(null);
-    if (initialMode !== 'AUTO') fetchAccurateTime(initialMode);
+    setAutoAccurateMins(null);
   }, [isOpen, itinerary?.id]);
 
-  // Fetch accurate time when mode changes (skip for AUTO and CUSTOM)
+  // Fetch accurate time when mode or isAutoTime changes (specific mode + auto time only)
   useEffect(() => {
-    if (!isOpen || mode === 'AUTO' || mode === 'CUSTOM') return;
+    if (!isOpen || mode === 'AUTO' || mode === 'CUSTOM' || !isAutoTime) {
+      if (!isAutoTime) setAccurateMins(null);
+      return;
+    }
     fetchAccurateTime(mode);
-  }, [mode, isOpen]);
+  }, [mode, isOpen, isAutoTime]);
 
   if (!isOpen || !itinerary) return null;
 
@@ -143,11 +162,9 @@ export function NextTransportForm({ isOpen, onClose, itinerary, nextItinerary, o
     setLoading(true);
     try {
       const isAutoMode = mode === 'AUTO';
-      const isAutoTime = isAutoMode || duration === 0;
+      const actualAutoTime = isAutoMode || isAutoTime;
 
-      // Compute haversine estimate for saving
-      const from = itinerary;
-      const to = nextItinerary;
+      const from = itinerary, to = nextItinerary;
       let haversineTime = '';
       if (from?.lat && from?.lng && to?.lat && to?.lng) {
         const dist = haversineKm(from.lat, from.lng, to.lat, to.lng);
@@ -160,10 +177,11 @@ export function NextTransportForm({ isOpen, onClose, itinerary, nextItinerary, o
 
       await onSave({
         next_transport_mode: mode,
-        next_transport_time: isAutoTime ? 'auto' : `${duration} min`,
-        next_transport_auto_time: (!isAutoMode && isAutoTime && accurateMins !== null) ? String(accurateMins) : '',
+        next_transport_time: actualAutoTime ? 'auto' : `${duration} min`,
+        next_transport_auto_time: (isAutoTime && !isAutoMode && accurateMins !== null) ? String(accurateMins) : '',
         next_transport_haversine_time: haversineTime,
-        next_transport_resolved_mode: '', // cleared on user edit; optimizer will re-resolve on next run
+        next_transport_resolved_mode: '',
+        next_transport_custom_label: mode === 'CUSTOM' ? customLabel : '',
       });
       onClose();
     } finally {
@@ -174,14 +192,30 @@ export function NextTransportForm({ isOpen, onClose, itinerary, nextItinerary, o
   const handleClear = async () => {
     setLoading(true);
     try {
-      await onSave({ next_transport_mode: '', next_transport_time: '', next_transport_auto_time: '', next_transport_haversine_time: '', next_transport_resolved_mode: '' });
+      await onSave({
+        next_transport_mode: '',
+        next_transport_time: '',
+        next_transport_auto_time: '',
+        next_transport_haversine_time: '',
+        next_transport_resolved_mode: '',
+        next_transport_custom_label: '',
+      });
       onClose();
     } finally {
       setLoading(false);
     }
   };
 
-  const hasCoords = !!(itinerary.lat && itinerary.lng && nextItinerary?.lat && nextItinerary?.lng);
+  // For AUTO mode banner: compute best mode info
+  const autoBestInfo = (() => {
+    if (mode !== 'AUTO' || !hasCoords || !itinerary?.lat) return null;
+    const from = itinerary, to = nextItinerary;
+    if (!from?.lat || !from?.lng || !to?.lat || !to?.lng) return null;
+    const dist = haversineKm(from.lat, from.lng, to.lat, to.lng);
+    const best = fastestHaversineMode(dist);
+    const bestLabel = TRANSPORT_MODES.find(x => x.id === best)?.label ?? best;
+    return { best, bestLabel, haversineTime: haversineEstimate(dist, best) };
+  })();
 
   return (
     <div className="fixed inset-0 z-[400] flex items-end sm:items-center justify-center p-4 sm:p-0 bg-black/80 backdrop-blur-sm">
@@ -189,14 +223,18 @@ export function NextTransportForm({ isOpen, onClose, itinerary, nextItinerary, o
         initial={{ y: '100%', opacity: 0 }}
         animate={{ y: 0, opacity: 1 }}
         exit={{ y: '100%', opacity: 0 }}
-        transition={{ type: "spring", damping: 25, stiffness: 300 }}
+        transition={{ type: 'spring', damping: 25, stiffness: 300 }}
         className="bg-[#1c1c1e] border border-zinc-800 rounded-[36px] w-full max-w-sm overflow-hidden shadow-2xl flex flex-col"
       >
-        {/* Header */}
+        {/* Header: from → to */}
         <div className="px-6 py-5 border-b border-zinc-800 flex justify-between items-center bg-[#242426] shrink-0">
           <div>
-            <h3 className="font-black text-white text-base uppercase tracking-widest">前往下一站</h3>
-            <p className="text-[10px] text-zinc-500 font-bold mt-1 truncate max-w-[200px]">離開 {itinerary.title}</p>
+            <div className="flex items-center gap-1.5 font-black text-sm leading-snug">
+              <span className="text-zinc-300 truncate max-w-[95px]">{itinerary.title}</span>
+              <span className="text-zinc-600">→</span>
+              <span className="text-orange-400 truncate max-w-[95px]">{nextItinerary?.title || '下一站'}</span>
+            </div>
+            <p className="text-[10px] text-zinc-600 font-bold mt-0.5">交通方式設定</p>
           </div>
           <button onClick={onClose} className="p-2 bg-zinc-800 rounded-full text-zinc-400 hover:text-white transition-colors">
             <X size={18} />
@@ -204,42 +242,31 @@ export function NextTransportForm({ isOpen, onClose, itinerary, nextItinerary, o
         </div>
 
         {/* Content */}
-        <div className="p-6 space-y-6 overflow-y-auto custom-scrollbar">
+        <div className="p-5 space-y-4 overflow-y-auto custom-scrollbar">
           {/* Transport Mode Grid */}
           <div className="grid grid-cols-4 gap-2">
             {TRANSPORT_MODES.map(m => {
               const Icon = m.icon;
               const isActive = mode === m.id;
               const est = estimates[m.id];
-              const showAccurate = isActive && accurateMins !== null && m.id !== 'CUSTOM' && m.id !== 'AUTO';
-              const showLoading  = isActive && loadingAccurate && m.id !== 'CUSTOM' && m.id !== 'AUTO' && hasCoords;
 
               return (
                 <button
                   key={m.id} type="button"
-                  onClick={() => { setMode(m.id); if (m.id === 'AUTO') setDuration(0); }}
+                  onClick={() => { setMode(m.id); if (m.id === 'AUTO') setIsAutoTime(true); }}
                   className={clsx(
-                    "flex flex-col items-center justify-center gap-1 py-2.5 rounded-2xl border transition-all active:scale-95",
+                    'flex flex-col items-center justify-center gap-1 py-2.5 rounded-2xl border transition-all active:scale-95',
                     isActive
-                      ? "bg-orange-500/10 border-orange-500/50 text-orange-500 shadow-inner"
-                      : "bg-[#242426] border-zinc-800 text-zinc-500 hover:bg-zinc-800 hover:text-white hover:border-zinc-500"
+                      ? 'bg-orange-500/10 border-orange-500/50 text-orange-500 shadow-inner'
+                      : 'bg-[#242426] border-zinc-800 text-zinc-500 hover:bg-zinc-800 hover:text-white hover:border-zinc-500'
                   )}
                 >
                   <Icon size={18} className="shrink-0" />
                   <span className="text-[9px] font-bold tracking-wide">{m.label}</span>
-                  {/* Time estimate below each mode */}
+                  {/* Always show haversine below each mode button */}
                   {m.id !== 'CUSTOM' && m.id !== 'AUTO' && (
-                    <span className={clsx(
-                      "text-[9px] font-bold leading-none",
-                      isActive ? "text-orange-400" : "text-zinc-600"
-                    )}>
-                      {showLoading ? (
-                        <Loader2 size={9} className="animate-spin inline" />
-                      ) : showAccurate ? (
-                        `${accurateMins}分`
-                      ) : est ? (
-                        `~${est}分`
-                      ) : null}
+                    <span className={clsx('text-[9px] font-bold leading-none', isActive ? 'text-orange-400' : 'text-zinc-600')}>
+                      {est ? `~${est}分` : null}
                     </span>
                   )}
                 </button>
@@ -249,80 +276,129 @@ export function NextTransportForm({ isOpen, onClose, itinerary, nextItinerary, o
 
           {/* AUTO mode info banner */}
           {mode === 'AUTO' && (
-            <div className="bg-orange-500/5 border border-orange-500/20 rounded-2xl px-4 py-3 text-center">
-              <div className="flex items-center justify-center gap-1.5 text-orange-400 mb-1">
+            <div className="bg-orange-500/5 border border-orange-500/20 rounded-2xl px-4 py-3">
+              <div className="flex items-center justify-center gap-1.5 text-orange-400 mb-2">
                 <Sparkles size={12} /><span className="text-[11px] font-black">智慧選擇模式</span>
               </div>
-              <p className="text-[10px] text-zinc-500 leading-relaxed">
+              <p className="text-[10px] text-zinc-500 text-center leading-relaxed mb-2">
                 執行智慧排序時，系統將計算所有交通方式，<br/>自動選擇最快路線
               </p>
-              {hasCoords && (() => {
-                const from = itinerary;
-                const to = nextItinerary;
-                if (!from?.lat || !from?.lng || !to?.lat || !to?.lng) return null;
-                const dist = haversineKm(from.lat, from.lng, to.lat, to.lng);
-                const best = fastestHaversineMode(dist);
-                const bestLabel = TRANSPORT_MODES.find(x => x.id === best)?.label ?? best;
-                const bestTime = haversineEstimate(dist, best);
-                return (
-                  <p className="text-[10px] text-orange-400/70 mt-1.5 font-bold">
-                    目前估算最快：{bestLabel} ~{bestTime}分
+              {autoBestInfo && (
+                <div className="space-y-1.5 border-t border-orange-500/10 pt-2.5">
+                  <p className="text-[10px] text-orange-400/80 text-center font-black mb-1.5">
+                    目前估算最快：{autoBestInfo.bestLabel}
                   </p>
-                );
-              })()}
+                  <div className="flex items-center justify-between text-[10px] px-1">
+                    <span className="text-zinc-600 font-bold">📐 距離估算</span>
+                    <span className="text-zinc-500 font-black">~{autoBestInfo.haversineTime}分</span>
+                  </div>
+                  <div className="flex items-center justify-between text-[10px] px-1">
+                    <span className="text-zinc-600 font-bold">🗺 Google Maps</span>
+                    <span className="text-orange-400 font-black flex items-center gap-1">
+                      {autoAccurateMins !== null
+                        ? <>{autoAccurateMins}分 <Sparkles size={9} /></>
+                        : hasCoords ? <Loader2 size={10} className="animate-spin" /> : '—'}
+                    </span>
+                  </div>
+                </div>
+              )}
             </div>
           )}
 
-          {/* Time Input Area — hidden when AUTO mode */}
+          {/* Time section — shown for all non-AUTO modes */}
           {mode !== 'AUTO' && (
-          <div className="bg-[#242426] border border-zinc-800 rounded-2xl p-5 space-y-4">
-            <div className="flex items-center justify-between">
-              <label className="text-[10px] font-black text-zinc-400 uppercase tracking-widest flex items-center gap-2">
-                <Clock size={12} className="text-orange-500" /> 預估交通時間
-              </label>
-
-              <div className="flex items-center gap-2 bg-zinc-900 border border-zinc-800 rounded-xl px-4 py-2">
-                {duration === 0 ? (
-                  <div className="flex items-center gap-1.5 text-orange-500 animate-pulse">
-                    <Sparkles size={14} />
-                    <span className="text-sm font-black">自動</span>
+            <div className="bg-[#242426] border border-zinc-800 rounded-2xl p-4 space-y-3">
+              {/* 自動 / 手動 toggle */}
+              <div className="flex items-center justify-between">
+                <label className="text-[10px] font-black text-zinc-400 uppercase tracking-widest flex items-center gap-2">
+                  <Clock size={12} className="text-orange-500" /> 交通時間
+                </label>
+                {mode !== 'CUSTOM' && (
+                  <div className="flex gap-1 bg-zinc-900 border border-zinc-800 rounded-xl p-1">
+                    <button
+                      type="button"
+                      onClick={() => setIsAutoTime(true)}
+                      className={clsx('px-3 py-1 rounded-lg text-[10px] font-black transition-all',
+                        isAutoTime ? 'bg-orange-500 text-white shadow' : 'text-zinc-500 hover:text-white')}
+                    >
+                      自動
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setIsAutoTime(false)}
+                      className={clsx('px-3 py-1 rounded-lg text-[10px] font-black transition-all',
+                        !isAutoTime ? 'bg-zinc-700 text-white shadow' : 'text-zinc-500 hover:text-white')}
+                    >
+                      手動
+                    </button>
                   </div>
-                ) : (
-                  <>
+                )}
+              </div>
+
+              {/* Auto time: show haversine + Google Maps simultaneously */}
+              {(isAutoTime && mode !== 'CUSTOM') && (
+                <div className="space-y-2 pt-0.5">
+                  {estimates[mode] && (
+                    <div className="flex items-center justify-between text-[10px]">
+                      <span className="text-zinc-600 font-bold">📐 距離估算</span>
+                      <span className="text-zinc-500 font-black">~{estimates[mode]}分</span>
+                    </div>
+                  )}
+                  <div className="flex items-center justify-between text-[10px]">
+                    <span className="text-zinc-600 font-bold">🗺 Google Maps</span>
+                    <span className="font-black text-orange-400 flex items-center gap-1">
+                      {loadingAccurate
+                        ? <Loader2 size={11} className="animate-spin" />
+                        : accurateMins !== null
+                          ? <>{accurateMins}分 <Sparkles size={9} /></>
+                          : hasCoords ? '查詢中...' : '—'}
+                    </span>
+                  </div>
+                </div>
+              )}
+
+              {/* Manual time: number input + slider */}
+              {(!isAutoTime || mode === 'CUSTOM') && (
+                <>
+                  <div className="flex items-center justify-end gap-2 bg-zinc-900 border border-zinc-800 rounded-xl px-4 py-2">
                     <input
-                      type="number" min="1" max="300"
+                      type="number" min="5" max="300"
                       inputMode="numeric" pattern="[0-9]*"
                       value={duration}
-                      onChange={(e) => setDuration(Math.max(1, parseInt(e.target.value) || 1))}
+                      onChange={(e) => setDuration(Math.max(5, parseInt(e.target.value) || 5))}
                       className="w-12 bg-transparent text-white text-lg font-black text-right outline-none [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
                     />
                     <span className="text-[10px] text-zinc-500 font-bold">分鐘</span>
-                  </>
-                )}
-              </div>
+                  </div>
+                  <input
+                    type="range" min="5" max="120" step="5"
+                    value={Math.min(duration, 120)}
+                    onChange={(e) => setDuration(parseInt(e.target.value))}
+                    className="w-full h-1.5 rounded-lg appearance-none cursor-pointer outline-none accent-orange-500"
+                    style={{ accentColor: '#f97316' }}
+                  />
+                  <div className="flex justify-between text-[9px] text-zinc-600 font-bold px-1">
+                    <span>5分</span><span>30分</span><span>1時</span><span>2時</span>
+                  </div>
+                </>
+              )}
+
+              {/* CUSTOM mode: display label input */}
+              {mode === 'CUSTOM' && (
+                <div className="pt-1">
+                  <label className="text-[9px] font-black text-zinc-500 uppercase tracking-widest">
+                    卡片顯示名稱
+                  </label>
+                  <input
+                    type="text"
+                    value={customLabel}
+                    onChange={(e) => setCustomLabel(e.target.value)}
+                    placeholder="如：計程車、高鐵、接駁車"
+                    className="w-full mt-1.5 bg-zinc-900 border border-zinc-800 rounded-xl px-4 py-2.5 text-sm text-white font-bold outline-none focus:border-orange-500/50 transition-colors"
+                  />
+                </div>
+              )}
             </div>
-
-            <input
-              type="range" min="0" max="120" step="5"
-              value={duration}
-              onChange={(e) => setDuration(parseInt(e.target.value))}
-              className="w-full h-1.5 rounded-lg appearance-none cursor-pointer outline-none bg-orange-500 accent-orange-500"
-              style={{ accentColor: '#f97316' }}
-            />
-
-            <div className="flex justify-between text-[9px] text-zinc-600 font-bold px-1">
-              <span className={clsx(duration === 0 && "text-orange-500")}>自動</span>
-              <span>30分</span>
-              <span>1時</span>
-              <span>2時</span>
-            </div>
-
-            {duration === 0 && (
-              <p className="text-[10px] text-orange-500/60 text-center font-bold italic">
-                * 設定為 0 將由智慧排序根據距離自動計算
-              </p>
-            )}
-          </div>
           )}
         </div>
 
@@ -331,7 +407,7 @@ export function NextTransportForm({ isOpen, onClose, itinerary, nextItinerary, o
           <button
             onClick={handleClear}
             disabled={loading || !itinerary.next_transport_mode}
-            className="flex-1 py-4 bg-[#242426] hover:bg-red-500/10 text-zinc-400 hover:text-red-500 font-bold rounded-2xl transition-colors text-xs uppercase tracking-widest"
+            className="flex-1 py-4 bg-[#242426] hover:bg-red-500/10 text-zinc-400 hover:text-red-500 font-bold rounded-2xl transition-colors text-xs uppercase tracking-widest disabled:opacity-40"
           >
             清除
           </button>
