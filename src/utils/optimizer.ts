@@ -135,7 +135,7 @@ async function calcTravelMins(gap: GapSlot, item: any, statements: any[], env: a
               const secs = parseInt(row.duration);
               if (!isNaN(secs)) {
                 mins = Math.ceil(secs / 60);
-                await env.KV.put(cacheKey, JSON.stringify(mins), { expirationTtl: 2592000 }); // 30 days
+                await env.KV.put(cacheKey, JSON.stringify(mins), { expirationTtl: 86400 }); // 1 day
               }
             }
           }
@@ -144,15 +144,17 @@ async function calcTravelMins(gap: GapSlot, item: any, statements: any[], env: a
     }
 
     // Haversine fallback when API unavailable or failed
+    // ROAD_CIRCUITY: real road distance ≈ 1.4× straight-line in urban areas
     if (mins === null && hasCoords) {
       const dist = getDistanceKm(gap.lastLat!, gap.lastLng!, item.lat, item.lng);
       if (dist !== null) {
-        let speed = 2, buffer = 5;
-        if (mode === 'WALKING')      { speed = 12; buffer = 2; }
-        if (mode === 'BICYCLING')    { speed = 6;  buffer = 3; }
-        if (mode === 'MOTORCYCLING') { speed = 2;  buffer = 3; }
-        if (mode === 'TRANSIT')      { speed = 3;  buffer = 8; }
-        mins = Math.ceil(dist * speed) + buffer;
+        const ROAD_CIRCUITY = 1.4;
+        let speed = 3, buffer = 8;                              // DRIVE: ~20 km/h avg with lights
+        if (mode === 'WALKING')      { speed = 15; buffer = 5; } // ~4 km/h
+        if (mode === 'BICYCLING')    { speed = 8;  buffer = 5; } // ~7.5 km/h
+        if (mode === 'MOTORCYCLING') { speed = 3;  buffer = 5; }
+        if (mode === 'TRANSIT')      { speed = 5;  buffer = 10; }
+        mins = Math.ceil(dist * ROAD_CIRCUITY * speed) + buffer;
       }
     }
 
