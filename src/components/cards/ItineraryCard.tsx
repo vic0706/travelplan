@@ -535,6 +535,7 @@ export function ItineraryCard({
                       <div
                         ref={overlayScrollRef}
                         onScroll={checkOverlayScroll}
+                        onClick={canEdit ? () => onEdit() : undefined}
                         className="absolute inset-0 overflow-y-auto no-scrollbar p-3 pb-11"
                       >
                         {renderOverlayContent()}

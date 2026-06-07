@@ -57,7 +57,7 @@ export interface Itinerary {
   notes: string;
   tags: string[];
   icon?: string;
-  sub_items?: string;
+  sub_items?: SubItinerary[];
   stay_duration?: string;
   type?: 'GENERAL' | 'TRANSPORTATION' | 'ACCOMMODATION' | 'RENTAL';
   related_id?: number;
@@ -80,17 +80,18 @@ export interface Itinerary {
 }
 
 export interface SubItinerary {
-  id: string;
+  id: number;           // DB autoincrement (was string for local temp ids)
   itinerary_id: number;
-  start_time: string;
-  end_time: string;
   title: string;
-  tags: string;
-  notes: string;
   address?: string;
   lat?: number;
   lng?: number;
-  duration?: number; // minutes — for smart scheduling duration check
+  start_time: string;
+  end_time: string;
+  duration?: number;   // minutes — for smart scheduling
+  notes: string;
+  tags: string;        // JSON string or comma-separated
+  display_order?: number;
 }
 
 export interface Expense {

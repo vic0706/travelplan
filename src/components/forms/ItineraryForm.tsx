@@ -103,6 +103,10 @@ export function ItineraryForm({ tripId, date, onSuccess, onCancel, initialData, 
   const [subLng, setSubLng] = useState<number | null>(null);
   const [subTitle, setSubTitle] = useState('');
   const [subIsAddrEdited, setSubIsAddrEdited] = useState(false);
+  const [subDuration, setSubDuration] = useState(30);
+  const [subStartTime, setSubStartTime] = useState('');
+  const [subEndTime, setSubEndTime] = useState('');
+  const [subSaving, setSubSaving] = useState(false);
 
   const [formData, setFormData] = useState({
     title: initialData?.title || '',
@@ -157,7 +161,7 @@ export function ItineraryForm({ tripId, date, onSuccess, onCancel, initialData, 
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [formData.title]);
 
-  // 子活動 Modal 開啟時初始化地址狀態
+  // 子活動 Modal 開啟時初始化所有狀態
   useEffect(() => {
     if (isSubItemModalOpen) {
       setSubTitle(editingSubItem?.title || '');
@@ -165,6 +169,9 @@ export function ItineraryForm({ tripId, date, onSuccess, onCancel, initialData, 
       setSubLat(editingSubItem?.lat ?? null);
       setSubLng(editingSubItem?.lng ?? null);
       setSubIsAddrEdited(false);
+      setSubDuration(editingSubItem?.duration || 30);
+      setSubStartTime(editingSubItem?.start_time || (isTimeFixed ? formData.start_time : ''));
+      setSubEndTime(editingSubItem?.end_time || (isTimeFixed ? formData.end_time : ''));
     }
   }, [isSubItemModalOpen, editingSubItem]);
 
@@ -236,6 +243,16 @@ export function ItineraryForm({ tripId, date, onSuccess, onCancel, initialData, 
     }
   };
 
+  const handleSubDurationChange = (mins: number) => {
+    setSubDuration(mins);
+    if (isTimeFixed && subStartTime) setSubEndTime(addMinutesToTime(subStartTime, mins));
+  };
+
+  const handleSubStartChange = (t: string) => {
+    setSubStartTime(t);
+    if (isTimeFixed && subDuration) setSubEndTime(addMinutesToTime(t, subDuration));
+  };
+
   const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -272,7 +289,6 @@ export function ItineraryForm({ tripId, date, onSuccess, onCancel, initialData, 
         trip_id: tripId,
         date,
         tags: formData.tags.split(',').map(t => t.trim()).filter(Boolean),
-        sub_items: JSON.stringify(subItems),
         is_time_fixed: isTimeFixed ? 1 : 0,
         stay_duration: isTimeFixed ? fixedStayDuration.toString() : stayDuration.toString(),
         time_preference: 'anytime'
@@ -281,8 +297,19 @@ export function ItineraryForm({ tripId, date, onSuccess, onCancel, initialData, 
         initialData ? `/api/trips/${tripId}/itineraries/${initialData.id}` : `/api/trips/${tripId}/itineraries`,
         { method: initialData ? 'PUT' : 'POST', body: JSON.stringify(payload) }
       );
-      if (res.ok) { showToast?.('活動已儲存', 'success'); onSuccess(); }
-      else { showToast?.('儲存活動失敗', 'error'); setError('儲存活動失敗'); }
+      if (res.ok) {
+        // For new activities, batch-save any pending sub-items
+        if (!initialData && subItems.length > 0) {
+          const { id: newId } = await res.json() as any;
+          await Promise.all(subItems.map((sub, idx) =>
+            apiFetch(`/api/trips/${tripId}/itineraries/${newId}/sub-items`, {
+              method: 'POST',
+              body: JSON.stringify({ ...sub, display_order: idx })
+            })
+          ));
+        }
+        showToast?.('活動已儲存', 'success'); onSuccess();
+      } else { showToast?.('儲存活動失敗', 'error'); setError('儲存活動失敗'); }
     } catch { showToast?.('儲存活動失敗', 'error'); setError('儲存活動失敗'); }
     finally { setLoading(false); }
   };
@@ -673,50 +700,48 @@ export function ItineraryForm({ tripId, date, onSuccess, onCancel, initialData, 
         {isSubItemModalOpen && (
           <div className="absolute inset-0 z-[110] flex items-center justify-center bg-black/80 backdrop-blur-md p-4">
             <motion.div initial={{ scale: 0.95, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0.95, opacity: 0 }}
-              className="bg-[#1c1c1e] border border-zinc-800 rounded-[28px] w-full max-w-[340px] p-6 shadow-3xl">
+              className="bg-[#1c1c1e] border border-zinc-800 rounded-[28px] w-full max-w-[360px] p-6 shadow-3xl max-h-[80vh] overflow-y-auto">
               <div className="flex justify-between items-center mb-5">
-                <h3 className="font-bold text-white text-sm tracking-tight">子活動</h3>
+                <h3 className="font-bold text-white text-sm tracking-tight">
+                  {editingSubItem ? '編輯子活動' : '新增子活動'}
+                </h3>
                 <button type="button" onClick={() => setIsSubItemModalOpen(false)}><X size={18} className="text-zinc-500" /></button>
               </div>
               {isTimeFixed && formData.start_time && formData.end_time && (
                 <div className="mb-4 px-3 py-2 bg-zinc-900 rounded-xl border border-zinc-800 text-[10px] text-zinc-400 flex items-center gap-1.5">
                   <Lock size={10} className="text-orange-500" />
-                  <span>時間限制：{formData.start_time} — {formData.end_time}</span>
+                  <span>主活動時段：{formData.start_time} — {formData.end_time}</span>
                 </div>
               )}
               {!isTimeFixed && (
                 <div className="mb-4 px-3 py-2 bg-orange-500/8 rounded-xl border border-orange-500/20 text-[10px] text-orange-400 flex items-center gap-1.5">
                   <Sparkles size={10} />
-                  <span>智慧排程：時間由系統自動安排，填寫預計停留時間即可</span>
+                  <span>智慧排程：填寫停留時間，系統將自動安排順序與時段</span>
                 </div>
               )}
-              <form onSubmit={e => {
+              <form onSubmit={async e => {
                 e.preventDefault();
-                const f = e.target as any;
-                const st = isTimeFixed ? (f.start_time?.value || '') : '';
-                const et = isTimeFixed ? (f.end_time?.value || '') : '';
+                const f = e.target as HTMLFormElement;
+                const notesEl = f.elements.namedItem('notes') as HTMLTextAreaElement;
+
+                // Time validation (fixed mode)
                 if (isTimeFixed) {
-                  if (!st || !et || st >= et) { alert('請填寫有效時間（開始 < 結束）'); return; }
-                  if (formData.start_time && st < formData.start_time) { alert(`子活動開始時間不可早於主活動 ${formData.start_time}`); return; }
-                  if (formData.end_time && et > formData.end_time) { alert(`子活動結束時間不可晚於主活動 ${formData.end_time}`); return; }
+                  if (!subStartTime || !subEndTime || subStartTime >= subEndTime) {
+                    alert('請設定有效時間（開始 < 結束）'); return;
+                  }
+                  if (formData.start_time && subStartTime < formData.start_time) {
+                    alert(`子活動開始時間不可早於主活動 ${formData.start_time}`); return;
+                  }
+                  if (formData.end_time && subEndTime > formData.end_time) {
+                    alert(`子活動結束時間不可晚於主活動 ${formData.end_time}`); return;
+                  }
                 }
-                const newDuration = parseInt(f.duration?.value || '0') || 0;
-                const newItem = {
-                  id: editingSubItem?.id || Date.now().toString(),
-                  title: subTitle,
-                  start_time: st,
-                  end_time: et,
-                  notes: f.notes.value,
-                  address: subAddress,
-                  lat: subLat ?? undefined,
-                  lng: subLng ?? undefined,
-                  duration: newDuration || undefined,
-                };
+
                 // Duration validation
                 const proposedItems = editingSubItem
-                  ? subItems.map(i => i.id === editingSubItem.id ? newItem : i)
-                  : [...subItems, newItem];
-                const totalSubDuration = proposedItems.reduce((acc: number, i: any) => acc + (parseInt(i.duration || '0') || 0), 0);
+                  ? subItems.map((i: any) => i.id === editingSubItem.id ? { ...i, duration: subDuration } : i)
+                  : [...subItems, { duration: subDuration }];
+                const totalSubDuration = proposedItems.reduce((acc: number, i: any) => acc + (Number(i.duration) || 0), 0);
                 const parentDuration = (() => {
                   if (isTimeFixed && formData.start_time && formData.end_time) {
                     const [sh, sm] = formData.start_time.split(':').map(Number);
@@ -729,64 +754,103 @@ export function ItineraryForm({ tripId, date, onSuccess, onCancel, initialData, 
                   alert(`子活動總時間 ${totalSubDuration} 分鐘超過主活動安排的 ${parentDuration} 分鐘，請縮短子活動或增加主活動停留時間`);
                   return;
                 }
-                if (editingSubItem) setSubItems(subItems.map(i => i.id === editingSubItem.id ? newItem : i));
-                else setSubItems([...subItems, newItem].sort((a, b) => (a.start_time || '').localeCompare(b.start_time || '')));
+
+                const newItem: any = {
+                  title: subTitle,
+                  start_time: isTimeFixed ? subStartTime : '',
+                  end_time: isTimeFixed ? subEndTime : '',
+                  notes: notesEl?.value || '',
+                  address: subAddress,
+                  lat: subLat ?? undefined,
+                  lng: subLng ?? undefined,
+                  duration: subDuration,
+                };
+
+                // If editing an existing activity (has initialData), use API
+                if (initialData?.id) {
+                  setSubSaving(true);
+                  try {
+                    if (editingSubItem?.id && typeof editingSubItem.id === 'number') {
+                      // Edit via API
+                      await apiFetch(`/api/trips/${tripId}/itineraries/${initialData.id}/sub-items/${editingSubItem.id}`, {
+                        method: 'PUT', body: JSON.stringify({ ...newItem, display_order: editingSubItem.display_order ?? 0 })
+                      });
+                      setSubItems((prev: any[]) => prev.map((i: any) => i.id === editingSubItem.id ? { ...i, ...newItem } : i));
+                    } else {
+                      // New via API
+                      const res = await apiFetch(`/api/trips/${tripId}/itineraries/${initialData.id}/sub-items`, {
+                        method: 'POST', body: JSON.stringify({ ...newItem, display_order: subItems.length })
+                      });
+                      if (res.ok) {
+                        const { id: newId } = await res.json() as any;
+                        setSubItems((prev: any[]) => [...prev, { ...newItem, id: newId, display_order: prev.length }]);
+                      }
+                    }
+                  } catch { showToast?.('子活動儲存失敗', 'error'); }
+                  finally { setSubSaving(false); }
+                } else {
+                  // New activity (no id yet) — manage locally, batch-saved with parent
+                  if (editingSubItem) {
+                    setSubItems((prev: any[]) => prev.map((i: any) => i.id === editingSubItem.id ? { ...i, ...newItem } : i));
+                  } else {
+                    setSubItems((prev: any[]) => [...prev, { ...newItem, id: `tmp_${Date.now()}` }]);
+                  }
+                }
                 setIsSubItemModalOpen(false);
               }} className="space-y-4">
+                {/* Title */}
                 <input type="text" required value={subTitle} onChange={e => setSubTitle(e.target.value)} placeholder="子活動名稱"
                   className="w-full bg-[#242426] border border-zinc-800 rounded-xl px-4 py-2.5 text-white text-sm outline-none focus:border-orange-500 transition-all" />
+                {/* Address */}
                 <AddressSearchInput
                   value={subAddress}
                   onChange={v => { setSubAddress(v); setSubLat(null); setSubLng(null); setSubIsAddrEdited(true); }}
                   onPlaceSelect={p => { setSubAddress(p.address); setSubLat(p.lat ?? null); setSubLng(p.lng ?? null); setSubIsAddrEdited(true); }}
                   placeholder="地點（選填）..."
                 />
-                {/* 固定時間模式才顯示時間欄 */}
+                {/* Duration slider — always visible */}
+                <div className="bg-[#242426] border border-zinc-800 rounded-xl px-3 py-2.5 space-y-2">
+                  <div className="flex items-center justify-between">
+                    <span className="text-[8px] text-zinc-500 font-bold uppercase tracking-widest">預計停留時間</span>
+                    <div className="flex items-center gap-1">
+                      <input type="number" min="5" max="480" step="5" value={subDuration}
+                        onChange={e => handleSubDurationChange(Math.max(5, parseInt(e.target.value) || 5))}
+                        className="w-14 text-right bg-transparent text-white font-mono text-sm outline-none" />
+                      <span className="text-[10px] text-zinc-500">分</span>
+                    </div>
+                  </div>
+                  <input type="range" min="5" max="480" step="5" value={subDuration}
+                    onChange={e => handleSubDurationChange(parseInt(e.target.value))}
+                    className="w-full accent-orange-500" />
+                  <div className="flex justify-between text-[8px] text-zinc-600">
+                    <span>5分</span><span>2時</span><span>4時</span><span>6時</span><span>8時</span>
+                  </div>
+                </div>
+                {/* Fixed mode: start time + auto end time */}
                 {isTimeFixed && (
                   <div className="grid grid-cols-2 gap-3">
                     <div className="bg-[#242426] border border-zinc-800 rounded-xl px-3 py-2">
-                      <span className="block text-[8px] text-zinc-500 font-bold mb-1">開始</span>
-                      <input type="time" name="start_time"
-                        required
-                        defaultValue={editingSubItem?.start_time || formData.start_time}
+                      <span className="block text-[8px] text-zinc-500 font-bold mb-1">開始時間</span>
+                      <input type="time" value={subStartTime}
+                        onChange={e => handleSubStartChange(e.target.value)}
                         min={formData.start_time || undefined}
                         max={formData.end_time || undefined}
-                        className="bg-transparent text-white font-mono text-xs w-full outline-none [color-scheme:dark]" />
+                        className="bg-transparent text-white font-mono text-sm w-full outline-none [color-scheme:dark]" />
                     </div>
                     <div className="bg-[#242426] border border-zinc-800 rounded-xl px-3 py-2">
-                      <span className="block text-[8px] text-zinc-500 font-bold mb-1">結束</span>
-                      <input type="time" name="end_time"
-                        required
-                        defaultValue={editingSubItem?.end_time || formData.end_time}
-                        min={formData.start_time || undefined}
-                        max={formData.end_time || undefined}
-                        className="bg-transparent text-white font-mono text-xs w-full outline-none [color-scheme:dark]" />
+                      <span className="block text-[8px] text-zinc-500 font-bold mb-1">結束時間</span>
+                      <div className="font-mono text-sm text-zinc-300 pt-0.5">{subEndTime || '—'}</div>
+                      <div className="text-[8px] text-zinc-600 mt-0.5">自動計算</div>
                     </div>
                   </div>
                 )}
-                {/* 智慧排程：只填預計停留時間 */}
-                {!isTimeFixed && (
-                  <div className="bg-[#242426] border border-zinc-800 rounded-xl px-3 py-2.5">
-                    <span className="block text-[8px] text-zinc-500 font-bold mb-1">預計停留（分鐘）</span>
-                    <input type="number" name="duration" min="1" max="480"
-                      defaultValue={editingSubItem?.duration || ''}
-                      placeholder="例：30"
-                      className="bg-transparent text-white font-mono text-sm w-full outline-none placeholder:text-zinc-700" />
-                  </div>
-                )}
-                {/* 固定時間：也可填 duration（選填） */}
-                {isTimeFixed && (
-                  <div className="bg-[#242426] border border-zinc-800 rounded-xl px-3 py-2.5">
-                    <span className="block text-[8px] text-zinc-500 font-bold mb-1">預計停留（分鐘，選填）</span>
-                    <input type="number" name="duration" min="1" max="480"
-                      defaultValue={editingSubItem?.duration || ''}
-                      placeholder="例：30"
-                      className="bg-transparent text-white font-mono text-sm w-full outline-none placeholder:text-zinc-700" />
-                  </div>
-                )}
+                {/* Notes */}
                 <textarea name="notes" defaultValue={editingSubItem?.notes} placeholder="備注..."
                   className="w-full bg-[#242426] border border-zinc-800 rounded-xl px-4 py-2.5 text-white text-sm outline-none min-h-[60px] focus:border-orange-500 transition-all" />
-                <button type="submit" className="w-full py-3.5 bg-orange-500 text-white rounded-2xl font-black text-xs uppercase tracking-widest shadow-lg shadow-orange-500/20 active:scale-95 transition-all">儲存子活動</button>
+                <button type="submit" disabled={subSaving}
+                  className="w-full py-3.5 bg-orange-500 text-white rounded-2xl font-black text-xs uppercase tracking-widest shadow-lg shadow-orange-500/20 active:scale-95 transition-all disabled:opacity-50">
+                  {subSaving ? '儲存中...' : '儲存子活動'}
+                </button>
               </form>
             </motion.div>
           </div>

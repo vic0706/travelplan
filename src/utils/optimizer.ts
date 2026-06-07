@@ -338,4 +338,46 @@ export async function optimizeDailyItinerary(env: any, tripId: number, dateStr: 
   }
 
   if (statements.length > 0) await env.DB.batch(statements);
+
+  // Sub-item scheduling: assign start/end times to sub-items with duration > 0
+  const allScheduled = [
+    ...fixedItems,
+    ...smartItems.filter((_: any, idx: number) => !unplaced.has(idx)),
+  ];
+  const subStatements: any[] = [];
+
+  for (const parent of allScheduled) {
+    const { results: updatedRows } = await env.DB.prepare(
+      'SELECT start_time, end_time, lat, lng FROM Itineraries WHERE id = ?'
+    ).bind(parent.id).all();
+    const updated = (updatedRows as any[])[0];
+    if (!updated?.start_time) continue;
+
+    const { results: subs } = await env.DB.prepare(
+      'SELECT * FROM SubItemItineraries WHERE itinerary_id = ? AND duration > 0 ORDER BY display_order, id'
+    ).bind(parent.id).all();
+    if ((subs as any[]).length === 0) continue;
+
+    const sorted = sortByNearestNeighbor(
+      (subs as any[]).filter((s: any) => s.lat && s.lng),
+      updated.lat ?? null,
+      updated.lng ?? null,
+    ).concat((subs as any[]).filter((s: any) => !s.lat || !s.lng));
+
+    let cursor = timeToMins(updated.start_time as string);
+    const parentEnd = timeToMins(updated.end_time as string);
+
+    for (const sub of sorted) {
+      const dur = parseInt(String((sub as any).duration || '0')) || 0;
+      const st = minsToTime(cursor);
+      const et = minsToTime(Math.min(cursor + dur, parentEnd));
+      cursor += dur;
+      subStatements.push(
+        env.DB.prepare('UPDATE SubItemItineraries SET start_time = ?, end_time = ? WHERE id = ?')
+          .bind(st, et, (sub as any).id)
+      );
+    }
+  }
+
+  if (subStatements.length > 0) await env.DB.batch(subStatements);
 }

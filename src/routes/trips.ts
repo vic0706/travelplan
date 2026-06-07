@@ -214,22 +214,161 @@ trips.delete('/:id', async (c) => {
 // ✅ 修正：補上前端呼叫但後端不存在的 endpoints，導致 404 的根本原因
 // ==========================================
 
-// 獲取特定行程的所有活動
+// 獲取特定行程的所有活動（含子活動）
 trips.get('/:id/itineraries', async (c) => {
   const tripId = c.req.param('id');
   try {
     const canView = await checkTripAccess(c, Number(tripId), 'view');
     if (!canView) return c.json({ error: 'Unauthorized' }, 403);
 
-    const { results } = await c.env.DB.prepare(
+    const { results: items } = await c.env.DB.prepare(
       'SELECT * FROM Itineraries WHERE trip_id = ? ORDER BY date, start_time'
     ).bind(tripId).all();
 
-    return c.json(results.map((item: any) => ({
+    // Fetch all sub-items for these itineraries in one query
+    const ids = (items as any[]).map(i => i.id);
+    let subMap: Record<number, any[]> = {};
+    if (ids.length > 0) {
+      const placeholders = ids.map(() => '?').join(',');
+      const { results: subs } = await c.env.DB.prepare(
+        `SELECT * FROM SubItemItineraries WHERE itinerary_id IN (${placeholders}) ORDER BY display_order, id`
+      ).bind(...ids).all();
+      for (const s of subs as any[]) {
+        if (!subMap[s.itinerary_id]) subMap[s.itinerary_id] = [];
+        subMap[s.itinerary_id].push({ ...s, tags: s.tags ? s.tags : '[]' });
+      }
+    }
+
+    return c.json((items as any[]).map((item: any) => ({
       ...item,
       tags: item.tags ? JSON.parse(item.tags) : [],
-      sub_items: item.sub_items ?? '[]',
+      sub_items: subMap[item.id] || [],
     })));
+  } catch (error: any) {
+    return c.json({ error: error.message }, 500);
+  }
+});
+
+// 新增子活動
+trips.post('/:id/itineraries/:itemId/sub-items', async (c) => {
+  const tripId = c.req.param('id');
+  const itineraryId = c.req.param('itemId');
+  try {
+    const canEdit = await checkTripAccess(c, Number(tripId), 'edit');
+    if (!canEdit) return c.json({ error: 'Unauthorized' }, 403);
+
+    const body = await c.req.json().catch(() => ({}));
+    const {
+      title, address = '', lat = null, lng = null,
+      start_time = '', end_time = '', duration = 0,
+      notes = '', tags = '[]', display_order = 0,
+    } = body;
+    if (!title) return c.json({ error: 'title is required' }, 400);
+
+    const { meta } = await c.env.DB.prepare(`
+      INSERT INTO SubItemItineraries (itinerary_id, title, address, lat, lng, start_time, end_time, duration, notes, tags, display_order)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).bind(itineraryId, title, address, lat, lng, start_time, end_time, duration, notes,
+        typeof tags === 'string' ? tags : JSON.stringify(tags), display_order).run();
+
+    return c.json({ id: meta.last_row_id, success: true }, 201);
+  } catch (error: any) {
+    return c.json({ error: error.message }, 500);
+  }
+});
+
+// 更新子活動
+trips.put('/:id/itineraries/:itemId/sub-items/:subId', async (c) => {
+  const tripId = c.req.param('id');
+  const itineraryId = c.req.param('itemId');
+  const subId = c.req.param('subId');
+  try {
+    const canEdit = await checkTripAccess(c, Number(tripId), 'edit');
+    if (!canEdit) return c.json({ error: 'Unauthorized' }, 403);
+
+    const body = await c.req.json().catch(() => ({}));
+    const { title, address, lat, lng, start_time, end_time, duration, notes, tags, display_order } = body;
+
+    await c.env.DB.prepare(`
+      UPDATE SubItemItineraries SET
+        title = ?, address = ?, lat = ?, lng = ?,
+        start_time = ?, end_time = ?, duration = ?,
+        notes = ?, tags = ?, display_order = ?
+      WHERE id = ? AND itinerary_id = ?
+    `).bind(
+      title ?? '', address ?? '', lat ?? null, lng ?? null,
+      start_time ?? '', end_time ?? '', duration ?? 0,
+      notes ?? '', typeof tags === 'string' ? tags : JSON.stringify(tags ?? []),
+      display_order ?? 0,
+      subId, itineraryId
+    ).run();
+
+    return c.json({ success: true });
+  } catch (error: any) {
+    return c.json({ error: error.message }, 500);
+  }
+});
+
+// 刪除子活動
+trips.delete('/:id/itineraries/:itemId/sub-items/:subId', async (c) => {
+  const tripId = c.req.param('id');
+  const itineraryId = c.req.param('itemId');
+  const subId = c.req.param('subId');
+  try {
+    const canEdit = await checkTripAccess(c, Number(tripId), 'edit');
+    if (!canEdit) return c.json({ error: 'Unauthorized' }, 403);
+
+    await c.env.DB.prepare(
+      'DELETE FROM SubItemItineraries WHERE id = ? AND itinerary_id = ?'
+    ).bind(subId, itineraryId).run();
+
+    return c.json({ success: true });
+  } catch (error: any) {
+    return c.json({ error: error.message }, 500);
+  }
+});
+
+// 一次性資料遷移：將 sub_items JSON → SubItemItineraries table
+trips.post('/:id/migrate-sub-items', async (c) => {
+  const tripId = c.req.param('id');
+  try {
+    const canEdit = await checkTripAccess(c, Number(tripId), 'edit');
+    if (!canEdit) return c.json({ error: 'Unauthorized' }, 403);
+
+    const { results: items } = await c.env.DB.prepare(
+      "SELECT id, sub_items FROM Itineraries WHERE trip_id = ? AND sub_items != '[]' AND sub_items != '' AND sub_items IS NOT NULL"
+    ).bind(tripId).all();
+
+    const statements: any[] = [];
+    let migrated = 0;
+
+    for (const item of items as any[]) {
+      let subs: any[] = [];
+      try { subs = JSON.parse(item.sub_items); } catch { continue; }
+      if (!Array.isArray(subs) || subs.length === 0) continue;
+
+      // Skip if already migrated (check if any sub-items exist for this itinerary)
+      const { results: existing } = await c.env.DB.prepare(
+        'SELECT id FROM SubItemItineraries WHERE itinerary_id = ? LIMIT 1'
+      ).bind(item.id).all();
+      if ((existing as any[]).length > 0) continue;
+
+      subs.forEach((sub: any, idx: number) => {
+        statements.push(c.env.DB.prepare(`
+          INSERT INTO SubItemItineraries (itinerary_id, title, address, lat, lng, start_time, end_time, duration, notes, tags, display_order)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        `).bind(
+          item.id, sub.title || '', sub.address || '', sub.lat ?? null, sub.lng ?? null,
+          sub.start_time || '', sub.end_time || '', sub.duration || 0,
+          sub.notes || '', typeof sub.tags === 'string' ? sub.tags : JSON.stringify(sub.tags ?? []),
+          idx
+        ));
+        migrated++;
+      });
+    }
+
+    if (statements.length > 0) await c.env.DB.batch(statements);
+    return c.json({ success: true, migrated });
   } catch (error: any) {
     return c.json({ error: error.message }, 500);
   }
