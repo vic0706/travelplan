@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { useAppStore } from '../../store';
-import { X, MapPin, Loader2, Plus, Trash2, Camera, Upload, Sparkles, Lock, Unlock, Check } from 'lucide-react';
+import { X, MapPin, Loader2, Plus, Trash2, Camera, Upload, Sparkles, Lock, Unlock, Check, AlertTriangle } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { apiFetch } from '../../utils/api';
 import { DynamicIcon } from '../common/DynamicIcon';
@@ -107,6 +107,9 @@ export function ItineraryForm({ tripId, date, onSuccess, onCancel, initialData, 
   const [subStartTime, setSubStartTime] = useState('');
   const [subEndTime, setSubEndTime] = useState('');
   const [subSaving, setSubSaving] = useState(false);
+  const [showDurationWarn, setShowDurationWarn] = useState(false);
+  const [durationWarnInfo, setDurationWarnInfo] = useState({ total: 0, parent: 0 });
+  const [pendingSaveItem, setPendingSaveItem] = useState<any>(null);
 
   const [formData, setFormData] = useState({
     title: initialData?.title || '',
@@ -251,6 +254,36 @@ export function ItineraryForm({ tripId, date, onSuccess, onCancel, initialData, 
   const handleSubStartChange = (t: string) => {
     setSubStartTime(t);
     if (isTimeFixed && subDuration) setSubEndTime(addMinutesToTime(t, subDuration));
+  };
+
+  const executeSubItemSave = async (itemToSave: any) => {
+    if (initialData?.id) {
+      setSubSaving(true);
+      try {
+        if (editingSubItem?.id && typeof editingSubItem.id === 'number') {
+          await apiFetch(`/api/trips/${tripId}/itineraries/${initialData.id}/sub-items/${editingSubItem.id}`, {
+            method: 'PUT', body: JSON.stringify({ ...itemToSave, display_order: editingSubItem.display_order ?? 0 })
+          });
+          setSubItems((prev: any[]) => prev.map((i: any) => i.id === editingSubItem.id ? { ...i, ...itemToSave } : i));
+        } else {
+          const res = await apiFetch(`/api/trips/${tripId}/itineraries/${initialData.id}/sub-items`, {
+            method: 'POST', body: JSON.stringify({ ...itemToSave, display_order: subItems.length })
+          });
+          if (res.ok) {
+            const { id: newId } = await res.json() as any;
+            setSubItems((prev: any[]) => [...prev, { ...itemToSave, id: newId, display_order: prev.length }]);
+          }
+        }
+      } catch { showToast?.('子活動儲存失敗', 'error'); }
+      finally { setSubSaving(false); }
+    } else {
+      if (editingSubItem) {
+        setSubItems((prev: any[]) => prev.map((i: any) => i.id === editingSubItem.id ? { ...i, ...itemToSave } : i));
+      } else {
+        setSubItems((prev: any[]) => [...prev, { ...itemToSave, id: `tmp_${Date.now()}` }]);
+      }
+    }
+    setIsSubItemModalOpen(false);
   };
 
   const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -737,6 +770,17 @@ export function ItineraryForm({ tripId, date, onSuccess, onCancel, initialData, 
                   }
                 }
 
+                const newItem: any = {
+                  title: subTitle,
+                  start_time: isTimeFixed ? subStartTime : '',
+                  end_time: isTimeFixed ? subEndTime : '',
+                  notes: notesEl?.value || '',
+                  address: subAddress,
+                  lat: subLat ?? undefined,
+                  lng: subLng ?? undefined,
+                  duration: subDuration,
+                };
+
                 // Duration validation
                 const proposedItems = editingSubItem
                   ? subItems.map((i: any) => i.id === editingSubItem.id ? { ...i, duration: subDuration } : i)
@@ -751,52 +795,13 @@ export function ItineraryForm({ tripId, date, onSuccess, onCancel, initialData, 
                   return stayDuration || 0;
                 })();
                 if (parentDuration > 0 && totalSubDuration > parentDuration) {
-                  alert(`子活動總時間 ${totalSubDuration} 分鐘超過主活動安排的 ${parentDuration} 分鐘，請縮短子活動或增加主活動停留時間`);
+                  setDurationWarnInfo({ total: totalSubDuration, parent: parentDuration });
+                  setPendingSaveItem(newItem);
+                  setShowDurationWarn(true);
                   return;
                 }
 
-                const newItem: any = {
-                  title: subTitle,
-                  start_time: isTimeFixed ? subStartTime : '',
-                  end_time: isTimeFixed ? subEndTime : '',
-                  notes: notesEl?.value || '',
-                  address: subAddress,
-                  lat: subLat ?? undefined,
-                  lng: subLng ?? undefined,
-                  duration: subDuration,
-                };
-
-                // If editing an existing activity (has initialData), use API
-                if (initialData?.id) {
-                  setSubSaving(true);
-                  try {
-                    if (editingSubItem?.id && typeof editingSubItem.id === 'number') {
-                      // Edit via API
-                      await apiFetch(`/api/trips/${tripId}/itineraries/${initialData.id}/sub-items/${editingSubItem.id}`, {
-                        method: 'PUT', body: JSON.stringify({ ...newItem, display_order: editingSubItem.display_order ?? 0 })
-                      });
-                      setSubItems((prev: any[]) => prev.map((i: any) => i.id === editingSubItem.id ? { ...i, ...newItem } : i));
-                    } else {
-                      // New via API
-                      const res = await apiFetch(`/api/trips/${tripId}/itineraries/${initialData.id}/sub-items`, {
-                        method: 'POST', body: JSON.stringify({ ...newItem, display_order: subItems.length })
-                      });
-                      if (res.ok) {
-                        const { id: newId } = await res.json() as any;
-                        setSubItems((prev: any[]) => [...prev, { ...newItem, id: newId, display_order: prev.length }]);
-                      }
-                    }
-                  } catch { showToast?.('子活動儲存失敗', 'error'); }
-                  finally { setSubSaving(false); }
-                } else {
-                  // New activity (no id yet) — manage locally, batch-saved with parent
-                  if (editingSubItem) {
-                    setSubItems((prev: any[]) => prev.map((i: any) => i.id === editingSubItem.id ? { ...i, ...newItem } : i));
-                  } else {
-                    setSubItems((prev: any[]) => [...prev, { ...newItem, id: `tmp_${Date.now()}` }]);
-                  }
-                }
-                setIsSubItemModalOpen(false);
+                await executeSubItemSave(newItem);
               }} className="space-y-4">
                 {/* Title */}
                 <input type="text" required value={subTitle} onChange={e => setSubTitle(e.target.value)} placeholder="子活動名稱"
@@ -852,6 +857,50 @@ export function ItineraryForm({ tripId, date, onSuccess, onCancel, initialData, 
                   {subSaving ? '儲存中...' : '儲存子活動'}
                 </button>
               </form>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      {/* 子活動時間超出警告 */}
+      <AnimatePresence>
+        {showDurationWarn && (
+          <div className="absolute inset-0 z-[120] flex items-center justify-center bg-black/90 backdrop-blur-sm p-6">
+            <motion.div initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.95 }}
+              className="bg-zinc-900 border border-zinc-800 rounded-3xl p-6 w-full max-w-sm shadow-2xl">
+              <div className="flex items-start gap-3 mb-5">
+                <div className="w-10 h-10 rounded-2xl bg-yellow-500/10 flex items-center justify-center shrink-0">
+                  <AlertTriangle size={20} className="text-yellow-500" />
+                </div>
+                <div>
+                  <h3 className="text-base font-bold text-white mb-1">時間衝突</h3>
+                  <p className="text-sm text-zinc-400 leading-relaxed">
+                    子活動總時間 <span className="text-yellow-400 font-bold">{durationWarnInfo.total} 分</span> 超過主活動的 <span className="text-orange-400 font-bold">{durationWarnInfo.parent} 分</span>，請縮短子活動或拉長主活動。
+                  </p>
+                </div>
+              </div>
+              <div className="flex flex-col gap-2">
+                <button type="button"
+                  onClick={async () => {
+                    const newDur = durationWarnInfo.total;
+                    if (isTimeFixed) {
+                      handleFixedDurationChange(newDur);
+                    } else {
+                      setStayDuration(newDur);
+                    }
+                    setShowDurationWarn(false);
+                    if (pendingSaveItem) await executeSubItemSave(pendingSaveItem);
+                    setPendingSaveItem(null);
+                  }}
+                  className="w-full py-3.5 bg-orange-500 text-white rounded-2xl font-black text-xs uppercase tracking-widest shadow-lg shadow-orange-500/20 active:scale-95 transition-all">
+                  拉長主活動（延伸至 {durationWarnInfo.total} 分鐘）
+                </button>
+                <button type="button"
+                  onClick={() => { setShowDurationWarn(false); setPendingSaveItem(null); }}
+                  className="w-full py-3 bg-zinc-800 text-zinc-400 rounded-2xl font-bold text-xs hover:bg-zinc-700 transition-colors">
+                  取消（調整子活動）
+                </button>
+              </div>
             </motion.div>
           </div>
         )}

@@ -230,7 +230,7 @@ export function ItineraryCard({
             <div className="text-[8px] font-black text-zinc-500 uppercase tracking-[0.15em]">子活動</div>
             {subItems.map((sub: any, idx: number) => {
               const subHasDetails = !!sub.notes;
-              const showTime = !!(sub.start_time && (item as any).is_time_fixed);
+              const showTime = !!sub.start_time;
               const subNavUrl = (sub.lat && sub.lng)
                 ? `https://maps.google.com/maps?daddr=${encodeURIComponent(sub.title || '')}@${sub.lat},${sub.lng}`
                 : sub.address
@@ -254,11 +254,12 @@ export function ItineraryCard({
                         {sub.start_time}{sub.end_time && sub.end_time !== sub.start_time ? ` — ${sub.end_time}` : ''}
                       </div>
                     )}
-                    {sub.address && (
-                      <div className="text-[9px] text-zinc-500 mt-0.5 truncate max-w-[180px]">{sub.address}</div>
-                    )}
-                    {sub.duration > 0 && (
-                      <div className="text-[9px] text-orange-400/70 mt-0.5">{sub.duration} 分鐘</div>
+                    {Array.isArray(sub.tags) && (sub.tags as string[]).length > 0 && (
+                      <div className="flex flex-wrap gap-1 mt-0.5">
+                        {(sub.tags as string[]).map((t: string) => (
+                          <span key={t} className="text-[8px] font-bold text-orange-400/70 bg-orange-400/10 px-1 py-0.5 rounded border border-orange-400/15">#{t}</span>
+                        ))}
+                      </div>
                     )}
                   </div>
                   <div className="flex items-center gap-1 shrink-0">
@@ -524,14 +525,6 @@ export function ItineraryCard({
                       transition={{ duration: 0.15 }}
                       className="absolute inset-0 z-10 bg-black/88 backdrop-blur-md"
                     >
-                      {/* 評價數量 - 右上角徽章 */}
-                      {subItemIdx === null && (item as any).reviews_count && item.rating && (
-                        <div className="absolute top-2 right-2 z-20 pointer-events-none">
-                          <span className="text-[9px] text-yellow-500/70 bg-black/40 backdrop-blur-sm rounded-md px-1.5 py-0.5">
-                            ({(item as any).reviews_count.toLocaleString()} 評)
-                          </span>
-                        </div>
-                      )}
                       <div
                         ref={overlayScrollRef}
                         onScroll={checkOverlayScroll}
