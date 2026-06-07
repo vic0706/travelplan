@@ -111,11 +111,19 @@ export function ItineraryForm({ tripId, date, onSuccess, onCancel, initialData, 
   const [durationWarnInfo, setDurationWarnInfo] = useState({ total: 0, parent: 0 });
   const [pendingSaveItem, setPendingSaveItem] = useState<any>(null);
 
+  const correctedEndTime = (() => {
+    if (initialData?.is_time_fixed && initialData?.start_time) {
+      const diff = timeToMinutes(initialData.start_time, initialData.end_time || '');
+      if (diff <= 0) return addMinutesToTime(initialData.start_time, fixedStayDuration || 60);
+    }
+    return initialData?.end_time || '';
+  })();
+
   const [formData, setFormData] = useState({
     title: initialData?.title || '',
     address: initialData?.address || '',
     start_time: initialData?.start_time || '',
-    end_time: initialData?.end_time || '',
+    end_time: correctedEndTime,
     notes: initialData?.notes || '',
     icon: initialData?.icon || 'MapPin',
     tags: safeParseArray(initialData?.tags).join(', '),

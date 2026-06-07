@@ -184,7 +184,16 @@ async function placeInGap(
   statements: any[],
   env: any
 ): Promise<boolean> {
-  const travelMins = await calcTravelMins(gap, item, statements, env);
+  let travelMins: number;
+  try {
+    travelMins = await calcTravelMins(gap, item, statements, env);
+  } catch (e) {
+    if (e instanceof MissingTransportError) {
+      travelMins = 0; // no transport info → assume immediate adjacency
+    } else {
+      throw e;
+    }
+  }
   const startMins  = Math.max(gap.cursor + travelMins, windowStart);
   const endMins    = startMins + stayDuration;
 
@@ -257,23 +266,27 @@ export async function optimizeDailyItinerary(env: any, tripId: number, dateStr: 
     return;
   }
 
-  // Build free time gaps between fixed items
+  // Build free time gaps between fixed items.
+  // lastItem is set to the preceding fixed block so calcTravelMins can measure
+  // travel from a fixed activity to the first smart activity placed in the gap.
   const gaps: GapSlot[] = [];
-  let prevEnd  = DAY_START;
-  let prevLat: number | null = null;
-  let prevLng: number | null = null;
+  let prevEnd   = DAY_START;
+  let prevLat:  number | null = null;
+  let prevLng:  number | null = null;
+  let prevBlock: any | null   = null;
 
   for (const block of fixedItems) {
     const blockStart = timeToMins(block.start_time);
     if (blockStart > prevEnd) {
-      gaps.push({ start: prevEnd, end: blockStart, cursor: prevEnd, lastLat: prevLat, lastLng: prevLng, lastItem: null });
+      gaps.push({ start: prevEnd, end: blockStart, cursor: prevEnd, lastLat: prevLat, lastLng: prevLng, lastItem: prevBlock });
     }
-    prevEnd = timeToMins(block.end_time);
-    prevLat = block.lat;
-    prevLng = block.lng;
+    prevEnd   = timeToMins(block.end_time || block.start_time); // guard against missing end_time
+    prevLat   = block.lat;
+    prevLng   = block.lng;
+    prevBlock = block;
   }
   if (prevEnd < DAY_END) {
-    gaps.push({ start: prevEnd, end: DAY_END, cursor: prevEnd, lastLat: prevLat, lastLng: prevLng, lastItem: null });
+    gaps.push({ start: prevEnd, end: DAY_END, cursor: prevEnd, lastLat: prevLat, lastLng: prevLng, lastItem: prevBlock });
   }
 
   if (gaps.length === 0) {
