@@ -538,18 +538,23 @@ export function ItineraryCard({
           </div>
 
           <div className="flex-1 min-w-0 cursor-pointer" onClick={handleTitleClick}>
-            <h4 className={clsx('text-[17px] font-black leading-tight truncate', isPast ? 'text-zinc-600' : 'text-white')}>
-              {item.title}
-            </h4>
+            {/* ── Time (top, clock style) ── */}
             {item.start_time && (
-              <div className="flex items-center gap-1.5 mt-0.5">
-                <span className={clsx('font-mono text-[11px] font-bold tracking-tight', isPast ? 'text-zinc-600' : 'text-zinc-400')}>
+              <div className="flex items-center gap-1.5 mb-0.5">
+                <span className={clsx(
+                  'font-mono text-[13px] font-bold tracking-[0.06em] leading-none',
+                  isPast ? 'text-zinc-600' : 'text-zinc-300',
+                )}>
                   {item.start_time}{item.end_time && item.end_time !== item.start_time ? ` — ${item.end_time}` : ''}
                 </span>
                 {!(item as any).is_time_fixed && !isPast && <Sparkles size={9} className="text-orange-500/60" />}
                 {isCircuitBreaker && <span className="w-1.5 h-1.5 rounded-full bg-red-500 animate-pulse shrink-0" />}
               </div>
             )}
+            {/* ── Title ── */}
+            <h4 className={clsx('text-[16px] font-black leading-tight truncate', isPast ? 'text-zinc-600' : 'text-white')}>
+              {item.title}
+            </h4>
             {/* Warning summary — visible without expanding */}
             {(isConflicted || isCircuitBreaker || closedWarning || item.sync_conflict_warning) && (
               <div className="flex flex-wrap items-center gap-x-2 gap-y-0 mt-0.5">

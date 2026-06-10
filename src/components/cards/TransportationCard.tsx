@@ -101,6 +101,11 @@ export function TransportationCard({
 
         {/* Core info */}
         <div className="flex-1 min-w-0">
+          {item.start_time && (
+            <div className="font-mono text-[13px] font-bold tracking-[0.06em] leading-none text-zinc-300 mb-0.5">
+              {item.start_time}{item.end_time && item.end_time !== item.start_time ? ` → ${item.end_time}` : ''}
+            </div>
+          )}
           <div className="text-[15px] font-black text-white leading-tight truncate">
             {displayTitle}
           </div>
@@ -114,10 +119,6 @@ export function TransportationCard({
                 <span className="text-[10px] text-zinc-500">{data.provider}</span>
               </>
             )}
-          </div>
-          <div className="font-mono text-[11px] text-zinc-500 mt-1">
-            {item.start_time}
-            {item.end_time && item.end_time !== item.start_time && ` → ${item.end_time}`}
           </div>
         </div>
 
