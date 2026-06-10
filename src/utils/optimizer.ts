@@ -144,6 +144,8 @@ async function calcTravelMins(gap: GapSlot, item: any, statements: any[], metaSt
       haversineVal = Math.ceil(dist * ROAD_CIRCUITY * h.speed) + h.buffer;
     }
 
+    let gmapsLog = hasCoords ? (env.GOOGLE_MAPS_API_KEY ? 'pending' : 'no_key') : 'no_coords';
+
     if (hasCoords && env.GOOGLE_MAPS_API_KEY) {
       const travelMode = resolvedMode === 'WALKING'      ? 'WALK'
         : resolvedMode === 'BICYCLING'    ? 'BICYCLE'
@@ -154,6 +156,7 @@ async function calcTravelMins(gap: GapSlot, item: any, statements: any[], metaSt
       const cached: number | null = await env.KV.get(cacheKey, 'json');
       if (cached !== null) {
         mins = cached;
+        gmapsLog = `${mins}min(cached)`;
       } else {
         try {
           const res = await fetch('https://routes.googleapis.com/directions/v2:computeRoutes', {
@@ -176,11 +179,20 @@ async function calcTravelMins(gap: GapSlot, item: any, statements: any[], metaSt
               const secs = parseInt(String(duration));
               if (!isNaN(secs) && secs > 0) {
                 mins = Math.ceil(secs / 60);
+                gmapsLog = `${mins}min`;
                 await env.KV.put(cacheKey, JSON.stringify(mins), { expirationTtl: 86400 }); // 1 day
+              } else {
+                gmapsLog = `parse_err(${duration})`;
               }
+            } else {
+              gmapsLog = 'no_route';
             }
+          } else {
+            gmapsLog = `api_err(${res.status})`;
           }
-        } catch { /* fall through to haversine */ }
+        } catch (e: any) {
+          gmapsLog = `exception(${e?.message || 'unknown'})`;
+        }
       }
     }
 
@@ -195,7 +207,7 @@ async function calcTravelMins(gap: GapSlot, item: any, statements: any[], metaSt
       throw new MissingTransportError(prev.id, prev.title || String(prev.id));
     }
 
-    const travelMsg = `[travel] ${prev.title}(id=${prev.id}) → ${item.title}: mode=${resolvedMode}, haversine=${haversineVal}min, final=${mins}min`;
+    const travelMsg = `[travel] ${prev.title}(id=${prev.id}) → ${item.title}: mode=${resolvedMode}, haversine=${haversineVal}min, gmaps=${gmapsLog}, final=${mins}min`;
     _log.push(travelMsg); console.log(travelMsg);
 
     // Critical update — column exists since initial schema; must not be batched with new columns.
