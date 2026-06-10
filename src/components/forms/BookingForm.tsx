@@ -180,12 +180,16 @@ export function BookingForm({ initialData, onSubmit, onCancel, onDelete, loading
 
   const handleDepBufferChange = (v: number) => {
     setDepBuffer(v);
-    if (formData.start_time && v > 0) {
-      const [h, m] = formData.start_time.split(':').map(Number);
-      const total = h * 60 + m - v;
-      const nh = Math.floor(((total % 1440) + 1440) % 1440 / 60);
-      const nm = ((total % 60) + 60) % 60;
-      setCheckInTime(`${nh.toString().padStart(2,'0')}:${nm.toString().padStart(2,'0')}`);
+    if (formData.start_time) {
+      if (v === 0) {
+        setCheckInTime('');
+      } else {
+        const [h, m] = formData.start_time.split(':').map(Number);
+        const total = h * 60 + m - v;
+        const nh = Math.floor(((total % 1440) + 1440) % 1440 / 60);
+        const nm = ((total % 60) + 60) % 60;
+        setCheckInTime(`${nh.toString().padStart(2,'0')}:${nm.toString().padStart(2,'0')}`);
+      }
     }
   };
 
@@ -315,7 +319,7 @@ export function BookingForm({ initialData, onSubmit, onCancel, onDelete, loading
       </div>
 
       {/* 可滑動內容 */}
-      <form id="booking-form" onSubmit={handleSubmit} className="flex-1 overflow-y-auto custom-scrollbar">
+      <form id="booking-form" onSubmit={handleSubmit} className="flex-1 overflow-y-auto overflow-x-hidden custom-scrollbar">
       <div className="px-6 py-5 space-y-5">
 
       {/* 類別切換（編輯模式） */}

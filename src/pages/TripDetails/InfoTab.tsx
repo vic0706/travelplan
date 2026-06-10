@@ -108,31 +108,19 @@ export function InfoTab({
         {/* ── Booking cards ── */}
         {filteredBookings.length > 0 ? (
           <div className="space-y-5">
-            {displayGroups.map(({ cat, icon: Icon, label }) => {
+            {displayGroups.map(({ cat }) => {
               const group = sortBookings(filteredBookings.filter(b => b.category === cat));
               if (group.length === 0) return null;
               return (
                 <div key={cat} className="space-y-2">
-                  {/* Group header (only in ALL view) */}
-                  {filter === 'ALL' && (
-                    <div className="flex items-center gap-2 px-1">
-                      <div className="w-5 h-5 rounded-lg bg-orange-500/10 flex items-center justify-center shrink-0">
-                        <Icon size={11} className="text-orange-400" />
-                      </div>
-                      <span className="text-[10px] font-black text-zinc-500 uppercase tracking-widest">{label}</span>
-                      <div className="flex-1 h-px bg-zinc-800" />
-                    </div>
-                  )}
-                  <div className="space-y-2">
-                    {group.map(booking => (
-                      <BookingCard
-                        key={booking.id}
-                        booking={booking}
-                        canEdit={canEdit}
-                        onEdit={() => onEditBooking(booking)}
-                      />
-                    ))}
-                  </div>
+                  {group.map(booking => (
+                    <BookingCard
+                      key={booking.id}
+                      booking={booking}
+                      canEdit={canEdit}
+                      onEdit={() => onEditBooking(booking)}
+                    />
+                  ))}
                 </div>
               );
             })}
