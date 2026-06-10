@@ -156,27 +156,25 @@ async function calcTravelMins(gap: GapSlot, item: any, statements: any[], metaSt
         mins = cached;
       } else {
         try {
-          const res = await fetch('https://routes.googleapis.com/distanceMatrix/v2:computeRouteMatrix', {
+          const res = await fetch('https://routes.googleapis.com/directions/v2:computeRoutes', {
             method: 'POST',
             headers: {
               'Content-Type': 'application/json',
               'X-Goog-Api-Key': env.GOOGLE_MAPS_API_KEY,
-              'X-Goog-FieldMask': 'originIndex,destinationIndex,duration,distanceMeters,status',
+              'X-Goog-FieldMask': 'routes.duration',
             },
             body: JSON.stringify({
-              origins: [{ waypoint: { location: { latLng: { latitude: gap.lastLat, longitude: gap.lastLng } } } }],
-              destinations: [{ waypoint: { location: { latLng: { latitude: item.lat, longitude: item.lng } } } }],
+              origin:      { location: { latLng: { latitude: gap.lastLat, longitude: gap.lastLng } } },
+              destination: { location: { latLng: { latitude: item.lat, longitude: item.lng } } },
               travelMode,
             }),
           });
           if (res.ok) {
-            const text = await res.text();
-            const row = text.split('\n').map(l => l.trim()).filter(Boolean).map(l => {
-              try { return JSON.parse(l); } catch { return null; }
-            }).find((r: any) => r && r.originIndex === 0 && r.destinationIndex === 0);
-            if (row?.duration) {
-              const secs = parseInt(row.duration);
-              if (!isNaN(secs)) {
+            const data = await res.json() as any;
+            const duration = data.routes?.[0]?.duration;
+            if (duration) {
+              const secs = parseInt(String(duration));
+              if (!isNaN(secs) && secs > 0) {
                 mins = Math.ceil(secs / 60);
                 await env.KV.put(cacheKey, JSON.stringify(mins), { expirationTtl: 86400 }); // 1 day
               }

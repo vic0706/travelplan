@@ -21,6 +21,13 @@ interface ItineraryCardProps {
   onChangeDate?: () => void;
 }
 
+const formatDuration = (mins: number) => {
+  if (mins < 60) return `${mins}分`;
+  const h = Math.floor(mins / 60);
+  const m = mins % 60;
+  return m === 0 ? `${h}時` : `${h}時${m}分`;
+};
+
 const safeParse = (data: any) => {
   if (Array.isArray(data)) return data;
   if (!data || data === '' || data === 'null') return [];
@@ -353,13 +360,11 @@ export function ItineraryCard({
                 canEdit ? 'cursor-pointer hover:bg-white/5 active:bg-white/10' : 'cursor-default')}>
               {item.next_transport_mode ? (
                 <div className="flex items-center gap-1 text-zinc-400">
+                  <span className="text-[8px] text-white/30 font-bold">下一站</span>
                   {getTransportIcon(12)}
-                  <span className="text-[10px] font-black tracking-tight flex items-center gap-0.5">
-                    {manualVal > 0 ? `${manualVal}分` : autoVal > 0 ? <>{autoVal}分 <Sparkles size={9} /></> : '自動'}
+                  <span className="text-[10px] font-black tracking-tight">
+                    {manualVal > 0 ? formatDuration(manualVal) : autoVal > 0 ? formatDuration(autoVal) : '自動'}
                   </span>
-                  {nextItem && (
-                    <span className="text-[9px] text-white/30 font-bold truncate max-w-[60px]">→ {nextItem.title}</span>
-                  )}
                 </div>
               ) : (
                 <div className="flex items-center gap-0.5 text-white/30">
@@ -387,13 +392,11 @@ export function ItineraryCard({
               canEdit ? 'cursor-pointer hover:bg-zinc-800/30 active:bg-zinc-800/50' : 'cursor-default')}>
             {item.next_transport_mode ? (
               <div className="flex items-center gap-1.5 text-zinc-400">
+                <span className="text-[9px] text-zinc-600 font-bold">下一站</span>
                 {getTransportIcon()}
-                <span className="text-[11px] font-black tracking-tight flex items-center gap-1">
-                  {manualVal > 0 ? `${manualVal}分` : autoVal > 0 ? <>{autoVal}分 <Sparkles size={9} /></> : '自動'}
+                <span className="text-[11px] font-black tracking-tight">
+                  {manualVal > 0 ? formatDuration(manualVal) : autoVal > 0 ? formatDuration(autoVal) : '自動'}
                 </span>
-                {nextItem && (
-                  <span className="text-[10px] text-zinc-600 font-bold truncate max-w-[80px]">→ {nextItem.title}</span>
-                )}
               </div>
             ) : (
               <div className="flex items-center gap-1 text-zinc-600">
