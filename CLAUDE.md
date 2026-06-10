@@ -1,6 +1,7 @@
 # CLAUDE.md
 
 這是 Claude Code 的專案說明文件，用於測試 GitHub 上傳功能。
+回答時請使用繁體中文
 
 ## 專案簡介
 
