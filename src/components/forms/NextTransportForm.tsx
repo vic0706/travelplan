@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { X, Footprints, Bus, Car, Bike, Clock, Loader2, Sparkles, Motorbike, Pencil, MapPin } from 'lucide-react';
 import { clsx } from 'clsx';
 import { Itinerary } from '../../types';
@@ -80,6 +80,8 @@ export function NextTransportForm({ isOpen, onClose, itinerary, nextItinerary, o
   const [loadingAccurate, setLoadingAccurate] = useState(false);
   // Google Maps time for AUTO mode's fastest haversine candidate
   const [autoAccurateMins, setAutoAccurateMins] = useState<number | null>(null);
+  // Detect initial open to avoid redundant API call when stored value exists
+  const isInitialLoadRef = useRef(false);
 
   const hasCoords = !!(itinerary?.lat && itinerary?.lng && nextItinerary?.lat && nextItinerary?.lng);
 
@@ -150,8 +152,11 @@ export function NextTransportForm({ isOpen, onClose, itinerary, nextItinerary, o
     setIsAutoTime(isAutoMode ? true : storedIsAutoTime);
     setDuration(storedDuration);
     setCustomLabel((itinerary as any).next_transport_custom_label || '');
-    setAccurateMins(null);
+    // Pre-populate from stored Google Maps time (set by optimizer)
+    const storedAutoTime = parseInt(itinerary.next_transport_auto_time || '');
+    setAccurateMins(!isNaN(storedAutoTime) && storedAutoTime > 0 ? storedAutoTime : null);
     setAutoAccurateMins(null);
+    isInitialLoadRef.current = true;
   }, [isOpen, itinerary?.id]);
 
   // Fetch accurate time when mode or isAutoTime changes (specific mode + auto time only)
@@ -159,6 +164,12 @@ export function NextTransportForm({ isOpen, onClose, itinerary, nextItinerary, o
     if (!isOpen || mode === 'AUTO' || mode === 'CUSTOM' || !isAutoTime) {
       if (!isAutoTime) setAccurateMins(null);
       return;
+    }
+    // Skip API call on initial open if stored value already loaded
+    if (isInitialLoadRef.current) {
+      isInitialLoadRef.current = false;
+      const storedAutoTime = parseInt(itinerary?.next_transport_auto_time || '');
+      if (!isNaN(storedAutoTime) && storedAutoTime > 0) return;
     }
     fetchAccurateTime(mode);
   }, [mode, isOpen, isAutoTime]);
@@ -270,11 +281,13 @@ export function NextTransportForm({ isOpen, onClose, itinerary, nextItinerary, o
                 >
                   <Icon size={18} className="shrink-0" />
                   <span className="text-[9px] font-bold tracking-wide">{m.label}</span>
-                  {/* All non-CUSTOM/AUTO buttons: always show haversine estimate */}
+                  {/* Non-CUSTOM/AUTO: active shows Google Maps time if available, else haversine */}
                   {m.id !== 'CUSTOM' && m.id !== 'AUTO' && (
-                    <span className={clsx('text-[9px] font-bold', isActive ? 'text-orange-400' : 'text-zinc-600')}>
-                      {est ? `~${formatDuration(est)}` : null}
-                    </span>
+                    isActive && accurateMins !== null && isAutoTime
+                      ? <span className="text-[9px] font-black text-orange-300">{`=${formatDuration(accurateMins)}`}</span>
+                      : <span className={clsx('text-[9px] font-bold', isActive ? 'text-orange-400' : 'text-zinc-600')}>
+                          {est ? `~${formatDuration(est)}` : null}
+                        </span>
                   )}
                 </button>
               );
@@ -296,11 +309,11 @@ export function NextTransportForm({ isOpen, onClose, itinerary, nextItinerary, o
                     目前估算最快：{autoBestInfo.bestLabel}
                   </p>
                   <div className="flex items-center justify-between text-[10px] px-1">
-                    <span className="text-zinc-600 font-bold">📐 距離估算</span>
+                    <span className="text-zinc-600 font-bold">距離估算</span>
                     <span className="text-zinc-500 font-black">~{formatDuration(autoBestInfo.haversineTime)}</span>
                   </div>
                   <div className="flex items-center justify-between text-[10px] px-1">
-                    <span className="text-zinc-600 font-bold">🗺 Google Maps</span>
+                    <span className="text-zinc-600 font-bold">Google Maps</span>
                     <span className="text-orange-400 font-black flex items-center gap-1">
                       {autoAccurateMins !== null
                         ? <>{formatDuration(autoAccurateMins)} <Sparkles size={9} /></>
@@ -347,18 +360,18 @@ export function NextTransportForm({ isOpen, onClose, itinerary, nextItinerary, o
                 <div className="space-y-1.5 pt-0.5">
                   {estimates[mode] && (
                     <div className="flex items-center justify-between text-[10px]">
-                      <span className="text-zinc-600 font-bold">📐 距離估算</span>
+                      <span className="text-zinc-600 font-bold">距離估算</span>
                       <span className="text-zinc-500 font-black">~{formatDuration(estimates[mode])}</span>
                     </div>
                   )}
                   <div className="flex items-center justify-between text-[10px]">
-                    <span className="text-zinc-600 font-bold">🗺 Google Maps</span>
+                    <span className="text-zinc-600 font-bold">Google Maps</span>
                     <span className="font-black text-orange-400 flex items-center gap-1">
                       {loadingAccurate
                         ? <Loader2 size={11} className="animate-spin" />
                         : accurateMins !== null
                           ? <>{formatDuration(accurateMins)} <Sparkles size={9} /></>
-                          : hasCoords ? <span className="text-zinc-600">查詢中...</span> : <span className="text-zinc-700">—</span>}
+                          : <span className="text-zinc-700">—</span>}
                     </span>
                   </div>
                 </div>
