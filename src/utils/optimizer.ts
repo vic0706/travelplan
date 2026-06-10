@@ -485,7 +485,7 @@ export async function optimizeDailyItinerary(env: any, tripId: number, dateStr: 
       const dur = parseInt(String((sub as any).duration || '0')) || 0;
       const st = minsToTime(cursor);
       const et = minsToTime(Math.min(cursor + dur, parentEnd));
-      cursor += dur;
+      cursor += dur + ((sub as any).next_walk_mins || 0);
       subStatements.push(
         env.DB.prepare('UPDATE SubItemItineraries SET start_time = ?, end_time = ? WHERE id = ?')
           .bind(st, et, (sub as any).id)

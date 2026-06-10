@@ -262,15 +262,15 @@ trips.post('/:id/itineraries/:itemId/sub-items', async (c) => {
     const {
       title, address = '', lat = null, lng = null,
       start_time = '', end_time = '', duration = 0,
-      notes = '', tags = '[]', display_order = 0,
+      notes = '', tags = '[]', display_order = 0, next_walk_mins = 0,
     } = body;
     if (!title) return c.json({ error: 'title is required' }, 400);
 
     const { meta } = await c.env.DB.prepare(`
-      INSERT INTO SubItemItineraries (itinerary_id, title, address, lat, lng, start_time, end_time, duration, notes, tags, display_order)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      INSERT INTO SubItemItineraries (itinerary_id, title, address, lat, lng, start_time, end_time, duration, notes, tags, display_order, next_walk_mins)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).bind(itineraryId, title, address, lat, lng, start_time, end_time, duration, notes,
-        typeof tags === 'string' ? tags : JSON.stringify(tags), display_order).run();
+        typeof tags === 'string' ? tags : JSON.stringify(tags), display_order, next_walk_mins).run();
 
     return c.json({ id: meta.last_row_id, success: true }, 201);
   } catch (error: any) {
@@ -288,19 +288,19 @@ trips.put('/:id/itineraries/:itemId/sub-items/:subId', async (c) => {
     if (!canEdit) return c.json({ error: 'Unauthorized' }, 403);
 
     const body = await c.req.json().catch(() => ({}));
-    const { title, address, lat, lng, start_time, end_time, duration, notes, tags, display_order } = body;
+    const { title, address, lat, lng, start_time, end_time, duration, notes, tags, display_order, next_walk_mins } = body;
 
     await c.env.DB.prepare(`
       UPDATE SubItemItineraries SET
         title = ?, address = ?, lat = ?, lng = ?,
         start_time = ?, end_time = ?, duration = ?,
-        notes = ?, tags = ?, display_order = ?
+        notes = ?, tags = ?, display_order = ?, next_walk_mins = ?
       WHERE id = ? AND itinerary_id = ?
     `).bind(
       title ?? '', address ?? '', lat ?? null, lng ?? null,
       start_time ?? '', end_time ?? '', duration ?? 0,
       notes ?? '', typeof tags === 'string' ? tags : JSON.stringify(tags ?? []),
-      display_order ?? 0,
+      display_order ?? 0, next_walk_mins ?? 0,
       subId, itineraryId
     ).run();
 

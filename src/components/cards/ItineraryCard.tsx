@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Car, Train, Bus, AlertTriangle, Star, Plus, Footprints, Bike, Navigation2, Sparkles, Clock, Asterisk, ChevronLeft, ChevronRight, ChevronDown, Motorbike, Copy, CalendarDays, MapPin } from 'lucide-react';
+import { Car, Train, Bus, AlertTriangle, Star, Plus, Footprints, Bike, Navigation2, Sparkles, Clock, Asterisk, ChevronLeft, ChevronRight, ChevronDown, Motorbike, Copy, CalendarDays, MapPin, Loader2 } from 'lucide-react';
+import { apiFetch } from '../../utils/api';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Itinerary } from '../../types';
 import { DynamicIcon } from '../common/DynamicIcon';
@@ -73,6 +74,10 @@ export function ItineraryCard({
   const [isExpanded,     setIsExpanded]     = useState(!isPast && hasPhoto);
   const [overlayVisible, setOverlayVisible] = useState(false);
   const [subItemIdx,     setSubItemIdx]     = useState<number | null>(null);
+  const [editingWalkIdx, setEditingWalkIdx] = useState<number | null>(null);
+  const [walkInput,      setWalkInput]      = useState('');
+  const [walkSaving,     setWalkSaving]     = useState(false);
+  const [walkOverrides,  setWalkOverrides]  = useState<Record<number, number>>({});
 
   const overlayScrollRef = useRef<HTMLDivElement>(null);
   const [canScrollDown, setCanScrollDown] = useState(false);
@@ -173,6 +178,48 @@ export function ItineraryCard({
     }
   };
 
+  const walkEstimate = (from: any, to: any): number | null => {
+    if (!from?.lat || !from?.lng || !to?.lat || !to?.lng) return null;
+    const R = 6371;
+    const dLat = (to.lat - from.lat) * Math.PI / 180;
+    const dLon = (to.lng - from.lng) * Math.PI / 180;
+    const a = Math.sin(dLat / 2) ** 2 + Math.cos(from.lat * Math.PI / 180) * Math.cos(to.lat * Math.PI / 180) * Math.sin(dLon / 2) ** 2;
+    const dist = R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(Math.max(0, 1 - a)));
+    return Math.ceil(dist * 1.3 * 13) + 3;
+  };
+
+  const saveWalkTime = async (idx: number, sub: any) => {
+    const mins = Math.max(0, parseInt(walkInput) || 0);
+    setWalkSaving(true);
+    try {
+      const res = await apiFetch(
+        `/api/trips/${item.trip_id}/itineraries/${item.id}/sub-items/${sub.id}`,
+        {
+          method: 'PUT',
+          body: JSON.stringify({
+            title: sub.title,
+            address: sub.address ?? '',
+            lat: sub.lat ?? null,
+            lng: sub.lng ?? null,
+            start_time: sub.start_time ?? '',
+            end_time: sub.end_time ?? '',
+            duration: sub.duration ?? 0,
+            notes: sub.notes ?? '',
+            tags: typeof sub.tags === 'string' ? sub.tags : JSON.stringify(sub.tags ?? []),
+            display_order: sub.display_order ?? idx,
+            next_walk_mins: mins,
+          }),
+        }
+      );
+      if (res.ok) {
+        setWalkOverrides(prev => ({ ...prev, [sub.id]: mins }));
+        setEditingWalkIdx(null);
+      }
+    } finally {
+      setWalkSaving(false);
+    }
+  };
+
   const renderOverlayContent = () => {
     if (subItemIdx !== null) {
       const sub = subItems[subItemIdx];
@@ -255,52 +302,115 @@ export function ItineraryCard({
                 : sub.address
                 ? `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(sub.address)}`
                 : null;
+              const walkMins = walkOverrides[sub.id] !== undefined ? walkOverrides[sub.id] : (sub.next_walk_mins || 0);
+              const isEditingWalk = editingWalkIdx === idx;
+              const nextSub = subItems[idx + 1];
+              const est = nextSub ? walkEstimate(sub, nextSub) : null;
+
               return (
-                <div
-                  key={idx}
-                  onClick={subHasDetails ? (e) => { e.stopPropagation(); setSubItemIdx(idx); } : undefined}
-                  className={clsx(
-                    "w-full flex items-center gap-3 px-3 py-3 bg-white/5 border border-white/10 rounded-xl relative overflow-hidden transition-colors",
-                    subHasDetails ? "active:bg-white/10 cursor-pointer" : "cursor-default"
-                  )}
-                >
-                  {/* Left accent */}
-                  <div className="absolute left-0 top-0 bottom-0 w-0.5 bg-orange-500/50 rounded-r-full" />
-                  <div className="flex-1 min-w-0 pl-0.5">
-                    <div className="text-[13px] font-bold text-white truncate">{sub.title}</div>
-                    {showTime && (
-                      <div className="font-mono text-[10px] text-zinc-500 mt-0.5">
-                        {sub.start_time}{sub.end_time && sub.end_time !== sub.start_time ? ` — ${sub.end_time}` : ''}
-                      </div>
+                <React.Fragment key={idx}>
+                  <div
+                    onClick={subHasDetails ? (e) => { e.stopPropagation(); setSubItemIdx(idx); } : undefined}
+                    className={clsx(
+                      "w-full flex items-center gap-3 px-3 py-3 bg-white/5 border border-white/10 rounded-xl relative overflow-hidden transition-colors",
+                      subHasDetails ? "active:bg-white/10 cursor-pointer" : "cursor-default"
                     )}
-                    {Array.isArray(sub.tags) && (sub.tags as string[]).length > 0 && (
-                      <div className="flex flex-wrap gap-1 mt-0.5">
-                        {(sub.tags as string[]).map((t: string) => (
-                          <span key={t} className="text-[8px] font-bold text-orange-400/70 bg-orange-400/10 px-1 py-0.5 rounded border border-orange-400/15">#{t}</span>
-                        ))}
-                      </div>
-                    )}
+                  >
+                    {/* Left accent */}
+                    <div className="absolute left-0 top-0 bottom-0 w-0.5 bg-orange-500/50 rounded-r-full" />
+                    <div className="flex-1 min-w-0 pl-0.5">
+                      <div className="text-[13px] font-bold text-white truncate">{sub.title}</div>
+                      {showTime && (
+                        <div className="font-mono text-[10px] text-zinc-500 mt-0.5">
+                          {sub.start_time}{sub.end_time && sub.end_time !== sub.start_time ? ` — ${sub.end_time}` : ''}
+                        </div>
+                      )}
+                      {Array.isArray(sub.tags) && (sub.tags as string[]).length > 0 && (
+                        <div className="flex flex-wrap gap-1 mt-0.5">
+                          {(sub.tags as string[]).map((t: string) => (
+                            <span key={t} className="text-[8px] font-bold text-orange-400/70 bg-orange-400/10 px-1 py-0.5 rounded border border-orange-400/15">#{t}</span>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                    <div className="flex items-center gap-1 shrink-0">
+                      {subNavUrl && (
+                        <a
+                          href={subNavUrl}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          onClick={(e) => e.stopPropagation()}
+                          className="p-1.5 rounded-lg text-zinc-500 hover:text-orange-400 active:bg-white/10 transition-colors"
+                        >
+                          <Navigation2 size={13} />
+                        </a>
+                      )}
+                      {subHasDetails && (
+                        <>
+                          <Asterisk size={9} strokeWidth={3} className="text-zinc-600" />
+                          <ChevronRight size={11} className="text-zinc-700" />
+                        </>
+                      )}
+                    </div>
                   </div>
-                  <div className="flex items-center gap-1 shrink-0">
-                    {subNavUrl && (
-                      <a
-                        href={subNavUrl}
-                        target="_blank"
-                        rel="noopener noreferrer"
+
+                  {/* Walk time connector to next sub-item */}
+                  {idx < subItems.length - 1 && (
+                    isEditingWalk ? (
+                      <div
                         onClick={(e) => e.stopPropagation()}
-                        className="p-1.5 rounded-lg text-zinc-500 hover:text-orange-400 active:bg-white/10 transition-colors"
+                        className="flex items-center gap-2 px-3 py-2 bg-white/5 border border-orange-500/30 rounded-xl"
                       >
-                        <Navigation2 size={13} />
-                      </a>
-                    )}
-                    {subHasDetails && (
-                      <>
-                        <Asterisk size={9} strokeWidth={3} className="text-zinc-600" />
-                        <ChevronRight size={11} className="text-zinc-700" />
-                      </>
-                    )}
-                  </div>
-                </div>
+                        <Footprints size={11} className="text-orange-400 shrink-0" />
+                        <input
+                          type="number"
+                          min="0"
+                          max="999"
+                          value={walkInput}
+                          onChange={(e) => setWalkInput(e.target.value)}
+                          onKeyDown={(e) => { if (e.key === 'Enter') saveWalkTime(idx, sub); if (e.key === 'Escape') setEditingWalkIdx(null); }}
+                          className="w-12 bg-transparent text-white text-[12px] font-bold text-center border-b border-zinc-600 focus:border-orange-400 outline-none"
+                          autoFocus
+                        />
+                        <span className="text-[11px] text-zinc-500">分</span>
+                        {est !== null && (
+                          <span className="text-[10px] text-zinc-600 ml-0.5">估算~{formatDuration(est)}</span>
+                        )}
+                        <div className="flex gap-1 ml-auto">
+                          <button
+                            type="button"
+                            disabled={walkSaving}
+                            onClick={(e) => { e.stopPropagation(); saveWalkTime(idx, sub); }}
+                            className="px-2 py-0.5 rounded-lg bg-orange-500/20 text-orange-400 text-[11px] font-bold hover:bg-orange-500/30 transition-colors"
+                          >
+                            {walkSaving ? <Loader2 size={10} className="animate-spin" /> : '✓'}
+                          </button>
+                          <button
+                            type="button"
+                            onClick={(e) => { e.stopPropagation(); setEditingWalkIdx(null); }}
+                            className="px-2 py-0.5 rounded-lg bg-zinc-700/50 text-zinc-400 text-[11px] hover:bg-zinc-700 transition-colors"
+                          >
+                            ✗
+                          </button>
+                        </div>
+                      </div>
+                    ) : (
+                      <button
+                        type="button"
+                        onClick={(e) => { e.stopPropagation(); setEditingWalkIdx(idx); setWalkInput(String(walkMins || '')); }}
+                        className="flex items-center gap-1.5 w-full px-3 py-1 text-zinc-600 hover:text-orange-400 transition-colors rounded-lg hover:bg-white/5"
+                      >
+                        <Footprints size={11} className="shrink-0" />
+                        <span className="text-[10px]">
+                          {walkMins > 0 ? `步行 ${formatDuration(walkMins)}` : '設定步行時間'}
+                        </span>
+                        {est !== null && walkMins === 0 && (
+                          <span className="text-[9px] text-zinc-700 ml-1">估算~{formatDuration(est)}</span>
+                        )}
+                      </button>
+                    )
+                  )}
+                </React.Fragment>
               );
             })}
           </div>

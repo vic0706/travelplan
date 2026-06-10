@@ -135,6 +135,7 @@ CREATE TABLE IF NOT EXISTS SubItemItineraries (
     notes TEXT DEFAULT '',
     tags TEXT DEFAULT '[]',
     display_order INTEGER DEFAULT 0,
+    next_walk_mins INTEGER DEFAULT 0,
     FOREIGN KEY (itinerary_id) REFERENCES Itineraries(id) ON DELETE CASCADE
 );
 CREATE INDEX IF NOT EXISTS idx_sub_items_itinerary ON SubItemItineraries(itinerary_id);
