@@ -147,6 +147,10 @@ export function BookingForm({ initialData, onSubmit, onCancel, onDelete, loading
   const [rentalPickupBuffer, setRentalPickupBuffer] = useState<number>(initialDetails.pickup_buffer ?? 30);
   const [rentalReturnBuffer, setRentalReturnBuffer] = useState<number>(initialDetails.return_buffer ?? 15);
 
+  // Display-only states for location inputs (show place name; backend stores address)
+  const [startLocDisplay, setStartLocDisplay] = useState<string>(initialData?.start_location || '');
+  const [endLocDisplay,   setEndLocDisplay]   = useState<string>(initialData?.end_location   || '');
+
   const [isCityPickerOpen, setIsCityPickerOpen] = useState(false);
   const [dateError, setDateError] = useState('');
 
@@ -238,6 +242,9 @@ export function BookingForm({ initialData, onSubmit, onCancel, onDelete, loading
   const isBus               = formData.category === 'BUS';
   const isRentalOrTransfer  = ['RENTAL','PRIVATE_TRANSFER'].includes(formData.category);
   const terminalLabel       = getTerminalLabel(formData.category);
+
+  // 2-1: Hide city when both start and end locations are filled (for non-hotel)
+  const showCity = formData.category === 'HOTEL' || !(formData.start_location && formData.end_location);
 
   const calcFlightDuration = useMemo(() => {
     if (!formData.start_time || !formData.end_time) return null;
@@ -366,17 +373,19 @@ export function BookingForm({ initialData, onSubmit, onCancel, onDelete, loading
         </div>
       </div>
 
-      {/* 城市 */}
-      <div>
-        <label className="block text-[10px] font-bold text-zinc-400 uppercase tracking-wider mb-2">城市</label>
-        <button type="button" onClick={() => setIsCityPickerOpen(true)}
-          className="w-full bg-zinc-900 border border-zinc-800 rounded-xl px-4 py-3 flex items-center gap-3 text-zinc-400 hover:border-zinc-600 transition-colors">
-          <MapPin size={16} className="text-orange-500 shrink-0" />
-          <span className={formData.city_id ? 'text-white' : 'text-zinc-600'}>
-            {formData.city_id ? cities.find(c => String(c.id) === formData.city_id)?.name : '選擇城市...'}
-          </span>
-        </button>
-      </div>
+      {/* 城市 — 有出發地和目的地時隱藏 */}
+      {showCity && (
+        <div>
+          <label className="block text-[10px] font-bold text-zinc-400 uppercase tracking-wider mb-2">城市</label>
+          <button type="button" onClick={() => setIsCityPickerOpen(true)}
+            className="w-full bg-zinc-900 border border-zinc-800 rounded-xl px-4 py-3 flex items-center gap-3 text-zinc-400 hover:border-zinc-600 transition-colors">
+            <MapPin size={16} className="text-orange-500 shrink-0" />
+            <span className={formData.city_id ? 'text-white' : 'text-zinc-600'}>
+              {formData.city_id ? cities.find(c => String(c.id) === formData.city_id)?.name : '選擇城市...'}
+            </span>
+          </button>
+        </div>
+      )}
 
       {/* 出發地 / 目的地（交通） */}
       {isTransport && (
@@ -400,17 +409,19 @@ export function BookingForm({ initialData, onSubmit, onCancel, onDelete, loading
             <>
               <AddressSearchInput
                 label="出發地"
-                value={formData.start_location}
-                onChange={v => set('start_location', v)}
-                onPlaceSelect={place => set('start_location', place.address)}
+                value={startLocDisplay}
+                onChange={v => { setStartLocDisplay(v); set('start_location', v); }}
+                onPlaceSelect={place => { setStartLocDisplay(place.name || place.address); set('start_location', place.address || place.name || ''); }}
                 placeholder="搜尋出發站..."
+                showNameOnSelect
               />
               <AddressSearchInput
                 label="目的地"
-                value={formData.end_location}
-                onChange={v => set('end_location', v)}
-                onPlaceSelect={place => set('end_location', place.address)}
+                value={endLocDisplay}
+                onChange={v => { setEndLocDisplay(v); set('end_location', v); }}
+                onPlaceSelect={place => { setEndLocDisplay(place.name || place.address); set('end_location', place.address || place.name || ''); }}
                 placeholder="搜尋目的站..."
+                showNameOnSelect
               />
             </>
           )}
@@ -603,7 +614,16 @@ export function BookingForm({ initialData, onSubmit, onCancel, onDelete, loading
 
           {/* 報到與緩衝時間 */}
           <div className="space-y-3 border-t border-zinc-800 pt-3">
-            {timeInput('報到時間（可手動覆蓋）', checkInTime, setCheckInTime)}
+            {timeInput('報到時間', checkInTime, (v) => {
+              setCheckInTime(v);
+              if (v && formData.start_time) {
+                const [sh, sm] = formData.start_time.split(':').map(Number);
+                const [ch, cm] = v.split(':').map(Number);
+                let diff = (sh * 60 + sm) - (ch * 60 + cm);
+                if (diff < 0) diff += 24 * 60;
+                if (diff >= 0 && diff <= 240) setDepBuffer(diff);
+              }
+            })}
             <div className="grid grid-cols-2 gap-3">
               <div className="space-y-1">
                 <div className="flex items-center justify-between">
@@ -751,17 +771,19 @@ export function BookingForm({ initialData, onSubmit, onCancel, onDelete, loading
           <div className="grid grid-cols-2 gap-3 border-t border-zinc-800 pt-3">
             <AddressSearchInput
               label={formData.category === 'RENTAL' ? '取車地點' : '出發地點'}
-              value={formData.start_location}
-              onChange={v => set('start_location', v)}
-              onPlaceSelect={place => set('start_location', place.address)}
+              value={startLocDisplay}
+              onChange={v => { setStartLocDisplay(v); set('start_location', v); }}
+              onPlaceSelect={place => { setStartLocDisplay(place.name || place.address); set('start_location', place.address || place.name || ''); }}
               placeholder={formData.category === 'RENTAL' ? '搜尋取車地點...' : '搜尋出發地...'}
+              showNameOnSelect
             />
             <AddressSearchInput
               label={formData.category === 'RENTAL' ? '還車地點' : '目的地點'}
-              value={formData.end_location}
-              onChange={v => set('end_location', v)}
-              onPlaceSelect={place => set('end_location', place.address)}
+              value={endLocDisplay}
+              onChange={v => { setEndLocDisplay(v); set('end_location', v); }}
+              onPlaceSelect={place => { setEndLocDisplay(place.name || place.address); set('end_location', place.address || place.name || ''); }}
               placeholder={formData.category === 'RENTAL' ? '搜尋還車地點...' : '搜尋目的地...'}
+              showNameOnSelect
             />
           </div>
         </div>
