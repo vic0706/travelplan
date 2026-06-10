@@ -461,7 +461,7 @@ trips.put('/:id/itineraries/:itineraryId', async (c) => {
       city_id ?? null, date, start_time ?? '', end_time ?? '', title,
       address ?? '', image_url ?? '', notes ?? '',
       JSON.stringify(tags ?? []), icon ?? 'MapPin',
-      sub_items ?? '[]', type ?? 'GENERAL', related_id ?? null,
+      typeof sub_items === 'string' ? sub_items : JSON.stringify(sub_items ?? []), type ?? 'GENERAL', related_id ?? null,
       is_time_fixed ? 1 : 0, String(stay_duration ?? '60'),
       next_transport_mode ?? '', next_transport_time ?? '', String(next_transport_auto_time ?? ''),
       next_transport_resolved_mode ?? '', String(next_transport_haversine_time ?? ''), next_transport_custom_label ?? '',
@@ -612,11 +612,13 @@ trips.post('/:id/optimize', async (c) => {
       return c.json({ success: false, error: 'MISSING_TRANSPORT', items }, 422);
     }
 
+    const optimizeLog: string[] = [];
     const start = new Date(trip.start_date);
     const end = new Date(trip.end_date);
     for (let d = new Date(start); d <= end; d.setDate(d.getDate() + 1)) {
       const dateStr = d.toISOString().split('T')[0];
-      await optimizeDailyItinerary(c.env, Number(tripId), dateStr);
+      const dayLogs = await optimizeDailyItinerary(c.env, Number(tripId), dateStr);
+      optimizeLog.push(...dayLogs);
     }
 
     const { results: unplacedRows } = await c.env.DB.prepare(
@@ -654,7 +656,8 @@ trips.post('/:id/optimize', async (c) => {
     `).bind(tripId).all();
     const missingTransportDates = missingTransportRows.map((r: any) => r.date as string);
 
-    return c.json({ success: true, message: 'Itinerary Optimized', unplacedCount, conflictCount, missingTransportDates });
+    optimizeLog.forEach(l => console.log('[optimize]', l));
+    return c.json({ success: true, message: 'Itinerary Optimized', unplacedCount, conflictCount, missingTransportDates, log: optimizeLog });
   } catch (error: any) {
     return c.json({ error: error.message }, 500);
   }
@@ -684,15 +687,22 @@ trips.post('/:id/compute', async (c) => {
     if (tripInfo.length === 0) return c.json({ error: 'Trip not found' }, 404);
     const trip = tripInfo[0] as any;
 
+    const computeLog: string[] = [];
+
+    computeLog.push('[places] syncing place details...');
     await syncPlaceDetails(c.env, Number(tripId));
+    computeLog.push('[places] done');
 
     const start = new Date(trip.start_date);
     const end = new Date(trip.end_date);
     for (let d = new Date(start); d <= end; d.setDate(d.getDate() + 1)) {
       const dateStr = d.toISOString().split('T')[0];
+      computeLog.push(`[weather] fetching ${dateStr}...`);
       await getWeatherForDate(Number(tripId), dateStr, c.env, true);
+      computeLog.push(`[weather] ${dateStr} done`);
     }
-    return c.json({ success: true, message: '資訊已更新' });
+    computeLog.forEach(l => console.log('[compute]', l));
+    return c.json({ success: true, message: '資訊已更新', log: computeLog });
   } catch (error: any) {
     return c.json({ error: error.message }, 500);
   }

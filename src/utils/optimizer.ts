@@ -1,3 +1,7 @@
+// Module-level log buffer, reset at the start of each optimizeDailyItinerary call.
+// Safe in Cloudflare Workers (single-threaded per request).
+let _log: string[] = [];
+
 // Urban circuity factor (actual road ≈ 1.3× haversine for mixed city/highway)
 const ROAD_CIRCUITY = 1.3;
 
@@ -188,8 +192,13 @@ async function calcTravelMins(gap: GapSlot, item: any, statements: any[], metaSt
     }
 
     if (mins === null) {
+      const msg = `[travel-skip] ${prev.title} → ${item.title}: no coords or API error`;
+      _log.push(msg); console.log(msg);
       throw new MissingTransportError(prev.id, prev.title || String(prev.id));
     }
+
+    const travelMsg = `[travel] ${prev.title}(id=${prev.id}) → ${item.title}: mode=${resolvedMode}, haversine=${haversineVal}min, final=${mins}min`;
+    _log.push(travelMsg); console.log(travelMsg);
 
     // Critical update — column exists since initial schema; must not be batched with new columns.
     statements.push(env.DB.prepare(
@@ -244,8 +253,12 @@ async function placeInGap(
     gap.lastLat = item.lat;
     gap.lastLng = item.lng;
     gap.lastItem = item;
+    const placeMsg = `[place] ${item.title}: ${minsToTime(startMins)}~${minsToTime(endMins)} (travel=${travelMins}min, gap=${minsToTime(gap.start)}~${minsToTime(gap.end)})`;
+    _log.push(placeMsg); console.log(placeMsg);
     return true;
   }
+  const skipMsg = `[skip] ${item.title}: window=${minsToTime(windowStart)}~${minsToTime(windowEnd)}, need start=${minsToTime(gap.cursor + travelMins)}, end=${minsToTime(gap.cursor + travelMins + stayDuration)}, gap_end=${minsToTime(gap.end)}`;
+  _log.push(skipMsg); console.log(skipMsg);
   return false;
 }
 
@@ -280,12 +293,13 @@ function sortByNearestNeighbor(items: any[], anchorLat: number | null, anchorLng
   return [...ordered, ...noCoords];
 }
 
-export async function optimizeDailyItinerary(env: any, tripId: number, dateStr: string) {
+export async function optimizeDailyItinerary(env: any, tripId: number, dateStr: string): Promise<string[]> {
+  _log = [];
   const { results: rawItems } = await env.DB.prepare(`
     SELECT * FROM Itineraries WHERE trip_id = ? AND date = ?
   `).bind(tripId, dateStr).all();
 
-  if (rawItems.length === 0) return;
+  if (rawItems.length === 0) return _log;
 
   const statements: any[] = [];
   const metaStatements: any[] = [];
@@ -300,9 +314,13 @@ export async function optimizeDailyItinerary(env: any, tripId: number, dateStr: 
     statements.push(env.DB.prepare(`UPDATE Itineraries SET sync_conflict_warning = null WHERE id = ?`).bind(item.id));
   }
 
+  _log.push(`[date] ${dateStr}: ${fixedItems.length} fixed, ${smartItems.length} smart`);
+  fixedItems.forEach(f => _log.push(`  [fixed] ${f.title} ${f.start_time}~${f.end_time}`));
+  smartItems.forEach(s => _log.push(`  [smart] ${s.title} mode=${s.next_transport_mode} time=${s.next_transport_time}`));
+
   if (smartItems.length === 0) {
     if (statements.length > 0) await env.DB.batch(statements);
-    return;
+    return _log;
   }
 
   // Build free time gaps between fixed items.
@@ -336,8 +354,10 @@ export async function optimizeDailyItinerary(env: any, tripId: number, dateStr: 
       );
     }
     await env.DB.batch(statements);
-    return;
+    return _log;
   }
+
+  _log.push(`[gaps] ${gaps.length} gap(s): ${gaps.map(g => `${minsToTime(g.start)}~${minsToTime(g.end)}(last=${g.lastItem?.title ?? 'none'})`).join(', ')}`);
 
   const unplaced = new Set(smartItems.map((_: any, idx: number) => idx));
 
@@ -450,4 +470,5 @@ export async function optimizeDailyItinerary(env: any, tripId: number, dateStr: 
   }
 
   if (subStatements.length > 0) await env.DB.batch(subStatements);
+  return _log;
 }
