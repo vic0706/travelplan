@@ -30,6 +30,13 @@ const TRANSPORT_MODES = [
   { id: 'CUSTOM',       label: '自訂',    icon: Pencil },
 ];
 
+function formatDuration(mins: number): string {
+  if (mins < 60) return `${mins}分`;
+  const h = Math.floor(mins / 60);
+  const m = mins % 60;
+  return m === 0 ? `${h}時` : `${h}時${m}分`;
+}
+
 function haversineKm(lat1: number, lng1: number, lat2: number, lng2: number): number {
   const R = 6371;
   const dLat = (lat2 - lat1) * Math.PI / 180;
@@ -268,14 +275,14 @@ export function NextTransportForm({ isOpen, onClose, itinerary, nextItinerary, o
                   {m.id !== 'CUSTOM' && m.id !== 'AUTO' && (
                     <div className="flex flex-col items-center leading-none gap-0.5">
                       <span className={clsx('text-[9px] font-bold', isActive ? 'text-orange-400' : 'text-zinc-600')}>
-                        {est ? `~${est}分` : null}
+                        {est ? `~${formatDuration(est)}` : null}
                       </span>
                       {showDualTime && (
                         <span className="text-[9px] font-black text-orange-300 flex items-center gap-0.5">
                           {loadingAccurate
                             ? <Loader2 size={8} className="animate-spin" />
                             : accurateMins !== null
-                              ? `=${accurateMins}分`
+                              ? `=${formatDuration(accurateMins)}`
                               : hasCoords ? '…' : null}
                         </span>
                       )}
@@ -302,13 +309,13 @@ export function NextTransportForm({ isOpen, onClose, itinerary, nextItinerary, o
                   </p>
                   <div className="flex items-center justify-between text-[10px] px-1">
                     <span className="text-zinc-600 font-bold">📐 距離估算</span>
-                    <span className="text-zinc-500 font-black">~{autoBestInfo.haversineTime}分</span>
+                    <span className="text-zinc-500 font-black">~{formatDuration(autoBestInfo.haversineTime)}</span>
                   </div>
                   <div className="flex items-center justify-between text-[10px] px-1">
                     <span className="text-zinc-600 font-bold">🗺 Google Maps</span>
                     <span className="text-orange-400 font-black flex items-center gap-1">
                       {autoAccurateMins !== null
-                        ? <>{autoAccurateMins}分 <Sparkles size={9} /></>
+                        ? <>{formatDuration(autoAccurateMins)} <Sparkles size={9} /></>
                         : hasCoords ? <Loader2 size={10} className="animate-spin" /> : '—'}
                     </span>
                   </div>
