@@ -5,6 +5,7 @@ import { getWeatherForDate } from '../utils/weather';
 import { syncPlaceDetails } from '../utils/places';
 import { optimizeDailyItinerary } from '../utils/optimizer';
 import { searchUnsplash } from '../utils/unsplash';
+import { checkUserQuota, incrementUserQuota, getUserQuotaStatus } from '../utils/userQuota';
 
 const trips = new Hono<{ Bindings: Env; Variables: { user: any } }>();
 
@@ -576,11 +577,143 @@ trips.get('/:id/weather', async (c) => {
 // ==========================================
 // 5. AI Optimization & Compute
 // ==========================================
+// ==========================================
+// 6. User quota status
+// ==========================================
+trips.get('/:id/quota-status', async (c) => {
+  const tripId = c.req.param('id');
+  try {
+    const canView = await checkTripAccess(c, Number(tripId), 'view');
+    if (!canView) return c.json({ error: 'Unauthorized' }, 403);
+
+    const user = c.get('user');
+    if (!user) return c.json({ error: 'Unauthorized' }, 401);
+
+    const isAdmin = user.role === 'Admin';
+    if (isAdmin) {
+      return c.json({
+        weather: { count: 0, limit: null },
+        places: { count: 0, limit: null },
+        optimize: { count: 0, limit: null },
+        isAdmin: true,
+      });
+    }
+
+    const status = await getUserQuotaStatus(c.env, user.id);
+    return c.json({ ...status, isAdmin: false });
+  } catch (error: any) {
+    return c.json({ error: error.message }, 500);
+  }
+});
+
+// ==========================================
+// 7. Split compute endpoints with 1-hour cache and quota
+// ==========================================
+trips.post('/:id/update-weather', async (c) => {
+  const tripId = c.req.param('id');
+  try {
+    const canEdit = await checkTripAccess(c, Number(tripId), 'edit');
+    if (!canEdit) return c.json({ error: 'Unauthorized' }, 403);
+
+    const user = c.get('user');
+    if (!user) return c.json({ error: 'Unauthorized' }, 401);
+
+    // Quota check (Admin exempt)
+    if (user.role !== 'Admin') {
+      const { ok, remaining } = await checkUserQuota(c.env, user.id, 'weather');
+      if (!ok) return c.json({ error: 'QUOTA_EXCEEDED', remaining: 0 }, 429);
+    }
+
+    // 1-hour KV cache check
+    const cacheKey = `update_cache:${tripId}:weather`;
+    const cached = await c.env.KV.get(cacheKey);
+    if (cached !== null) {
+      return c.json({ cached: true, message: '1小時內已是最新，無需重新更新' });
+    }
+
+    const { results: tripInfo } = await c.env.DB.prepare(
+      'SELECT start_date, end_date FROM Trips WHERE id = ?'
+    ).bind(tripId).all();
+    if (tripInfo.length === 0) return c.json({ error: 'Trip not found' }, 404);
+    const trip = tripInfo[0] as any;
+
+    const log: string[] = [];
+    const start = new Date(trip.start_date);
+    const end = new Date(trip.end_date);
+    for (let d = new Date(start); d <= end; d.setDate(d.getDate() + 1)) {
+      const dateStr = d.toISOString().split('T')[0];
+      log.push(`[weather] fetching ${dateStr}...`);
+      await getWeatherForDate(Number(tripId), dateStr, c.env, true);
+      log.push(`[weather] ${dateStr} done`);
+    }
+
+    // Increment quota (Admin exempt)
+    if (user.role !== 'Admin') {
+      await incrementUserQuota(c.env, user.id, 'weather');
+    }
+
+    // Set 1-hour cache
+    await c.env.KV.put(cacheKey, '1', { expirationTtl: 3600 });
+
+    log.forEach(l => console.log('[update-weather]', l));
+    return c.json({ success: true, message: '天氣資料已更新', cached: false, log });
+  } catch (error: any) {
+    return c.json({ error: error.message }, 500);
+  }
+});
+
+trips.post('/:id/update-places', async (c) => {
+  const tripId = c.req.param('id');
+  try {
+    const canEdit = await checkTripAccess(c, Number(tripId), 'edit');
+    if (!canEdit) return c.json({ error: 'Unauthorized' }, 403);
+
+    const user = c.get('user');
+    if (!user) return c.json({ error: 'Unauthorized' }, 401);
+
+    // Quota check (Admin exempt)
+    if (user.role !== 'Admin') {
+      const { ok, remaining } = await checkUserQuota(c.env, user.id, 'places');
+      if (!ok) return c.json({ error: 'QUOTA_EXCEEDED', remaining: 0 }, 429);
+    }
+
+    // 1-hour KV cache check
+    const cacheKey = `update_cache:${tripId}:places`;
+    const cached = await c.env.KV.get(cacheKey);
+    if (cached !== null) {
+      return c.json({ cached: true, message: '1小時內已是最新，無需重新更新' });
+    }
+
+    await syncPlaceDetails(c.env, Number(tripId));
+
+    // Increment quota (Admin exempt)
+    if (user.role !== 'Admin') {
+      await incrementUserQuota(c.env, user.id, 'places');
+    }
+
+    // Set 1-hour cache
+    await c.env.KV.put(cacheKey, '1', { expirationTtl: 3600 });
+
+    return c.json({ success: true, message: '景點資訊已更新', cached: false });
+  } catch (error: any) {
+    return c.json({ error: error.message }, 500);
+  }
+});
+
 trips.post('/:id/optimize', async (c) => {
   const tripId = c.req.param('id');
   try {
     const canEdit = await checkTripAccess(c, Number(tripId), 'edit');
     if (!canEdit) return c.json({ error: 'Unauthorized' }, 403);
+
+    const user = c.get('user');
+    if (!user) return c.json({ error: 'Unauthorized' }, 401);
+
+    // Quota check (Admin exempt) — no cache for optimize
+    if (user.role !== 'Admin') {
+      const { ok, remaining } = await checkUserQuota(c.env, user.id, 'optimize');
+      if (!ok) return c.json({ error: 'QUOTA_EXCEEDED', remaining: 0 }, 429);
+    }
 
     const { results: tripInfo } = await c.env.DB.prepare(
       'SELECT start_date, end_date FROM Trips WHERE id = ?'
@@ -655,6 +788,11 @@ trips.post('/:id/optimize', async (c) => {
       ORDER BY i1.date
     `).bind(tripId).all();
     const missingTransportDates = missingTransportRows.map((r: any) => r.date as string);
+
+    // Increment quota after successful run (Admin exempt)
+    if (user.role !== 'Admin') {
+      await incrementUserQuota(c.env, user.id, 'optimize');
+    }
 
     optimizeLog.forEach(l => console.log('[optimize]', l));
     return c.json({ success: true, message: 'Itinerary Optimized', unplacedCount, conflictCount, missingTransportDates, log: optimizeLog });
