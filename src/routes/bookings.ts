@@ -117,7 +117,7 @@ async function generateItineraryItems(db: any, tripId: string, bookingId: number
     if (isCrossDay) {
       // 出發卡片（出發日）
       await insertItinerary(db, tripId, {
-        date: b.start_date, start_time: checkInAt, end_time: b.start_time || checkInAt,
+        date: b.start_date, start_time: checkInAt, end_time: '23:59',
         title: `${b.title}（出發）`, address: b.start_location || addr,
         image_url: imageUrl, notes, icon, type: 'TRANSPORTATION', related_id: bookingId,
         google_place_id: b.google_place_id || '',

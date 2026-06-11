@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Train, Ship, Car, Plane, Bus, Footprints, Bike, Plus, ChevronDown, Navigation2, Motorbike } from 'lucide-react';
 import { clsx } from 'clsx';
-import { format, parseISO, isSameDay, isPast, isValid } from 'date-fns';
+import { format, parseISO, isValid } from 'date-fns';
 import { Itinerary, Booking } from '../../types';
 
 interface TransportationCardProps {
@@ -15,6 +15,7 @@ interface TransportationCardProps {
   selectedDate: Date;
   expandSignal: number;
   collapseSignal: number;
+  defaultSignal?: number;
 }
 
 function getIcon(category: string) {
@@ -33,15 +34,6 @@ const TERMINAL_LABEL: Record<string, string> = {
   BUS:    '站牌',
 };
 
-const CATEGORY_LABEL: Record<string, string> = {
-  FLIGHT:           '機票',
-  TRAIN:            '火車',
-  FERRY:            '船票',
-  BUS:              '公車',
-  RENTAL:           '租車',
-  PRIVATE_TRANSFER: '接送',
-};
-
 function parseDetails(d: any) {
   if (!d) return {};
   if (typeof d === 'string') { try { return JSON.parse(d); } catch { return {}; } }
@@ -57,7 +49,7 @@ function addMins(time: string, mins: number): string {
 export function TransportationCard({
   item, booking, canEdit, isConflicted, onEdit,
   showNextTransport, onEditNextTransport,
-  selectedDate, expandSignal, collapseSignal,
+  selectedDate: _selectedDate, expandSignal, collapseSignal, defaultSignal,
 }: TransportationCardProps) {
   const data = booking;
   if (!data || !item) return null;
@@ -67,15 +59,16 @@ export function TransportationCard({
   const termLabel  = TERMINAL_LABEL[data.category] ?? '月台';
   const isCrossDay = data.start_date !== data.end_date;
 
-  const itemDateTime = parseISO(`${format(selectedDate, 'yyyy-MM-dd')}T${item.start_time || '00:00'}`);
-  const isToday      = isSameDay(selectedDate, new Date());
-  const isPastItem   = !isNaN(itemDateTime.getTime()) && isPast(itemDateTime) && !isToday;
+  // A2: use end_time to determine past, no isToday exception
+  const endTimeStr = item.end_time || item.start_time || '23:59';
+  const isPastItem = !!(item as any).date && Date.now() > new Date(`${(item as any).date}T${endTimeStr}`).getTime();
 
   const [isExpanded, setIsExpanded] = useState(!isPastItem);
 
   useEffect(() => { setIsExpanded(!isPastItem); }, [isPastItem]);
   useEffect(() => { if (expandSignal   > 0) setIsExpanded(true);  }, [expandSignal]);
   useEffect(() => { if (collapseSignal > 0) setIsExpanded(false); }, [collapseSignal]);
+  useEffect(() => { if (defaultSignal && defaultSignal > 0) setIsExpanded(!isPastItem); }, [defaultSignal, isPastItem]);
 
   const displayTitle = data.category === 'RENTAL'
     ? `${data.provider || ''} ${data.title}`.trim()
@@ -105,7 +98,6 @@ export function TransportationCard({
 
   // 4-milestone timeline values
   const arrEnd = data.end_time && details.arr_stay > 0 ? addMins(data.end_time, details.arr_stay) : null;
-  const hasTimeline = !!(details.check_in_time || arrEnd);
 
   const showBottomBar = showNextTransport && (canEdit || !!item.next_transport_mode);
 
@@ -130,18 +122,6 @@ export function TransportationCard({
 
         {/* Core info */}
         <div className="flex-1 min-w-0">
-          {/* 日期行（有日期時顯示）*/}
-          {data.start_date && (
-            <div className="flex items-center gap-1 font-mono text-[10px] text-zinc-600 mb-0.5">
-              <span>{data.start_date}</span>
-              {isCrossDay && data.end_date && (
-                <>
-                  <span className="text-zinc-700">→</span>
-                  <span>{data.end_date}</span>
-                </>
-              )}
-            </div>
-          )}
           {/* 時間行 */}
           {item.start_time && (
             <div className="font-mono text-[13px] font-bold tracking-[0.06em] leading-none text-zinc-300 mb-0.5">
@@ -154,9 +134,12 @@ export function TransportationCard({
           <div className="text-[15px] font-black text-white leading-tight truncate">
             {displayTitle}
           </div>
-          {data.provider && data.category !== 'RENTAL' && (
+          {/* A4: provider + order_id in header */}
+          {(data.provider || data.order_id) && data.category !== 'RENTAL' && (
             <div className="flex items-center gap-1.5 mt-0.5">
-              <span className="text-[10px] text-zinc-500">{data.provider}</span>
+              {data.provider && <span className="text-[10px] text-zinc-500">{data.provider}</span>}
+              {data.provider && data.order_id && <span className="text-[10px] text-zinc-700">·</span>}
+              {data.order_id && <span className="text-[10px] text-zinc-600 font-mono">#{data.order_id}</span>}
             </div>
           )}
         </div>
@@ -241,11 +224,6 @@ export function TransportationCard({
                 </>
               )}
             </div>
-          )}
-
-          {/* Order info */}
-          {data.order_id && (
-            <div className="text-[11px] text-zinc-500 font-mono">#{data.order_id}</div>
           )}
 
           {data.notes && (

@@ -240,6 +240,22 @@ app.put('/api/settings/api-limit', async (c) => {
   } catch (e: any) { return c.json({ error: e.message }, 500); }
 });
 
+// ── Walking time proxy (Google Directions API, walking mode) ─────────────────
+app.get('/api/walking-time', async (c) => {
+  const { fromLat, fromLng, toLat, toLng } = c.req.query();
+  if (!fromLat || !fromLng || !toLat || !toLng) return c.json({ error: 'missing params' }, 400);
+  if (!c.env.GOOGLE_MAPS_API_KEY) return c.json({ minutes: null }, 200);
+  try {
+    const url = `https://maps.googleapis.com/maps/api/directions/json?origin=${fromLat},${fromLng}&destination=${toLat},${toLng}&mode=walking&key=${c.env.GOOGLE_MAPS_API_KEY}`;
+    const res = await fetch(url);
+    const data = await res.json() as any;
+    const secs = data.routes?.[0]?.legs?.[0]?.duration?.value;
+    return c.json({ minutes: secs ? Math.ceil(secs / 60) : null });
+  } catch {
+    return c.json({ minutes: null });
+  }
+});
+
 // 6. 健康檢查
 app.get('/health-check', (c) => c.json({ status: 'ok', time: Date.now() }));
 

@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { useAppStore } from '../../store';
-import { X, MapPin, Loader2, Plus, Trash2, Camera, Upload, Sparkles, Lock, Unlock, Check, AlertTriangle } from 'lucide-react';
+import { X, MapPin, Loader2, Plus, Trash2, Camera, Upload, Sparkles, Lock, Unlock, Check, AlertTriangle, Footprints } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { apiFetch } from '../../utils/api';
 import { DynamicIcon } from '../common/DynamicIcon';
@@ -107,6 +107,7 @@ export function ItineraryForm({ tripId, date, onSuccess, onCancel, initialData, 
   const [subStartTime, setSubStartTime] = useState('');
   const [subEndTime, setSubEndTime] = useState('');
   const [subSaving, setSubSaving] = useState(false);
+  const [subNextWalkMins, setSubNextWalkMins] = useState(0);
   const [showDurationWarn, setShowDurationWarn] = useState(false);
   const [durationWarnInfo, setDurationWarnInfo] = useState({ total: 0, parent: 0 });
   const [pendingSaveItem, setPendingSaveItem] = useState<any>(null);
@@ -175,8 +176,25 @@ export function ItineraryForm({ tripId, date, onSuccess, onCancel, initialData, 
       setSubDuration(editingSubItem?.duration || 30);
       setSubStartTime(editingSubItem?.start_time || (isTimeFixed ? formData.start_time : ''));
       setSubEndTime(editingSubItem?.end_time || (isTimeFixed ? formData.end_time : ''));
+      setSubNextWalkMins(editingSubItem?.next_walk_mins || 0);
     }
   }, [isSubItemModalOpen, editingSubItem]);
+
+  // A8: 自動從 Google Maps 取得步行時間（下一個子活動有座標時）
+  useEffect(() => {
+    if (!isSubItemModalOpen || subNextWalkMins > 0) return;
+    const editingIdx = editingSubItem ? subItems.findIndex((i: any) => i.id === editingSubItem.id) : subItems.length;
+    const nextSub = subItems[editingIdx + 1];
+    const fromLat = subLat;
+    const fromLng = subLng;
+    const toLat = nextSub?.lat;
+    const toLng = nextSub?.lng;
+    if (!fromLat || !fromLng || !toLat || !toLng) return;
+    apiFetch(`/api/walking-time?fromLat=${fromLat}&fromLng=${fromLng}&toLat=${toLat}&toLng=${toLng}`)
+      .then(r => r.ok ? r.json() : null)
+      .then((d: any) => { if (d?.minutes) setSubNextWalkMins(d.minutes); })
+      .catch(() => {});
+  }, [isSubItemModalOpen, subLat, subLng]);
 
   // 子活動標題同步到地址欄（未手動編輯地址時）
   useEffect(() => {
@@ -779,6 +797,7 @@ export function ItineraryForm({ tripId, date, onSuccess, onCancel, initialData, 
                   lat: subLat ?? undefined,
                   lng: subLng ?? undefined,
                   duration: subDuration,
+                  next_walk_mins: subNextWalkMins,
                 };
 
                 // Duration validation
@@ -852,6 +871,26 @@ export function ItineraryForm({ tripId, date, onSuccess, onCancel, initialData, 
                 {/* Notes */}
                 <textarea name="notes" defaultValue={editingSubItem?.notes} placeholder="備注..."
                   className="w-full bg-[#242426] border border-zinc-800 rounded-xl px-4 py-2.5 text-white text-sm outline-none min-h-[60px] focus:border-orange-500 transition-all" />
+                {/* A8: walk time to next sub-item */}
+                {(() => {
+                  const editingIdx = editingSubItem ? subItems.findIndex((i: any) => i.id === editingSubItem.id) : subItems.length;
+                  const isLastSub = editingIdx >= subItems.length - (editingSubItem ? 1 : 0);
+                  if (isLastSub) return null;
+                  return (
+                    <div className="flex items-center gap-2 bg-[#242426] border border-zinc-800 rounded-xl px-3 py-2.5">
+                      <Footprints size={14} className="text-zinc-400 shrink-0" />
+                      <span className="text-[10px] text-zinc-500 flex-1">下一站步行時間</span>
+                      <input
+                        type="number" min="0" max="999"
+                        value={subNextWalkMins || ''}
+                        onChange={e => setSubNextWalkMins(Math.max(0, parseInt(e.target.value) || 0))}
+                        placeholder="分鐘"
+                        className="w-14 bg-transparent text-white text-sm font-mono text-right outline-none [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                      />
+                      <span className="text-[10px] text-zinc-500">分</span>
+                    </div>
+                  );
+                })()}
                 <button type="submit" disabled={subSaving}
                   className="w-full py-3.5 bg-orange-500 text-white rounded-2xl font-black text-xs uppercase tracking-widest shadow-lg shadow-orange-500/20 active:scale-95 transition-all disabled:opacity-50">
                   {subSaving ? '儲存中...' : '儲存子活動'}
