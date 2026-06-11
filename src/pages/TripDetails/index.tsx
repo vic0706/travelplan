@@ -509,12 +509,7 @@ export function TripDetails() {
             {/* Expand/Collapse all 按鈕（三態） */}
             <button
               onClick={toggleExpandAll}
-              className={clsx(
-                'shrink-0 flex flex-col items-center justify-center w-12 h-16 rounded-2xl transition-all border',
-                expandState === 'expanded'
-                  ? 'bg-gradient-to-b from-orange-500 to-orange-600 border-orange-400/50 text-white shadow-[0_4px_20px_rgba(249,115,22,0.4)]'
-                  : 'bg-zinc-900/80 border-zinc-700/50 text-zinc-400 hover:text-white hover:bg-zinc-800 shadow-lg'
-              )}
+              className="shrink-0 flex flex-col items-center justify-center w-12 h-16 rounded-2xl transition-all border bg-zinc-900/80 border-zinc-700/50 text-zinc-400 hover:text-white hover:bg-zinc-800 shadow-lg"
             >
               {expandState === 'expanded'
                 ? <ChevronsDownUp size={18} strokeWidth={2.5} />

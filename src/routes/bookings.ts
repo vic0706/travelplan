@@ -124,7 +124,7 @@ async function generateItineraryItems(db: any, tripId: string, bookingId: number
       }, defaultMode, defaultTime);
       // 抵達卡片（抵達日）
       await insertItinerary(db, tripId, {
-        date: b.end_date, start_time: b.end_time || '', end_time: endAt,
+        date: b.end_date, start_time: '00:00', end_time: endAt,
         title: `${b.title}（抵達）`, address: b.end_location || addr,
         image_url: imageUrl, notes, icon, type: 'TRANSPORTATION', related_id: bookingId,
         google_place_id: b.google_place_id || '',

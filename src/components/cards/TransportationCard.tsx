@@ -1,7 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Train, Ship, Car, Plane, Bus, Footprints, Bike, Plus, ChevronDown, Navigation2, Motorbike } from 'lucide-react';
 import { clsx } from 'clsx';
-import { format, parseISO, isValid } from 'date-fns';
 import { Itinerary, Booking } from '../../types';
 
 interface TransportationCardProps {
@@ -57,8 +56,6 @@ export function TransportationCard({
   const details    = parseDetails(data.details);
   const Icon       = getIcon(data.category);
   const termLabel  = TERMINAL_LABEL[data.category] ?? '月台';
-  const isCrossDay = data.start_date !== data.end_date;
-
   // A2: use end_time to determine past, no isToday exception
   const endTimeStr = item.end_time || item.start_time || '23:59';
   const isPastItem = !!(item as any).date && Date.now() > new Date(`${(item as any).date}T${endTimeStr}`).getTime();
@@ -114,7 +111,7 @@ export function TransportationCard({
       onClick={() => canEdit ? onEdit() : setIsExpanded(v => !v)}
     >
       {/* ── Header row ── */}
-      <div className="flex items-center gap-4 px-4 py-4">
+      <div className="flex items-center gap-4 px-4 py-4 min-h-[80px]">
         {/* Large icon */}
         <div className="shrink-0 w-12 h-12 rounded-2xl bg-orange-500/10 flex items-center justify-center">
           <Icon size={22} className="text-orange-400" />
@@ -126,9 +123,7 @@ export function TransportationCard({
           {item.start_time && (
             <div className="font-mono text-[13px] font-bold tracking-[0.06em] leading-none text-zinc-300 mb-0.5">
               {item.start_time}
-              {item.end_time && item.end_time !== item.start_time
-                ? ` → ${isCrossDay && data.end_date && isValid(parseISO(data.end_date)) ? `${format(parseISO(data.end_date), 'M/d')} ` : ''}${item.end_time}`
-                : ''}
+              {item.end_time && item.end_time !== item.start_time ? ` → ${item.end_time}` : ''}
             </div>
           )}
           <div className="text-[15px] font-black text-white leading-tight truncate">
@@ -198,11 +193,7 @@ export function TransportationCard({
               </div>
 
               {/* Centre line */}
-              <div className="flex-1 flex items-center gap-0.5 mb-3 min-w-[8px]">
-                <div className="flex-1 h-px bg-zinc-800" />
-                {isCrossDay && <span className="text-[9px] text-orange-500 shrink-0 px-0.5">+1d</span>}
-                <div className="flex-1 h-px bg-zinc-800" />
-              </div>
+              <div className="flex-1 h-px bg-zinc-800 mb-3 min-w-[8px]" />
 
               {/* Arrival */}
               <div className="text-center shrink-0 min-w-[44px]">

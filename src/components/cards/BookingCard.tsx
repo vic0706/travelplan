@@ -110,9 +110,9 @@ export function BookingCard({ booking, canEdit, onEdit }: BookingCardProps) {
               </>
             )}
           </div>
-          <div className="font-mono text-[11px] text-zinc-500 mt-1 flex items-center gap-2">
-            <span>{dateStr}</span>
-            {timeStr && <span className="text-zinc-400">{timeStr}</span>}
+          <div className="mt-1">
+            <div className="font-mono text-[10px] text-zinc-600">{dateStr}</div>
+            {timeStr && <div className="font-mono text-[12px] font-bold text-zinc-300 mt-0.5">{timeStr}</div>}
           </div>
         </div>
 

@@ -108,6 +108,8 @@ export function ItineraryForm({ tripId, date, onSuccess, onCancel, initialData, 
   const [subEndTime, setSubEndTime] = useState('');
   const [subSaving, setSubSaving] = useState(false);
   const [subNextWalkMins, setSubNextWalkMins] = useState(0);
+  const [subWalkAuto, setSubWalkAuto] = useState(true);
+  const [subWalkEstimate, setSubWalkEstimate] = useState(0);
   const [showDurationWarn, setShowDurationWarn] = useState(false);
   const [durationWarnInfo, setDurationWarnInfo] = useState({ total: 0, parent: 0 });
   const [pendingSaveItem, setPendingSaveItem] = useState<any>(null);
@@ -177,22 +179,24 @@ export function ItineraryForm({ tripId, date, onSuccess, onCancel, initialData, 
       setSubStartTime(editingSubItem?.start_time || (isTimeFixed ? formData.start_time : ''));
       setSubEndTime(editingSubItem?.end_time || (isTimeFixed ? formData.end_time : ''));
       setSubNextWalkMins(editingSubItem?.next_walk_mins || 0);
+      setSubWalkAuto(!(editingSubItem?.next_walk_mins > 0));
+      setSubWalkEstimate(0);
     }
   }, [isSubItemModalOpen, editingSubItem]);
 
-  // A8: 自動從 Google Maps 取得步行時間（下一個子活動有座標時）
+  // 自動估算步行時間（Haversine 直線距離 ×1.3 換算，供 auto 模式顯示）
   useEffect(() => {
-    if (!isSubItemModalOpen || subNextWalkMins > 0) return;
+    if (!isSubItemModalOpen) return;
     const editingIdx = editingSubItem ? subItems.findIndex((i: any) => i.id === editingSubItem.id) : subItems.length;
     const nextSub = subItems[editingIdx + 1];
     const fromLat = subLat;
     const fromLng = subLng;
     const toLat = nextSub?.lat;
     const toLng = nextSub?.lng;
-    if (!fromLat || !fromLng || !toLat || !toLng) return;
+    if (!fromLat || !fromLng || !toLat || !toLng) { setSubWalkEstimate(0); return; }
     apiFetch(`/api/walking-time?fromLat=${fromLat}&fromLng=${fromLng}&toLat=${toLat}&toLng=${toLng}`)
       .then(r => r.ok ? r.json() : null)
-      .then((d: any) => { if (d?.minutes) setSubNextWalkMins(d.minutes); })
+      .then((d: any) => { if (d?.minutes) setSubWalkEstimate(d.minutes); })
       .catch(() => {});
   }, [isSubItemModalOpen, subLat, subLng]);
 
@@ -797,7 +801,7 @@ export function ItineraryForm({ tripId, date, onSuccess, onCancel, initialData, 
                   lat: subLat ?? undefined,
                   lng: subLng ?? undefined,
                   duration: subDuration,
-                  next_walk_mins: subNextWalkMins,
+                  next_walk_mins: subWalkAuto ? 0 : subNextWalkMins,
                 };
 
                 // Duration validation
@@ -871,23 +875,62 @@ export function ItineraryForm({ tripId, date, onSuccess, onCancel, initialData, 
                 {/* Notes */}
                 <textarea name="notes" defaultValue={editingSubItem?.notes} placeholder="備注..."
                   className="w-full bg-[#242426] border border-zinc-800 rounded-xl px-4 py-2.5 text-white text-sm outline-none min-h-[60px] focus:border-orange-500 transition-all" />
-                {/* A8: walk time to next sub-item */}
+                {/* 下一站步行時間（拉桿 + 手動輸入 + Auto 開關） */}
                 {(() => {
                   const editingIdx = editingSubItem ? subItems.findIndex((i: any) => i.id === editingSubItem.id) : subItems.length;
                   const isLastSub = editingIdx >= subItems.length - (editingSubItem ? 1 : 0);
                   if (isLastSub) return null;
+                  const displayVal = subWalkAuto ? (subWalkEstimate || 0) : subNextWalkMins;
                   return (
-                    <div className="flex items-center gap-2 bg-[#242426] border border-zinc-800 rounded-xl px-3 py-2.5">
-                      <Footprints size={14} className="text-zinc-400 shrink-0" />
-                      <span className="text-[10px] text-zinc-500 flex-1">下一站步行時間</span>
-                      <input
-                        type="number" min="0" max="999"
-                        value={subNextWalkMins || ''}
-                        onChange={e => setSubNextWalkMins(Math.max(0, parseInt(e.target.value) || 0))}
-                        placeholder="分鐘"
-                        className="w-14 bg-transparent text-white text-sm font-mono text-right outline-none [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
-                      />
-                      <span className="text-[10px] text-zinc-500">分</span>
+                    <div className="bg-[#242426] border border-zinc-800 rounded-xl px-3 py-2.5 space-y-2">
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-1.5">
+                          <Footprints size={12} className="text-zinc-400 shrink-0" />
+                          <span className="text-[8px] text-zinc-500 font-bold uppercase tracking-widest">下一站步行時間</span>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            const next = !subWalkAuto;
+                            setSubWalkAuto(next);
+                            if (!next && subNextWalkMins === 0 && subWalkEstimate > 0) {
+                              setSubNextWalkMins(subWalkEstimate);
+                            }
+                          }}
+                          className={clsx(
+                            'text-[9px] font-bold px-2 py-0.5 rounded-lg transition-colors border',
+                            subWalkAuto
+                              ? 'bg-orange-500/20 text-orange-400 border-orange-500/30'
+                              : 'bg-zinc-700/50 text-zinc-400 border-zinc-700'
+                          )}
+                        >
+                          Auto
+                        </button>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <input
+                          type="range" min="0" max="60" step="1"
+                          value={displayVal}
+                          disabled={subWalkAuto}
+                          onChange={e => !subWalkAuto && setSubNextWalkMins(parseInt(e.target.value))}
+                          className="flex-1 accent-orange-500 disabled:opacity-40"
+                        />
+                        <input
+                          type="number" min="0" max="999"
+                          value={displayVal || ''}
+                          disabled={subWalkAuto}
+                          onChange={e => !subWalkAuto && setSubNextWalkMins(Math.max(0, parseInt(e.target.value) || 0))}
+                          placeholder="0"
+                          className="w-10 bg-transparent text-white text-sm font-mono text-right outline-none disabled:opacity-40 [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                        />
+                        <span className="text-[10px] text-zinc-500">分</span>
+                      </div>
+                      {subWalkAuto && subWalkEstimate > 0 && (
+                        <div className="text-[8px] text-zinc-600">自動估算（直線距離 ×1.3 換算）</div>
+                      )}
+                      {subWalkAuto && subWalkEstimate === 0 && (
+                        <div className="text-[8px] text-zinc-700">需要子活動座標才能自動估算</div>
+                      )}
                     </div>
                   );
                 })()}

@@ -330,9 +330,12 @@ export function ItineraryCard({
                       </div>
                       {/* A8: read-only walk time to next sub-item */}
                       {hasWalkRow && walkMins > 0 && (
-                        <div className="flex flex-col items-center text-zinc-600 mt-0.5">
-                          <Footprints size={9} />
-                          <span className="text-[8px] font-mono">{formatDuration(walkMins)}</span>
+                        <div className="flex flex-col items-center mt-0.5 gap-0.5">
+                          <span className="text-[7px] text-zinc-600 font-bold leading-none">下一站</span>
+                          <span className="flex items-center gap-0.5 text-zinc-500">
+                            <Footprints size={8} />
+                            <span className="text-[8px] font-mono leading-none">{formatDuration(walkMins)}</span>
+                          </span>
                         </div>
                       )}
                     </div>
@@ -456,7 +459,7 @@ export function ItineraryCard({
       )}>
 
         {/* ── ROW 1: ICON ｜ 標題 ｜ 導航 ── */}
-        <div className="px-4 pt-4 pb-2 flex items-center gap-3">
+        <div className="px-4 pt-4 pb-2 flex items-center gap-3 min-h-[76px]">
           <div
             className="shrink-0 w-9 h-9 rounded-2xl flex items-center justify-center"
             style={{
