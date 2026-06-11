@@ -48,10 +48,16 @@ function iterateDates(startStr: string, endStr: string): string[] {
   return dates;
 }
 
-// ── Helper: subtract minutes from HH:MM string ───────────────────────────────
+// ── Helper: subtract/add minutes from HH:MM string ──────────────────────────
 function subtractMins(time: string, mins: number): string {
   const [h, m] = time.split(':').map(Number);
   const total = ((h * 60 + m - mins) % 1440 + 1440) % 1440;
+  return `${String(Math.floor(total / 60)).padStart(2, '0')}:${String(total % 60).padStart(2, '0')}`;
+}
+
+function addMins(time: string, mins: number): string {
+  const [h, m] = time.split(':').map(Number);
+  const total = ((h * 60 + m + mins) % 1440 + 1440) % 1440;
   return `${String(Math.floor(total / 60)).padStart(2, '0')}:${String(total % 60).padStart(2, '0')}`;
 }
 
@@ -103,9 +109,11 @@ async function generateItineraryItems(db: any, tripId: string, bookingId: number
 
   if (['FLIGHT', 'TRAIN', 'FERRY', 'BUS'].includes(cat)) {
     const depBuffer = details.dep_buffer ?? 60;
+    const arrStay = details.arr_stay ?? 0;
     const icon = cat === 'FLIGHT' ? 'Plane' : cat === 'TRAIN' ? 'Train' : cat === 'FERRY' ? 'Ship' : 'Bus';
     const checkInAt = b.start_time ? subtractMins(b.start_time, depBuffer) : b.start_time || '';
-    await insertItinerary(db, tripId, { date: b.start_date, start_time: checkInAt, end_time: b.start_time || '', title: b.title, address: addr, image_url: imageUrl, notes, icon, type: 'TRANSPORTATION', related_id: bookingId, google_place_id: b.google_place_id || '' }, defaultMode, defaultTime);
+    const endAt = b.end_time ? addMins(b.end_time, arrStay) : (b.start_time || '');
+    await insertItinerary(db, tripId, { date: b.start_date, start_time: checkInAt, end_time: endAt, title: b.title, address: addr, image_url: imageUrl, notes, icon, type: 'TRANSPORTATION', related_id: bookingId, google_place_id: b.google_place_id || '' }, defaultMode, defaultTime);
   }
 }
 

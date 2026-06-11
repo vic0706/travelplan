@@ -56,8 +56,27 @@ const DAY_END   = 22 * 60;  // 22:00
 /**
  * Returns the preferred [start, end] window (in minutes from midnight) for a smart item.
  * Priority: opening_hours for that weekday > keyword inference (title/tags) > anytime
+ * Keyword "floor" times override opening_hours when they imply a later start
+ * (e.g., 夜市 must start ≥ 17:00 regardless of what Google Places says).
  */
 function getPreferredWindow(item: any, dateStr: string): { start: number; end: number } {
+  const titleText = (item.title || '').toLowerCase();
+  const tagsArr: string[] = (() => { try { return JSON.parse(item.tags || '[]'); } catch { return []; } })();
+  const text = `${titleText} ${(item.notes || '')} ${tagsArr.join(' ')}`.toLowerCase();
+
+  // Keyword floor: these patterns enforce a minimum start time even if opening_hours says earlier.
+  // The floor is applied AFTER opening_hours so we take the later of the two.
+  let keywordFloor: number | null = null;
+  let keywordEnd: number | null = null;
+
+  if      (/早餐|早午餐|breakfast|brunch/.test(text)) { keywordFloor =  7 * 60; keywordEnd = 10 * 60; }
+  else if (/咖啡|cafe|coffee/.test(text))              { keywordFloor =  9 * 60; keywordEnd = 17 * 60; }
+  else if (/午餐|lunch|中餐/.test(text))               { keywordFloor = 11 * 60 + 30; keywordEnd = 14 * 60; }
+  else if (/下午茶|afternoon tea/.test(text))          { keywordFloor = 14 * 60; keywordEnd = 17 * 60; }
+  else if (/夕陽|日落|sunset|落日/.test(text))         { keywordFloor = 16 * 60; keywordEnd = 20 * 60; }
+  else if (/晚餐|dinner|晚飯/.test(text))              { keywordFloor = 17 * 60; keywordEnd = 21 * 60; }
+  else if (/夜市|night market|酒吧|bar|夜店|pub/.test(text)) { keywordFloor = 17 * 60; keywordEnd = 23 * 60; }
+
   // 1. Try opening_hours from Google Places
   if (item.opening_hours) {
     try {
@@ -65,36 +84,31 @@ function getPreferredWindow(item: any, dateStr: string): { start: number; end: n
       if (Array.isArray(oh.periods) && oh.periods.length > 0) {
         const only = oh.periods[0];
         if (oh.periods.length === 1 && only.open?.day === 0 && only.open?.hour === 0 && !only.close) {
-          return { start: DAY_START, end: DAY_END };
-        }
-        const dayOfWeek = new Date(dateStr + 'T00:00:00').getDay();
-        const period = oh.periods.find((p: any) => p.open?.day === dayOfWeek);
-        if (period?.open) {
-          const openMins  = (period.open.hour  || 0) * 60 + (period.open.minute  || 0);
-          const closeMins = period.close
-            ? (period.close.hour || 0) * 60 + (period.close.minute || 0)
-            : 24 * 60;
-          return {
-            start: Math.max(DAY_START, openMins),
-            end:   Math.min(DAY_END,   closeMins > openMins ? closeMins : DAY_END),
-          };
+          // 24h — fall through to keyword logic
+        } else {
+          const dayOfWeek = new Date(dateStr + 'T00:00:00').getDay();
+          const period = oh.periods.find((p: any) => p.open?.day === dayOfWeek);
+          if (period?.open) {
+            const openMins  = (period.open.hour  || 0) * 60 + (period.open.minute  || 0);
+            const closeMins = period.close
+              ? (period.close.hour || 0) * 60 + (period.close.minute || 0)
+              : 24 * 60;
+            const ohStart = Math.max(DAY_START, openMins);
+            const ohEnd   = Math.min(DAY_END, closeMins > openMins ? closeMins : DAY_END);
+            // Apply keyword floor: if keyword implies a later start, use it
+            const finalStart = keywordFloor !== null ? Math.max(ohStart, keywordFloor) : ohStart;
+            const finalEnd   = keywordEnd   !== null ? Math.max(ohEnd,   keywordEnd)   : ohEnd;
+            return { start: finalStart, end: finalEnd };
+          }
         }
       }
     } catch { /* invalid JSON — fall through */ }
   }
 
-  // 2. Keyword-based inference from title + tags
-  const titleText = (item.title || '').toLowerCase();
-  const tagsArr: string[] = (() => { try { return JSON.parse(item.tags || '[]'); } catch { return []; } })();
-  const text = `${titleText} ${(item.notes || '')} ${tagsArr.join(' ')}`.toLowerCase();
-
-  if (/早餐|早午餐|breakfast|brunch/.test(text)) return { start: 7 * 60,       end: 10 * 60 };
-  if (/咖啡|cafe|coffee/.test(text))              return { start: 9 * 60,       end: 17 * 60 };
-  if (/午餐|lunch|中餐/.test(text))               return { start: 11 * 60 + 30, end: 14 * 60 };
-  if (/下午茶|afternoon tea/.test(text))          return { start: 14 * 60,      end: 17 * 60 };
-  if (/夕陽|日落|sunset|落日/.test(text))         return { start: 16 * 60,      end: 20 * 60 };
-  if (/晚餐|dinner|晚飯/.test(text))              return { start: 17 * 60,      end: 21 * 60 };
-  if (/夜市|night market|酒吧|bar/.test(text))    return { start: 18 * 60,      end: 23 * 60 };
+  // 2. Keyword-based (when no valid opening_hours)
+  if (keywordFloor !== null && keywordEnd !== null) {
+    return { start: keywordFloor, end: keywordEnd };
+  }
 
   // 3. anytime
   return { start: DAY_START, end: DAY_END };
@@ -144,6 +158,8 @@ async function calcTravelMins(gap: GapSlot, item: any, statements: any[], metaSt
       haversineVal = Math.ceil(dist * ROAD_CIRCUITY * h.speed) + h.buffer;
     }
 
+    let gmapsLog = hasCoords ? (env.GOOGLE_MAPS_API_KEY ? 'pending' : 'no_key') : 'no_coords';
+
     if (hasCoords && env.GOOGLE_MAPS_API_KEY) {
       const travelMode = resolvedMode === 'WALKING'      ? 'WALK'
         : resolvedMode === 'BICYCLING'    ? 'BICYCLE'
@@ -154,6 +170,7 @@ async function calcTravelMins(gap: GapSlot, item: any, statements: any[], metaSt
       const cached: number | null = await env.KV.get(cacheKey, 'json');
       if (cached !== null) {
         mins = cached;
+        gmapsLog = `${mins}min(cached)`;
       } else {
         try {
           const res = await fetch('https://routes.googleapis.com/directions/v2:computeRoutes', {
@@ -176,11 +193,20 @@ async function calcTravelMins(gap: GapSlot, item: any, statements: any[], metaSt
               const secs = parseInt(String(duration));
               if (!isNaN(secs) && secs > 0) {
                 mins = Math.ceil(secs / 60);
+                gmapsLog = `${mins}min`;
                 await env.KV.put(cacheKey, JSON.stringify(mins), { expirationTtl: 86400 }); // 1 day
+              } else {
+                gmapsLog = `parse_err(${duration})`;
               }
+            } else {
+              gmapsLog = 'no_route';
             }
+          } else {
+            gmapsLog = `api_err(${res.status})`;
           }
-        } catch { /* fall through to haversine */ }
+        } catch (e: any) {
+          gmapsLog = `exception(${e?.message || 'unknown'})`;
+        }
       }
     }
 
@@ -195,7 +221,7 @@ async function calcTravelMins(gap: GapSlot, item: any, statements: any[], metaSt
       throw new MissingTransportError(prev.id, prev.title || String(prev.id));
     }
 
-    const travelMsg = `[travel] ${prev.title}(id=${prev.id}) → ${item.title}: mode=${resolvedMode}, haversine=${haversineVal}min, final=${mins}min`;
+    const travelMsg = `[travel] ${prev.title}(id=${prev.id}) → ${item.title}: mode=${resolvedMode}, haversine=${haversineVal}min, gmaps=${gmapsLog}, final=${mins}min`;
     _log.push(travelMsg); console.log(travelMsg);
 
     // Critical update — column exists since initial schema; must not be batched with new columns.
@@ -459,7 +485,7 @@ export async function optimizeDailyItinerary(env: any, tripId: number, dateStr: 
       const dur = parseInt(String((sub as any).duration || '0')) || 0;
       const st = minsToTime(cursor);
       const et = minsToTime(Math.min(cursor + dur, parentEnd));
-      cursor += dur;
+      cursor += dur + ((sub as any).next_walk_mins || 0);
       subStatements.push(
         env.DB.prepare('UPDATE SubItemItineraries SET start_time = ?, end_time = ? WHERE id = ?')
           .bind(st, et, (sub as any).id)

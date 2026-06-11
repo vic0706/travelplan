@@ -13,6 +13,7 @@ import placeRoutes from './routes/places';
 import mediaRoutes from './routes/media';
 import cities from './routes/cities';
 import travelTimeRoute from './routes/travelTime';
+import adminRoute from './routes/admin';
 import { checkApiQuota, trackApiCall, getApiUsage, saveApiLimit } from './utils/apiQuota';
 
 export interface Env {
@@ -53,6 +54,7 @@ app.route('/api/places', placeRoutes);
 app.route('/api/media', mediaRoutes);
 app.route('/api/cities', cities);
 app.route('/api/travel-time', travelTimeRoute);
+app.route('/api/admin', adminRoute);
 
 // 3. 基礎城市查詢
 app.get('/api/cities', async (c) => {

@@ -20,9 +20,10 @@ interface AddressSearchInputProps {
   placeholder?: string;
   label?: string;
   className?: string;
+  showNameOnSelect?: boolean;
 }
 
-export function AddressSearchInput({ value, onChange, onPlaceSelect, placeholder = '搜尋地址...', label, className }: AddressSearchInputProps) {
+export function AddressSearchInput({ value, onChange, onPlaceSelect, placeholder = '搜尋地址...', label, className, showNameOnSelect = false }: AddressSearchInputProps) {
   const [suggestions, setSuggestions] = useState<any[]>([]);
   const [isSearching, setIsSearching] = useState(false);
   const [isEditing, setIsEditing] = useState(false);
@@ -50,7 +51,10 @@ export function AddressSearchInput({ value, onChange, onPlaceSelect, placeholder
   }, [value, isEditing]);
 
   const handleSelect = async (suggestion: any) => {
-    onChange(suggestion.description);
+    const displayStr = showNameOnSelect
+      ? (suggestion.structured_formatting?.main_text || suggestion.description)
+      : suggestion.description;
+    onChange(displayStr);
     setSuggestions([]);
     setIsEditing(false);
     if (!onPlaceSelect) return;

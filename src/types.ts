@@ -95,6 +95,7 @@ export interface SubItinerary {
   notes: string;
   tags: string;        // JSON string or comma-separated
   display_order?: number;
+  next_walk_mins?: number;
 }
 
 export interface Expense {
