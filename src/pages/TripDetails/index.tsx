@@ -33,13 +33,17 @@ const getEffectiveTimes = (item: any, baseDate: Date) => {
   let start = parseTime(item.start_time, baseDate);
   let end = parseTime(item.end_time || item.start_time, baseDate);
   if (item.next_transport_mode) {
-    let addMins = 0;
+    let mins = 0;
     if (item.next_transport_time) {
-      addMins = parseInt(item.next_transport_time.replace(/\D/g, '')) || 0;
+      mins = parseInt(item.next_transport_time.replace(/\D/g, '')) || 0;
     } else if (item.next_transport_auto_time) {
-      addMins = parseInt(item.next_transport_auto_time.replace(/\D/g, '')) || 0;
+      mins = parseInt(item.next_transport_auto_time.replace(/\D/g, '')) || 0;
     }
-    end = addMinutes(end, addMins);
+    if (mins > 0) {
+      end = addMinutes(end, mins);
+      const remainder = end.getMinutes() % 30;
+      if (remainder !== 0) end = addMinutes(end, 30 - remainder);
+    }
   }
   return { start, end };
 };

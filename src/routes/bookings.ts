@@ -113,7 +113,29 @@ async function generateItineraryItems(db: any, tripId: string, bookingId: number
     const icon = cat === 'FLIGHT' ? 'Plane' : cat === 'TRAIN' ? 'Train' : cat === 'FERRY' ? 'Ship' : 'Bus';
     const checkInAt = b.start_time ? subtractMins(b.start_time, depBuffer) : b.start_time || '';
     const endAt = b.end_time ? addMins(b.end_time, arrStay) : (b.start_time || '');
-    await insertItinerary(db, tripId, { date: b.start_date, start_time: checkInAt, end_time: endAt, title: b.title, address: addr, image_url: imageUrl, notes, icon, type: 'TRANSPORTATION', related_id: bookingId, google_place_id: b.google_place_id || '' }, defaultMode, defaultTime);
+    const isCrossDay = b.start_date && b.end_date && b.start_date !== b.end_date;
+    if (isCrossDay) {
+      // 出發卡片（出發日）
+      await insertItinerary(db, tripId, {
+        date: b.start_date, start_time: checkInAt, end_time: b.start_time || checkInAt,
+        title: `${b.title}（出發）`, address: b.start_location || addr,
+        image_url: imageUrl, notes, icon, type: 'TRANSPORTATION', related_id: bookingId,
+        google_place_id: b.google_place_id || '',
+      }, defaultMode, defaultTime);
+      // 抵達卡片（抵達日）
+      await insertItinerary(db, tripId, {
+        date: b.end_date, start_time: b.end_time || '', end_time: endAt,
+        title: `${b.title}（抵達）`, address: b.end_location || addr,
+        image_url: imageUrl, notes, icon, type: 'TRANSPORTATION', related_id: bookingId,
+        google_place_id: b.google_place_id || '',
+      }, defaultMode, defaultTime);
+    } else {
+      await insertItinerary(db, tripId, {
+        date: b.start_date, start_time: checkInAt, end_time: endAt,
+        title: b.title, address: addr, image_url: imageUrl, notes, icon,
+        type: 'TRANSPORTATION', related_id: bookingId, google_place_id: b.google_place_id || '',
+      }, defaultMode, defaultTime);
+    }
   }
 }
 

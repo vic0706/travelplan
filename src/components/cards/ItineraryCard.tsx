@@ -156,6 +156,18 @@ export function ItineraryCard({
   const manualVal = parseInt(item.next_transport_time?.toString().replace(/\D/g, '') || '0', 10);
   const autoVal   = Math.round(Number((item as any).next_transport_auto_time || 0));
 
+  const computedDepartureTime = (() => {
+    const transportMins = manualVal > 0 ? manualVal : autoVal > 0 ? autoVal : 0;
+    if (!item.end_time || transportMins === 0) return null;
+    const [h, m] = item.end_time.split(':').map(Number);
+    const totalMins = h * 60 + m + transportMins;
+    const remainder = totalMins % 30;
+    const rounded = remainder === 0 ? totalMins : totalMins + (30 - remainder);
+    const rh = Math.floor((rounded % 1440) / 60);
+    const rm = rounded % 60;
+    return `${String(rh).padStart(2, '0')}:${String(rm).padStart(2, '0')}`;
+  })();
+
   const handleTitleClick = () => {
     if (canEdit) { onEdit(); return; }
     if (!canExpand) return;
@@ -323,12 +335,12 @@ export function ItineraryCard({
                   {/* Main row */}
                   <div className="flex items-center gap-3 pl-0.5">
                     <div className="flex-1 min-w-0">
-                      <div className="text-[13px] font-bold text-white truncate">{sub.title}</div>
                       {showTime && (
-                        <div className="font-mono text-[10px] text-zinc-500 mt-0.5">
+                        <div className="font-mono text-[10px] text-zinc-500 mb-0.5">
                           {sub.start_time}{sub.end_time && sub.end_time !== sub.start_time ? ` — ${sub.end_time}` : ''}
                         </div>
                       )}
+                      <div className="text-[13px] font-bold text-white truncate">{sub.title}</div>
                       {Array.isArray(sub.tags) && (sub.tags as string[]).length > 0 && (
                         <div className="flex flex-wrap gap-1 mt-0.5">
                           {(sub.tags as string[]).map((t: string) => (
@@ -453,7 +465,7 @@ export function ItineraryCard({
     if (onPhoto) {
       return (
         <div className="absolute bottom-0 left-0 right-0 z-20 flex items-center justify-between px-3 py-2 bg-black/50 backdrop-blur-[8px] border-t border-white/5">
-          {hasContent ? (
+          {detailParts.length > 0 ? (
             <button type="button" onClick={handleDetailBtn}
               className={clsx('flex items-center gap-1 px-2 py-1 rounded-lg transition-all',
                 overlayVisible ? 'text-orange-400 bg-orange-500/10' : 'text-white/55 hover:text-white/80')}>
@@ -472,6 +484,9 @@ export function ItineraryCard({
                   <span className="text-[10px] font-black tracking-tight">
                     {manualVal > 0 ? formatDuration(manualVal) : autoVal > 0 ? formatDuration(autoVal) : '自動'}
                   </span>
+                  {computedDepartureTime && (
+                    <span className="text-[9px] text-zinc-500 font-mono">· {computedDepartureTime}</span>
+                  )}
                 </div>
               ) : (
                 <div className="flex items-center gap-0.5 text-white/30">
@@ -485,7 +500,7 @@ export function ItineraryCard({
     }
     return (
       <div className="flex items-center justify-between px-3 pb-3 pt-1">
-        {hasContent ? (
+        {detailParts.length > 0 ? (
           <button type="button" onClick={handleDetailBtn}
             className={clsx('flex items-center gap-1 px-2.5 py-1.5 rounded-xl transition-all',
               overlayVisible ? 'text-orange-500 bg-orange-500/8' : 'text-zinc-600 hover:text-zinc-400')}>
@@ -504,6 +519,9 @@ export function ItineraryCard({
                 <span className="text-[11px] font-black tracking-tight">
                   {manualVal > 0 ? formatDuration(manualVal) : autoVal > 0 ? formatDuration(autoVal) : '自動'}
                 </span>
+                {computedDepartureTime && (
+                  <span className="text-[9px] text-zinc-500 font-mono">· {computedDepartureTime}</span>
+                )}
               </div>
             ) : (
               <div className="flex items-center gap-1 text-zinc-600">

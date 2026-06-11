@@ -50,6 +50,11 @@ function minsToTime(mins: number) {
   return `${h.toString().padStart(2, '0')}:${m.toString().padStart(2, '0')}`;
 }
 
+function roundUpTo30(mins: number): number {
+  const remainder = mins % 30;
+  return remainder === 0 ? mins : mins + (30 - remainder);
+}
+
 const DAY_START = 9 * 60;   // 09:00
 const DAY_END   = 22 * 60;  // 22:00
 
@@ -265,7 +270,7 @@ async function placeInGap(
       throw e;
     }
   }
-  const startMins  = Math.max(gap.cursor + travelMins, windowStart);
+  const startMins  = roundUpTo30(Math.max(gap.cursor + travelMins, windowStart));
   const endMins    = startMins + stayDuration;
 
   if (startMins < windowEnd && endMins <= gap.end) {

@@ -10,6 +10,10 @@ interface NextTransportFormProps {
   onClose: () => void;
   itinerary: Itinerary | null | undefined;
   nextItinerary?: Itinerary | null;
+  overrideFromLat?: number;
+  overrideFromLng?: number;
+  overrideToLat?: number;
+  overrideToLng?: number;
   onSave: (data: {
     next_transport_mode: string;
     next_transport_time: string;
@@ -66,7 +70,7 @@ function fastestHaversineMode(dist: number): string {
     .sort((a, b) => a.t - b.t)[0].m;
 }
 
-export function NextTransportForm({ isOpen, onClose, itinerary, nextItinerary, onSave }: NextTransportFormProps) {
+export function NextTransportForm({ isOpen, onClose, itinerary, nextItinerary, overrideFromLat, overrideFromLng, overrideToLat, overrideToLng, onSave }: NextTransportFormProps) {
   const [mode, setMode] = useState('AUTO');
   const [isAutoTime, setIsAutoTime] = useState(true);
   const [duration, setDuration] = useState(15);
@@ -83,14 +87,17 @@ export function NextTransportForm({ isOpen, onClose, itinerary, nextItinerary, o
   // Detect initial open to avoid redundant API call when stored value exists
   const isInitialLoadRef = useRef(false);
 
-  const hasCoords = !!(itinerary?.lat && itinerary?.lng && nextItinerary?.lat && nextItinerary?.lng);
+  const fromLat = overrideFromLat ?? itinerary?.lat ?? null;
+  const fromLng = overrideFromLng ?? itinerary?.lng ?? null;
+  const toLat   = overrideToLat   ?? nextItinerary?.lat ?? null;
+  const toLng   = overrideToLng   ?? nextItinerary?.lng ?? null;
+  const hasCoords = !!(fromLat && fromLng && toLat && toLng);
 
   // Compute haversine estimates when form opens or coords change
   useEffect(() => {
     if (!isOpen) return;
-    const from = itinerary, to = nextItinerary;
-    if (from?.lat && from?.lng && to?.lat && to?.lng) {
-      const dist = haversineKm(from.lat, from.lng, to.lat, to.lng);
+    if (fromLat && fromLng && toLat && toLng) {
+      const dist = haversineKm(fromLat, fromLng, toLat, toLng);
       const est: Record<string, number> = {};
       for (const m of TRANSPORT_MODES) {
         if (m.id !== 'CUSTOM' && m.id !== 'AUTO') est[m.id] = haversineEstimate(dist, m.id);
@@ -99,18 +106,17 @@ export function NextTransportForm({ isOpen, onClose, itinerary, nextItinerary, o
     } else {
       setEstimates({});
     }
-  }, [isOpen, itinerary?.lat, itinerary?.lng, nextItinerary?.lat, nextItinerary?.lng]);
+  }, [isOpen, fromLat, fromLng, toLat, toLng]);
 
   // Fetch Google Maps time for selected specific mode (non-AUTO, non-CUSTOM, isAutoTime)
   const fetchAccurateTime = useCallback(async (selectedMode: string) => {
-    const from = itinerary, to = nextItinerary;
-    if (!from?.lat || !from?.lng || !to?.lat || !to?.lng) { setAccurateMins(null); return; }
+    if (!fromLat || !fromLng || !toLat || !toLng) { setAccurateMins(null); return; }
     setLoadingAccurate(true);
     setAccurateMins(null);
     try {
       const res = await apiFetch('/api/travel-time', {
         method: 'POST',
-        body: JSON.stringify({ fromLat: from.lat, fromLng: from.lng, toLat: to.lat, toLng: to.lng, mode: selectedMode }),
+        body: JSON.stringify({ fromLat, fromLng, toLat, toLng, mode: selectedMode }),
       });
       if (res.ok) {
         const data = await res.json() as any;
@@ -118,23 +124,22 @@ export function NextTransportForm({ isOpen, onClose, itinerary, nextItinerary, o
       }
     } catch { /* silent */ }
     finally { setLoadingAccurate(false); }
-  }, [itinerary?.lat, itinerary?.lng, nextItinerary?.lat, nextItinerary?.lng]);
+  }, [fromLat, fromLng, toLat, toLng]);
 
   // Fetch Google Maps time for AUTO mode's fastest haversine candidate
   useEffect(() => {
     if (!isOpen || mode !== 'AUTO' || !hasCoords) { setAutoAccurateMins(null); return; }
-    const from = itinerary, to = nextItinerary;
-    if (!from?.lat || !from?.lng || !to?.lat || !to?.lng) return;
-    const dist = haversineKm(from.lat, from.lng, to.lat, to.lng);
+    if (!fromLat || !fromLng || !toLat || !toLng) return;
+    const dist = haversineKm(fromLat, fromLng, toLat, toLng);
     const best = fastestHaversineMode(dist);
     setAutoAccurateMins(null);
     apiFetch('/api/travel-time', {
       method: 'POST',
-      body: JSON.stringify({ fromLat: from.lat, fromLng: from.lng, toLat: to.lat, toLng: to.lng, mode: best }),
+      body: JSON.stringify({ fromLat, fromLng, toLat, toLng, mode: best }),
     }).then(r => r.ok ? r.json() : null)
       .then((d: any) => { if (d?.mins != null) setAutoAccurateMins(d.mins); })
       .catch(() => {});
-  }, [isOpen, mode, itinerary?.lat, itinerary?.lng, nextItinerary?.lat, nextItinerary?.lng]);
+  }, [isOpen, mode, fromLat, fromLng, toLat, toLng]);
 
   // Load existing data when form opens
   useEffect(() => {

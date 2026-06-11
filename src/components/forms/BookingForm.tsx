@@ -415,7 +415,7 @@ export function BookingForm({ initialData, onSubmit, onCancel, onDelete, loading
                 label="出發地"
                 value={startLocDisplay}
                 onChange={v => { setStartLocDisplay(v); set('start_location', v); }}
-                onPlaceSelect={place => { setStartLocDisplay(place.name || place.address); set('start_location', place.address || place.name || ''); }}
+                onPlaceSelect={place => { set('start_location', place.address || place.name || ''); }}
                 placeholder="搜尋出發站..."
                 showNameOnSelect
               />
@@ -423,7 +423,7 @@ export function BookingForm({ initialData, onSubmit, onCancel, onDelete, loading
                 label="目的地"
                 value={endLocDisplay}
                 onChange={v => { setEndLocDisplay(v); set('end_location', v); }}
-                onPlaceSelect={place => { setEndLocDisplay(place.name || place.address); set('end_location', place.address || place.name || ''); }}
+                onPlaceSelect={place => { set('end_location', place.address || place.name || ''); }}
                 placeholder="搜尋目的站..."
                 showNameOnSelect
               />
@@ -777,7 +777,7 @@ export function BookingForm({ initialData, onSubmit, onCancel, onDelete, loading
               label={formData.category === 'RENTAL' ? '取車地點' : '出發地點'}
               value={startLocDisplay}
               onChange={v => { setStartLocDisplay(v); set('start_location', v); }}
-              onPlaceSelect={place => { setStartLocDisplay(place.name || place.address); set('start_location', place.address || place.name || ''); }}
+              onPlaceSelect={place => { set('start_location', place.address || place.name || ''); }}
               placeholder={formData.category === 'RENTAL' ? '搜尋取車地點...' : '搜尋出發地...'}
               showNameOnSelect
             />
@@ -785,7 +785,7 @@ export function BookingForm({ initialData, onSubmit, onCancel, onDelete, loading
               label={formData.category === 'RENTAL' ? '還車地點' : '目的地點'}
               value={endLocDisplay}
               onChange={v => { setEndLocDisplay(v); set('end_location', v); }}
-              onPlaceSelect={place => { setEndLocDisplay(place.name || place.address); set('end_location', place.address || place.name || ''); }}
+              onPlaceSelect={place => { set('end_location', place.address || place.name || ''); }}
               placeholder={formData.category === 'RENTAL' ? '搜尋還車地點...' : '搜尋目的地...'}
               showNameOnSelect
             />
