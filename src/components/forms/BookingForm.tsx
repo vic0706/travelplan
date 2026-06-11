@@ -247,21 +247,33 @@ export function BookingForm({ initialData, onSubmit, onCancel, onDelete, loading
   const isRentalOrTransfer  = ['RENTAL','PRIVATE_TRANSFER'].includes(formData.category);
   const terminalLabel       = getTerminalLabel(formData.category);
 
-  // Hide city when any location address is filled (autocomplete provides better context)
-  const showCity = !formData.start_location;
+  // Hide city for transport categories (location autocomplete is sufficient) or when address is filled
+  const showCity = !isTransport && !formData.start_location;
 
   const calcFlightDuration = useMemo(() => {
     if (!formData.start_time || !formData.end_time) return null;
     const [sh, sm] = formData.start_time.split(':').map(Number);
     const [eh, em] = formData.end_time.split(':').map(Number);
-    let mins = (eh * 60 + em) - (sh * 60 + sm);
-    if (mins < 0) mins += 24 * 60;
+    let startMins = sh * 60 + sm;
+    let endMins = eh * 60 + em;
+    // Account for cross-day: add day difference in minutes
+    if (formData.start_date && formData.end_date && formData.start_date !== formData.end_date) {
+      try {
+        const dayDiff = Math.round(
+          (new Date(formData.end_date + 'T00:00:00').getTime() - new Date(formData.start_date + 'T00:00:00').getTime())
+          / 86400000
+        );
+        endMins += dayDiff * 1440;
+      } catch {}
+    }
+    let mins = endMins - startMins;
+    if (mins < 0) mins += 1440; // fallback for same-day wraparound
     const h = Math.floor(mins / 60);
     const m = mins % 60;
     if (h === 0) return `${m}分`;
     if (m === 0) return `${h}時`;
     return `${h}時${m}分`;
-  }, [formData.start_time, formData.end_time]);
+  }, [formData.start_time, formData.end_time, formData.start_date, formData.end_date]);
 
   // ══ STEP 1: 選擇類別 ══
   if (step === 'pick-category') {
@@ -801,6 +813,14 @@ export function BookingForm({ initialData, onSubmit, onCancel, onDelete, loading
           placeholder="確認號碼、特殊需求..." />
       </div>
 
+      {/* 刪除訂票 — 在捲動區最底部 */}
+      {onDelete && (
+        <button type="button" onClick={onDelete}
+          className="w-full py-3 text-red-500 bg-red-500/10 hover:bg-red-500/20 font-bold rounded-xl transition-colors border border-red-500/20">
+          刪除訂票
+        </button>
+      )}
+
       <LocationPicker
         isOpen={isCityPickerOpen}
         onClose={() => setIsCityPickerOpen(false)}
@@ -817,7 +837,7 @@ export function BookingForm({ initialData, onSubmit, onCancel, onDelete, loading
     </form>
 
     {/* 固定底部 */}
-    <div className="shrink-0 px-6 pt-4 pb-5 border-t border-zinc-800 space-y-3">
+    <div className="shrink-0 px-6 pt-4 pb-5 border-t border-zinc-800">
       <div className="flex gap-3">
         <button type="button" onClick={onCancel}
           className="flex-1 bg-zinc-800 hover:bg-zinc-700 text-white font-bold rounded-xl px-4 py-3.5 transition-colors">取消</button>
@@ -826,12 +846,6 @@ export function BookingForm({ initialData, onSubmit, onCancel, onDelete, loading
           {loading ? <Loader2 className="animate-spin" size={20} /> : '儲存訂票'}
         </button>
       </div>
-      {onDelete && (
-        <button type="button" onClick={onDelete}
-          className="w-full py-3 text-red-500 bg-red-500/10 hover:bg-red-500/20 font-bold rounded-xl transition-colors border border-red-500/20">
-          刪除訂票
-        </button>
-      )}
     </div>
   </div>
   );

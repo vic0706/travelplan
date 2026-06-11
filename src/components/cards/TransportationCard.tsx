@@ -123,7 +123,7 @@ export function TransportationCard({
           {item.start_time && (
             <div className="font-mono text-[13px] font-bold tracking-[0.06em] leading-none text-zinc-300 mb-0.5">
               {item.start_time}
-              {item.end_time && item.end_time !== item.start_time ? ` → ${item.end_time}` : ''}
+              {item.end_time && item.end_time !== item.start_time ? ` — ${item.end_time}` : ''}
             </div>
           )}
           <div className="text-[15px] font-black text-white leading-tight truncate">
