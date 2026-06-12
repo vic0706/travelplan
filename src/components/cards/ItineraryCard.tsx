@@ -305,7 +305,7 @@ export function ItineraryCard({
                   <div className="absolute left-0 top-0 bottom-0 w-0.5 bg-orange-500/50 rounded-r-full" />
 
                   {/* Main row */}
-                  <div className="flex items-start gap-3 pl-0.5">
+                  <div className="flex items-center gap-3 pl-0.5">
                     <div className="flex-1 min-w-0">
                       {showTime && (
                         <div className="font-mono text-[10px] text-zinc-500 mb-0.5">
@@ -321,40 +321,38 @@ export function ItineraryCard({
                         </div>
                       )}
                     </div>
-                    <div className="flex flex-col items-center gap-0.5 shrink-0">
-                      <div className="flex items-center gap-1">
-                        {subNavUrl && (
-                          <a
-                            href={subNavUrl}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            onClick={(e) => e.stopPropagation()}
-                            className="p-1.5 rounded-lg text-zinc-500 hover:text-orange-400 active:bg-white/10 transition-colors"
-                          >
-                            <Navigation2 size={13} />
-                          </a>
-                        )}
-                        {subHasDetails && (
-                          <>
-                            <Asterisk size={9} strokeWidth={3} className="text-zinc-600" />
-                            <ChevronRight size={11} className="text-zinc-700" />
-                          </>
-                        )}
-                      </div>
-                      {/* A8/B4: read-only walk time to next sub-item (manual or Haversine estimate) */}
-                      {hasWalkRow && displayWalk && (
-                        <div className="flex items-center gap-0.5 mt-0.5">
-                          <span className="text-[7px] text-zinc-600 font-bold leading-none">下一站</span>
-                          <span className={clsx('flex items-center gap-0.5', displayWalk.isEstimate ? 'text-zinc-700' : 'text-zinc-500')}>
-                            <Footprints size={8} />
-                            <span className="text-[8px] font-mono leading-none">
-                              {displayWalk.isEstimate && '~'}{formatDuration(displayWalk.mins)}
-                            </span>
-                          </span>
-                        </div>
+                    <div className="flex items-center gap-1 shrink-0">
+                      {subNavUrl && (
+                        <a
+                          href={subNavUrl}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          onClick={(e) => e.stopPropagation()}
+                          className="p-1.5 rounded-lg text-zinc-500 hover:text-orange-400 active:bg-white/10 transition-colors"
+                        >
+                          <Navigation2 size={13} />
+                        </a>
+                      )}
+                      {subHasDetails && (
+                        <>
+                          <Asterisk size={9} strokeWidth={3} className="text-zinc-600" />
+                          <ChevronRight size={11} className="text-zinc-700" />
+                        </>
                       )}
                     </div>
                   </div>
+                  {/* Walk time to next sub-item — shown as bottom row to keep nav button vertically centered */}
+                  {hasWalkRow && displayWalk && (
+                    <div className="flex items-center justify-end gap-0.5 mt-1.5">
+                      <span className="text-[7px] text-zinc-600 font-bold leading-none">下一站</span>
+                      <span className={clsx('flex items-center gap-0.5', displayWalk.isEstimate ? 'text-zinc-700' : 'text-zinc-500')}>
+                        <Footprints size={8} />
+                        <span className="text-[8px] font-mono leading-none">
+                          {displayWalk.isEstimate && '~'}{formatDuration(displayWalk.mins)}
+                        </span>
+                      </span>
+                    </div>
+                  )}
                 </div>
               );
             })}

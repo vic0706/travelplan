@@ -486,11 +486,18 @@ export async function optimizeDailyItinerary(env: any, tripId: number, dateStr: 
     let cursor = timeToMins(updated.start_time as string);
     const parentEnd = timeToMins(updated.end_time as string);
 
-    for (const sub of sorted) {
+    for (let si = 0; si < (sorted as any[]).length; si++) {
+      const sub = (sorted as any[])[si];
+      const nextSub = (sorted as any[])[si + 1];
       const dur = parseInt(String((sub as any).duration || '0')) || 0;
       const st = minsToTime(cursor);
       const et = minsToTime(Math.min(cursor + dur, parentEnd));
-      cursor += dur + ((sub as any).next_walk_mins || 0);
+      let walkMins = (sub as any).next_walk_mins ? parseInt(String((sub as any).next_walk_mins)) : 0;
+      if (walkMins === 0 && nextSub) {
+        const dist = getDistanceKm(sub.lat, sub.lng, nextSub.lat, nextSub.lng) ?? 0;
+        if (dist > 0) walkMins = Math.round(dist * ROAD_CIRCUITY * HEURISTIC_SPEED.WALKING.speed) + HEURISTIC_SPEED.WALKING.buffer;
+      }
+      cursor += dur + walkMins;
       subStatements.push(
         env.DB.prepare('UPDATE SubItemItineraries SET start_time = ?, end_time = ? WHERE id = ?')
           .bind(st, et, (sub as any).id)
