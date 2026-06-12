@@ -81,6 +81,14 @@ function getPreferredWindow(item: any, dateStr: string): { start: number; end: n
   else if (/夕陽|日落|sunset|落日/.test(text))         { keywordFloor = 16 * 60; keywordEnd = 20 * 60; }
   else if (/晚餐|dinner|晚飯/.test(text))              { keywordFloor = 17 * 60; keywordEnd = 21 * 60; }
   else if (/夜市|night market|酒吧|bar|夜店|pub/.test(text)) { keywordFloor = 17 * 60; keywordEnd = 23 * 60; }
+  else if (/濕地|wetland/.test(text))                                             { keywordFloor =  9 * 60; keywordEnd = 18 * 60; }
+  else if (/公園|海邊|海灘|沙灘|beach|park/.test(text))                          { keywordFloor =  9 * 60; keywordEnd = 18 * 60; }
+  else if (/步道|登山|山頂|森林|hiking|trail|forest/.test(text))                  { keywordFloor =  7 * 60; keywordEnd = 17 * 60; }
+  else if (/博物館|美術館|museum|gallery/.test(text))                              { keywordFloor =  9 * 60; keywordEnd = 17 * 60; }
+  else if (/漁港|早市|morning market/.test(text))                                  { keywordFloor =  6 * 60; keywordEnd = 12 * 60; }
+  else if (/農場|植物園|動物園|farm|zoo|botanical garden/.test(text))              { keywordFloor =  9 * 60; keywordEnd = 17 * 60; }
+  else if (/夜景|night view|夜拍/.test(text))                                      { keywordFloor = 19 * 60; keywordEnd = 23 * 60; }
+  else if (/溫泉|hot spring/.test(text))                                           { keywordFloor = 18 * 60; keywordEnd = 22 * 60; }
 
   // 1. Try opening_hours from Google Places
   if (item.opening_hours) {
@@ -115,8 +123,8 @@ function getPreferredWindow(item: any, dateStr: string): { start: number; end: n
     return { start: keywordFloor, end: keywordEnd };
   }
 
-  // 3. anytime
-  return { start: DAY_START, end: DAY_END };
+  // 3. anytime — default to daytime (9am–6pm) to avoid placing generic spots at night
+  return { start: DAY_START, end: 18 * 60 };
 }
 
 interface GapSlot {
@@ -357,6 +365,47 @@ function sortByNearestNeighbor(items: any[], anchorLat: number | null, anchorLng
   return [...ordered, ...noCoords];
 }
 
+/**
+ * Returns a numeric sort key for priority ordering within a gap:
+ * - Narrower preferred window → smaller value (higher priority)
+ * - Longer duration → higher priority within same window width (tiebreak via -duration)
+ */
+function prioritySortKey(item: any, dateStr: string): number {
+  const pref = getPreferredWindow(item, dateStr);
+  const windowWidth = pref.end - pref.start;
+  const duration = parseInt(item.stay_duration) || 60;
+  return windowWidth * 10000 - duration;
+}
+
+/**
+ * Sorts candidates into three tiers:
+ * 1. Constrained (window ≤ 6h) — most restricted, place first
+ * 2. Long-duration (stay > 90min) — need large gaps, place early
+ * 3. Flexible — short items, sorted by proximity
+ * Within each tier, nearest-neighbor ordering is applied.
+ */
+function sortByPriorityGroups(items: any[], anchorLat: number | null, anchorLng: number | null, dateStr: string): any[] {
+  const constrained = items.filter(i => {
+    const pref = getPreferredWindow(i, dateStr);
+    return (pref.end - pref.start) <= 6 * 60;
+  });
+  const remaining = items.filter(i => {
+    const pref = getPreferredWindow(i, dateStr);
+    return (pref.end - pref.start) > 6 * 60;
+  });
+  const longDuration = remaining.filter(i => (parseInt(i.stay_duration) || 60) > 90);
+  const flexible = remaining.filter(i => (parseInt(i.stay_duration) || 60) <= 90);
+
+  // Sort constrained by priority key (narrowest window first), then nearest-neighbor within
+  constrained.sort((a, b) => prioritySortKey(a, dateStr) - prioritySortKey(b, dateStr));
+
+  return [
+    ...sortByNearestNeighbor(constrained, anchorLat, anchorLng),
+    ...sortByNearestNeighbor(longDuration, anchorLat, anchorLng),
+    ...sortByNearestNeighbor(flexible, anchorLat, anchorLng),
+  ];
+}
+
 export async function optimizeDailyItinerary(env: any, tripId: number, dateStr: string): Promise<string[]> {
   _log = [];
   const { results: rawItems } = await env.DB.prepare(`
@@ -437,7 +486,7 @@ export async function optimizeDailyItinerary(env: any, tripId: number, dateStr: 
       if (winEnd - winStart >= stayDuration) candidates.push(item);
     }
 
-    const sorted = sortByNearestNeighbor(candidates, gap.lastLat, gap.lastLng);
+    const sorted = sortByPriorityGroups(candidates, gap.lastLat, gap.lastLng, dateStr);
 
     for (const item of sorted) {
       const idx = smartItems.indexOf(item);
@@ -452,16 +501,25 @@ export async function optimizeDailyItinerary(env: any, tripId: number, dateStr: 
     }
   }
 
-  // Pass 2: fallback — any available gap, nearest-neighbor per gap
+  // Pass 2: preferred-window first, fall back to full gap only if no window overlap
   for (const gap of gaps) {
     const candidates = [...unplaced].map(idx => smartItems[idx]);
-    const sorted = sortByNearestNeighbor(candidates, gap.lastLat, gap.lastLng);
+    const sorted = sortByPriorityGroups(candidates, gap.lastLat, gap.lastLng, dateStr);
 
     for (const item of sorted) {
       const idx = smartItems.indexOf(item);
       if (!unplaced.has(idx)) continue;
       const stayDuration = parseInt(item.stay_duration) || 60;
-      if (await placeInGap(gap, item, stayDuration, gap.start, gap.end, statements, metaStatements, env)) {
+      const pref = getPreferredWindow(item, dateStr);
+      const winStart = Math.max(pref.start, gap.start);
+      const winEnd   = Math.min(pref.end,   gap.end);
+      const hasOverlap = winEnd - winStart >= stayDuration;
+      const placed = hasOverlap
+        ? await placeInGap(gap, item, stayDuration, winStart, winEnd, statements, metaStatements, env)
+        : false;
+      if (placed) {
+        unplaced.delete(idx);
+      } else if (await placeInGap(gap, item, stayDuration, gap.start, gap.end, statements, metaStatements, env)) {
         unplaced.delete(idx);
       }
     }
