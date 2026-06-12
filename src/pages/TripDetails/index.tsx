@@ -540,6 +540,7 @@ export function TripDetails() {
             expandSignal={expandSignal}
             collapseSignal={collapseSignal}
             defaultSignal={defaultSignal}
+            expandState={expandState}
             isWeatherExpanded={isWeatherExpanded}
             onToggleWeather={() => setIsWeatherExpanded(v => !v)}
             onAddActivity={() => { setEditingItinerary(null); setIsItineraryFormOpen(true); }}

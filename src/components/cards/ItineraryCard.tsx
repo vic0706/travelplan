@@ -18,6 +18,7 @@ interface ItineraryCardProps {
   expandSignal?: number;
   collapseSignal?: number;
   defaultSignal?: number;
+  expandState?: 'default' | 'expanded' | 'collapsed';
   isDragOverlay?: boolean;
   onCopy?: () => void;
   onChangeDate?: () => void;
@@ -53,7 +54,7 @@ const checkIsClosed = (dateStr: string, openingHoursJson?: string | null) => {
 
 export function ItineraryCard({
   item, nextItem, canEdit, isConflicted, onEdit, showNextTransport, onEditNextTransport,
-  expandSignal, collapseSignal, defaultSignal, isDragOverlay, onCopy, onChangeDate,
+  expandSignal, collapseSignal, defaultSignal, expandState, isDragOverlay, onCopy, onChangeDate,
 }: ItineraryCardProps) {
   const { categories } = useAppStore();
   const category = (categories || []).find((c: any) => c.icon === item.icon) || { color: '#808080' };
@@ -72,7 +73,12 @@ export function ItineraryCard({
   const hasPhoto   = !!item.image_url;
   const canExpand  = hasPhoto || hasContent;
 
-  const [isExpanded,     setIsExpanded]     = useState(!isPast && hasPhoto);
+  const getInitialExpanded = () => {
+    if (expandState === 'expanded') return canExpand;
+    if (expandState === 'collapsed') return false;
+    return !isPast && hasPhoto;
+  };
+  const [isExpanded,     setIsExpanded]     = useState(getInitialExpanded);
   const [overlayVisible, setOverlayVisible] = useState(false);
   const [subItemIdx,     setSubItemIdx]     = useState<number | null>(null);
   const [walkOverrides,  setWalkOverrides]  = useState<Record<number, number>>({});
@@ -278,6 +284,13 @@ export function ItineraryCard({
                 : null;
               const walkMins = walkOverrides[sub.id] !== undefined ? walkOverrides[sub.id] : (sub.next_walk_mins || 0);
               const hasWalkRow = idx < subItems.length - 1;
+              const nextSub = subItems[idx + 1];
+              const est = hasWalkRow ? walkEstimate(sub, nextSub) : null;
+              const displayWalk = walkMins > 0
+                ? { mins: walkMins, isEstimate: false }
+                : est !== null
+                  ? { mins: est, isEstimate: true }
+                  : null;
 
               return (
                 <div
@@ -328,13 +341,15 @@ export function ItineraryCard({
                           </>
                         )}
                       </div>
-                      {/* A8: read-only walk time to next sub-item */}
-                      {hasWalkRow && walkMins > 0 && (
+                      {/* A8/B4: read-only walk time to next sub-item (manual or Haversine estimate) */}
+                      {hasWalkRow && displayWalk && (
                         <div className="flex flex-col items-center mt-0.5 gap-0.5">
                           <span className="text-[7px] text-zinc-600 font-bold leading-none">下一站</span>
-                          <span className="flex items-center gap-0.5 text-zinc-500">
+                          <span className={clsx('flex items-center gap-0.5', displayWalk.isEstimate ? 'text-zinc-700' : 'text-zinc-500')}>
                             <Footprints size={8} />
-                            <span className="text-[8px] font-mono leading-none">{formatDuration(walkMins)}</span>
+                            <span className="text-[8px] font-mono leading-none">
+                              {displayWalk.isEstimate && '~'}{formatDuration(displayWalk.mins)}
+                            </span>
                           </span>
                         </div>
                       )}

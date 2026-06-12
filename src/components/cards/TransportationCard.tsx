@@ -15,6 +15,7 @@ interface TransportationCardProps {
   expandSignal: number;
   collapseSignal: number;
   defaultSignal?: number;
+  expandState?: 'default' | 'expanded' | 'collapsed';
 }
 
 function getIcon(category: string) {
@@ -48,7 +49,7 @@ function addMins(time: string, mins: number): string {
 export function TransportationCard({
   item, booking, canEdit, isConflicted, onEdit,
   showNextTransport, onEditNextTransport,
-  selectedDate: _selectedDate, expandSignal, collapseSignal, defaultSignal,
+  selectedDate: _selectedDate, expandSignal, collapseSignal, defaultSignal, expandState,
 }: TransportationCardProps) {
   const data = booking;
   if (!data || !item) return null;
@@ -60,7 +61,12 @@ export function TransportationCard({
   const endTimeStr = item.end_time || item.start_time || '23:59';
   const isPastItem = !!(item as any).date && Date.now() > new Date(`${(item as any).date}T${endTimeStr}`).getTime();
 
-  const [isExpanded, setIsExpanded] = useState(!isPastItem);
+  const getInitialExpanded = () => {
+    if (expandState === 'expanded') return true;
+    if (expandState === 'collapsed') return false;
+    return !isPastItem;
+  };
+  const [isExpanded, setIsExpanded] = useState(getInitialExpanded);
 
   useEffect(() => { setIsExpanded(!isPastItem); }, [isPastItem]);
   useEffect(() => { if (expandSignal   > 0) setIsExpanded(true);  }, [expandSignal]);

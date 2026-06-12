@@ -58,9 +58,15 @@ export function BookingCard({ booking, canEdit, onEdit }: BookingCardProps) {
 
   const timeStr = (() => {
     if (!booking.start_time) return '';
-    if (booking.end_time && booking.end_time !== booking.start_time)
-      return `${booking.start_time} — ${booking.end_time}`;
-    return booking.start_time;
+    const startPart = isCrossDay
+      ? `${booking.start_date.slice(5).replace('-', '/')} ${booking.start_time}`
+      : booking.start_time;
+    const endPart = booking.end_time && booking.end_time !== booking.start_time
+      ? (isCrossDay
+          ? ` — ${booking.end_date.slice(5).replace('-', '/')} ${booking.end_time}`
+          : ` — ${booking.end_time}`)
+      : '';
+    return `${startPart}${endPart}`;
   })();
 
   return (
@@ -80,8 +86,8 @@ export function BookingCard({ booking, canEdit, onEdit }: BookingCardProps) {
         </div>
 
         <div className="flex-1 min-w-0">
-          {/* Date row */}
-          {booking.start_date && (
+          {/* Date row — hidden for cross-day (date is merged into timeStr) */}
+          {booking.start_date && !isCrossDay && (
             <div className="font-mono text-[10px] text-zinc-600 mb-0.5">{dateStr}</div>
           )}
           {/* Time row */}
