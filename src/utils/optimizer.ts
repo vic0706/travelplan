@@ -50,6 +50,11 @@ function minsToTime(mins: number) {
   return `${h.toString().padStart(2, '0')}:${m.toString().padStart(2, '0')}`;
 }
 
+function roundUpTo30(mins: number): number {
+  const remainder = mins % 30;
+  return remainder === 0 ? mins : mins + (30 - remainder);
+}
+
 const DAY_START = 9 * 60;   // 09:00
 const DAY_END   = 22 * 60;  // 22:00
 
@@ -166,13 +171,7 @@ async function calcTravelMins(gap: GapSlot, item: any, statements: any[], metaSt
         : resolvedMode === 'TRANSIT'      ? 'TRANSIT'
         : resolvedMode === 'MOTORCYCLING' ? 'TWO_WHEELER'
         : 'DRIVE';
-      const cacheKey = `travel_time:${gap.lastLat!.toFixed(4)},${gap.lastLng!.toFixed(4)}:${item.lat.toFixed(4)},${item.lng.toFixed(4)}:${travelMode.toLowerCase()}`;
-      const cached: number | null = await env.KV.get(cacheKey, 'json');
-      if (cached !== null) {
-        mins = cached;
-        gmapsLog = `${mins}min(cached)`;
-      } else {
-        try {
+      try {
           const res = await fetch('https://routes.googleapis.com/directions/v2:computeRoutes', {
             method: 'POST',
             headers: {
@@ -194,7 +193,6 @@ async function calcTravelMins(gap: GapSlot, item: any, statements: any[], metaSt
               if (!isNaN(secs) && secs > 0) {
                 mins = Math.ceil(secs / 60);
                 gmapsLog = `${mins}min`;
-                await env.KV.put(cacheKey, JSON.stringify(mins), { expirationTtl: 86400 }); // 1 day
               } else {
                 gmapsLog = `parse_err(${duration})`;
               }
@@ -207,7 +205,6 @@ async function calcTravelMins(gap: GapSlot, item: any, statements: any[], metaSt
         } catch (e: any) {
           gmapsLog = `exception(${e?.message || 'unknown'})`;
         }
-      }
     }
 
     // Haversine fallback when API unavailable or failed
@@ -245,6 +242,49 @@ async function calcTravelMins(gap: GapSlot, item: any, statements: any[], metaSt
   throw new MissingTransportError(prev.id, prev.title || String(prev.id));
 }
 
+/**
+ * Returns Google Maps walking time (WALK mode) between two sub-items.
+ * No caching — always fetches fresh. Falls back to haversine if API unavailable.
+ * Returns { mins, fromGmaps } so callers can decide whether to persist the value.
+ */
+async function calcSubWalkMins(sub: any, nextSub: any, env: any): Promise<{ mins: number; fromGmaps: boolean }> {
+  if (!sub?.lat || !sub?.lng || !nextSub?.lat || !nextSub?.lng) return { mins: 0, fromGmaps: false };
+  const dist = getDistanceKm(sub.lat, sub.lng, nextSub.lat, nextSub.lng) ?? 0;
+  const haversineVal = dist > 0
+    ? Math.round(dist * ROAD_CIRCUITY * HEURISTIC_SPEED.WALKING.speed) + HEURISTIC_SPEED.WALKING.buffer
+    : 0;
+
+  if (!env.GOOGLE_MAPS_API_KEY) return { mins: haversineVal, fromGmaps: false };
+
+  try {
+    const res = await fetch('https://routes.googleapis.com/directions/v2:computeRoutes', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-Goog-Api-Key': env.GOOGLE_MAPS_API_KEY,
+        'X-Goog-FieldMask': 'routes.duration',
+      },
+      body: JSON.stringify({
+        origin:      { location: { latLng: { latitude: sub.lat, longitude: sub.lng } } },
+        destination: { location: { latLng: { latitude: nextSub.lat, longitude: nextSub.lng } } },
+        travelMode: 'WALK',
+      }),
+    });
+    if (res.ok) {
+      const data = await res.json() as any;
+      const duration = data.routes?.[0]?.duration;
+      if (duration) {
+        const secs = parseInt(String(duration));
+        if (!isNaN(secs) && secs > 0) {
+          return { mins: Math.ceil(secs / 60), fromGmaps: true };
+        }
+      }
+    }
+  } catch { /* fall through */ }
+
+  return { mins: haversineVal, fromGmaps: false };
+}
+
 async function placeInGap(
   gap: GapSlot,
   item: any,
@@ -265,7 +305,7 @@ async function placeInGap(
       throw e;
     }
   }
-  const startMins  = Math.max(gap.cursor + travelMins, windowStart);
+  const startMins  = roundUpTo30(Math.max(gap.cursor + travelMins, windowStart));
   const endMins    = startMins + stayDuration;
 
   if (startMins < windowEnd && endMins <= gap.end) {
@@ -481,15 +521,35 @@ export async function optimizeDailyItinerary(env: any, tripId: number, dateStr: 
     let cursor = timeToMins(updated.start_time as string);
     const parentEnd = timeToMins(updated.end_time as string);
 
-    for (const sub of sorted) {
+    for (let si = 0; si < (sorted as any[]).length; si++) {
+      const sub = (sorted as any[])[si];
+      const nextSub = (sorted as any[])[si + 1];
       const dur = parseInt(String((sub as any).duration || '0')) || 0;
       const st = minsToTime(cursor);
       const et = minsToTime(Math.min(cursor + dur, parentEnd));
-      cursor += dur + ((sub as any).next_walk_mins || 0);
+
+      // Use manually-set value if available; otherwise query Google Maps (Haversine fallback)
+      let walkMins = 0;
+      let saveWalk = false;
+      if ((sub as any).next_walk_mins) {
+        walkMins = parseInt(String((sub as any).next_walk_mins));
+      } else if (nextSub) {
+        const result = await calcSubWalkMins(sub, nextSub, env);
+        walkMins = result.mins;
+        saveWalk = result.fromGmaps; // persist only when we have a real Google Maps value
+      }
+
+      cursor += dur + walkMins;
       subStatements.push(
         env.DB.prepare('UPDATE SubItemItineraries SET start_time = ?, end_time = ? WHERE id = ?')
           .bind(st, et, (sub as any).id)
       );
+      if (saveWalk) {
+        subStatements.push(
+          env.DB.prepare('UPDATE SubItemItineraries SET next_walk_mins = ? WHERE id = ?')
+            .bind(walkMins, (sub as any).id)
+        );
+      }
     }
   }
 

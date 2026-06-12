@@ -15,6 +15,8 @@ interface ItineraryTabProps {
   canEdit: boolean;
   expandSignal: number;
   collapseSignal: number;
+  defaultSignal: number;
+  expandState: 'default' | 'expanded' | 'collapsed';
   isWeatherExpanded: boolean;
   onToggleWeather: () => void;
   onAddActivity: () => void;
@@ -27,7 +29,7 @@ interface ItineraryTabProps {
 
 export function ItineraryTab({
   tripId, selectedDate, isFutureTrip, filteredItineraries, conflictedIdsInView,
-  bookings, canEdit, expandSignal, collapseSignal,
+  bookings, canEdit, expandSignal, collapseSignal, defaultSignal, expandState,
   isWeatherExpanded, onToggleWeather,
   onAddActivity, onEditItinerary, onEditNextTransport, onEditBooking,
   onCopyItinerary, onChangeDateItinerary,
@@ -58,7 +60,8 @@ export function ItineraryTab({
                     showNextTransport={index < filteredItineraries.length - 1}
                     onEditNextTransport={() => onEditNextTransport(item)}
                     selectedDate={selectedDate || new Date()}
-                    expandSignal={expandSignal} collapseSignal={collapseSignal}
+                    expandSignal={expandSignal} collapseSignal={collapseSignal} defaultSignal={defaultSignal}
+                    expandState={expandState}
                   />
                 );
               }
@@ -80,7 +83,8 @@ export function ItineraryTab({
                   onEdit={() => linkedBooking ? onEditBooking(linkedBooking) : onEditItinerary(item)}
                   showNextTransport={index < filteredItineraries.length - 1}
                   onEditNextTransport={() => onEditNextTransport(item)}
-                  expandSignal={expandSignal} collapseSignal={collapseSignal}
+                  expandSignal={expandSignal} collapseSignal={collapseSignal} defaultSignal={defaultSignal}
+                  expandState={expandState}
                   onCopy={() => onCopyItinerary(item)}
                   onChangeDate={() => onChangeDateItinerary(item)}
                 />

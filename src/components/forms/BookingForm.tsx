@@ -247,21 +247,33 @@ export function BookingForm({ initialData, onSubmit, onCancel, onDelete, loading
   const isRentalOrTransfer  = ['RENTAL','PRIVATE_TRANSFER'].includes(formData.category);
   const terminalLabel       = getTerminalLabel(formData.category);
 
-  // Hide city when any location address is filled (autocomplete provides better context)
-  const showCity = !formData.start_location;
+  // Hide city for transport categories (location autocomplete is sufficient) or when address is filled
+  const showCity = !isTransport && !formData.start_location;
 
   const calcFlightDuration = useMemo(() => {
     if (!formData.start_time || !formData.end_time) return null;
     const [sh, sm] = formData.start_time.split(':').map(Number);
     const [eh, em] = formData.end_time.split(':').map(Number);
-    let mins = (eh * 60 + em) - (sh * 60 + sm);
-    if (mins < 0) mins += 24 * 60;
+    let startMins = sh * 60 + sm;
+    let endMins = eh * 60 + em;
+    // Account for cross-day: add day difference in minutes
+    if (formData.start_date && formData.end_date && formData.start_date !== formData.end_date) {
+      try {
+        const dayDiff = Math.round(
+          (new Date(formData.end_date + 'T00:00:00').getTime() - new Date(formData.start_date + 'T00:00:00').getTime())
+          / 86400000
+        );
+        endMins += dayDiff * 1440;
+      } catch {}
+    }
+    let mins = endMins - startMins;
+    if (mins < 0) mins += 1440; // fallback for same-day wraparound
     const h = Math.floor(mins / 60);
     const m = mins % 60;
     if (h === 0) return `${m}分`;
     if (m === 0) return `${h}時`;
     return `${h}時${m}分`;
-  }, [formData.start_time, formData.end_time]);
+  }, [formData.start_time, formData.end_time, formData.start_date, formData.end_date]);
 
   // ══ STEP 1: 選擇類別 ══
   if (step === 'pick-category') {
@@ -415,7 +427,7 @@ export function BookingForm({ initialData, onSubmit, onCancel, onDelete, loading
                 label="出發地"
                 value={startLocDisplay}
                 onChange={v => { setStartLocDisplay(v); set('start_location', v); }}
-                onPlaceSelect={place => { setStartLocDisplay(place.name || place.address); set('start_location', place.address || place.name || ''); }}
+                onPlaceSelect={_place => { /* start_location set by onChange to Chinese display name */ }}
                 placeholder="搜尋出發站..."
                 showNameOnSelect
               />
@@ -423,7 +435,7 @@ export function BookingForm({ initialData, onSubmit, onCancel, onDelete, loading
                 label="目的地"
                 value={endLocDisplay}
                 onChange={v => { setEndLocDisplay(v); set('end_location', v); }}
-                onPlaceSelect={place => { setEndLocDisplay(place.name || place.address); set('end_location', place.address || place.name || ''); }}
+                onPlaceSelect={_place => { /* end_location set by onChange to Chinese display name */ }}
                 placeholder="搜尋目的站..."
                 showNameOnSelect
               />
@@ -467,36 +479,38 @@ export function BookingForm({ initialData, onSubmit, onCancel, onDelete, loading
         </>
       )}
 
-      {/* 日期範圍 */}
-      <div>
-        <label className="block text-[10px] font-bold text-zinc-400 uppercase tracking-wider mb-2">
-          {formData.category === 'HOTEL' ? '入住 → 退房日期' : '出發 → 抵達日期'}
-          {tripStartDate && tripEndDate && (
-            <span className="ml-2 text-zinc-600 normal-case tracking-normal font-normal">({tripStartDate} — {tripEndDate})</span>
+      {/* 日期範圍：僅 HOTEL 顯示獨立區塊；其他類別移至各自時間設定區塊內 */}
+      {formData.category === 'HOTEL' && (
+        <div>
+          <label className="block text-[10px] font-bold text-zinc-400 uppercase tracking-wider mb-2">
+            {formData.category === 'HOTEL' ? '入住 → 退房日期' : '出發 → 抵達日期'}
+            {tripStartDate && tripEndDate && (
+              <span className="ml-2 text-zinc-600 normal-case tracking-normal font-normal">({tripStartDate} — {tripEndDate})</span>
+            )}
+          </label>
+          <DateRangePicker
+            category={formData.category}
+            hideTime={true}
+            value={{
+              start_date: parsedStartDate,
+              end_date:   parsedEndDate,
+              start_time: formData.start_time,
+              end_time:   formData.end_time,
+            }}
+            onChange={r => {
+              setDateError('');
+              setFormData(prev => ({
+                ...prev,
+                start_date: r.start_date ? format(r.start_date, 'yyyy-MM-dd') : '',
+                end_date:   r.end_date   ? format(r.end_date,   'yyyy-MM-dd') : '',
+              }));
+            }}
+          />
+          {dateError && (
+            <p className="mt-2 text-[11px] text-red-400 font-bold">{dateError}</p>
           )}
-        </label>
-        <DateRangePicker
-          category={formData.category}
-          hideTime={true}
-          value={{
-            start_date: parsedStartDate,
-            end_date:   parsedEndDate,
-            start_time: formData.start_time,
-            end_time:   formData.end_time,
-          }}
-          onChange={r => {
-            setDateError('');
-            setFormData(prev => ({
-              ...prev,
-              start_date: r.start_date ? format(r.start_date, 'yyyy-MM-dd') : '',
-              end_date:   r.end_date   ? format(r.end_date,   'yyyy-MM-dd') : '',
-            }));
-          }}
-        />
-        {dateError && (
-          <p className="mt-2 text-[11px] text-red-400 font-bold">{dateError}</p>
-        )}
-      </div>
+        </div>
+      )}
 
       {/* ─── 住宿時間設定 ─── */}
       {formData.category === 'HOTEL' && (
@@ -580,6 +594,37 @@ export function BookingForm({ initialData, onSubmit, onCancel, onDelete, loading
       {isFlightTrainFerry && (
         <div className="space-y-4 bg-zinc-900/50 border border-zinc-800 rounded-2xl p-4">
           <p className="text-[10px] font-black text-orange-500 uppercase tracking-widest">交通時間設定</p>
+
+          {/* 出發 → 抵達日期（整合進交通時間設定區塊） */}
+          <div>
+            <label className="block text-[10px] font-bold text-zinc-400 uppercase tracking-wider mb-2">
+              出發 → 抵達日期
+              {tripStartDate && tripEndDate && (
+                <span className="ml-2 text-zinc-600 normal-case tracking-normal font-normal">({tripStartDate} — {tripEndDate})</span>
+              )}
+            </label>
+            <DateRangePicker
+              category={formData.category}
+              hideTime={true}
+              value={{
+                start_date: parsedStartDate,
+                end_date:   parsedEndDate,
+                start_time: formData.start_time,
+                end_time:   formData.end_time,
+              }}
+              onChange={r => {
+                setDateError('');
+                setFormData(prev => ({
+                  ...prev,
+                  start_date: r.start_date ? format(r.start_date, 'yyyy-MM-dd') : '',
+                  end_date:   r.end_date   ? format(r.end_date,   'yyyy-MM-dd') : '',
+                }));
+              }}
+            />
+            {dateError && (
+              <p className="mt-2 text-[11px] text-red-400 font-bold">{dateError}</p>
+            )}
+          </div>
 
           {/* 出發 | 行程時長 | 抵達 */}
           <div className="grid grid-cols-[1fr_auto_1fr] gap-2 items-end">
@@ -674,6 +719,35 @@ export function BookingForm({ initialData, onSubmit, onCancel, onDelete, loading
         <div className="space-y-4 bg-zinc-900/50 border border-zinc-800 rounded-2xl p-4">
           <p className="text-[10px] font-black text-orange-500 uppercase tracking-widest">交通時間設定</p>
 
+          {/* 出發 → 抵達日期（整合進交通時間設定區塊） */}
+          <div>
+            <label className="block text-[10px] font-bold text-zinc-400 uppercase tracking-wider mb-2">
+              出發 → 抵達日期
+              {tripStartDate && tripEndDate && (
+                <span className="ml-2 text-zinc-600 normal-case tracking-normal font-normal">({tripStartDate} — {tripEndDate})</span>
+              )}
+            </label>
+            <DateRangePicker
+              category={formData.category}
+              hideTime={true}
+              value={{
+                start_date: parsedStartDate,
+                end_date:   parsedEndDate,
+                start_time: formData.start_time,
+                end_time:   formData.end_time,
+              }}
+              onChange={r => {
+                setDateError('');
+                setFormData(prev => ({
+                  ...prev,
+                  start_date: r.start_date ? format(r.start_date, 'yyyy-MM-dd') : '',
+                  end_date:   r.end_date   ? format(r.end_date,   'yyyy-MM-dd') : '',
+                }));
+              }}
+            />
+            {dateError && <p className="mt-2 text-[11px] text-red-400 font-bold">{dateError}</p>}
+          </div>
+
           {/* 出發 inline */}
           <div className="space-y-1.5">
             <div className="flex items-center justify-between">
@@ -735,6 +809,35 @@ export function BookingForm({ initialData, onSubmit, onCancel, onDelete, loading
         <div className="space-y-4 bg-zinc-900/50 border border-zinc-800 rounded-2xl p-4">
           <p className="text-[10px] font-black text-orange-500 uppercase tracking-widest">時間設定</p>
 
+          {/* 取還車/出發抵達日期（整合進時間設定區塊） */}
+          <div>
+            <label className="block text-[10px] font-bold text-zinc-400 uppercase tracking-wider mb-2">
+              {formData.category === 'RENTAL' ? '取還車日期' : '出發 → 抵達日期'}
+              {tripStartDate && tripEndDate && (
+                <span className="ml-2 text-zinc-600 normal-case tracking-normal font-normal">({tripStartDate} — {tripEndDate})</span>
+              )}
+            </label>
+            <DateRangePicker
+              category={formData.category}
+              hideTime={true}
+              value={{
+                start_date: parsedStartDate,
+                end_date:   parsedEndDate,
+                start_time: formData.start_time,
+                end_time:   formData.end_time,
+              }}
+              onChange={r => {
+                setDateError('');
+                setFormData(prev => ({
+                  ...prev,
+                  start_date: r.start_date ? format(r.start_date, 'yyyy-MM-dd') : '',
+                  end_date:   r.end_date   ? format(r.end_date,   'yyyy-MM-dd') : '',
+                }));
+              }}
+            />
+            {dateError && <p className="mt-2 text-[11px] text-red-400 font-bold">{dateError}</p>}
+          </div>
+
           {/* 取車/出發 inline */}
           <div className="space-y-1.5">
             <label className="text-[10px] font-bold text-zinc-400 uppercase tracking-widest">
@@ -777,7 +880,7 @@ export function BookingForm({ initialData, onSubmit, onCancel, onDelete, loading
               label={formData.category === 'RENTAL' ? '取車地點' : '出發地點'}
               value={startLocDisplay}
               onChange={v => { setStartLocDisplay(v); set('start_location', v); }}
-              onPlaceSelect={place => { setStartLocDisplay(place.name || place.address); set('start_location', place.address || place.name || ''); }}
+              onPlaceSelect={_place => { /* start_location set by onChange to Chinese display name */ }}
               placeholder={formData.category === 'RENTAL' ? '搜尋取車地點...' : '搜尋出發地...'}
               showNameOnSelect
             />
@@ -785,7 +888,7 @@ export function BookingForm({ initialData, onSubmit, onCancel, onDelete, loading
               label={formData.category === 'RENTAL' ? '還車地點' : '目的地點'}
               value={endLocDisplay}
               onChange={v => { setEndLocDisplay(v); set('end_location', v); }}
-              onPlaceSelect={place => { setEndLocDisplay(place.name || place.address); set('end_location', place.address || place.name || ''); }}
+              onPlaceSelect={_place => { /* end_location set by onChange to Chinese display name */ }}
               placeholder={formData.category === 'RENTAL' ? '搜尋還車地點...' : '搜尋目的地...'}
               showNameOnSelect
             />
@@ -800,6 +903,14 @@ export function BookingForm({ initialData, onSubmit, onCancel, onDelete, loading
           className="w-full bg-zinc-900 border border-zinc-800 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-orange-500 transition-colors h-20 resize-none text-sm"
           placeholder="確認號碼、特殊需求..." />
       </div>
+
+      {/* 刪除訂票 — 在捲動區最底部 */}
+      {onDelete && (
+        <button type="button" onClick={onDelete}
+          className="w-full py-3 text-red-500 bg-red-500/10 hover:bg-red-500/20 font-bold rounded-xl transition-colors border border-red-500/20">
+          刪除訂票
+        </button>
+      )}
 
       <LocationPicker
         isOpen={isCityPickerOpen}
@@ -817,7 +928,7 @@ export function BookingForm({ initialData, onSubmit, onCancel, onDelete, loading
     </form>
 
     {/* 固定底部 */}
-    <div className="shrink-0 px-6 pt-4 pb-5 border-t border-zinc-800 space-y-3">
+    <div className="shrink-0 px-6 pt-4 pb-5 border-t border-zinc-800">
       <div className="flex gap-3">
         <button type="button" onClick={onCancel}
           className="flex-1 bg-zinc-800 hover:bg-zinc-700 text-white font-bold rounded-xl px-4 py-3.5 transition-colors">取消</button>
@@ -826,12 +937,6 @@ export function BookingForm({ initialData, onSubmit, onCancel, onDelete, loading
           {loading ? <Loader2 className="animate-spin" size={20} /> : '儲存訂票'}
         </button>
       </div>
-      {onDelete && (
-        <button type="button" onClick={onDelete}
-          className="w-full py-3 text-red-500 bg-red-500/10 hover:bg-red-500/20 font-bold rounded-xl transition-colors border border-red-500/20">
-          刪除訂票
-        </button>
-      )}
     </div>
   </div>
   );

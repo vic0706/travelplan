@@ -2,7 +2,7 @@ import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useAppStore } from '../../store';
 import { format, parseISO, addDays, differenceInDays, isSameDay, addMinutes, isBefore, startOfDay } from 'date-fns';
-import { Map, Info, Wallet, ArrowLeft, Settings, Edit3, ChevronsUpDown, ChevronsDownUp, Unlock, Loader2, Camera, CheckCircle2, XCircle, X } from 'lucide-react';
+import { Map, Info, Wallet, ArrowLeft, Settings, Edit3, ChevronsUpDown, ChevronsDownUp, Sparkles, Unlock, Loader2, Camera, CheckCircle2, XCircle, X } from 'lucide-react';
 import { Trip, Itinerary, Expense, Booking } from '../../types';
 import { clsx } from 'clsx';
 import { db } from '../../db';
@@ -33,13 +33,20 @@ const getEffectiveTimes = (item: any, baseDate: Date) => {
   let start = parseTime(item.start_time, baseDate);
   let end = parseTime(item.end_time || item.start_time, baseDate);
   if (item.next_transport_mode) {
-    let addMins = 0;
+    let mins = 0;
     if (item.next_transport_time) {
-      addMins = parseInt(item.next_transport_time.replace(/\D/g, '')) || 0;
+      mins = parseInt(item.next_transport_time.replace(/\D/g, '')) || 0;
     } else if (item.next_transport_auto_time) {
-      addMins = parseInt(item.next_transport_auto_time.replace(/\D/g, '')) || 0;
+      mins = parseInt(item.next_transport_auto_time.replace(/\D/g, '')) || 0;
     }
-    end = addMinutes(end, addMins);
+    if (mins > 0) {
+      end = addMinutes(end, mins);
+      // A6: skip rounding for TRANSPORTATION (pre-check-in times must not be rounded)
+      if (item.type !== 'TRANSPORTATION') {
+        const remainder = end.getMinutes() % 30;
+        if (remainder !== 0) end = addMinutes(end, 30 - remainder);
+      }
+    }
   }
   return { start, end };
 };
@@ -141,10 +148,12 @@ export function TripDetails() {
   // ── 封面圖展開/收起 ──────────────────────────────────────────────────
   const [isCoverExpanded, setIsCoverExpanded] = useState(false);
 
-  // ── Expand/Collapse 所有行程卡片 ─────────────────────────────────────
-  const [isAllExpanded, setIsAllExpanded] = useState(false);
+  // ── Expand/Collapse 所有行程卡片（三態：default→expanded→collapsed→default）
+  type ExpandState = 'default' | 'expanded' | 'collapsed';
+  const [expandState, setExpandState]     = useState<ExpandState>('default');
   const [expandSignal, setExpandSignal]   = useState(0);
   const [collapseSignal, setCollapseSignal] = useState(0);
+  const [defaultSignal, setDefaultSignal] = useState(0);
 
   // ── Weather 展開/收起（連動 ItineraryTab 的 WeatherWidget）───────────
   const [isWeatherExpanded, setIsWeatherExpanded] = useState(false);
@@ -163,10 +172,9 @@ export function TripDetails() {
   }, []);
 
   const toggleExpandAll = () => {
-    const next = !isAllExpanded;
-    setIsAllExpanded(next);
-    if (next) setExpandSignal(s => s + 1);
-    else setCollapseSignal(s => s + 1);
+    if (expandState === 'default')    { setExpandState('expanded');  setExpandSignal(s => s + 1); }
+    else if (expandState === 'expanded') { setExpandState('collapsed'); setCollapseSignal(s => s + 1); }
+    else                              { setExpandState('default');   setDefaultSignal(s => s + 1); }
   };
 
   useEffect(() => { refreshTripData(); }, [refreshTripData]);
@@ -498,22 +506,19 @@ export function TripDetails() {
               })}
             </div>
 
-            {/* Expand/Collapse all 按鈕 */}
+            {/* Expand/Collapse all 按鈕（三態） */}
             <button
               onClick={toggleExpandAll}
-              className={clsx(
-                'shrink-0 flex flex-col items-center justify-center w-12 h-16 rounded-2xl transition-all border',
-                isAllExpanded
-                  ? 'bg-gradient-to-b from-orange-500 to-orange-600 border-orange-400/50 text-white shadow-[0_4px_20px_rgba(249,115,22,0.4)]'
-                  : 'bg-zinc-900/80 border-zinc-700/50 text-zinc-400 hover:text-white hover:bg-zinc-800 shadow-lg'
-              )}
+              className="shrink-0 flex flex-col items-center justify-center w-12 h-16 rounded-2xl transition-all border bg-zinc-900/80 border-zinc-700/50 text-zinc-400 hover:text-white hover:bg-zinc-800 shadow-lg"
             >
-              {isAllExpanded
-                ? <ChevronsDownUp size={18} strokeWidth={2.5} />
-                : <ChevronsUpDown size={18} strokeWidth={2.5} />
+              {expandState === 'expanded'
+                ? <ChevronsUpDown size={18} strokeWidth={2.5} />
+                : expandState === 'collapsed'
+                  ? <ChevronsDownUp size={18} strokeWidth={2.5} />
+                  : <Sparkles size={16} strokeWidth={2} />
               }
               <span className="text-[8px] font-black uppercase tracking-widest mt-1 opacity-80">
-                {isAllExpanded ? '收合' : '展開'}
+                {expandState === 'expanded' ? '展開' : expandState === 'collapsed' ? '收合' : '自動'}
               </span>
             </button>
           </div>
@@ -534,6 +539,8 @@ export function TripDetails() {
             canEdit={canEdit}
             expandSignal={expandSignal}
             collapseSignal={collapseSignal}
+            defaultSignal={defaultSignal}
+            expandState={expandState}
             isWeatherExpanded={isWeatherExpanded}
             onToggleWeather={() => setIsWeatherExpanded(v => !v)}
             onAddActivity={() => { setEditingItinerary(null); setIsItineraryFormOpen(true); }}

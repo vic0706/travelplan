@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Car, Train, Bus, AlertTriangle, Star, Plus, Footprints, Bike, Navigation2, Sparkles, Clock, Asterisk, ChevronLeft, ChevronRight, ChevronDown, Motorbike, Copy, CalendarDays, MapPin, Loader2 } from 'lucide-react';
+import { Car, Train, Bus, AlertTriangle, Star, Plus, Footprints, Bike, Navigation2, Sparkles, Clock, Asterisk, ChevronLeft, ChevronRight, ChevronDown, Motorbike, Copy, CalendarDays, MapPin } from 'lucide-react';
 import { apiFetch } from '../../utils/api';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Itinerary } from '../../types';
@@ -17,6 +17,8 @@ interface ItineraryCardProps {
   onEditNextTransport?: () => void;
   expandSignal?: number;
   collapseSignal?: number;
+  defaultSignal?: number;
+  expandState?: 'default' | 'expanded' | 'collapsed';
   isDragOverlay?: boolean;
   onCopy?: () => void;
   onChangeDate?: () => void;
@@ -52,7 +54,7 @@ const checkIsClosed = (dateStr: string, openingHoursJson?: string | null) => {
 
 export function ItineraryCard({
   item, nextItem, canEdit, isConflicted, onEdit, showNextTransport, onEditNextTransport,
-  expandSignal, collapseSignal, isDragOverlay, onCopy, onChangeDate,
+  expandSignal, collapseSignal, defaultSignal, expandState, isDragOverlay, onCopy, onChangeDate,
 }: ItineraryCardProps) {
   const { categories } = useAppStore();
   const category = (categories || []).find((c: any) => c.icon === item.icon) || { color: '#808080' };
@@ -71,12 +73,14 @@ export function ItineraryCard({
   const hasPhoto   = !!item.image_url;
   const canExpand  = hasPhoto || hasContent;
 
-  const [isExpanded,     setIsExpanded]     = useState(!isPast && hasPhoto);
+  const getInitialExpanded = () => {
+    if (expandState === 'expanded') return canExpand;
+    if (expandState === 'collapsed') return false;
+    return !isPast && hasPhoto;
+  };
+  const [isExpanded,     setIsExpanded]     = useState(getInitialExpanded);
   const [overlayVisible, setOverlayVisible] = useState(false);
   const [subItemIdx,     setSubItemIdx]     = useState<number | null>(null);
-  const [editingWalkIdx, setEditingWalkIdx] = useState<number | null>(null);
-  const [walkInput,      setWalkInput]      = useState('');
-  const [walkSaving,     setWalkSaving]     = useState(false);
   const [walkOverrides,  setWalkOverrides]  = useState<Record<number, number>>({});
 
   const overlayScrollRef = useRef<HTMLDivElement>(null);
@@ -110,6 +114,14 @@ export function ItineraryCard({
       setIsExpanded(false); setOverlayVisible(false); setSubItemIdx(null);
     }
   }, [collapseSignal]);
+
+  useEffect(() => {
+    if (defaultSignal && defaultSignal > 0) {
+      setIsExpanded(!isPast && hasPhoto);
+      setOverlayVisible(false);
+      setSubItemIdx(null);
+    }
+  }, [defaultSignal, isPast, hasPhoto]);
 
   const openGoogleMaps = () => {
     let url: string;
@@ -186,38 +198,6 @@ export function ItineraryCard({
     const a = Math.sin(dLat / 2) ** 2 + Math.cos(from.lat * Math.PI / 180) * Math.cos(to.lat * Math.PI / 180) * Math.sin(dLon / 2) ** 2;
     const dist = R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(Math.max(0, 1 - a)));
     return Math.ceil(dist * 1.3 * 13) + 3;
-  };
-
-  const saveWalkTime = async (idx: number, sub: any) => {
-    const mins = Math.max(0, parseInt(walkInput) || 0);
-    setWalkSaving(true);
-    try {
-      const res = await apiFetch(
-        `/api/trips/${item.trip_id}/itineraries/${item.id}/sub-items/${sub.id}`,
-        {
-          method: 'PUT',
-          body: JSON.stringify({
-            title: sub.title,
-            address: sub.address ?? '',
-            lat: sub.lat ?? null,
-            lng: sub.lng ?? null,
-            start_time: sub.start_time ?? '',
-            end_time: sub.end_time ?? '',
-            duration: sub.duration ?? 0,
-            notes: sub.notes ?? '',
-            tags: typeof sub.tags === 'string' ? sub.tags : JSON.stringify(sub.tags ?? []),
-            display_order: sub.display_order ?? idx,
-            next_walk_mins: mins,
-          }),
-        }
-      );
-      if (res.ok) {
-        setWalkOverrides(prev => ({ ...prev, [sub.id]: mins }));
-        setEditingWalkIdx(null);
-      }
-    } finally {
-      setWalkSaving(false);
-    }
   };
 
   const renderOverlayContent = () => {
@@ -303,10 +283,14 @@ export function ItineraryCard({
                 ? `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(sub.address)}`
                 : null;
               const walkMins = walkOverrides[sub.id] !== undefined ? walkOverrides[sub.id] : (sub.next_walk_mins || 0);
-              const isEditingWalk = editingWalkIdx === idx;
-              const nextSub = subItems[idx + 1];
-              const est = nextSub ? walkEstimate(sub, nextSub) : null;
               const hasWalkRow = idx < subItems.length - 1;
+              const nextSub = subItems[idx + 1];
+              const est = hasWalkRow ? walkEstimate(sub, nextSub) : null;
+              const displayWalk = walkMins > 0
+                ? { mins: walkMins, isEstimate: false }
+                : est !== null
+                  ? { mins: est, isEstimate: true }
+                  : null;
 
               return (
                 <div
@@ -323,12 +307,12 @@ export function ItineraryCard({
                   {/* Main row */}
                   <div className="flex items-center gap-3 pl-0.5">
                     <div className="flex-1 min-w-0">
-                      <div className="text-[13px] font-bold text-white truncate">{sub.title}</div>
                       {showTime && (
-                        <div className="font-mono text-[10px] text-zinc-500 mt-0.5">
+                        <div className="font-mono text-[10px] text-zinc-500 mb-0.5">
                           {sub.start_time}{sub.end_time && sub.end_time !== sub.start_time ? ` — ${sub.end_time}` : ''}
                         </div>
                       )}
+                      <div className="text-[13px] font-bold text-white truncate">{sub.title}</div>
                       {Array.isArray(sub.tags) && (sub.tags as string[]).length > 0 && (
                         <div className="flex flex-wrap gap-1 mt-0.5">
                           {(sub.tags as string[]).map((t: string) => (
@@ -357,55 +341,17 @@ export function ItineraryCard({
                       )}
                     </div>
                   </div>
-
-                  {/* Walk time to next sub-item — embedded at card bottom */}
-                  {hasWalkRow && (
-                    isEditingWalk ? (
-                      <div
-                        onClick={(e) => e.stopPropagation()}
-                        className="flex items-center gap-2 mt-2 pt-1.5 pl-0.5 border-t border-zinc-800/60"
-                      >
-                        <Footprints size={10} className="text-orange-400 shrink-0" />
-                        <input
-                          type="number"
-                          min="0"
-                          max="999"
-                          value={walkInput}
-                          onChange={(e) => setWalkInput(e.target.value)}
-                          onKeyDown={(e) => { if (e.key === 'Enter') saveWalkTime(idx, sub); if (e.key === 'Escape') setEditingWalkIdx(null); }}
-                          className="w-12 bg-transparent text-white text-[12px] font-bold text-center border-b border-zinc-600 focus:border-orange-400 outline-none"
-                          autoFocus
-                        />
-                        <span className="text-[10px] text-zinc-500">分</span>
-                        {est !== null && <span className="text-[9px] text-zinc-600">~{formatDuration(est)}</span>}
-                        <div className="flex gap-1 ml-auto">
-                          <button type="button" disabled={walkSaving}
-                            onClick={(e) => { e.stopPropagation(); saveWalkTime(idx, sub); }}
-                            className="px-1.5 py-0.5 rounded-lg bg-orange-500/20 text-orange-400 text-[10px] font-bold">
-                            {walkSaving ? <Loader2 size={9} className="animate-spin" /> : '✓'}
-                          </button>
-                          <button type="button"
-                            onClick={(e) => { e.stopPropagation(); setEditingWalkIdx(null); }}
-                            className="px-1.5 py-0.5 rounded-lg bg-zinc-700/50 text-zinc-400 text-[10px]">
-                            ✗
-                          </button>
-                        </div>
-                      </div>
-                    ) : (
-                      <button
-                        type="button"
-                        onClick={(e) => { e.stopPropagation(); setEditingWalkIdx(idx); setWalkInput(String(walkMins || '')); }}
-                        className="flex items-center gap-1 mt-1.5 pl-0.5 text-zinc-600 hover:text-orange-400 transition-colors self-start"
-                      >
-                        <Footprints size={9} className="shrink-0" />
-                        <span className="text-[9px]">
-                          {walkMins > 0 ? `步行 ${formatDuration(walkMins)}` : '設定步行'}
+                  {/* Walk time to next sub-item — shown as bottom row to keep nav button vertically centered */}
+                  {hasWalkRow && displayWalk && (
+                    <div className="flex items-center justify-end gap-0.5 mt-1.5">
+                      <span className="text-[7px] text-zinc-600 font-bold leading-none">下一站</span>
+                      <span className={clsx('flex items-center gap-0.5', displayWalk.isEstimate ? 'text-zinc-700' : 'text-zinc-500')}>
+                        <Footprints size={8} />
+                        <span className="text-[8px] font-mono leading-none">
+                          {displayWalk.isEstimate && '~'}{formatDuration(displayWalk.mins)}
                         </span>
-                        {est !== null && walkMins === 0 && (
-                          <span className="text-[9px] text-zinc-700 ml-0.5">~{formatDuration(est)}</span>
-                        )}
-                      </button>
-                    )
+                      </span>
+                    </div>
                   )}
                 </div>
               );
@@ -453,7 +399,7 @@ export function ItineraryCard({
     if (onPhoto) {
       return (
         <div className="absolute bottom-0 left-0 right-0 z-20 flex items-center justify-between px-3 py-2 bg-black/50 backdrop-blur-[8px] border-t border-white/5">
-          {hasContent ? (
+          {detailParts.length > 0 ? (
             <button type="button" onClick={handleDetailBtn}
               className={clsx('flex items-center gap-1 px-2 py-1 rounded-lg transition-all',
                 overlayVisible ? 'text-orange-400 bg-orange-500/10' : 'text-white/55 hover:text-white/80')}>
@@ -485,7 +431,7 @@ export function ItineraryCard({
     }
     return (
       <div className="flex items-center justify-between px-3 pb-3 pt-1">
-        {hasContent ? (
+        {detailParts.length > 0 ? (
           <button type="button" onClick={handleDetailBtn}
             className={clsx('flex items-center gap-1 px-2.5 py-1.5 rounded-xl transition-all',
               overlayVisible ? 'text-orange-500 bg-orange-500/8' : 'text-zinc-600 hover:text-zinc-400')}>
@@ -526,7 +472,7 @@ export function ItineraryCard({
       )}>
 
         {/* ── ROW 1: ICON ｜ 標題 ｜ 導航 ── */}
-        <div className="px-4 pt-4 pb-2 flex items-center gap-3">
+        <div className="px-4 pt-4 pb-2 flex items-center gap-3 min-h-[76px]">
           <div
             className="shrink-0 w-9 h-9 rounded-2xl flex items-center justify-center"
             style={{

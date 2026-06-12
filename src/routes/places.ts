@@ -50,8 +50,7 @@ places.get('/search', async (c) => {
       lng: p.location?.longitude
     }));
 
-    // 4. 寫入快取 (有效期限 24 小時)
-    await c.env.KV.put(cacheKey, JSON.stringify(results), { expirationTtl: 86400 });
+    await c.env.KV.put(cacheKey, JSON.stringify(results), { expirationTtl: 604800 }); // 7 days
 
     return c.json(results);
   } catch (error: any) {

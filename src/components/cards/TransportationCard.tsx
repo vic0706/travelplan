@@ -1,7 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Train, Ship, Car, Plane, Bus, Footprints, Bike, Plus, ChevronDown, Navigation2, Motorbike } from 'lucide-react';
 import { clsx } from 'clsx';
-import { format, parseISO, isSameDay, isPast } from 'date-fns';
 import { Itinerary, Booking } from '../../types';
 
 interface TransportationCardProps {
@@ -15,6 +14,8 @@ interface TransportationCardProps {
   selectedDate: Date;
   expandSignal: number;
   collapseSignal: number;
+  defaultSignal?: number;
+  expandState?: 'default' | 'expanded' | 'collapsed';
 }
 
 function getIcon(category: string) {
@@ -33,15 +34,6 @@ const TERMINAL_LABEL: Record<string, string> = {
   BUS:    '站牌',
 };
 
-const CATEGORY_LABEL: Record<string, string> = {
-  FLIGHT:           '機票',
-  TRAIN:            '火車',
-  FERRY:            '船票',
-  BUS:              '公車',
-  RENTAL:           '租車',
-  PRIVATE_TRANSFER: '接送',
-};
-
 function parseDetails(d: any) {
   if (!d) return {};
   if (typeof d === 'string') { try { return JSON.parse(d); } catch { return {}; } }
@@ -57,7 +49,7 @@ function addMins(time: string, mins: number): string {
 export function TransportationCard({
   item, booking, canEdit, isConflicted, onEdit,
   showNextTransport, onEditNextTransport,
-  selectedDate, expandSignal, collapseSignal,
+  selectedDate: _selectedDate, expandSignal, collapseSignal, defaultSignal, expandState,
 }: TransportationCardProps) {
   const data = booking;
   if (!data || !item) return null;
@@ -65,17 +57,21 @@ export function TransportationCard({
   const details    = parseDetails(data.details);
   const Icon       = getIcon(data.category);
   const termLabel  = TERMINAL_LABEL[data.category] ?? '月台';
-  const isCrossDay = data.start_date !== data.end_date;
+  // A2: use end_time to determine past, no isToday exception
+  const endTimeStr = item.end_time || item.start_time || '23:59';
+  const isPastItem = !!(item as any).date && Date.now() > new Date(`${(item as any).date}T${endTimeStr}`).getTime();
 
-  const itemDateTime = parseISO(`${format(selectedDate, 'yyyy-MM-dd')}T${item.start_time || '00:00'}`);
-  const isToday      = isSameDay(selectedDate, new Date());
-  const isPastItem   = !isNaN(itemDateTime.getTime()) && isPast(itemDateTime) && !isToday;
-
-  const [isExpanded, setIsExpanded] = useState(!isPastItem);
+  const getInitialExpanded = () => {
+    if (expandState === 'expanded') return true;
+    if (expandState === 'collapsed') return false;
+    return !isPastItem;
+  };
+  const [isExpanded, setIsExpanded] = useState(getInitialExpanded);
 
   useEffect(() => { setIsExpanded(!isPastItem); }, [isPastItem]);
   useEffect(() => { if (expandSignal   > 0) setIsExpanded(true);  }, [expandSignal]);
   useEffect(() => { if (collapseSignal > 0) setIsExpanded(false); }, [collapseSignal]);
+  useEffect(() => { if (defaultSignal && defaultSignal > 0) setIsExpanded(!isPastItem); }, [defaultSignal, isPastItem]);
 
   const displayTitle = data.category === 'RENTAL'
     ? `${data.provider || ''} ${data.title}`.trim()
@@ -105,7 +101,6 @@ export function TransportationCard({
 
   // 4-milestone timeline values
   const arrEnd = data.end_time && details.arr_stay > 0 ? addMins(data.end_time, details.arr_stay) : null;
-  const hasTimeline = !!(details.check_in_time || arrEnd);
 
   const showBottomBar = showNextTransport && (canEdit || !!item.next_transport_mode);
 
@@ -122,7 +117,7 @@ export function TransportationCard({
       onClick={() => canEdit ? onEdit() : setIsExpanded(v => !v)}
     >
       {/* ── Header row ── */}
-      <div className="flex items-center gap-4 px-4 py-4">
+      <div className="flex items-center gap-4 px-4 py-4 min-h-[80px]">
         {/* Large icon */}
         <div className="shrink-0 w-12 h-12 rounded-2xl bg-orange-500/10 flex items-center justify-center">
           <Icon size={22} className="text-orange-400" />
@@ -130,38 +125,47 @@ export function TransportationCard({
 
         {/* Core info */}
         <div className="flex-1 min-w-0">
+          {/* 時間行 */}
           {item.start_time && (
             <div className="font-mono text-[13px] font-bold tracking-[0.06em] leading-none text-zinc-300 mb-0.5">
-              {item.start_time}{item.end_time && item.end_time !== item.start_time ? ` → ${item.end_time}` : ''}
+              {item.start_time}
+              {item.end_time && item.end_time !== item.start_time ? ` — ${item.end_time}` : ''}
             </div>
           )}
           <div className="text-[15px] font-black text-white leading-tight truncate">
             {displayTitle}
           </div>
-          <div className="flex items-center gap-1.5 mt-0.5 flex-wrap">
-            <span className="text-[10px] font-black text-orange-500/70 uppercase tracking-widest">
-              {CATEGORY_LABEL[data.category] ?? data.category}
-            </span>
-            {data.provider && data.category !== 'RENTAL' && (
-              <>
-                <span className="text-zinc-700 text-[10px]">·</span>
-                <span className="text-[10px] text-zinc-500">{data.provider}</span>
-              </>
-            )}
-          </div>
+          {/* A4: provider + order_id in header */}
+          {(data.provider || data.order_id) && data.category !== 'RENTAL' && (
+            <div className="flex items-center gap-1.5 mt-0.5">
+              {data.provider && <span className="text-[10px] text-zinc-500">{data.provider}</span>}
+              {data.provider && data.order_id && <span className="text-[10px] text-zinc-700">·</span>}
+              {data.order_id && <span className="text-[10px] text-zinc-600 font-mono">#{data.order_id}</span>}
+            </div>
+          )}
         </div>
 
-        {/* Expand chevron */}
-        <button
-          type="button"
-          onClick={(e) => { e.stopPropagation(); setIsExpanded(v => !v); }}
-          className="shrink-0 p-2 rounded-xl text-zinc-600 hover:text-zinc-400 transition-colors"
-        >
-          <ChevronDown
-            size={16}
-            className={clsx('transition-transform duration-200', isExpanded && 'rotate-180')}
-          />
-        </button>
+        {/* 右側按鈕：有出發地時顯示導航，否則顯示展開/折疊 */}
+        {depNavUrl ? (
+          <button
+            type="button"
+            onClick={openDepNav}
+            className="shrink-0 p-2 rounded-xl text-zinc-600 hover:text-orange-400 transition-colors"
+          >
+            <Navigation2 size={16} />
+          </button>
+        ) : (
+          <button
+            type="button"
+            onClick={(e) => { e.stopPropagation(); setIsExpanded(v => !v); }}
+            className="shrink-0 p-2 rounded-xl text-zinc-600 hover:text-zinc-400 transition-colors"
+          >
+            <ChevronDown
+              size={16}
+              className={clsx('transition-transform duration-200', isExpanded && 'rotate-180')}
+            />
+          </button>
+        )}
       </div>
 
       {/* ── Expanded details ── */}
@@ -195,11 +199,7 @@ export function TransportationCard({
               </div>
 
               {/* Centre line */}
-              <div className="flex-1 flex items-center gap-0.5 mb-3 min-w-[8px]">
-                <div className="flex-1 h-px bg-zinc-800" />
-                {isCrossDay && <span className="text-[9px] text-orange-500 shrink-0 px-0.5">+1d</span>}
-                <div className="flex-1 h-px bg-zinc-800" />
-              </div>
+              <div className="flex-1 h-px bg-zinc-800 mb-3 min-w-[8px]" />
 
               {/* Arrival */}
               <div className="text-center shrink-0 min-w-[44px]">
@@ -223,63 +223,41 @@ export function TransportationCard({
             </div>
           )}
 
-          {/* Order info */}
-          {data.order_id && (
-            <div className="text-[11px] text-zinc-500 font-mono">#{data.order_id}</div>
-          )}
-
           {data.notes && (
             <div className="text-[11px] text-zinc-400 italic leading-relaxed">{data.notes}</div>
           )}
         </div>
       )}
 
-      {/* ── Bottom bar: navigation + next-transport ── */}
-      {(depNavUrl || showBottomBar) && (
-        <div className="flex items-center justify-between px-3 pb-3 pt-1">
-          {/* Navigation to departure station */}
-          {depNavUrl ? (
-            <button
-              type="button"
-              onClick={openDepNav}
-              className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl text-zinc-600 hover:text-orange-400 hover:bg-zinc-800/50 transition-colors"
-            >
-              <Navigation2 size={13} />
-              <span className="text-[9px] font-bold truncate max-w-[80px]">
-                {data.start_location?.split(/[,，]/)[0] || '出發站'}
-              </span>
-            </button>
-          ) : <div />}
-
-          {/* Next transport button */}
-          {showBottomBar && (
-            <button
-              type="button"
-              disabled={!canEdit}
-              onClick={(e) => { e.stopPropagation(); if (canEdit) onEditNextTransport?.(); }}
-              className={clsx(
-                'flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl transition-colors',
-                canEdit ? 'cursor-pointer hover:bg-zinc-800/30 active:bg-zinc-800/50' : 'cursor-default',
-              )}
-            >
-              {item.next_transport_mode ? (
-                <div className="flex items-center gap-1.5 text-zinc-400">
-                  <span className="text-[9px] text-zinc-600 font-bold">下一站</span>
-                  {nextMode === 'WALKING'    && <Footprints size={13} />}
-                  {nextMode === 'BICYCLING'  && <Bike size={13} />}
-                  {nextMode === 'TRANSIT'    && <Bus size={13} />}
-                  {nextMode === 'DRIVING'    && <Car size={13} />}
-                  {nextMode === 'MOTORCYCLING' && <Motorbike size={13} />}
-                  {!['WALKING','BICYCLING','TRANSIT','DRIVING','MOTORCYCLING'].includes(nextMode) && <Car size={13} />}
-                  <span className="text-[11px] font-black tracking-tight">{nextDisplay}</span>
-                </div>
-              ) : (
-                <div className="flex items-center gap-1 text-zinc-600">
-                  <Plus size={11} /><span className="text-[9px] font-bold">設定交通</span>
-                </div>
-              )}
-            </button>
-          )}
+      {/* ── Bottom bar: next-transport only ── */}
+      {showBottomBar && (
+        <div className="flex items-center justify-end px-3 pb-3 pt-1">
+          <button
+            type="button"
+            disabled={!canEdit}
+            onClick={(e) => { e.stopPropagation(); if (canEdit) onEditNextTransport?.(); }}
+            className={clsx(
+              'flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl transition-colors',
+              canEdit ? 'cursor-pointer hover:bg-zinc-800/30 active:bg-zinc-800/50' : 'cursor-default',
+            )}
+          >
+            {item.next_transport_mode ? (
+              <div className="flex items-center gap-1.5 text-zinc-400">
+                <span className="text-[9px] text-zinc-600 font-bold">下一站</span>
+                {nextMode === 'WALKING'    && <Footprints size={13} />}
+                {nextMode === 'BICYCLING'  && <Bike size={13} />}
+                {nextMode === 'TRANSIT'    && <Bus size={13} />}
+                {nextMode === 'DRIVING'    && <Car size={13} />}
+                {nextMode === 'MOTORCYCLING' && <Motorbike size={13} />}
+                {!['WALKING','BICYCLING','TRANSIT','DRIVING','MOTORCYCLING'].includes(nextMode) && <Car size={13} />}
+                <span className="text-[11px] font-black tracking-tight">{nextDisplay}</span>
+              </div>
+            ) : (
+              <div className="flex items-center gap-1 text-zinc-600">
+                <Plus size={11} /><span className="text-[9px] font-bold">設定交通</span>
+              </div>
+            )}
+          </button>
         </div>
       )}
     </div>
