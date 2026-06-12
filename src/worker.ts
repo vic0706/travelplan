@@ -109,7 +109,7 @@ app.get('/api/places/autocomplete', async (c) => {
           secondary_text: s.placePrediction.structuredFormat?.secondaryText?.text || '',
         },
       }));
-    await c.env.KV.put(cacheKey, JSON.stringify(predictions), { expirationTtl: 86400 });
+    await c.env.KV.put(cacheKey, JSON.stringify(predictions), { expirationTtl: 604800 }); // 7 days
     return c.json(predictions);
   } catch (error: any) {
     if (error?.code === 'API_QUOTA_EXCEEDED') return c.json({ error: 'API_QUOTA_EXCEEDED', api: 'places_autocomplete' }, 429);

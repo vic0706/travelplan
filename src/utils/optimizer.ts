@@ -171,13 +171,7 @@ async function calcTravelMins(gap: GapSlot, item: any, statements: any[], metaSt
         : resolvedMode === 'TRANSIT'      ? 'TRANSIT'
         : resolvedMode === 'MOTORCYCLING' ? 'TWO_WHEELER'
         : 'DRIVE';
-      const cacheKey = `travel_time:${gap.lastLat!.toFixed(4)},${gap.lastLng!.toFixed(4)}:${item.lat.toFixed(4)},${item.lng.toFixed(4)}:${travelMode.toLowerCase()}`;
-      const cached: number | null = await env.KV.get(cacheKey, 'json');
-      if (cached !== null) {
-        mins = cached;
-        gmapsLog = `${mins}min(cached)`;
-      } else {
-        try {
+      try {
           const res = await fetch('https://routes.googleapis.com/directions/v2:computeRoutes', {
             method: 'POST',
             headers: {
@@ -199,7 +193,6 @@ async function calcTravelMins(gap: GapSlot, item: any, statements: any[], metaSt
               if (!isNaN(secs) && secs > 0) {
                 mins = Math.ceil(secs / 60);
                 gmapsLog = `${mins}min`;
-                await env.KV.put(cacheKey, JSON.stringify(mins), { expirationTtl: 86400 }); // 1 day
               } else {
                 gmapsLog = `parse_err(${duration})`;
               }
@@ -212,7 +205,6 @@ async function calcTravelMins(gap: GapSlot, item: any, statements: any[], metaSt
         } catch (e: any) {
           gmapsLog = `exception(${e?.message || 'unknown'})`;
         }
-      }
     }
 
     // Haversine fallback when API unavailable or failed
@@ -252,7 +244,7 @@ async function calcTravelMins(gap: GapSlot, item: any, statements: any[], metaSt
 
 /**
  * Returns Google Maps walking time (WALK mode) between two sub-items.
- * KV-cached 30 days per pair. Falls back to haversine if API unavailable.
+ * No caching — always fetches fresh. Falls back to haversine if API unavailable.
  * Returns { mins, fromGmaps } so callers can decide whether to persist the value.
  */
 async function calcSubWalkMins(sub: any, nextSub: any, env: any): Promise<{ mins: number; fromGmaps: boolean }> {
@@ -263,10 +255,6 @@ async function calcSubWalkMins(sub: any, nextSub: any, env: any): Promise<{ mins
     : 0;
 
   if (!env.GOOGLE_MAPS_API_KEY) return { mins: haversineVal, fromGmaps: false };
-
-  const cacheKey = `walk_time:${Number(sub.lat).toFixed(4)},${Number(sub.lng).toFixed(4)}:${Number(nextSub.lat).toFixed(4)},${Number(nextSub.lng).toFixed(4)}`;
-  const cached: number | null = env.KV ? await env.KV.get(cacheKey, 'json') : null;
-  if (cached !== null) return { mins: cached, fromGmaps: true };
 
   try {
     const res = await fetch('https://routes.googleapis.com/directions/v2:computeRoutes', {
@@ -288,9 +276,7 @@ async function calcSubWalkMins(sub: any, nextSub: any, env: any): Promise<{ mins
       if (duration) {
         const secs = parseInt(String(duration));
         if (!isNaN(secs) && secs > 0) {
-          const mins = Math.ceil(secs / 60);
-          if (env.KV) await env.KV.put(cacheKey, JSON.stringify(mins), { expirationTtl: 86400 * 30 });
-          return { mins, fromGmaps: true };
+          return { mins: Math.ceil(secs / 60), fromGmaps: true };
         }
       }
     }

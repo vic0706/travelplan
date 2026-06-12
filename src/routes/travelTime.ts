@@ -29,14 +29,6 @@ travelTime.post('/', async (c) => {
     return c.json({ error: 'Invalid coordinates' }, 400);
   }
 
-  const cacheKey = `travel_time:${fLat.toFixed(4)},${fLng.toFixed(4)}:${tLat.toFixed(4)},${tLng.toFixed(4)}:${travelMode.toLowerCase()}`;
-
-  // Cache hit (shared with optimizer cache)
-  const cached = (await c.env.KV.get(cacheKey, 'json')) as number | null;
-  if (cached !== null) {
-    return c.json({ mins: cached, cached: true });
-  }
-
   if (!c.env.GOOGLE_MAPS_API_KEY) {
     return c.json({ error: 'Google Maps API key not configured' }, 503);
   }
@@ -70,8 +62,7 @@ travelTime.post('/', async (c) => {
       const secs = parseInt(duration);
       if (!isNaN(secs)) {
         const mins = Math.ceil(secs / 60);
-        await c.env.KV.put(cacheKey, JSON.stringify(mins), { expirationTtl: 2592000 }); // 30 days
-        return c.json({ mins, cached: false });
+        return c.json({ mins });
       }
     }
 
