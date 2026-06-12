@@ -250,6 +250,55 @@ async function calcTravelMins(gap: GapSlot, item: any, statements: any[], metaSt
   throw new MissingTransportError(prev.id, prev.title || String(prev.id));
 }
 
+/**
+ * Returns Google Maps walking time (WALK mode) between two sub-items.
+ * KV-cached 30 days per pair. Falls back to haversine if API unavailable.
+ * Returns { mins, fromGmaps } so callers can decide whether to persist the value.
+ */
+async function calcSubWalkMins(sub: any, nextSub: any, env: any): Promise<{ mins: number; fromGmaps: boolean }> {
+  if (!sub?.lat || !sub?.lng || !nextSub?.lat || !nextSub?.lng) return { mins: 0, fromGmaps: false };
+  const dist = getDistanceKm(sub.lat, sub.lng, nextSub.lat, nextSub.lng) ?? 0;
+  const haversineVal = dist > 0
+    ? Math.round(dist * ROAD_CIRCUITY * HEURISTIC_SPEED.WALKING.speed) + HEURISTIC_SPEED.WALKING.buffer
+    : 0;
+
+  if (!env.GOOGLE_MAPS_API_KEY) return { mins: haversineVal, fromGmaps: false };
+
+  const cacheKey = `walk_time:${Number(sub.lat).toFixed(4)},${Number(sub.lng).toFixed(4)}:${Number(nextSub.lat).toFixed(4)},${Number(nextSub.lng).toFixed(4)}`;
+  const cached: number | null = env.KV ? await env.KV.get(cacheKey, 'json') : null;
+  if (cached !== null) return { mins: cached, fromGmaps: true };
+
+  try {
+    const res = await fetch('https://routes.googleapis.com/directions/v2:computeRoutes', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-Goog-Api-Key': env.GOOGLE_MAPS_API_KEY,
+        'X-Goog-FieldMask': 'routes.duration',
+      },
+      body: JSON.stringify({
+        origin:      { location: { latLng: { latitude: sub.lat, longitude: sub.lng } } },
+        destination: { location: { latLng: { latitude: nextSub.lat, longitude: nextSub.lng } } },
+        travelMode: 'WALK',
+      }),
+    });
+    if (res.ok) {
+      const data = await res.json() as any;
+      const duration = data.routes?.[0]?.duration;
+      if (duration) {
+        const secs = parseInt(String(duration));
+        if (!isNaN(secs) && secs > 0) {
+          const mins = Math.ceil(secs / 60);
+          if (env.KV) await env.KV.put(cacheKey, JSON.stringify(mins), { expirationTtl: 86400 * 30 });
+          return { mins, fromGmaps: true };
+        }
+      }
+    }
+  } catch { /* fall through */ }
+
+  return { mins: haversineVal, fromGmaps: false };
+}
+
 async function placeInGap(
   gap: GapSlot,
   item: any,
@@ -492,16 +541,29 @@ export async function optimizeDailyItinerary(env: any, tripId: number, dateStr: 
       const dur = parseInt(String((sub as any).duration || '0')) || 0;
       const st = minsToTime(cursor);
       const et = minsToTime(Math.min(cursor + dur, parentEnd));
-      let walkMins = (sub as any).next_walk_mins ? parseInt(String((sub as any).next_walk_mins)) : 0;
-      if (walkMins === 0 && nextSub) {
-        const dist = getDistanceKm(sub.lat, sub.lng, nextSub.lat, nextSub.lng) ?? 0;
-        if (dist > 0) walkMins = Math.round(dist * ROAD_CIRCUITY * HEURISTIC_SPEED.WALKING.speed) + HEURISTIC_SPEED.WALKING.buffer;
+
+      // Use manually-set value if available; otherwise query Google Maps (Haversine fallback)
+      let walkMins = 0;
+      let saveWalk = false;
+      if ((sub as any).next_walk_mins) {
+        walkMins = parseInt(String((sub as any).next_walk_mins));
+      } else if (nextSub) {
+        const result = await calcSubWalkMins(sub, nextSub, env);
+        walkMins = result.mins;
+        saveWalk = result.fromGmaps; // persist only when we have a real Google Maps value
       }
+
       cursor += dur + walkMins;
       subStatements.push(
         env.DB.prepare('UPDATE SubItemItineraries SET start_time = ?, end_time = ? WHERE id = ?')
           .bind(st, et, (sub as any).id)
       );
+      if (saveWalk) {
+        subStatements.push(
+          env.DB.prepare('UPDATE SubItemItineraries SET next_walk_mins = ? WHERE id = ?')
+            .bind(walkMins, (sub as any).id)
+        );
+      }
     }
   }
 
