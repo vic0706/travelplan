@@ -140,6 +140,7 @@ export function BookingCard({ booking, canEdit, onEdit }: BookingCardProps) {
                 </>
               )}
               <div className="text-center shrink-0 min-w-[44px]">
+                {isCrossDay && <div className="text-[9px] text-zinc-500 font-mono leading-none mb-0.5">{booking.start_date.slice(5).replace('-', '/')}</div>}
                 <div className="text-[16px] font-black text-white leading-none">{booking.start_time}</div>
                 <div className="text-[9px] text-zinc-600 mt-0.5 uppercase tracking-wider">出發</div>
                 {!details.check_in_time && details.dep_terminal && (
@@ -148,6 +149,7 @@ export function BookingCard({ booking, canEdit, onEdit }: BookingCardProps) {
               </div>
               <div className="flex-1 h-px bg-zinc-800 mb-3 min-w-[8px]" />
               <div className="text-center shrink-0 min-w-[44px]">
+                {isCrossDay && <div className="text-[9px] text-zinc-500 font-mono leading-none mb-0.5">{booking.end_date.slice(5).replace('-', '/')}</div>}
                 <div className="text-[16px] font-black text-white leading-none">{booking.end_time}</div>
                 <div className="text-[9px] text-zinc-600 mt-0.5 uppercase tracking-wider">抵達</div>
                 {details.arr_terminal && (

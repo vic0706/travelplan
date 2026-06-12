@@ -745,11 +745,13 @@ trips.post('/:id/optimize', async (c) => {
       return c.json({ success: false, error: 'MISSING_TRANSPORT', items }, 422);
     }
 
+    const todayStr = new Date().toISOString().split('T')[0];
     const optimizeLog: string[] = [];
     const start = new Date(trip.start_date);
     const end = new Date(trip.end_date);
     for (let d = new Date(start); d <= end; d.setDate(d.getDate() + 1)) {
       const dateStr = d.toISOString().split('T')[0];
+      if (dateStr < todayStr) { optimizeLog.push(`[skip] ${dateStr} is in the past`); continue; }
       const dayLogs = await optimizeDailyItinerary(c.env, Number(tripId), dateStr);
       optimizeLog.push(...dayLogs);
     }

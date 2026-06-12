@@ -343,7 +343,7 @@ export function ItineraryCard({
                       </div>
                       {/* A8/B4: read-only walk time to next sub-item (manual or Haversine estimate) */}
                       {hasWalkRow && displayWalk && (
-                        <div className="flex flex-col items-center mt-0.5 gap-0.5">
+                        <div className="flex items-center gap-0.5 mt-0.5">
                           <span className="text-[7px] text-zinc-600 font-bold leading-none">下一站</span>
                           <span className={clsx('flex items-center gap-0.5', displayWalk.isEstimate ? 'text-zinc-700' : 'text-zinc-500')}>
                             <Footprints size={8} />

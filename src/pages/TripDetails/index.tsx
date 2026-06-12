@@ -2,7 +2,7 @@ import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useAppStore } from '../../store';
 import { format, parseISO, addDays, differenceInDays, isSameDay, addMinutes, isBefore, startOfDay } from 'date-fns';
-import { Map, Info, Wallet, ArrowLeft, Settings, Edit3, ChevronsUpDown, ChevronsDownUp, RotateCcw, Unlock, Loader2, Camera, CheckCircle2, XCircle, X } from 'lucide-react';
+import { Map, Info, Wallet, ArrowLeft, Settings, Edit3, ChevronsUpDown, ChevronsDownUp, Sparkles, Unlock, Loader2, Camera, CheckCircle2, XCircle, X } from 'lucide-react';
 import { Trip, Itinerary, Expense, Booking } from '../../types';
 import { clsx } from 'clsx';
 import { db } from '../../db';
@@ -512,13 +512,13 @@ export function TripDetails() {
               className="shrink-0 flex flex-col items-center justify-center w-12 h-16 rounded-2xl transition-all border bg-zinc-900/80 border-zinc-700/50 text-zinc-400 hover:text-white hover:bg-zinc-800 shadow-lg"
             >
               {expandState === 'expanded'
-                ? <ChevronsDownUp size={18} strokeWidth={2.5} />
+                ? <ChevronsUpDown size={18} strokeWidth={2.5} />
                 : expandState === 'collapsed'
-                  ? <RotateCcw size={16} strokeWidth={2.5} />
-                  : <ChevronsUpDown size={18} strokeWidth={2.5} />
+                  ? <ChevronsDownUp size={18} strokeWidth={2.5} />
+                  : <Sparkles size={16} strokeWidth={2} />
               }
               <span className="text-[8px] font-black uppercase tracking-widest mt-1 opacity-80">
-                {expandState === 'expanded' ? '收合' : expandState === 'collapsed' ? '預設' : '展開'}
+                {expandState === 'expanded' ? '展開' : expandState === 'collapsed' ? '收合' : '自動'}
               </span>
             </button>
           </div>
