@@ -536,13 +536,27 @@ export async function optimizeDailyItinerary(env: any, tripId: number, dateStr: 
   // Gap post-pass: calculate travel from the last smart item in each gap to the
   // immediately following fixed item. Without this, the last smart item before a
   // fixed boundary (e.g., 逢甲夜市 → 返回黑金文旅) would never get its auto_time set.
+  // Also shifts the last smart item earlier if it would end too late to travel there.
   for (const gap of gaps) {
     const lastSmart = gap.lastItem;
     if (!lastSmart || lastSmart.next_transport_time !== 'auto') continue;
     const nextFixed = fixedItems.find((b: any) => timeToMins(b.start_time) === gap.end);
     if (!nextFixed) continue;
     try {
-      await calcTravelMins(gap, nextFixed, statements, metaStatements, env);
+      const travelMins = await calcTravelMins(gap, nextFixed, statements, metaStatements, env);
+      // If the last smart item ends too late to make it to the next fixed item, shift it earlier.
+      const needToLeaveBy = gap.end - travelMins;
+      if (gap.cursor > needToLeaveBy) {
+        const stayDuration = parseInt(lastSmart.stay_duration) || 60;
+        const newEnd   = needToLeaveBy;
+        const newStart = newEnd - stayDuration;
+        if (newStart >= gap.start) {
+          statements.push(env.DB.prepare(
+            `UPDATE Itineraries SET start_time = ?, end_time = ? WHERE id = ?`
+          ).bind(minsToTime(newStart), minsToTime(newEnd), lastSmart.id));
+          _log.push(`[shift-back] ${lastSmart.title}: ${minsToTime(newStart)}~${minsToTime(newEnd)} (travel=${travelMins}min to ${nextFixed.title})`);
+        }
+      }
     } catch { /* skip if no coords or transport info */ }
   }
 
