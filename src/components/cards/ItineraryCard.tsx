@@ -82,6 +82,33 @@ export function ItineraryCard({
   const [overlayVisible, setOverlayVisible] = useState(false);
   const [subItemIdx,     setSubItemIdx]     = useState<number | null>(null);
   const [walkOverrides,  setWalkOverrides]  = useState<Record<number, number>>({});
+  const fetchedWalkRef = useRef<Set<number>>(new Set());
+
+  useEffect(() => {
+    if (subItems.length < 2) return;
+    subItems.forEach((sub: any, idx: number) => {
+      if (idx >= subItems.length - 1) return;
+      const nextSub = subItems[idx + 1];
+      if ((sub.next_walk_mins ?? 0) > 0) return;
+      if (fetchedWalkRef.current.has(sub.id)) return;
+      if (!sub.lat || !sub.lng || !nextSub.lat || !nextSub.lng) return;
+      fetchedWalkRef.current.add(sub.id);
+      apiFetch(`/api/walking-time?fromLat=${sub.lat}&fromLng=${sub.lng}&toLat=${nextSub.lat}&toLng=${nextSub.lng}`)
+        .then(r => r.json())
+        .then((d: any) => {
+          if (d.minutes && d.minutes > 0) {
+            setWalkOverrides(prev => ({ ...prev, [sub.id]: d.minutes }));
+            apiFetch(
+              `/api/trips/${item.trip_id}/itineraries/${item.id}/sub-items/${sub.id}`,
+              { method: 'PUT', headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ ...sub, next_walk_mins: d.minutes,
+                  tags: Array.isArray(sub.tags) ? JSON.stringify(sub.tags) : (sub.tags ?? '[]') }) }
+            ).catch(() => {});
+          }
+        })
+        .catch(() => {});
+    });
+  }, [subItems]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const overlayScrollRef = useRef<HTMLDivElement>(null);
   const [canScrollDown, setCanScrollDown] = useState(false);
