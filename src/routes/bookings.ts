@@ -193,6 +193,15 @@ bookings.post('/', async (c) => {
     JSON.stringify(details), b.google_place_id || ''
   ).run();
 
+  // Save departure/arrival coords (columns from migration 0007 — graceful fallback if not applied)
+  if (b.lat != null || b.lng != null || b.arrival_lat != null || b.arrival_lng != null) {
+    try {
+      await c.env.DB.prepare(
+        `UPDATE Bookings SET lat=?, lng=?, arrival_lat=?, arrival_lng=? WHERE id=?`
+      ).bind(b.lat ?? null, b.lng ?? null, b.arrival_lat ?? null, b.arrival_lng ?? null, meta.last_row_id).run();
+    } catch {}
+  }
+
   const bookingId = meta.last_row_id;
 
   // Auto-generate itinerary items for this booking
@@ -222,6 +231,13 @@ bookings.put('/:bookingId', async (c) => {
     JSON.stringify(details), b.google_place_id || '',
     bookingId, tripId
   ).run();
+
+  // Save departure/arrival coords (columns from migration 0007 — graceful fallback if not applied)
+  try {
+    await c.env.DB.prepare(
+      `UPDATE Bookings SET lat=?, lng=?, arrival_lat=?, arrival_lng=? WHERE id=? AND trip_id=?`
+    ).bind(b.lat ?? null, b.lng ?? null, b.arrival_lat ?? null, b.arrival_lng ?? null, bookingId, tripId).run();
+  } catch {}
 
   // Regenerate linked itinerary items to reflect updated dates/times
   await c.env.DB.prepare('DELETE FROM Itineraries WHERE trip_id=? AND related_id=?').bind(tripId, bookingId).run();
