@@ -35,7 +35,7 @@ if (typeof window !== 'undefined') {
 //
 // 新策略：用版本號比對，只有在 app 版本升級時才清除舊 cache
 // 將版本號改為目前的部署版本（每次 deploy 時更新這個值）
-const APP_VERSION = '1.0.0';
+const APP_VERSION = __APP_BUILD_TIME__;
 const STORAGE_KEY = 'app_sw_version';
 
 if ('serviceWorker' in navigator) {
