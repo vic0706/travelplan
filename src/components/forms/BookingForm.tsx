@@ -137,12 +137,10 @@ export function BookingForm({ initialData, onSubmit, onCancel, onDelete, loading
   });
 
   // Hotel specific
-  const [checkInStay,     setCheckInStay]     = useState<number>(initialDetails.check_in_stay    ?? 30);
-  const [checkOutStay,    setCheckOutStay]     = useState<number>(initialDetails.check_out_stay   ?? 30);
-  const [dailyDepartStay, setDailyDepartStay] = useState<number>(initialDetails.daily_depart_stay ?? 30);
-  const [dailyReturnStay, setDailyReturnStay] = useState<number>(initialDetails.daily_return_stay ?? 30);
-  const [dailyDepartTime, setDailyDepartTime] = useState<string>(initialDetails.daily_start_time || '09:00');
-  const [dailyReturnTime, setDailyReturnTime] = useState<string>(initialDetails.daily_end_time   || '22:00');
+  const [checkInStay,  setCheckInStay]  = useState<number>(initialDetails.check_in_stay  ?? 30);
+  const [checkOutStay, setCheckOutStay] = useState<number>(initialDetails.check_out_stay ?? 30);
+  const [dailyDepartTime] = useState<string>(initialDetails.daily_start_time || '09:00');
+  const [dailyReturnTime] = useState<string>(initialDetails.daily_end_time   || '22:00');
   const [dailyTimes, setDailyTimes] = useState<Record<string, { out?: string; return?: string }>>(
     initialDetails.daily_times || {}
   );
@@ -212,8 +210,6 @@ export function BookingForm({ initialData, onSubmit, onCancel, onDelete, loading
         check_out_stay:   checkOutStay,
         daily_start_time: dailyDepartTime,
         daily_end_time:   dailyReturnTime,
-        daily_depart_stay: dailyDepartStay,
-        daily_return_stay: dailyReturnStay,
         daily_times: Object.keys(dailyTimes).length > 0 ? dailyTimes : undefined,
       };
     }
@@ -595,43 +591,10 @@ export function BookingForm({ initialData, onSubmit, onCancel, onDelete, loading
             </div>
           </div>
 
-          {/* 每日出門 / 返回 - 比照入住退房設計 */}
-          <div className="space-y-3 border-t border-zinc-800 pt-3">
-            <p className="text-[10px] font-bold text-zinc-500 uppercase tracking-wider">每日出門／返回時間</p>
-            <div className="space-y-1.5">
-              <p className="text-[10px] font-bold text-zinc-600">出門</p>
-              <div className="flex items-center bg-zinc-900 border border-zinc-800 rounded-xl px-3 py-2 gap-2 focus-within:border-orange-500 transition-colors">
-                <Clock size={13} className="text-orange-500 shrink-0" />
-                <input type="time" value={dailyDepartTime} onChange={e => setDailyDepartTime(e.target.value)}
-                  className="bg-transparent text-white font-mono font-bold text-sm outline-none [color-scheme:dark]" />
-                <div className="w-px h-4 bg-zinc-700 shrink-0 mx-1" />
-                <span className="text-[9px] text-zinc-600 shrink-0">準備</span>
-                <input type="range" min="0" max="60" step="5" value={dailyDepartStay}
-                  onChange={e => setDailyDepartStay(parseInt(e.target.value))}
-                  className="flex-1 accent-orange-500 h-1.5 bg-zinc-800 rounded-lg appearance-none cursor-pointer outline-none" />
-                <span className="text-[10px] font-black text-orange-400 shrink-0 w-7 text-right">{dailyDepartStay}分</span>
-              </div>
-            </div>
-            <div className="space-y-1.5">
-              <p className="text-[10px] font-bold text-zinc-600">返回</p>
-              <div className="flex items-center bg-zinc-900 border border-zinc-800 rounded-xl px-3 py-2 gap-2 focus-within:border-orange-500 transition-colors">
-                <Clock size={13} className="text-orange-500 shrink-0" />
-                <input type="time" value={dailyReturnTime} onChange={e => setDailyReturnTime(e.target.value)}
-                  className="bg-transparent text-white font-mono font-bold text-sm outline-none [color-scheme:dark]" />
-                <div className="w-px h-4 bg-zinc-700 shrink-0 mx-1" />
-                <span className="text-[9px] text-zinc-600 shrink-0">安頓</span>
-                <input type="range" min="0" max="60" step="5" value={dailyReturnStay}
-                  onChange={e => setDailyReturnStay(parseInt(e.target.value))}
-                  className="flex-1 accent-orange-500 h-1.5 bg-zinc-800 rounded-lg appearance-none cursor-pointer outline-none" />
-                <span className="text-[10px] font-black text-orange-400 shrink-0 w-7 text-right">{dailyReturnStay}分</span>
-              </div>
-            </div>
-          </div>
-
-          {/* 每日自訂出門／返回時間 — 中間日期（非入住/退房日） */}
+          {/* 每日出門／返回時間（每日自訂） */}
           {middleHotelDates.length > 0 && (
             <div className="space-y-2 border-t border-zinc-800 pt-3">
-              <p className="text-[10px] font-bold text-zinc-500 uppercase tracking-wider">每日自訂時間</p>
+              <p className="text-[10px] font-bold text-zinc-500 uppercase tracking-wider">每日出門／返回時間</p>
               {middleHotelDates.map((date, idx) => {
                 const perDay = dailyTimes[date] || {};
                 const outVal = perDay.out    ?? dailyDepartTime;
