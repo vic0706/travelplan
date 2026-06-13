@@ -24,6 +24,8 @@ export interface Env {
   VITE_SUPABASE_ANON_KEY: string;
   UNSPLASH_ACCESS_KEY: string;
   GOOGLE_MAPS_API_KEY: string;
+  GEMINI_API_KEY?: string;
+  GEMINI_DAILY_TOKEN_LIMIT?: string;
   __STATIC_CONTENT: any;
   __STATIC_CONTENT_MANIFEST: string;
 }

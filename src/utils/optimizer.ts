@@ -1,3 +1,5 @@
+import { geminiScheduleDay, hashSmartItems } from './geminiScheduler';
+
 // Module-level log buffer, reset at the start of each optimizeDailyItinerary call.
 // Safe in Cloudflare Workers (single-threaded per request).
 let _log: string[] = [];
@@ -684,6 +686,173 @@ export async function optimizeDailyItinerary(env: any, tripId: number, dateStr: 
         subStatements.push(
           env.DB.prepare('UPDATE SubItemItineraries SET next_walk_mins = ? WHERE id = ?')
             .bind(walkMins, (sub as any).id)
+        );
+      }
+    }
+  }
+
+  if (subStatements.length > 0) await env.DB.batch(subStatements);
+  return _log;
+}
+
+/**
+ * Gemini-powered daily optimizer.
+ * Sends fixed + smart items to Gemini API which decides start/end times for smart items,
+ * then writes those times to DB and runs the transport-time pass using existing logic.
+ * Falls back gracefully when API fails — caller should catch and fallback to optimizeDailyItinerary.
+ */
+export async function geminiOptimizeDay(env: any, tripId: number, dateStr: string): Promise<string[]> {
+  _log = [];
+
+  const { results: rawItems } = await env.DB.prepare(
+    `SELECT * FROM Itineraries WHERE trip_id = ? AND date = ?`
+  ).bind(tripId, dateStr).all();
+
+  if (rawItems.length === 0) return _log;
+
+  const fixedItems = (rawItems as any[])
+    .filter(i => i.is_time_fixed === 1)
+    .sort((a: any, b: any) => timeToMins(a.start_time) - timeToMins(b.start_time));
+
+  const smartItems = (rawItems as any[]).filter(i => i.is_time_fixed !== 1);
+
+  // Clear stale warnings and auto transport times on fixed items
+  const preStmts: any[] = [];
+  for (const item of fixedItems) {
+    preStmts.push(env.DB.prepare(`UPDATE Itineraries SET sync_conflict_warning = null WHERE id = ?`).bind(item.id));
+    if (item.next_transport_time === 'auto') {
+      preStmts.push(env.DB.prepare(`UPDATE Itineraries SET next_transport_auto_time = '' WHERE id = ?`).bind(item.id));
+    }
+  }
+  if (preStmts.length > 0) await env.DB.batch(preStmts);
+
+  _log.push(`[gemini] ${dateStr}: ${fixedItems.length} fixed, ${smartItems.length} smart`);
+
+  if (smartItems.length === 0) return _log;
+
+  // KV cache: if smart items unchanged, reuse previous Gemini result
+  const itemsHash = hashSmartItems(smartItems);
+  const cacheKey = `gemini_schedule:${tripId}:${dateStr}:${itemsHash}`;
+
+  let scheduled: Array<{ id: number; start_time: string; end_time: string }>;
+  const cached = await env.KV.get(cacheKey, 'json') as any;
+
+  if (cached) {
+    _log.push(`[gemini] cache hit (${dateStr})`);
+    scheduled = cached;
+  } else {
+    scheduled = await geminiScheduleDay(env, dateStr, fixedItems, smartItems);
+    _log.push(`[gemini] API scheduled ${scheduled.length}/${smartItems.length} items`);
+    await env.KV.put(cacheKey, JSON.stringify(scheduled), { expirationTtl: 3600 });
+  }
+
+  // Apply Gemini-assigned times to DB
+  const applyStmts: any[] = [];
+  const scheduledIds = new Set(scheduled.map(r => r.id));
+  for (const r of scheduled) {
+    applyStmts.push(
+      env.DB.prepare(`UPDATE Itineraries SET start_time = ?, end_time = ?, sync_conflict_warning = null WHERE id = ? AND trip_id = ?`)
+        .bind(r.start_time, r.end_time, r.id, tripId)
+    );
+  }
+  for (const item of smartItems) {
+    if (!scheduledIds.has(item.id)) {
+      applyStmts.push(
+        env.DB.prepare(`UPDATE Itineraries SET start_time = '', end_time = '', sync_conflict_warning = ? WHERE id = ?`)
+          .bind('⚠️ 無法插入，AI 未安排時間', item.id)
+      );
+    }
+  }
+  if (applyStmts.length > 0) await env.DB.batch(applyStmts);
+
+  // Re-fetch with updated times, then compute transport times between consecutive items
+  const { results: updatedItems } = await env.DB.prepare(
+    `SELECT * FROM Itineraries WHERE trip_id = ? AND date = ?`
+  ).bind(tripId, dateStr).all();
+
+  const sortedAll = (updatedItems as any[])
+    .filter(i => i.start_time && i.start_time !== '')
+    .sort((a: any, b: any) => timeToMins(a.start_time) - timeToMins(b.start_time));
+
+  const transportStmts: any[] = [];
+  const transportMetaStmts: any[] = [];
+  const TRANSPORT_CATS_LOCAL = new Set(['FLIGHT', 'TRAIN', 'FERRY', 'BUS', 'PRIVATE_TRANSFER', 'RENTAL', 'TRANSPORTATION']);
+
+  for (let i = 0; i < sortedAll.length - 1; i++) {
+    const curr = sortedAll[i];
+    const next = sortedAll[i + 1];
+    if (curr.next_transport_time !== 'auto') continue;
+
+    const isTransport = TRANSPORT_CATS_LOCAL.has((curr.category || curr.type || '').toUpperCase());
+    const fromLat: number | null = (isTransport && curr.arrival_lat != null) ? curr.arrival_lat : (curr.lat ?? null);
+    const fromLng: number | null = (isTransport && curr.arrival_lng != null) ? curr.arrival_lng : (curr.lng ?? null);
+
+    const fakeGap: GapSlot = {
+      start: 0, end: 24 * 60,
+      cursor: timeToMins(curr.end_time || curr.start_time),
+      lastLat: fromLat, lastLng: fromLng,
+      lastItem: curr, nextItem: next,
+    };
+
+    try {
+      await calcTravelMins(fakeGap, next, transportStmts, transportMetaStmts, env);
+    } catch {
+      _log.push(`[transport-skip] ${curr.title} → ${next.title}: no coords/mode`);
+    }
+  }
+
+  if (transportStmts.length > 0) await env.DB.batch(transportStmts);
+  if (transportMetaStmts.length > 0) await env.DB.batch(transportMetaStmts).catch(() => {});
+
+  // Sub-item scheduling (same as optimizeDailyItinerary)
+  const subStatements: any[] = [];
+  for (const parent of sortedAll) {
+    const { results: updatedRows } = await env.DB.prepare(
+      'SELECT start_time, end_time, lat, lng FROM Itineraries WHERE id = ?'
+    ).bind(parent.id).all();
+    const updated = (updatedRows as any[])[0];
+    if (!updated?.start_time) continue;
+
+    const { results: subs } = await env.DB.prepare(
+      'SELECT * FROM SubItemItineraries WHERE itinerary_id = ? AND duration > 0 ORDER BY display_order, id'
+    ).bind(parent.id).all();
+    if ((subs as any[]).length === 0) continue;
+
+    const sorted = sortByNearestNeighbor(
+      (subs as any[]).filter((s: any) => s.lat && s.lng),
+      updated.lat ?? null,
+      updated.lng ?? null,
+    ).concat((subs as any[]).filter((s: any) => !s.lat || !s.lng));
+
+    let cursor = timeToMins(updated.start_time as string);
+    const parentEnd = timeToMins(updated.end_time as string);
+
+    for (let si = 0; si < sorted.length; si++) {
+      const sub = sorted[si];
+      const nextSub = sorted[si + 1];
+      const dur = parseInt(String(sub.duration || '0')) || 0;
+      const st = minsToTime(cursor);
+      const et = minsToTime(Math.min(cursor + dur, parentEnd));
+
+      let walkMins = 0;
+      let saveWalk = false;
+      if (sub.next_walk_mins) {
+        walkMins = parseInt(String(sub.next_walk_mins));
+      } else if (nextSub) {
+        const result = await calcSubWalkMins(sub, nextSub, env);
+        walkMins = result.mins;
+        saveWalk = result.fromGmaps;
+      }
+
+      cursor += dur + walkMins;
+      subStatements.push(
+        env.DB.prepare('UPDATE SubItemItineraries SET start_time = ?, end_time = ? WHERE id = ?')
+          .bind(st, et, sub.id)
+      );
+      if (saveWalk) {
+        subStatements.push(
+          env.DB.prepare('UPDATE SubItemItineraries SET next_walk_mins = ? WHERE id = ?')
+            .bind(walkMins, sub.id)
         );
       }
     }

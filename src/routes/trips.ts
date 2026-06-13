@@ -3,7 +3,7 @@ import { Env } from '../worker';
 import { checkTripAccess } from '../utils/workerUtils';
 import { getWeatherForDate } from '../utils/weather';
 import { syncPlaceDetails } from '../utils/places';
-import { optimizeDailyItinerary } from '../utils/optimizer';
+import { optimizeDailyItinerary, geminiOptimizeDay } from '../utils/optimizer';
 import { searchUnsplash } from '../utils/unsplash';
 import { checkUserQuota, incrementUserQuota, getUserQuotaStatus } from '../utils/userQuota';
 
@@ -750,7 +750,18 @@ trips.post('/:id/optimize', async (c) => {
     for (let d = new Date(start); d <= end; d.setDate(d.getDate() + 1)) {
       const dateStr = d.toISOString().split('T')[0];
       if (dateStr < todayStr) { optimizeLog.push(`[skip] ${dateStr} is in the past`); continue; }
-      const dayLogs = await optimizeDailyItinerary(c.env, Number(tripId), dateStr);
+      let dayLogs: string[];
+      if (c.env.GEMINI_API_KEY) {
+        try {
+          dayLogs = await geminiOptimizeDay(c.env, Number(tripId), dateStr);
+        } catch (e: any) {
+          const errMsg = e?.message || 'Unknown';
+          optimizeLog.push(`[gemini-fallback] ${dateStr}: ${errMsg}`);
+          dayLogs = await optimizeDailyItinerary(c.env, Number(tripId), dateStr);
+        }
+      } else {
+        dayLogs = await optimizeDailyItinerary(c.env, Number(tripId), dateStr);
+      }
       optimizeLog.push(...dayLogs);
     }
 
