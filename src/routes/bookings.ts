@@ -11,23 +11,30 @@ async function insertItinerary(db: any, tripId: string, item: {
   lat?: number | null; lng?: number | null;
   arrival_lat?: number | null; arrival_lng?: number | null;
 }, transportMode = '', transportTime = '') {
-  await db.prepare(`
+  const result = await db.prepare(`
     INSERT INTO Itineraries (
       trip_id, city_id, date, start_time, end_time, title, address,
       image_url, notes, tags, icon, sub_items, type, related_id,
       is_time_fixed, stay_duration, next_transport_mode, next_transport_time,
-      next_transport_auto_time, lat, lng, arrival_lat, arrival_lng, google_place_id, rating,
+      next_transport_auto_time, lat, lng, google_place_id, rating,
       reviews_count, opening_hours, place_website, place_phone
-    ) VALUES (?, NULL, ?, ?, ?, ?, ?, ?, ?, '[]', ?, '[]', ?, ?, 1, '0', ?, ?, '0', ?, ?, ?, ?, ?, NULL, NULL, NULL, NULL, NULL)
+    ) VALUES (?, NULL, ?, ?, ?, ?, ?, ?, ?, '[]', ?, '[]', ?, ?, 1, '0', ?, ?, '0', ?, ?, ?, NULL, NULL, NULL, NULL, NULL)
   `).bind(
     tripId, item.date, item.start_time, item.end_time,
     item.title, item.address, item.image_url, item.notes,
     item.icon, item.type, item.related_id,
     transportMode, transportTime,
     item.lat ?? null, item.lng ?? null,
-    item.arrival_lat ?? null, item.arrival_lng ?? null,
     item.google_place_id || ''
   ).run();
+
+  // arrival_lat/arrival_lng are in a separate migration — update gracefully if columns exist
+  if (item.arrival_lat != null || item.arrival_lng != null) {
+    try {
+      await db.prepare(`UPDATE Itineraries SET arrival_lat = ?, arrival_lng = ? WHERE id = ?`)
+        .bind(item.arrival_lat ?? null, item.arrival_lng ?? null, result.meta.last_row_id).run();
+    } catch {}
+  }
 }
 
 // ── Helper: get most common next_transport_mode for this trip ────────────────
