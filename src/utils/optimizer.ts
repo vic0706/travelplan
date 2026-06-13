@@ -308,7 +308,14 @@ async function placeInGap(
     travelMins = await calcTravelMins(gap, item, statements, metaStatements, env);
   } catch (e) {
     if (e instanceof MissingTransportError) {
-      travelMins = 0; // no transport info → assume immediate adjacency
+      // If items are geographically far apart (≥150km), estimate with DRIVING haversine
+      // to prevent placing an item that requires a flight/long trip with 0 travel time.
+      const dist = (gap.lastLat && gap.lastLng && item.lat && item.lng)
+        ? (getDistanceKm(gap.lastLat, gap.lastLng, item.lat, item.lng) ?? 0)
+        : 0;
+      travelMins = dist >= 150
+        ? Math.ceil(dist * ROAD_CIRCUITY * HEURISTIC_SPEED.DRIVING.speed) + HEURISTIC_SPEED.DRIVING.buffer
+        : 0;
     } else {
       throw e;
     }
