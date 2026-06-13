@@ -474,7 +474,7 @@ export async function optimizeDailyItinerary(env: any, tripId: number, dateStr: 
   let prevLat:  number | null = null;
   let prevLng:  number | null = null;
   let prevBlock: any | null   = null;
-  const TRANSPORT_CATS = new Set(['FLIGHT','TRAIN','FERRY','BUS','PRIVATE_TRANSFER','RENTAL']);
+  const TRANSPORT_CATS = new Set(['FLIGHT','TRAIN','FERRY','BUS','PRIVATE_TRANSFER','RENTAL','TRANSPORTATION']);
 
   for (let bi = 0; bi < fixedItems.length; bi++) {
     const block = fixedItems[bi];
