@@ -143,6 +143,9 @@ export function BookingForm({ initialData, onSubmit, onCancel, onDelete, loading
   const [dailyReturnStay, setDailyReturnStay] = useState<number>(initialDetails.daily_return_stay ?? 30);
   const [dailyDepartTime, setDailyDepartTime] = useState<string>(initialDetails.daily_start_time || '09:00');
   const [dailyReturnTime, setDailyReturnTime] = useState<string>(initialDetails.daily_end_time   || '22:00');
+  const [dailyTimes, setDailyTimes] = useState<Record<string, { out?: string; return?: string }>>(
+    initialDetails.daily_times || {}
+  );
 
   // Transport specific
   const [depBuffer,    setDepBuffer]    = useState<number>(initialDetails.dep_buffer  ?? 60);
@@ -211,6 +214,7 @@ export function BookingForm({ initialData, onSubmit, onCancel, onDelete, loading
         daily_end_time:   dailyReturnTime,
         daily_depart_stay: dailyDepartStay,
         daily_return_stay: dailyReturnStay,
+        daily_times: Object.keys(dailyTimes).length > 0 ? dailyTimes : undefined,
       };
     }
     if (['FLIGHT','TRAIN','FERRY','BUS'].includes(cat)) {
@@ -258,6 +262,17 @@ export function BookingForm({ initialData, onSubmit, onCancel, onDelete, loading
   const isHotel = formData.category === 'HOTEL';
   // Hide city for transport and hotel categories (hotel uses address search instead)
   const showCity = !isTransport && !isHotel && !formData.start_location;
+
+  // Middle dates for per-day hotel time customization (excludes check-in and check-out days)
+  const middleHotelDates = useMemo(() => {
+    if (!isHotel || !formData.start_date || !formData.end_date) return [];
+    const result: string[] = [];
+    const endDate = new Date(formData.end_date + 'T00:00:00Z');
+    for (let d = new Date(formData.start_date + 'T00:00:00Z'); d <= endDate; d.setUTCDate(d.getUTCDate() + 1)) {
+      result.push(d.toISOString().split('T')[0]);
+    }
+    return result.slice(1, result.length - 1);
+  }, [isHotel, formData.start_date, formData.end_date]);
 
   const calcFlightDuration = useMemo(() => {
     if (!formData.start_time || !formData.end_time) return null;
@@ -612,6 +627,46 @@ export function BookingForm({ initialData, onSubmit, onCancel, onDelete, loading
               </div>
             </div>
           </div>
+
+          {/* 每日自訂出門／返回時間 — 中間日期（非入住/退房日） */}
+          {middleHotelDates.length > 0 && (
+            <div className="space-y-2 border-t border-zinc-800 pt-3">
+              <p className="text-[10px] font-bold text-zinc-500 uppercase tracking-wider">每日自訂時間</p>
+              {middleHotelDates.map((date, idx) => {
+                const perDay = dailyTimes[date] || {};
+                const outVal = perDay.out    ?? dailyDepartTime;
+                const retVal = perDay.return ?? dailyReturnTime;
+                return (
+                  <div key={date} className="flex items-center gap-2">
+                    <span className="text-[10px] font-black text-zinc-500 shrink-0 w-10">
+                      Day {idx + 2}
+                    </span>
+                    <span className="text-[10px] text-zinc-600 shrink-0 w-9">
+                      {format(parseISO(date), 'M/d')}
+                    </span>
+                    <div className="flex-1 grid grid-cols-2 gap-1.5">
+                      <div className="flex items-center bg-zinc-900 border border-zinc-800 rounded-lg px-2 py-1.5 gap-1 focus-within:border-orange-500 transition-colors">
+                        <span className="text-[8px] text-zinc-500 shrink-0">出門</span>
+                        <input type="time" value={outVal}
+                          onChange={e => setDailyTimes(prev => ({
+                            ...prev, [date]: { ...prev[date], out: e.target.value }
+                          }))}
+                          className="flex-1 bg-transparent text-white font-mono text-xs outline-none [color-scheme:dark]" />
+                      </div>
+                      <div className="flex items-center bg-zinc-900 border border-zinc-800 rounded-lg px-2 py-1.5 gap-1 focus-within:border-orange-500 transition-colors">
+                        <span className="text-[8px] text-zinc-500 shrink-0">返回</span>
+                        <input type="time" value={retVal}
+                          onChange={e => setDailyTimes(prev => ({
+                            ...prev, [date]: { ...prev[date], return: e.target.value }
+                          }))}
+                          className="flex-1 bg-transparent text-white font-mono text-xs outline-none [color-scheme:dark]" />
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
         </div>
       )}
 
