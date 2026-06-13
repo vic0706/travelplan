@@ -721,17 +721,15 @@ trips.post('/:id/optimize', async (c) => {
     if (tripInfo.length === 0) return c.json({ error: 'Trip not found' }, 404);
     const trip = tripInfo[0] as any;
 
-    // Pre-check: smart items with no transport AND at least one other item on same day
+    // Pre-check: only block 'auto' mode items that have no coordinates
+    // (Google Maps API can't compute routes without lat/lng).
+    // Items with no transport set are handled by haversine fallback in the optimizer.
     const { results: missingRows } = await c.env.DB.prepare(`
       SELECT DISTINCT i1.id, i1.title, i1.date FROM Itineraries i1
       WHERE i1.trip_id = ?
         AND i1.is_time_fixed = 0
-        AND (
-          ((i1.next_transport_mode IS NULL OR i1.next_transport_mode = '')
-           AND (i1.next_transport_time IS NULL OR i1.next_transport_time = ''))
-          OR
-          (i1.next_transport_time = 'auto' AND (i1.lat IS NULL OR i1.lng IS NULL))
-        )
+        AND i1.next_transport_time = 'auto'
+        AND (i1.lat IS NULL OR i1.lng IS NULL)
         AND EXISTS (
           SELECT 1 FROM Itineraries i2
           WHERE i2.trip_id = i1.trip_id AND i2.date = i1.date AND i2.id != i1.id
