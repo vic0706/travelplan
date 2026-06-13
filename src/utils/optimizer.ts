@@ -123,8 +123,8 @@ function getPreferredWindow(item: any, dateStr: string): { start: number; end: n
     return { start: keywordFloor, end: keywordEnd };
   }
 
-  // 3. anytime — default to daytime (9am–6pm) to avoid placing generic spots at night
-  return { start: DAY_START, end: 18 * 60 };
+  // 3. anytime — default to full day window
+  return { start: DAY_START, end: DAY_END };
 }
 
 interface GapSlot {
