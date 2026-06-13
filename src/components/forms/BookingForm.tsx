@@ -263,7 +263,7 @@ export function BookingForm({ initialData, onSubmit, onCancel, onDelete, loading
   // Hide city for transport and hotel categories (hotel uses address search instead)
   const showCity = !isTransport && !isHotel && !formData.start_location;
 
-  // Middle dates for per-day hotel time customization (excludes check-in and check-out days)
+  // All hotel days except checkout day (each day has at least a 返回 card)
   const middleHotelDates = useMemo(() => {
     if (!isHotel || !formData.start_date || !formData.end_date) return [];
     const result: string[] = [];
@@ -271,7 +271,7 @@ export function BookingForm({ initialData, onSubmit, onCancel, onDelete, loading
     for (let d = new Date(formData.start_date + 'T00:00:00Z'); d <= endDate; d.setUTCDate(d.getUTCDate() + 1)) {
       result.push(d.toISOString().split('T')[0]);
     }
-    return result.slice(1, result.length - 1);
+    return result.slice(0, result.length - 1);
   }, [isHotel, formData.start_date, formData.end_date]);
 
   const calcFlightDuration = useMemo(() => {
@@ -639,7 +639,7 @@ export function BookingForm({ initialData, onSubmit, onCancel, onDelete, loading
                 return (
                   <div key={date} className="flex items-center gap-2">
                     <span className="text-[10px] font-black text-zinc-500 shrink-0 w-10">
-                      Day {idx + 2}
+                      Day {idx + 1}
                     </span>
                     <span className="text-[10px] text-zinc-600 shrink-0 w-9">
                       {format(parseISO(date), 'M/d')}
