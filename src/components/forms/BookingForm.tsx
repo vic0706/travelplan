@@ -422,10 +422,8 @@ export function BookingForm({ initialData, onSubmit, onCancel, onDelete, loading
                 value={startLocDisplay}
                 onChange={v => { setStartLocDisplay(v); set('start_location', v); }}
                 onPlaceSelect={place => {
-                  setStartLocDisplay(place.name || place.address || startLocDisplay);
                   setFormData(prev => ({
                     ...prev,
-                    start_location: place.name || place.address || prev.start_location,
                     lat: place.lat ?? prev.lat,
                     lng: place.lng ?? prev.lng,
                   }));
@@ -438,10 +436,8 @@ export function BookingForm({ initialData, onSubmit, onCancel, onDelete, loading
                 value={endLocDisplay}
                 onChange={v => { setEndLocDisplay(v); set('end_location', v); }}
                 onPlaceSelect={place => {
-                  setEndLocDisplay(place.name || place.address || endLocDisplay);
                   setFormData(prev => ({
                     ...prev,
-                    end_location: place.name || place.address || prev.end_location,
                     arrival_lat: place.lat ?? prev.arrival_lat,
                     arrival_lng: place.lng ?? prev.arrival_lng,
                   }));
