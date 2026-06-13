@@ -247,8 +247,9 @@ export function BookingForm({ initialData, onSubmit, onCancel, onDelete, loading
   const isRentalOrTransfer  = ['RENTAL','PRIVATE_TRANSFER'].includes(formData.category);
   const terminalLabel       = getTerminalLabel(formData.category);
 
-  // Hide city for transport categories (location autocomplete is sufficient) or when address is filled
-  const showCity = !isTransport && !formData.start_location;
+  const isHotel = formData.category === 'HOTEL';
+  // Hide city for transport and hotel categories (hotel uses address search instead)
+  const showCity = !isTransport && !isHotel && !formData.start_location;
 
   const calcFlightDuration = useMemo(() => {
     if (!formData.start_time || !formData.end_time) return null;
