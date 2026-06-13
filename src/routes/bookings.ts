@@ -8,20 +8,25 @@ async function insertItinerary(db: any, tripId: string, item: {
   date: string; start_time: string; end_time: string;
   title: string; address: string; image_url: string; notes: string;
   icon: string; type: string; related_id: number; google_place_id?: string;
+  lat?: number | null; lng?: number | null;
+  arrival_lat?: number | null; arrival_lng?: number | null;
 }, transportMode = '', transportTime = '') {
   await db.prepare(`
     INSERT INTO Itineraries (
       trip_id, city_id, date, start_time, end_time, title, address,
       image_url, notes, tags, icon, sub_items, type, related_id,
       is_time_fixed, stay_duration, next_transport_mode, next_transport_time,
-      next_transport_auto_time, lat, lng, google_place_id, rating,
+      next_transport_auto_time, lat, lng, arrival_lat, arrival_lng, google_place_id, rating,
       reviews_count, opening_hours, place_website, place_phone
-    ) VALUES (?, NULL, ?, ?, ?, ?, ?, ?, ?, '[]', ?, '[]', ?, ?, 1, '0', ?, ?, '0', NULL, NULL, ?, NULL, NULL, NULL, NULL, NULL)
+    ) VALUES (?, NULL, ?, ?, ?, ?, ?, ?, ?, '[]', ?, '[]', ?, ?, 1, '0', ?, ?, '0', ?, ?, ?, ?, ?, NULL, NULL, NULL, NULL, NULL)
   `).bind(
     tripId, item.date, item.start_time, item.end_time,
     item.title, item.address, item.image_url, item.notes,
     item.icon, item.type, item.related_id,
-    transportMode, transportTime, item.google_place_id || ''
+    transportMode, transportTime,
+    item.lat ?? null, item.lng ?? null,
+    item.arrival_lat ?? null, item.arrival_lng ?? null,
+    item.google_place_id || ''
   ).run();
 }
 
@@ -114,26 +119,36 @@ async function generateItineraryItems(db: any, tripId: string, bookingId: number
     const checkInAt = b.start_time ? subtractMins(b.start_time, depBuffer) : b.start_time || '';
     const endAt = b.end_time ? addMins(b.end_time, arrStay) : (b.start_time || '');
     const isCrossDay = b.start_date && b.end_date && b.start_date !== b.end_date;
+    // dep_lat/dep_lng = departure location coords (lat/lng on the item)
+    // arr_lat/arr_lng = arrival location coords (stored as arrival_lat/arrival_lng)
+    const depLat = b.lat ?? null;
+    const depLng = b.lng ?? null;
+    const arrLat = b.arrival_lat ?? null;
+    const arrLng = b.arrival_lng ?? null;
     if (isCrossDay) {
-      // 出發卡片（出發日）
+      // 出發卡片（出發日）— use departure coords; no arrival coords needed (trip continues next day)
       await insertItinerary(db, tripId, {
         date: b.start_date, start_time: checkInAt, end_time: '23:59',
         title: `${b.title}（出發）`, address: b.start_location || addr,
         image_url: imageUrl, notes, icon, type: 'TRANSPORTATION', related_id: bookingId,
         google_place_id: b.google_place_id || '',
+        lat: depLat, lng: depLng, arrival_lat: null, arrival_lng: null,
       }, defaultMode, defaultTime);
-      // 抵達卡片（抵達日）
+      // 抵達卡片（抵達日）— use arrival coords for both lat/lng and arrival_lat/arrival_lng
       await insertItinerary(db, tripId, {
         date: b.end_date, start_time: '00:00', end_time: endAt,
         title: `${b.title}（抵達）`, address: b.end_location || addr,
         image_url: imageUrl, notes, icon, type: 'TRANSPORTATION', related_id: bookingId,
         google_place_id: b.google_place_id || '',
+        lat: arrLat, lng: arrLng, arrival_lat: arrLat, arrival_lng: arrLng,
       }, defaultMode, defaultTime);
     } else {
+      // Same-day: departure coords as lat/lng, arrival coords as arrival_lat/arrival_lng
       await insertItinerary(db, tripId, {
         date: b.start_date, start_time: checkInAt, end_time: endAt,
         title: b.title, address: addr, image_url: imageUrl, notes, icon,
         type: 'TRANSPORTATION', related_id: bookingId, google_place_id: b.google_place_id || '',
+        lat: depLat, lng: depLng, arrival_lat: arrLat, arrival_lng: arrLng,
       }, defaultMode, defaultTime);
     }
   }

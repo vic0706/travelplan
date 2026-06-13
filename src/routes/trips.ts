@@ -386,7 +386,7 @@ trips.post('/:id/itineraries', async (c) => {
     const {
       title, date, address = '', start_time = '', end_time = '',
       notes = '', icon = 'MapPin', tags = [], image_url = '',
-      google_place_id = '', lat = null, lng = null,
+      google_place_id = '', lat = null, lng = null, arrival_lat = null, arrival_lng = null,
       rating = null, reviews_count = null, opening_hours = '',
       place_website = '', place_phone = '',
       // Default to AUTO mode — optimizer will pick the fastest transport when smart scheduling runs
@@ -408,16 +408,16 @@ trips.post('/:id/itineraries', async (c) => {
         is_time_fixed, stay_duration,
         next_transport_mode, next_transport_time, next_transport_auto_time,
         next_transport_resolved_mode, next_transport_haversine_time, next_transport_custom_label,
-        lat, lng, google_place_id, rating, reviews_count, opening_hours,
+        lat, lng, arrival_lat, arrival_lng, google_place_id, rating, reviews_count, opening_hours,
         place_website, place_phone
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).bind(
       tripId, city_id, date, start_time, end_time, title, address,
       image_url, notes, JSON.stringify(tags), icon, sub_items, type, related_id,
       is_time_fixed ? 1 : 0, String(stay_duration),
       next_transport_mode, next_transport_time, String(next_transport_auto_time),
       next_transport_resolved_mode, next_transport_haversine_time, next_transport_custom_label,
-      lat, lng, google_place_id, rating, reviews_count, opening_hours,
+      lat, lng, arrival_lat, arrival_lng, google_place_id, rating, reviews_count, opening_hours,
       place_website, place_phone
     ).run();
 
@@ -439,7 +439,7 @@ trips.put('/:id/itineraries/:itineraryId', async (c) => {
     const body = await c.req.json().catch(() => ({}));
     const {
       title, date, address, start_time, end_time, notes, icon, tags,
-      image_url, google_place_id, lat, lng, rating, reviews_count,
+      image_url, google_place_id, lat, lng, arrival_lat, arrival_lng, rating, reviews_count,
       opening_hours, place_website, place_phone, place_status, sync_conflict_warning,
       next_transport_mode, next_transport_time, next_transport_auto_time,
       next_transport_resolved_mode, next_transport_haversine_time, next_transport_custom_label,
@@ -454,7 +454,7 @@ trips.put('/:id/itineraries/:itineraryId', async (c) => {
         is_time_fixed = ?, stay_duration = ?,
         next_transport_mode = ?, next_transport_time = ?, next_transport_auto_time = ?,
         next_transport_resolved_mode = ?, next_transport_haversine_time = ?, next_transport_custom_label = ?,
-        lat = ?, lng = ?, google_place_id = ?, rating = ?, reviews_count = ?,
+        lat = ?, lng = ?, arrival_lat = ?, arrival_lng = ?, google_place_id = ?, rating = ?, reviews_count = ?,
         opening_hours = ?, place_website = ?, place_phone = ?,
         place_status = ?, sync_conflict_warning = ?
       WHERE id = ? AND trip_id = ?
@@ -466,7 +466,7 @@ trips.put('/:id/itineraries/:itineraryId', async (c) => {
       is_time_fixed ? 1 : 0, String(stay_duration ?? '60'),
       next_transport_mode ?? '', next_transport_time ?? '', String(next_transport_auto_time ?? ''),
       next_transport_resolved_mode ?? '', String(next_transport_haversine_time ?? ''), next_transport_custom_label ?? '',
-      lat ?? null, lng ?? null, google_place_id ?? '', rating ?? null, reviews_count ?? null,
+      lat ?? null, lng ?? null, arrival_lat ?? null, arrival_lng ?? null, google_place_id ?? '', rating ?? null, reviews_count ?? null,
       opening_hours ?? '', place_website ?? '', place_phone ?? '',
       place_status ?? null, sync_conflict_warning ?? null,
       itineraryId, tripId

@@ -134,6 +134,7 @@ interface GapSlot {
   lastLat:  number | null;
   lastLng:  number | null;
   lastItem: any | null;
+  nextItem: any | null;
 }
 
 class MissingTransportError extends Error {
@@ -303,15 +304,25 @@ async function placeInGap(
   metaStatements: any[],
   env: any
 ): Promise<boolean> {
+  // Track statement indices so we can rollback if the item doesn't fit
+  const stmtsBefore = statements.length;
+  const metaBefore  = metaStatements.length;
+
   let travelMins: number;
   try {
     travelMins = await calcTravelMins(gap, item, statements, metaStatements, env);
   } catch (e) {
     if (e instanceof MissingTransportError) {
-      // If items are geographically far apart (≥150km), estimate with DRIVING haversine
-      // to prevent placing an item that requires a flight/long trip with 0 travel time.
-      const dist = (gap.lastLat && gap.lastLng && item.lat && item.lng)
-        ? (getDistanceKm(gap.lastLat, gap.lastLng, item.lat, item.lng) ?? 0)
+      // Use gap anchor coords; if null, fall back to the next fixed item's departure coords.
+      // This handles checkpoints (e.g. 住家) with no stored lat/lng.
+      let refLat = gap.lastLat;
+      let refLng = gap.lastLng;
+      if ((refLat == null || refLng == null) && gap.nextItem?.lat && gap.nextItem?.lng) {
+        refLat = gap.nextItem.lat;
+        refLng = gap.nextItem.lng;
+      }
+      const dist = (refLat != null && refLng != null && item.lat && item.lng)
+        ? (getDistanceKm(refLat, refLng, item.lat, item.lng) ?? 0)
         : 0;
       travelMins = dist >= 150
         ? Math.ceil(dist * ROAD_CIRCUITY * HEURISTIC_SPEED.DRIVING.speed) + HEURISTIC_SPEED.DRIVING.buffer
@@ -336,6 +347,10 @@ async function placeInGap(
     _log.push(placeMsg); console.log(placeMsg);
     return true;
   }
+
+  // Item doesn't fit — roll back any transport-time statements added by calcTravelMins
+  statements.splice(stmtsBefore);
+  metaStatements.splice(metaBefore);
   const skipMsg = `[skip] ${item.title}: window=${minsToTime(windowStart)}~${minsToTime(windowEnd)}, need start=${minsToTime(gap.cursor + travelMins)}, end=${minsToTime(gap.cursor + travelMins + stayDuration)}, gap_end=${minsToTime(gap.end)}`;
   _log.push(skipMsg); console.log(skipMsg);
   return false;
@@ -432,6 +447,11 @@ export async function optimizeDailyItinerary(env: any, tripId: number, dateStr: 
 
   for (const item of fixedItems) {
     statements.push(env.DB.prepare(`UPDATE Itineraries SET sync_conflict_warning = null WHERE id = ?`).bind(item.id));
+    // Clear stale auto-computed transport times so outdated values (e.g., 38h to Korea)
+    // don't persist after the item's gap neighbours change.
+    if (item.next_transport_time === 'auto') {
+      statements.push(env.DB.prepare(`UPDATE Itineraries SET next_transport_auto_time = '' WHERE id = ?`).bind(item.id));
+    }
   }
 
   _log.push(`[date] ${dateStr}: ${fixedItems.length} fixed, ${smartItems.length} smart`);
@@ -446,24 +466,39 @@ export async function optimizeDailyItinerary(env: any, tripId: number, dateStr: 
   // Build free time gaps between fixed items.
   // lastItem is set to the preceding fixed block so calcTravelMins can measure
   // travel from a fixed activity to the first smart activity placed in the gap.
+  // For transport items (flights, trains) that have arrival_lat/arrival_lng, use the arrival
+  // coords as the anchor for the gap that follows, so Korean items placed after a flight
+  // are checked against the arrival airport, not the departure airport.
   const gaps: GapSlot[] = [];
   let prevEnd   = DAY_START;
   let prevLat:  number | null = null;
   let prevLng:  number | null = null;
   let prevBlock: any | null   = null;
+  const TRANSPORT_CATS = new Set(['FLIGHT','TRAIN','FERRY','BUS','PRIVATE_TRANSFER','RENTAL']);
 
-  for (const block of fixedItems) {
+  for (let bi = 0; bi < fixedItems.length; bi++) {
+    const block = fixedItems[bi];
     const blockStart = timeToMins(block.start_time);
     if (blockStart > prevEnd) {
-      gaps.push({ start: prevEnd, end: blockStart, cursor: prevEnd, lastLat: prevLat, lastLng: prevLng, lastItem: prevBlock });
+      gaps.push({ start: prevEnd, end: blockStart, cursor: prevEnd,
+                  lastLat: prevLat, lastLng: prevLng, lastItem: prevBlock,
+                  nextItem: block });
     }
-    prevEnd   = timeToMins(block.end_time || block.start_time); // guard against missing end_time
-    prevLat   = block.lat;
-    prevLng   = block.lng;
+    prevEnd = timeToMins(block.end_time || block.start_time);
+    const isTransport = TRANSPORT_CATS.has((block.category || block.type || '').toUpperCase());
+    if (isTransport && block.arrival_lat != null && block.arrival_lng != null) {
+      prevLat = block.arrival_lat;
+      prevLng = block.arrival_lng;
+    } else {
+      prevLat = block.lat;
+      prevLng = block.lng;
+    }
     prevBlock = block;
   }
   if (prevEnd < DAY_END) {
-    gaps.push({ start: prevEnd, end: DAY_END, cursor: prevEnd, lastLat: prevLat, lastLng: prevLng, lastItem: prevBlock });
+    gaps.push({ start: prevEnd, end: DAY_END, cursor: prevEnd,
+                lastLat: prevLat, lastLng: prevLng, lastItem: prevBlock,
+                nextItem: null });
   }
 
   if (gaps.length === 0) {
@@ -538,6 +573,28 @@ export async function optimizeDailyItinerary(env: any, tripId: number, dateStr: 
       env.DB.prepare(`UPDATE Itineraries SET start_time = '', end_time = '', sync_conflict_warning = ? WHERE id = ?`)
         .bind('⚠️ 無法插入，可用時間不足', item.id)
     );
+  }
+
+  // Fixed→fixed transport time pass: compute travel time between consecutive fixed items.
+  // This fills in 住家→OZ712 (home→airport) and similar fixed-item transport display values.
+  // Only runs when the preceding fixed item has coords AND the following fixed item has coords.
+  for (let fi = 0; fi < fixedItems.length - 1; fi++) {
+    const curr = fixedItems[fi];
+    const next = fixedItems[fi + 1];
+    if (curr.next_transport_time !== 'auto') continue;
+    if (!curr.lat || !curr.lng) continue;
+    // Destination: next fixed item's departure coords (lat/lng)
+    if (!next.lat || !next.lng) continue;
+    // Only compute if there are NO smart items placed between them in that gap
+    // (if a smart item is between them, calcTravelMins already set the auto_time)
+    const gapForCurr = gaps.find(g => g.lastItem?.id === curr.id);
+    const smartPlacedInGap = gapForCurr && gapForCurr.lastItem?.id !== curr.id;
+    if (smartPlacedInGap) continue;
+    const fakeGap: GapSlot = { start: 0, end: 0, cursor: 0,
+      lastLat: curr.lat, lastLng: curr.lng, lastItem: curr, nextItem: next };
+    try {
+      await calcTravelMins(fakeGap, next, statements, metaStatements, env);
+    } catch { /* skip if calculation fails */ }
   }
 
   // Gap post-pass: calculate travel from the last smart item in each gap to the

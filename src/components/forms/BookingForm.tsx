@@ -72,6 +72,10 @@ interface BookingFormData {
   image_url: string;
   details: any;
   google_place_id?: string;
+  lat?: number | null;
+  lng?: number | null;
+  arrival_lat?: number | null;
+  arrival_lng?: number | null;
 }
 
 interface BookingFormProps {
@@ -126,6 +130,10 @@ export function BookingForm({ initialData, onSubmit, onCancel, onDelete, loading
     image_url: initialData?.image_url || '',
     details: initialDetails,
     google_place_id: initialData?.google_place_id || '',
+    lat: initialData?.lat ?? null,
+    lng: initialData?.lng ?? null,
+    arrival_lat: initialData?.arrival_lat ?? null,
+    arrival_lng: initialData?.arrival_lng ?? null,
   });
 
   // Hotel specific
@@ -409,18 +417,38 @@ export function BookingForm({ initialData, onSubmit, onCancel, onDelete, loading
         <div className="grid grid-cols-2 gap-3">
           {formData.category === 'FLIGHT' ? (
             <>
-              <div>
-                <label className="block text-[10px] font-bold text-zinc-400 uppercase tracking-wider mb-2">出發地</label>
-                <input type="text" value={formData.start_location} onChange={e => set('start_location', e.target.value)}
-                  className="w-full bg-zinc-900 border border-zinc-800 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-orange-500 transition-colors text-sm"
-                  placeholder="TPE" />
-              </div>
-              <div>
-                <label className="block text-[10px] font-bold text-zinc-400 uppercase tracking-wider mb-2">目的地</label>
-                <input type="text" value={formData.end_location} onChange={e => set('end_location', e.target.value)}
-                  className="w-full bg-zinc-900 border border-zinc-800 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-orange-500 transition-colors text-sm"
-                  placeholder="NRT" />
-              </div>
+              <AddressSearchInput
+                label="出發機場"
+                value={startLocDisplay}
+                onChange={v => { setStartLocDisplay(v); set('start_location', v); }}
+                onPlaceSelect={place => {
+                  setStartLocDisplay(place.name || place.address || startLocDisplay);
+                  setFormData(prev => ({
+                    ...prev,
+                    start_location: place.name || place.address || prev.start_location,
+                    lat: place.lat ?? prev.lat,
+                    lng: place.lng ?? prev.lng,
+                  }));
+                }}
+                placeholder="搜尋出發機場..."
+                showNameOnSelect
+              />
+              <AddressSearchInput
+                label="抵達機場"
+                value={endLocDisplay}
+                onChange={v => { setEndLocDisplay(v); set('end_location', v); }}
+                onPlaceSelect={place => {
+                  setEndLocDisplay(place.name || place.address || endLocDisplay);
+                  setFormData(prev => ({
+                    ...prev,
+                    end_location: place.name || place.address || prev.end_location,
+                    arrival_lat: place.lat ?? prev.arrival_lat,
+                    arrival_lng: place.lng ?? prev.arrival_lng,
+                  }));
+                }}
+                placeholder="搜尋抵達機場..."
+                showNameOnSelect
+              />
             </>
           ) : (
             <>
