@@ -745,6 +745,8 @@ trips.post('/:id/optimize', async (c) => {
 
     const todayStr = new Date().toISOString().split('T')[0];
     const optimizeLog: string[] = [];
+    let geminiDaysUsed = 0;
+    const geminiErrors: string[] = [];
     const start = new Date(trip.start_date);
     const end = new Date(trip.end_date);
     for (let d = new Date(start); d <= end; d.setDate(d.getDate() + 1)) {
@@ -754,9 +756,11 @@ trips.post('/:id/optimize', async (c) => {
       if (c.env.GEMINI_API_KEY) {
         try {
           dayLogs = await geminiOptimizeDay(c.env, Number(tripId), dateStr);
+          geminiDaysUsed++;
         } catch (e: any) {
           const errMsg = e?.message || 'Unknown';
           optimizeLog.push(`[gemini-fallback] ${dateStr}: ${errMsg}`);
+          geminiErrors.push(`${dateStr}: ${errMsg}`);
           dayLogs = await optimizeDailyItinerary(c.env, Number(tripId), dateStr);
         }
       } else {
@@ -806,7 +810,7 @@ trips.post('/:id/optimize', async (c) => {
     }
 
     optimizeLog.forEach(l => console.log('[optimize]', l));
-    return c.json({ success: true, message: 'Itinerary Optimized', unplacedCount, conflictCount, missingTransportDates, log: optimizeLog });
+    return c.json({ success: true, message: 'Itinerary Optimized', unplacedCount, conflictCount, missingTransportDates, log: optimizeLog, geminiDaysUsed, geminiErrors });
   } catch (error: any) {
     return c.json({ error: error.message }, 500);
   }
