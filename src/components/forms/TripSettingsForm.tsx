@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { Loader2, CloudSun, MapPin, Wand2, Trash2, AlertTriangle, ChevronDown, ChevronUp, RotateCcw } from 'lucide-react';
+import { Loader2, CloudSun, MapPin, Wand2, Sparkles, Trash2, AlertTriangle, ChevronDown, ChevronUp, RotateCcw } from 'lucide-react';
 import { TripBaseForm, TripFormData } from './TripBaseForm';
 import { apiFetch } from '../../utils/api';
 import { Trip } from '../../types';
@@ -36,7 +36,7 @@ export function TripSettingsForm({ trip, onUpdate, onDelete, onClose, showToast 
   const [loading, setLoading] = useState(false);
   const [isWeatherUpdating, setIsWeatherUpdating] = useState(false);
   const [isPlacesUpdating, setIsPlacesUpdating] = useState(false);
-  const [isOptimizing, setIsOptimizing] = useState(false);
+  const [optimizingMode, setOptimizingMode] = useState<'rule' | 'ai' | null>(null);
   const [isDeleteConfirmOpen, setIsDeleteConfirmOpen] = useState(false);
 
   const [quota, setQuota] = useState<QuotaState | null>(null);
@@ -198,10 +198,14 @@ export function TripSettingsForm({ trip, onUpdate, onDelete, onClose, showToast 
     } finally { setIsPlacesUpdating(false); }
   };
 
-  const handleOptimize = async () => {
-    setIsOptimizing(true);
+  const handleOptimize = async (mode: 'rule' | 'ai') => {
+    setOptimizingMode(mode);
     try {
-      const res = await apiFetch(`/api/trips/${trip.id}/optimize`, { method: 'POST' });
+      const res = await apiFetch(`/api/trips/${trip.id}/optimize`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ mode }),
+      });
       if (res.ok) {
         const data = await res.json() as any;
         onUpdate();
@@ -209,9 +213,7 @@ export function TripSettingsForm({ trip, onUpdate, onDelete, onClose, showToast 
         if (data.geminiErrors?.length > 0) console.warn('[Gemini fallback]', data.geminiErrors);
         const aiTag = data.geminiDaysUsed > 0
           ? ` (Gemini AI ✓ ${data.geminiDaysUsed} 天)`
-          : data.geminiErrors?.length > 0
-            ? ' (Gemini 失敗，改用規則排序)'
-            : '';
+          : '';
         if (data.unplacedCount > 0) {
           showToast?.(`排序失敗：有 ${data.unplacedCount} 個行程無法排入時間內`, 'error');
         } else if (data.conflictCount > 0) {
@@ -232,7 +234,7 @@ export function TripSettingsForm({ trip, onUpdate, onDelete, onClose, showToast 
           showToast?.('景點排序失敗', 'error');
         }
       }
-    } finally { setIsOptimizing(false); }
+    } finally { setOptimizingMode(null); }
   };
 
   const getQuotaLabel = (action: 'weather' | 'places' | 'optimize') => {
@@ -317,11 +319,37 @@ export function TripSettingsForm({ trip, onUpdate, onDelete, onClose, showToast 
               </div>
             </button>
 
-            {/* 智能景點排序 */}
+            {/* 規則排序 */}
             <button
               type="button"
-              disabled={!isMember || isOptimizing || loading || isQuotaExhausted('optimize')}
-              onClick={handleOptimize}
+              disabled={!isMember || optimizingMode !== null || loading || isQuotaExhausted('optimize')}
+              onClick={() => handleOptimize('rule')}
+              className={clsx(
+                'flex flex-col items-center gap-1.5 px-2 py-3 rounded-2xl border transition-all',
+                isMember && !isQuotaExhausted('optimize')
+                  ? 'text-blue-400 hover:bg-blue-500/10 border-blue-500/20 active:scale-95'
+                  : 'text-zinc-600 border-zinc-800 opacity-40 cursor-not-allowed'
+              )}
+            >
+              {optimizingMode === 'rule'
+                ? <Loader2 size={18} className="animate-spin shrink-0" />
+                : <Wand2 size={18} className="shrink-0" />}
+              <div className="text-center leading-none">
+                <div className="text-[10px] font-black tracking-wide">規則排序</div>
+                <div className={clsx('text-[8px] mt-0.5', isQuotaExhausted('optimize') ? 'text-red-500/70' : 'text-blue-400/60')}>
+                  {!isMember ? '需為成員' : isQuotaExhausted('optimize') ? '今日已達上限' : '快速穩定'}
+                </div>
+                {isMember && !quota?.isAdmin && (
+                  <div className="text-[8px] text-zinc-600 mt-0.5">{getQuotaLabel('optimize')}</div>
+                )}
+              </div>
+            </button>
+
+            {/* AI 排序 */}
+            <button
+              type="button"
+              disabled={!isMember || optimizingMode !== null || loading || isQuotaExhausted('optimize')}
+              onClick={() => handleOptimize('ai')}
               className={clsx(
                 'flex flex-col items-center gap-1.5 px-2 py-3 rounded-2xl border transition-all',
                 isMember && !isQuotaExhausted('optimize')
@@ -329,13 +357,13 @@ export function TripSettingsForm({ trip, onUpdate, onDelete, onClose, showToast 
                   : 'text-zinc-600 border-zinc-800 opacity-40 cursor-not-allowed'
               )}
             >
-              {isOptimizing
+              {optimizingMode === 'ai'
                 ? <Loader2 size={18} className="animate-spin shrink-0" />
-                : <Wand2 size={18} className="shrink-0" />}
+                : <Sparkles size={18} className="shrink-0" />}
               <div className="text-center leading-none">
-                <div className="text-[10px] font-black tracking-wide">智能排序 💰</div>
+                <div className="text-[10px] font-black tracking-wide">AI 排序 💰</div>
                 <div className={clsx('text-[8px] mt-0.5', isQuotaExhausted('optimize') ? 'text-red-500/70' : 'text-orange-500/50')}>
-                  {!isMember ? '需為成員' : isQuotaExhausted('optimize') ? '今日已達上限' : '每次重新執行'}
+                  {!isMember ? '需為成員' : isQuotaExhausted('optimize') ? '今日已達上限' : 'Gemini AI'}
                 </div>
                 {isMember && !quota?.isAdmin && (
                   <div className="text-[8px] text-zinc-600 mt-0.5">{getQuotaLabel('optimize')}</div>

@@ -677,11 +677,18 @@ trips.post('/:id/update-places', async (c) => {
       if (!ok) return c.json({ error: 'QUOTA_EXCEEDED', remaining: 0 }, 429);
     }
 
-    // 1-hour KV cache check
+    // 1-hour KV cache check — bypass if new places were added since last sync
     const cacheKey = `update_cache:${tripId}:places`;
-    const cached = await c.env.KV.get(cacheKey);
-    if (cached !== null) {
-      return c.json({ cached: true, message: '1小時內已是最新，無需重新更新' });
+    const cachedVal = await c.env.KV.get(cacheKey);
+    if (cachedVal !== null) {
+      const { results: countRows } = await c.env.DB.prepare(
+        `SELECT COUNT(*) as cnt FROM Itineraries WHERE trip_id = ? AND google_place_id IS NOT NULL`
+      ).bind(tripId).all();
+      const currentCount = (countRows[0] as any)?.cnt ?? 0;
+      if (currentCount <= parseInt(cachedVal, 10)) {
+        return c.json({ cached: true, message: '1小時內已是最新，無需重新更新' });
+      }
+      // New places detected — bypass cache and re-sync
     }
 
     await syncPlaceDetails(c.env, Number(tripId));
@@ -691,8 +698,12 @@ trips.post('/:id/update-places', async (c) => {
       await incrementUserQuota(c.env, user.id, 'places');
     }
 
-    // Set 1-hour cache
-    await c.env.KV.put(cacheKey, '1', { expirationTtl: 3600 });
+    // Store current place count so new additions can bypass the cache
+    const { results: finalCountRows } = await c.env.DB.prepare(
+      `SELECT COUNT(*) as cnt FROM Itineraries WHERE trip_id = ? AND google_place_id IS NOT NULL`
+    ).bind(tripId).all();
+    const placeCount = (finalCountRows[0] as any)?.cnt ?? 0;
+    await c.env.KV.put(cacheKey, String(placeCount), { expirationTtl: 3600 });
 
     return c.json({ success: true, message: '景點資訊已更新', cached: false });
   } catch (error: any) {
@@ -743,6 +754,9 @@ trips.post('/:id/optimize', async (c) => {
       return c.json({ success: false, error: 'MISSING_TRANSPORT', items }, 422);
     }
 
+    const body = await c.req.json().catch(() => ({})) as any;
+    const mode: 'auto' | 'rule' | 'ai' = body.mode ?? 'auto';
+
     const todayStr = new Date().toISOString().split('T')[0];
     const optimizeLog: string[] = [];
     let geminiDaysUsed = 0;
@@ -753,18 +767,27 @@ trips.post('/:id/optimize', async (c) => {
       const dateStr = d.toISOString().split('T')[0];
       if (dateStr < todayStr) { optimizeLog.push(`[skip] ${dateStr} is in the past`); continue; }
       let dayLogs: string[];
-      if (c.env.GEMINI_API_KEY) {
-        try {
-          dayLogs = await geminiOptimizeDay(c.env, Number(tripId), dateStr);
-          geminiDaysUsed++;
-        } catch (e: any) {
-          const errMsg = e?.message || 'Unknown';
-          optimizeLog.push(`[gemini-fallback] ${dateStr}: ${errMsg}`);
-          geminiErrors.push(`${dateStr}: ${errMsg}`);
+      if (mode === 'rule') {
+        dayLogs = await optimizeDailyItinerary(c.env, Number(tripId), dateStr);
+      } else if (mode === 'ai') {
+        if (!c.env.GEMINI_API_KEY) throw new Error('NO_GEMINI_KEY');
+        dayLogs = await geminiOptimizeDay(c.env, Number(tripId), dateStr);
+        geminiDaysUsed++;
+      } else {
+        // 'auto': Gemini 優先，失敗 fallback 規則
+        if (c.env.GEMINI_API_KEY) {
+          try {
+            dayLogs = await geminiOptimizeDay(c.env, Number(tripId), dateStr);
+            geminiDaysUsed++;
+          } catch (e: any) {
+            const errMsg = e?.message || 'Unknown';
+            optimizeLog.push(`[gemini-fallback] ${dateStr}: ${errMsg}`);
+            geminiErrors.push(`${dateStr}: ${errMsg}`);
+            dayLogs = await optimizeDailyItinerary(c.env, Number(tripId), dateStr);
+          }
+        } else {
           dayLogs = await optimizeDailyItinerary(c.env, Number(tripId), dateStr);
         }
-      } else {
-        dayLogs = await optimizeDailyItinerary(c.env, Number(tripId), dateStr);
       }
       optimizeLog.push(...dayLogs);
     }
