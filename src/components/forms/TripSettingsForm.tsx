@@ -206,18 +206,24 @@ export function TripSettingsForm({ trip, onUpdate, onDelete, onClose, showToast 
         const data = await res.json() as any;
         onUpdate();
         fetchQuota();
+        if (data.geminiErrors?.length > 0) console.warn('[Gemini fallback]', data.geminiErrors);
+        const aiTag = data.geminiDaysUsed > 0
+          ? ` (Gemini AI ✓ ${data.geminiDaysUsed} 天)`
+          : data.geminiErrors?.length > 0
+            ? ' (Gemini 失敗，改用規則排序)'
+            : '';
         if (data.unplacedCount > 0) {
           showToast?.(`排序失敗：有 ${data.unplacedCount} 個行程無法排入時間內`, 'error');
         } else if (data.conflictCount > 0) {
-          showToast?.(`排序完成，但有 ${data.conflictCount} 個行程時間重疊`, 'error');
+          showToast?.(`排序完成${aiTag}，但有 ${data.conflictCount} 個行程時間重疊`, 'error');
         } else if (data.missingTransportDates?.length > 0) {
           const dateLabel = data.missingTransportDates.map((d: string) => {
             const parts = d.split('-');
             return `${parseInt(parts[1])}/${parseInt(parts[2])}`;
           }).join('、');
-          showToast?.(`排序完成，但 ${dateLabel} 有行程未設定交通方式`, 'error');
+          showToast?.(`排序完成${aiTag}，但 ${dateLabel} 有行程未設定交通方式`, 'error');
         } else {
-          showToast?.('行程排序完成', 'success');
+          showToast?.(`行程排序完成${aiTag}`, 'success');
         }
       } else {
         if (res.status === 429) {
