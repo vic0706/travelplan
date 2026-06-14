@@ -1,5 +1,6 @@
+const GEMINI_MODEL = 'gemini-3.1-flash-lite';
 const GEMINI_API_URL =
-  'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash-lite:generateContent';
+  `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent`;
 
 const SYSTEM_PROMPT = `你是旅遊行程排程助手。根據固定行程的時間限制，為「待排活動」安排 start_time 和 end_time。
 規則：
@@ -69,33 +70,45 @@ export async function geminiScheduleDay(
     throw new Error('GEMINI_DAILY_LIMIT_EXCEEDED');
   }
 
-  const res = await fetch(`${GEMINI_API_URL}?key=${env.GEMINI_API_KEY}`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      system_instruction: { parts: [{ text: SYSTEM_PROMPT }] },
-      contents: [{ parts: [{ text: JSON.stringify(payload) }] }],
-      generationConfig: {
-        responseMimeType: 'application/json',
-        responseSchema: {
-          type: 'array',
-          items: {
-            type: 'object',
-            properties: {
-              id: { type: 'integer' },
-              start_time: { type: 'string' },
-              end_time: { type: 'string' },
-            },
-            required: ['id', 'start_time', 'end_time'],
+  const reqBody = JSON.stringify({
+    system_instruction: { parts: [{ text: SYSTEM_PROMPT }] },
+    contents: [{ parts: [{ text: JSON.stringify(payload) }] }],
+    generationConfig: {
+      responseMimeType: 'application/json',
+      responseSchema: {
+        type: 'array',
+        items: {
+          type: 'object',
+          properties: {
+            id: { type: 'integer' },
+            start_time: { type: 'string' },
+            end_time: { type: 'string' },
           },
+          required: ['id', 'start_time', 'end_time'],
         },
       },
-    }),
+    },
   });
+
+  let res = await fetch(`${GEMINI_API_URL}?key=${env.GEMINI_API_KEY}`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: reqBody,
+  });
+
+  // Retry once on 429 (rate limit) after 5 seconds
+  if (res.status === 429) {
+    await new Promise(r => setTimeout(r, 5000));
+    res = await fetch(`${GEMINI_API_URL}?key=${env.GEMINI_API_KEY}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: reqBody,
+    });
+  }
 
   if (!res.ok) {
     const errText = await res.text();
-    throw new Error(`Gemini API ${res.status}: ${errText.slice(0, 300)}`);
+    throw new Error(`Gemini API ${res.status}: ${errText.slice(0, 200)}`);
   }
 
   const data = await res.json() as any;
