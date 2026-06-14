@@ -5,6 +5,8 @@ compatibility_date = "2024-03-18"
 [vars]
 VITE_SUPABASE_URL = "https://pyltlobngdnoqjnrxefn.supabase.co"
 VITE_WORKER_URL = "https://travelplan.vic070680.workers.dev"
+GEMINI_API_KEY = ""
+GEMINI_DAILY_TOKEN_LIMIT = "100000"
 
 [[d1_databases]]
 binding = "DB"

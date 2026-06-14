@@ -137,12 +137,13 @@ export function BookingForm({ initialData, onSubmit, onCancel, onDelete, loading
   });
 
   // Hotel specific
-  const [checkInStay,     setCheckInStay]     = useState<number>(initialDetails.check_in_stay    ?? 30);
-  const [checkOutStay,    setCheckOutStay]     = useState<number>(initialDetails.check_out_stay   ?? 30);
-  const [dailyDepartStay, setDailyDepartStay] = useState<number>(initialDetails.daily_depart_stay ?? 30);
-  const [dailyReturnStay, setDailyReturnStay] = useState<number>(initialDetails.daily_return_stay ?? 30);
-  const [dailyDepartTime, setDailyDepartTime] = useState<string>(initialDetails.daily_start_time || '09:00');
-  const [dailyReturnTime, setDailyReturnTime] = useState<string>(initialDetails.daily_end_time   || '22:00');
+  const [checkInStay,  setCheckInStay]  = useState<number>(initialDetails.check_in_stay  ?? 30);
+  const [checkOutStay, setCheckOutStay] = useState<number>(initialDetails.check_out_stay ?? 30);
+  const [dailyDepartTime] = useState<string>(initialDetails.daily_start_time || '09:00');
+  const [dailyReturnTime] = useState<string>(initialDetails.daily_end_time   || '22:00');
+  const [dailyTimes, setDailyTimes] = useState<Record<string, { out?: string; return?: string }>>(
+    initialDetails.daily_times || {}
+  );
 
   // Transport specific
   const [depBuffer,    setDepBuffer]    = useState<number>(initialDetails.dep_buffer  ?? 60);
@@ -209,8 +210,7 @@ export function BookingForm({ initialData, onSubmit, onCancel, onDelete, loading
         check_out_stay:   checkOutStay,
         daily_start_time: dailyDepartTime,
         daily_end_time:   dailyReturnTime,
-        daily_depart_stay: dailyDepartStay,
-        daily_return_stay: dailyReturnStay,
+        daily_times: Object.keys(dailyTimes).length > 0 ? dailyTimes : undefined,
       };
     }
     if (['FLIGHT','TRAIN','FERRY','BUS'].includes(cat)) {
@@ -258,6 +258,17 @@ export function BookingForm({ initialData, onSubmit, onCancel, onDelete, loading
   const isHotel = formData.category === 'HOTEL';
   // Hide city for transport and hotel categories (hotel uses address search instead)
   const showCity = !isTransport && !isHotel && !formData.start_location;
+
+  // All hotel days except checkout day (each day has at least a 返回 card)
+  const middleHotelDates = useMemo(() => {
+    if (!isHotel || !formData.start_date || !formData.end_date) return [];
+    const result: string[] = [];
+    const endDate = new Date(formData.end_date + 'T00:00:00Z');
+    for (let d = new Date(formData.start_date + 'T00:00:00Z'); d <= endDate; d.setUTCDate(d.getUTCDate() + 1)) {
+      result.push(d.toISOString().split('T')[0]);
+    }
+    return result.slice(0, result.length - 1);
+  }, [isHotel, formData.start_date, formData.end_date]);
 
   const calcFlightDuration = useMemo(() => {
     if (!formData.start_time || !formData.end_time) return null;
@@ -580,38 +591,45 @@ export function BookingForm({ initialData, onSubmit, onCancel, onDelete, loading
             </div>
           </div>
 
-          {/* 每日出門 / 返回 - 比照入住退房設計 */}
-          <div className="space-y-3 border-t border-zinc-800 pt-3">
-            <p className="text-[10px] font-bold text-zinc-500 uppercase tracking-wider">每日出門／返回時間</p>
-            <div className="space-y-1.5">
-              <p className="text-[10px] font-bold text-zinc-600">出門</p>
-              <div className="flex items-center bg-zinc-900 border border-zinc-800 rounded-xl px-3 py-2 gap-2 focus-within:border-orange-500 transition-colors">
-                <Clock size={13} className="text-orange-500 shrink-0" />
-                <input type="time" value={dailyDepartTime} onChange={e => setDailyDepartTime(e.target.value)}
-                  className="bg-transparent text-white font-mono font-bold text-sm outline-none [color-scheme:dark]" />
-                <div className="w-px h-4 bg-zinc-700 shrink-0 mx-1" />
-                <span className="text-[9px] text-zinc-600 shrink-0">準備</span>
-                <input type="range" min="0" max="60" step="5" value={dailyDepartStay}
-                  onChange={e => setDailyDepartStay(parseInt(e.target.value))}
-                  className="flex-1 accent-orange-500 h-1.5 bg-zinc-800 rounded-lg appearance-none cursor-pointer outline-none" />
-                <span className="text-[10px] font-black text-orange-400 shrink-0 w-7 text-right">{dailyDepartStay}分</span>
-              </div>
+          {/* 每日出門／返回時間（每日自訂） */}
+          {middleHotelDates.length > 0 && (
+            <div className="space-y-2 border-t border-zinc-800 pt-3">
+              <p className="text-[10px] font-bold text-zinc-500 uppercase tracking-wider">每日出門／返回時間</p>
+              {middleHotelDates.map((date, idx) => {
+                const perDay = dailyTimes[date] || {};
+                const outVal = perDay.out    ?? dailyDepartTime;
+                const retVal = perDay.return ?? dailyReturnTime;
+                return (
+                  <div key={date} className="flex items-center gap-2">
+                    <span className="text-[10px] font-black text-zinc-500 shrink-0 w-10">
+                      Day {idx + 1}
+                    </span>
+                    <span className="text-[10px] text-zinc-600 shrink-0 w-9">
+                      {format(parseISO(date), 'M/d')}
+                    </span>
+                    <div className="flex-1 grid grid-cols-2 gap-1.5">
+                      <div className="flex items-center bg-zinc-900 border border-zinc-800 rounded-lg px-2 py-1.5 gap-1 focus-within:border-orange-500 transition-colors">
+                        <span className="text-[8px] text-zinc-500 shrink-0">出門</span>
+                        <input type="time" value={outVal}
+                          onChange={e => setDailyTimes(prev => ({
+                            ...prev, [date]: { ...prev[date], out: e.target.value }
+                          }))}
+                          className="flex-1 bg-transparent text-white font-mono text-xs outline-none [color-scheme:dark]" />
+                      </div>
+                      <div className="flex items-center bg-zinc-900 border border-zinc-800 rounded-lg px-2 py-1.5 gap-1 focus-within:border-orange-500 transition-colors">
+                        <span className="text-[8px] text-zinc-500 shrink-0">返回</span>
+                        <input type="time" value={retVal}
+                          onChange={e => setDailyTimes(prev => ({
+                            ...prev, [date]: { ...prev[date], return: e.target.value }
+                          }))}
+                          className="flex-1 bg-transparent text-white font-mono text-xs outline-none [color-scheme:dark]" />
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
             </div>
-            <div className="space-y-1.5">
-              <p className="text-[10px] font-bold text-zinc-600">返回</p>
-              <div className="flex items-center bg-zinc-900 border border-zinc-800 rounded-xl px-3 py-2 gap-2 focus-within:border-orange-500 transition-colors">
-                <Clock size={13} className="text-orange-500 shrink-0" />
-                <input type="time" value={dailyReturnTime} onChange={e => setDailyReturnTime(e.target.value)}
-                  className="bg-transparent text-white font-mono font-bold text-sm outline-none [color-scheme:dark]" />
-                <div className="w-px h-4 bg-zinc-700 shrink-0 mx-1" />
-                <span className="text-[9px] text-zinc-600 shrink-0">安頓</span>
-                <input type="range" min="0" max="60" step="5" value={dailyReturnStay}
-                  onChange={e => setDailyReturnStay(parseInt(e.target.value))}
-                  className="flex-1 accent-orange-500 h-1.5 bg-zinc-800 rounded-lg appearance-none cursor-pointer outline-none" />
-                <span className="text-[10px] font-black text-orange-400 shrink-0 w-7 text-right">{dailyReturnStay}分</span>
-              </div>
-            </div>
-          </div>
+          )}
         </div>
       )}
 
