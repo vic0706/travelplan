@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Plus, Check, X } from 'lucide-react';
+import { motion, AnimatePresence } from 'framer-motion';
 import {
   DndContext, DragOverlay, PointerSensor, TouchSensor,
   closestCenter, useSensor, useSensors,
@@ -72,11 +73,16 @@ function SortableCard({
     opacity: isDragging ? 0.35 : 1,
   };
 
+  const preventSelect = {
+    onContextMenu: (e: React.MouseEvent) => e.preventDefault(),
+    style: { ...style, WebkitTouchCallout: 'none' as const, WebkitUserSelect: 'none' as const, userSelect: 'none' as const },
+  };
+
   if (item.type === 'TRANSPORTATION' && item.related_id) {
     const booking = bookings.find(b => b.id === item.related_id);
     if (booking) {
       return (
-        <div ref={setNodeRef} style={style} {...attributes} {...listeners}>
+        <div ref={setNodeRef} {...preventSelect} {...attributes} {...listeners}>
           <TransportationCard
             item={item} booking={booking} canEdit={canEdit}
             isConflicted={conflictedIdsInView.has(item.id)}
@@ -100,10 +106,10 @@ function SortableCard({
   return (
     <div
       ref={setNodeRef}
-      style={style}
+      {...preventSelect}
       {...attributes}
       {...(!isLocked && canEdit ? listeners : {})}
-      className="space-y-2 touch-none"
+      className="space-y-2"
     >
       <ItineraryCard
         item={displayItem}
@@ -183,27 +189,6 @@ export function ItineraryTab({
       />
 
       <div className="space-y-4">
-        {/* 排序確認列 */}
-        {pendingOrder && (
-          <div className="flex items-center justify-between gap-2 px-3 py-2.5 rounded-2xl bg-zinc-900 border border-orange-500/30">
-            <span className="text-[12px] text-zinc-400">順序已調整，確認後儲存</span>
-            <div className="flex items-center gap-2">
-              <button
-                onClick={handleCancelSort}
-                className="flex items-center gap-1 px-3 py-1.5 rounded-xl bg-zinc-800 text-zinc-400 text-[11px] font-bold hover:bg-zinc-700 transition-colors"
-              >
-                <X size={12} />取消
-              </button>
-              <button
-                onClick={handleConfirmSort}
-                className="flex items-center gap-1 px-3 py-1.5 rounded-xl bg-orange-500 text-white text-[11px] font-bold hover:bg-orange-400 transition-colors"
-              >
-                <Check size={12} />確認排序
-              </button>
-            </div>
-          </div>
-        )}
-
         {displayList.length > 0 ? (
           <DndContext
             sensors={sensors}
@@ -263,6 +248,37 @@ export function ItineraryTab({
           </button>
         )}
       </div>
+
+      {/* 排序確認浮動 popup */}
+      <AnimatePresence>
+        {pendingOrder && (
+          <motion.div
+            initial={{ opacity: 0, y: 24 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: 24 }}
+            transition={{ type: 'spring', damping: 22, stiffness: 300 }}
+            className="fixed bottom-32 left-1/2 -translate-x-1/2 z-[201] w-[300px] bg-zinc-900 border border-orange-500/40 rounded-3xl shadow-2xl overflow-hidden"
+          >
+            <div className="px-4 pt-4 pb-2">
+              <p className="text-[12px] text-zinc-400 text-center">順序已調整，確認後儲存</p>
+            </div>
+            <div className="flex items-center gap-2 px-3 pb-3">
+              <button
+                onClick={handleCancelSort}
+                className="flex-1 flex items-center justify-center gap-1 py-2.5 rounded-2xl bg-zinc-800 text-zinc-400 text-[12px] font-bold hover:bg-zinc-700 active:scale-95 transition-all"
+              >
+                <X size={13} />取消
+              </button>
+              <button
+                onClick={handleConfirmSort}
+                className="flex-1 flex items-center justify-center gap-1 py-2.5 rounded-2xl bg-orange-500 text-white text-[12px] font-bold hover:bg-orange-400 active:scale-95 transition-all"
+              >
+                <Check size={13} />確認排序
+              </button>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </div>
   );
 }

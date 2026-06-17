@@ -492,7 +492,11 @@ export function ItineraryCard({
   };
 
   return (
-    <div className={clsx('flex flex-col w-full mb-3 px-1 transition-all select-none', isDragOverlay && 'opacity-90 scale-105 shadow-2xl z-50')}>
+    <div
+      className={clsx('flex flex-col w-full mb-3 px-1 transition-all select-none', isDragOverlay && 'opacity-90 scale-105 shadow-2xl z-50')}
+      onContextMenu={(e) => e.preventDefault()}
+      style={{ WebkitTouchCallout: 'none' }}
+    >
       <div className={clsx(
         'relative flex flex-col bg-[#1c1c1e] rounded-[32px] overflow-hidden border transition-all',
         isConflicted     && 'border-red-500 ring-2 ring-red-500/50',
