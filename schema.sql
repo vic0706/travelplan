@@ -101,7 +101,10 @@ CREATE TABLE Itineraries (
     next_transport_mode TEXT DEFAULT '',
     next_transport_time TEXT DEFAULT '',
     next_transport_auto_time TEXT DEFAULT '',
-    
+    next_transport_resolved_mode TEXT DEFAULT '',
+    next_transport_haversine_time TEXT DEFAULT '',
+    next_transport_custom_label TEXT DEFAULT '',
+
     -- Google Places API 豐富化欄位
     lat REAL,
     lng REAL,
@@ -112,10 +115,30 @@ CREATE TABLE Itineraries (
     place_website TEXT,
     place_phone TEXT,
     place_status TEXT,
+    review_summary TEXT,
     sync_conflict_warning TEXT,
 
     FOREIGN KEY (trip_id) REFERENCES Trips(id) ON DELETE CASCADE
 );
+
+-- 6b. 子活動 (SubItemItineraries) — 獨立 table 取代 sub_items JSON 欄位
+CREATE TABLE IF NOT EXISTS SubItemItineraries (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    itinerary_id INTEGER NOT NULL,
+    title TEXT NOT NULL,
+    address TEXT DEFAULT '',
+    lat REAL,
+    lng REAL,
+    start_time TEXT DEFAULT '',
+    end_time TEXT DEFAULT '',
+    duration INTEGER DEFAULT 0,
+    notes TEXT DEFAULT '',
+    tags TEXT DEFAULT '[]',
+    display_order INTEGER DEFAULT 0,
+    next_walk_mins INTEGER DEFAULT 0,
+    FOREIGN KEY (itinerary_id) REFERENCES Itineraries(id) ON DELETE CASCADE
+);
+CREATE INDEX IF NOT EXISTS idx_sub_items_itinerary ON SubItemItineraries(itinerary_id);
 
 -- 7. 記帳 (Expenses)
 CREATE TABLE Expenses (

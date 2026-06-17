@@ -1,9 +1,10 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip, Legend } from 'recharts';
 import { Expense, User } from '../../types';
 import { motion, AnimatePresence } from 'framer-motion';
 import { X, Wallet, ArrowRight, Copy, Check } from 'lucide-react';
-import { useAppStore } from '../../store'; // ✅ 修正：從 store 取 categories，移除 apiFetch
+import { useAppStore } from '../../store';
+import { apiFetch } from '../../utils/api';
 
 interface FinanceOverviewProps {
   expenses: Expense[];
@@ -11,24 +12,45 @@ interface FinanceOverviewProps {
   currency: string;
 }
 
+// 1 unit of baseCurrency costs `rates[foreignCurrency]` foreignCurrency units
+// → to convert foreignAmount → baseCurrency: foreignAmount / rates[foreignCurrency]
+function convertToBase(amount: number, expCurrency: string, baseCurrency: string, rates: Record<string, number> | null): number {
+  if (!expCurrency || expCurrency === baseCurrency || !rates) return amount;
+  const rate = rates[expCurrency];
+  return rate ? amount / rate : amount;
+}
+
 export function FinanceOverview({ expenses, members, currency }: FinanceOverviewProps) {
   const [showSplitModal, setShowSplitModal] = useState(false);
   const [copiedText, setCopiedText] = useState<string | null>(null);
+  const [rates, setRates] = useState<Record<string, number> | null>(null);
 
-  // ✅ 修正：直接從 store 取，App.tsx 已全局初始化，不需要再 fetch
   const { categories } = useAppStore();
 
+  const hasMultipleCurrencies = useMemo(
+    () => expenses.some(e => e.currency && e.currency !== currency),
+    [expenses, currency]
+  );
+
+  useEffect(() => {
+    if (!hasMultipleCurrencies) { setRates(null); return; }
+    apiFetch(`/api/exchange-rates?base=${currency}`)
+      .then(r => r.json())
+      .then((data: any) => setRates(data.rates || {}))
+      .catch(() => setRates({}));
+  }, [hasMultipleCurrencies, currency]);
+
   const totalAmount = useMemo(() => {
-    return expenses.reduce((sum, exp) => sum + exp.amount, 0);
-  }, [expenses]);
+    return expenses.reduce((sum, exp) => sum + convertToBase(exp.amount, exp.currency, currency, rates), 0);
+  }, [expenses, rates, currency]);
 
   const categoryData = useMemo(() => {
     const data: Record<string, number> = {};
     expenses.forEach(exp => {
       const cat = exp.category || 'Other';
-      data[cat] = (data[cat] || 0) + exp.amount;
+      data[cat] = (data[cat] || 0) + convertToBase(exp.amount, exp.currency, currency, rates);
     });
-    
+
     return Object.entries(data).map(([name, value]) => {
       const catDef = categories.find((c: any) => c.name === name);
       return {
@@ -37,7 +59,7 @@ export function FinanceOverview({ expenses, members, currency }: FinanceOverview
         color: catDef?.color || '#808080'
       };
     }).sort((a, b) => b.value - a.value);
-  }, [expenses, categories]);
+  }, [expenses, categories, rates, currency]);
 
   const debts = useMemo(() => {
     const balances: Record<number, number> = {};
@@ -48,8 +70,9 @@ export function FinanceOverview({ expenses, members, currency }: FinanceOverview
       const splitAmong = exp.split_members;
       if (splitAmong.length === 0) return;
 
-      const amountPerPerson = exp.amount / splitAmong.length;
-      balances[paidBy] = (balances[paidBy] || 0) + exp.amount;
+      const converted = convertToBase(exp.amount, exp.currency, currency, rates);
+      const amountPerPerson = converted / splitAmong.length;
+      balances[paidBy] = (balances[paidBy] || 0) + converted;
       splitAmong.forEach(memberId => {
         balances[memberId] = (balances[memberId] || 0) - amountPerPerson;
       });
@@ -107,17 +130,22 @@ export function FinanceOverview({ expenses, members, currency }: FinanceOverview
       {/* Summary Cards */}
       <div className="grid grid-cols-2 gap-4">
         <div className="bg-zinc-900 border border-zinc-800 p-4 rounded-2xl">
-          <p className="text-zinc-500 text-xs font-medium uppercase tracking-wider mb-1">Total Expenses</p>
-          <p className="text-2xl font-bold text-white font-mono">{currency} {totalAmount.toLocaleString()}</p>
+          <p className="text-zinc-500 text-xs font-medium uppercase tracking-wider mb-1">費用總計</p>
+          <p className="text-2xl font-bold text-white font-mono">
+            {hasMultipleCurrencies ? '≈ ' : ''}{currency} {Math.round(totalAmount).toLocaleString()}
+          </p>
+          {hasMultipleCurrencies && (
+            <p className="text-[10px] text-zinc-600 mt-1">已換算為 {currency}</p>
+          )}
         </div>
-        <button 
+        <button
           onClick={() => setShowSplitModal(true)}
           className="bg-zinc-900 border border-zinc-800 hover:bg-zinc-800 text-white p-4 rounded-2xl flex flex-col justify-between transition-all shadow-lg active:scale-95"
         >
           <Wallet className="mb-2 text-orange-500" />
           <div className="text-left">
-            <p className="text-xs font-bold uppercase tracking-wider opacity-80 text-zinc-500">Settlement</p>
-            <p className="font-bold">View Split Results</p>
+            <p className="text-xs font-bold uppercase tracking-wider opacity-80 text-zinc-500">結算</p>
+            <p className="font-bold">查看分攤結果</p>
           </div>
         </button>
       </div>
@@ -152,7 +180,7 @@ export function FinanceOverview({ expenses, members, currency }: FinanceOverview
             <motion.div initial={{ scale: 0.95, opacity: 0, y: 20 }} animate={{ scale: 1, opacity: 1, y: 0 }} exit={{ scale: 0.95, opacity: 0, y: 20 }}
               className="relative w-full max-w-md bg-zinc-900 border border-zinc-800 rounded-3xl shadow-2xl overflow-hidden max-h-[85vh] flex flex-col">
               <div className="p-6 border-b border-zinc-800 flex items-center justify-between bg-zinc-900 z-10">
-                <h2 className="text-xl font-bold text-white">Settlement Plan</h2>
+                <h2 className="text-xl font-bold text-white">分攤結算</h2>
                 <button onClick={() => setShowSplitModal(false)} className="p-2 hover:bg-zinc-800 rounded-full transition-colors text-zinc-400 hover:text-white">
                   <X size={20} />
                 </button>
@@ -162,7 +190,7 @@ export function FinanceOverview({ expenses, members, currency }: FinanceOverview
                 {debts.length === 0 ? (
                   <div className="text-center text-zinc-500 py-8">
                     <Check size={48} className="mx-auto mb-4 text-green-500" />
-                    <p>All settled up! No one owes anything.</p>
+                    <p>帳款已結清！大家不需要互相支付。</p>
                   </div>
                 ) : (
                   debts.map((transfer, idx) => {
@@ -180,7 +208,7 @@ export function FinanceOverview({ expenses, members, currency }: FinanceOverview
                             <span className="font-bold text-white">{fromUser?.name}</span>
                           </div>
                           <div className="flex flex-col items-center px-2">
-                            <span className="text-[10px] text-zinc-500 uppercase tracking-wider">Pays</span>
+                            <span className="text-[10px] text-zinc-500 uppercase tracking-wider">付款給</span>
                             <ArrowRight size={16} className="text-zinc-600" />
                           </div>
                           <div className="flex items-center gap-2">
@@ -193,19 +221,19 @@ export function FinanceOverview({ expenses, members, currency }: FinanceOverview
 
                         <div className="text-center py-2 bg-zinc-900 rounded-xl border border-zinc-800">
                           <span className="text-2xl font-mono font-bold text-orange-500">
-                            {currency} {transfer.amount.toLocaleString(undefined, { maximumFractionDigits: 0 })}
+                            {hasMultipleCurrencies ? '≈ ' : ''}{currency} {Math.round(transfer.amount).toLocaleString()}
                           </span>
                         </div>
 
                         {paymentInfo && (
                           <div className="space-y-2 text-sm bg-zinc-900/50 p-3 rounded-xl">
                             <p className="text-xs font-bold text-zinc-500 uppercase tracking-wider mb-2">
-                              Payment Details for {toUser?.name}
+                              {toUser?.name} 的收款資訊
                             </p>
                             {paymentInfo.cash && (
                               <div className="flex items-center gap-2 text-zinc-300">
                                 <span className="w-2 h-2 rounded-full bg-green-500"></span>
-                                Accepts Cash
+                                接受現金
                               </div>
                             )}
                             {paymentInfo.linepay && (
@@ -222,7 +250,7 @@ export function FinanceOverview({ expenses, members, currency }: FinanceOverview
                             {paymentInfo.bank_accounts?.map((bank: any, i: number) => (
                               <div key={i} className="flex items-center justify-between bg-zinc-800 p-2 rounded-lg">
                                 <div className="truncate flex-1 mr-2">
-                                  <span className="text-zinc-500 text-xs block">Bank {bank.bank_code}</span>
+                                  <span className="text-zinc-500 text-xs block">銀行 {bank.bank_code}</span>
                                   <span className="text-white font-mono">{bank.account}</span>
                                 </div>
                                 <button onClick={() => handleCopy(bank.account)} className="p-1.5 hover:bg-zinc-700 rounded-lg text-zinc-400 hover:text-white">

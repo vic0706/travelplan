@@ -87,10 +87,10 @@ export function ConfirmDialog({
                     'bg-blue-500 hover:bg-blue-600 shadow-blue-500/20'
                   }`}
                 >
-                  {loading && <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin shrink-0" />}
-                  <span className={`text-center leading-tight ${confirmText && confirmText.length > 30 ? 'text-xs' : confirmText && confirmText.length > 20 ? 'text-sm' : 'text-base'}`}>
-                    {confirmText}
-                  </span>
+                  {loading
+                    ? <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                    : <span className={`text-center leading-tight ${confirmText && confirmText.length > 30 ? 'text-xs' : confirmText && confirmText.length > 20 ? 'text-sm' : 'text-base'}`}>{confirmText}</span>
+                  }
                 </button>
               </div>
             </div>

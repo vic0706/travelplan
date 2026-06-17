@@ -1,23 +1,60 @@
-import React, { useState } from 'react';
-import { useAppStore } from '../../store';
-import { X, MapPin, Loader2, Plane, Train, Ship, Car, Bed, ArrowLeft, Trash2 } from 'lucide-react';
-import { motion, AnimatePresence } from 'framer-motion';
+import React, { useState, useMemo } from 'react';
+import { X, MapPin, Loader2, Plane, Train, Ship, Car, Bed, Bus, ArrowLeft, Clock, ArrowRight } from 'lucide-react';
+import { motion } from 'framer-motion';
 import { LocationPicker } from '../pickers/LocationPicker';
 import { DateRangePicker } from '../pickers/DateRangePicker';
+import { AddressSearchInput } from '../inputs/AddressSearchInput';
 import { BookingCategory } from '../../types';
 import { clsx } from 'clsx';
 import { format, parseISO } from 'date-fns';
+import { useAppStore } from '../../store';
 
-const BOOKING_CATEGORIES: {
-  id: BookingCategory; label: string; icon: React.ElementType; description: string;
-}[] = [
-  { id: 'HOTEL',            label: 'Hotel',    icon: Bed,   description: '住宿與飯店' },
-  { id: 'FLIGHT',           label: 'Flight',   icon: Plane, description: '機票與航班' },
-  { id: 'TRAIN',            label: 'Train',    icon: Train, description: '火車與鐵路' },
-  { id: 'FERRY',            label: 'Ferry',    icon: Ship,  description: '渡輪與船票' },
-  { id: 'RENTAL',           label: 'Rental',   icon: Car,   description: '租車' },
-  { id: 'PRIVATE_TRANSFER', label: 'Transfer', icon: Car,   description: '接送服務' },
+const BOOKING_CATEGORIES: { id: BookingCategory; label: string; icon: React.ElementType; description: string }[] = [
+  { id: 'HOTEL',            label: '住宿',      icon: Bed,   description: '飯店・民宿・旅館' },
+  { id: 'FLIGHT',           label: '機票',      icon: Plane, description: '國內外航班' },
+  { id: 'TRAIN',            label: '火車',      icon: Train, description: '高鐵・捷運・電車' },
+  { id: 'FERRY',            label: '船票',      icon: Ship,  description: '渡輪・遊輪' },
+  { id: 'RENTAL',           label: '租車',      icon: Car,   description: '自駕・租賃車輛' },
+  { id: 'PRIVATE_TRANSFER', label: '接送',      icon: Car,   description: '包車・計程車' },
+  { id: 'BUS',              label: '公車/巴士', icon: Bus,   description: '客運・市區公車' },
 ];
+
+const getProviderLabel = (cat: BookingCategory) => {
+  switch (cat) {
+    case 'HOTEL':            return '訂購平台';
+    case 'FLIGHT':           return '航空公司';
+    case 'TRAIN':            return '車種車型';
+    case 'FERRY':            return '船種船型';
+    case 'BUS':              return '巴士業者';
+    default:                 return '供應商';
+  }
+};
+
+const getProviderPlaceholder = (cat: BookingCategory) => {
+  switch (cat) {
+    case 'HOTEL':            return 'Booking.com・Agoda';
+    case 'FLIGHT':           return '中華航空・長榮';
+    case 'TRAIN':            return '高鐵自由座・台鐵莒光';
+    case 'FERRY':            return '台灣好行・麗娜輪';
+    case 'BUS':              return '統聯・阿羅哈';
+    default:                 return '供應商名稱';
+  }
+};
+
+const getTerminalLabel = (cat: BookingCategory) => {
+  if (cat === 'FLIGHT') return '航廈';
+  if (cat === 'BUS')    return '站牌';
+  return '月台';
+};
+
+const addMinutes = (time: string, minutes: number) => {
+  if (!time || minutes === 0) return '';
+  const [h, m] = time.split(':').map(Number);
+  const total = h * 60 + m + minutes;
+  const nh = Math.floor(((total % 1440) + 1440) % 1440 / 60);
+  const nm = ((total % 60) + 60) % 60;
+  return `${nh.toString().padStart(2,'0')}:${nm.toString().padStart(2,'0')}`;
+};
 
 interface BookingFormData {
   category: BookingCategory;
@@ -29,15 +66,16 @@ interface BookingFormData {
   start_time: string;
   end_date: string;
   end_time: string;
-  pre_start_time: string;
-  daily_start_time: string;
-  daily_end_time: string;
   start_location: string;
   end_location: string;
   notes: string;
   image_url: string;
   details: any;
   google_place_id?: string;
+  lat?: number | null;
+  lng?: number | null;
+  arrival_lat?: number | null;
+  arrival_lng?: number | null;
 }
 
 interface BookingFormProps {
@@ -46,28 +84,35 @@ interface BookingFormProps {
   onCancel: () => void;
   onDelete?: () => void;
   loading?: boolean;
+  tripStartDate?: string;
+  tripEndDate?: string;
 }
 
-const Req = () => <span className="text-orange-500 ml-0.5">*</span>;
-
-const FieldLabel = ({ children, required }: { children: React.ReactNode; required?: boolean }) => (
-  <label className="block text-[10px] font-bold text-zinc-500 uppercase tracking-wider mb-1.5">
-    {children}{required && <Req />}
-  </label>
+const timeInput = (label: string, value: string, onChange: (v: string) => void, hint?: string) => (
+  <div className="space-y-1">
+    <label className="text-[10px] font-bold text-zinc-400 uppercase tracking-widest flex items-center justify-between">
+      <span>{label}</span>
+      {hint && <span className="text-[9px] text-orange-400 font-black normal-case">{hint}</span>}
+    </label>
+    <div className="flex items-center bg-zinc-900 border border-zinc-800 rounded-xl px-3 py-2.5 gap-2 focus-within:border-orange-500 transition-colors">
+      <Clock size={14} className="text-orange-500 shrink-0" />
+      <input type="time" value={value} onChange={e => onChange(e.target.value)}
+        className="flex-1 bg-transparent text-white font-mono font-bold text-sm outline-none [color-scheme:dark]" />
+    </div>
+  </div>
 );
 
-const inputCls = 'w-full bg-[#242426] border border-zinc-800 rounded-2xl px-4 py-3 text-white text-sm focus:outline-none focus:border-orange-500/70 transition-colors placeholder:text-zinc-600';
-
-export function BookingForm({ initialData, onSubmit, onCancel, onDelete, loading = false }: BookingFormProps) {
+export function BookingForm({ initialData, onSubmit, onCancel, onDelete, loading = false, tripStartDate, tripEndDate }: BookingFormProps) {
   const { cities } = useAppStore();
+  const [step, setStep] = useState<'pick-category' | 'fill-form'>(initialData ? 'fill-form' : 'pick-category');
 
-  const [step, setStep] = useState<'pick-category' | 'fill-form'>(
-    initialData ? 'fill-form' : 'pick-category'
-  );
+  const parseDetails = (d: any) => {
+    if (!d) return {};
+    if (typeof d === 'string') { try { return JSON.parse(d); } catch { return {}; } }
+    return d;
+  };
 
-  const initDetails = typeof initialData?.details === 'string'
-    ? JSON.parse(initialData?.details || '{}')
-    : (initialData?.details || {});
+  const initialDetails = parseDetails(initialData?.details);
 
   const [formData, setFormData] = useState<BookingFormData>({
     category: initialData?.category || 'HOTEL',
@@ -76,81 +121,203 @@ export function BookingForm({ initialData, onSubmit, onCancel, onDelete, loading
     order_id: initialData?.order_id || '',
     city_id: initialData?.city_id ? String(initialData.city_id) : '',
     start_date: initialData?.start_date || '',
-    start_time: initialData?.start_time || '',
+    start_time: initialData?.start_time || ((!initialData || initialData.category === 'HOTEL') ? '16:00' : ''),
     end_date: initialData?.end_date || '',
-    end_time: initialData?.end_time || '',
-    pre_start_time: initialData?.pre_start_time || '',
-    daily_start_time: initialData?.daily_start_time || '08:00',
-    daily_end_time: initialData?.daily_end_time || '22:00',
+    end_time: initialData?.end_time || ((!initialData || initialData.category === 'HOTEL') ? '11:00' : ''),
     start_location: initialData?.start_location || '',
     end_location: initialData?.end_location || '',
     notes: initialData?.notes || '',
     image_url: initialData?.image_url || '',
-    details: initDetails,
-    google_place_id: initialData?.google_place_id || ''
+    details: initialDetails,
+    google_place_id: initialData?.google_place_id || '',
+    lat: initialData?.lat ?? null,
+    lng: initialData?.lng ?? null,
+    arrival_lat: initialData?.arrival_lat ?? null,
+    arrival_lng: initialData?.arrival_lng ?? null,
   });
 
+  // Hotel specific
+  const [checkInStay,  setCheckInStay]  = useState<number>(initialDetails.check_in_stay  ?? 30);
+  const [checkOutStay, setCheckOutStay] = useState<number>(initialDetails.check_out_stay ?? 30);
+  const [dailyDepartTime] = useState<string>(initialDetails.daily_start_time || '09:00');
+  const [dailyReturnTime] = useState<string>(initialDetails.daily_end_time   || '22:00');
+  const [dailyTimes, setDailyTimes] = useState<Record<string, { out?: string; return?: string }>>(
+    initialDetails.daily_times || {}
+  );
+
+  // Transport specific
+  const [depBuffer,    setDepBuffer]    = useState<number>(initialDetails.dep_buffer  ?? 60);
+  const [arrStay,      setArrStay]      = useState<number>(initialDetails.arr_stay    ?? 30);
+  const [depTerminal,  setDepTerminal]  = useState<string>(initialDetails.dep_terminal || '');
+  const [arrTerminal,  setArrTerminal]  = useState<string>(initialDetails.arr_terminal || '');
+  const [checkInTime,  setCheckInTime]  = useState<string>(initialDetails.check_in_time || '');
+
+  // Rental / Transfer specific
+  const [rentalPickupBuffer, setRentalPickupBuffer] = useState<number>(initialDetails.pickup_buffer ?? 30);
+  const [rentalReturnBuffer, setRentalReturnBuffer] = useState<number>(initialDetails.return_buffer ?? 15);
+
+  // Display-only states for location inputs (show place name; backend stores address)
+  const [startLocDisplay, setStartLocDisplay] = useState<string>(initialData?.start_location || '');
+  const [endLocDisplay,   setEndLocDisplay]   = useState<string>(initialData?.end_location   || '');
+
   const [isCityPickerOpen, setIsCityPickerOpen] = useState(false);
-  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const [dateError, setDateError] = useState('');
 
-  const setDetail = (key: string, val: string) =>
-    setFormData(prev => ({ ...prev, details: { ...prev.details, [key]: val } }));
-
-  const handleSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
-    onSubmit(formData);
-  };
-
-  const groupedCities = cities.reduce((acc, city) => {
+  const groupedCities = useMemo(() => cities.reduce((acc, city) => {
     if (!acc[city.country]) acc[city.country] = [];
     acc[city.country].push(city);
     return acc;
-  }, {} as Record<string, typeof cities>);
+  }, {} as Record<string, typeof cities>), [cities]);
 
-  const selectedCatDef = BOOKING_CATEGORIES.find(c => c.id === formData.category);
-  const CatIcon = selectedCatDef?.icon || Bed;
-  const isHotel = formData.category === 'HOTEL';
-  const isTransport = ['FLIGHT', 'TRAIN', 'FERRY'].includes(formData.category);
-  const isRental = ['RENTAL', 'PRIVATE_TRANSFER'].includes(formData.category);
+  const set = (key: keyof BookingFormData, val: any) => setFormData(prev => ({ ...prev, [key]: val }));
 
-  const dateRangeValue = {
-    start_date: formData.start_date ? parseISO(formData.start_date) : null,
-    end_date: formData.end_date ? parseISO(formData.end_date) : null,
-    start_time: formData.start_time,
-    end_time: formData.end_time,
-    pre_start_time: formData.pre_start_time,
-    daily_start_time: formData.daily_start_time,
-    daily_end_time: formData.daily_end_time,
+  // Computed time hints
+  const hotelCheckInCalc  = addMinutes(formData.start_time, checkInStay);
+  const hotelCheckOutCalc = addMinutes(formData.end_time,   checkOutStay);
+  const transportArrCalc  = addMinutes(formData.end_time,   arrStay);
+
+  const handleDepTimeChange = (v: string) => {
+    set('start_time', v);
+    if (v && depBuffer > 0) {
+      const [h, m] = v.split(':').map(Number);
+      const total = h * 60 + m - depBuffer;
+      const nh = Math.floor(((total % 1440) + 1440) % 1440 / 60);
+      const nm = ((total % 60) + 60) % 60;
+      setCheckInTime(`${nh.toString().padStart(2,'0')}:${nm.toString().padStart(2,'0')}`);
+    }
   };
 
-  // ── STEP 1: 選擇類別 ────────────────────────────────────────────────
+  const handleDepBufferChange = (v: number) => {
+    setDepBuffer(v);
+    if (formData.start_time) {
+      if (v === 0) {
+        setCheckInTime('');
+      } else {
+        const [h, m] = formData.start_time.split(':').map(Number);
+        const total = h * 60 + m - v;
+        const nh = Math.floor(((total % 1440) + 1440) % 1440 / 60);
+        const nm = ((total % 60) + 60) % 60;
+        setCheckInTime(`${nh.toString().padStart(2,'0')}:${nm.toString().padStart(2,'0')}`);
+      }
+    }
+  };
+
+  const buildDetails = () => {
+    const cat = formData.category;
+    if (cat === 'HOTEL') {
+      return {
+        check_in_stay:    checkInStay,
+        check_out_stay:   checkOutStay,
+        daily_start_time: dailyDepartTime,
+        daily_end_time:   dailyReturnTime,
+        daily_times: Object.keys(dailyTimes).length > 0 ? dailyTimes : undefined,
+      };
+    }
+    if (['FLIGHT','TRAIN','FERRY','BUS'].includes(cat)) {
+      return {
+        dep_buffer:    depBuffer,
+        arr_stay:      arrStay,
+        dep_terminal:  depTerminal,
+        arr_terminal:  arrTerminal,
+        check_in_time: checkInTime,
+      };
+    }
+    if (['RENTAL','PRIVATE_TRANSFER'].includes(cat)) {
+      return {
+        pickup_buffer: rentalPickupBuffer,
+        return_buffer: rentalReturnBuffer,
+      };
+    }
+    return formData.details || {};
+  };
+
+  const handleSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    const data = { ...formData, details: buildDetails() };
+    if (tripStartDate && data.start_date && data.start_date < tripStartDate) {
+      setDateError(`日期不可早於行程開始日（${tripStartDate}）`);
+      return;
+    }
+    if (tripEndDate && data.end_date && data.end_date > tripEndDate) {
+      setDateError(`日期不可晚於行程結束日（${tripEndDate}）`);
+      return;
+    }
+    setDateError('');
+    onSubmit(data);
+  };
+
+  const parsedStartDate = formData.start_date ? parseISO(formData.start_date) : null;
+  const parsedEndDate   = formData.end_date   ? parseISO(formData.end_date)   : null;
+
+  const isTransport         = ['FLIGHT','TRAIN','FERRY','BUS'].includes(formData.category);
+  const isFlightTrainFerry  = ['FLIGHT','TRAIN','FERRY'].includes(formData.category);
+  const isBus               = formData.category === 'BUS';
+  const isRentalOrTransfer  = ['RENTAL','PRIVATE_TRANSFER'].includes(formData.category);
+  const terminalLabel       = getTerminalLabel(formData.category);
+
+  const isHotel = formData.category === 'HOTEL';
+  // Hide city for transport and hotel categories (hotel uses address search instead)
+  const showCity = !isTransport && !isHotel && !formData.start_location;
+
+  // All hotel days except checkout day (each day has at least a 返回 card)
+  const middleHotelDates = useMemo(() => {
+    if (!isHotel || !formData.start_date || !formData.end_date) return [];
+    const result: string[] = [];
+    const endDate = new Date(formData.end_date + 'T00:00:00Z');
+    for (let d = new Date(formData.start_date + 'T00:00:00Z'); d <= endDate; d.setUTCDate(d.getUTCDate() + 1)) {
+      result.push(d.toISOString().split('T')[0]);
+    }
+    return result.slice(0, result.length - 1);
+  }, [isHotel, formData.start_date, formData.end_date]);
+
+  const calcFlightDuration = useMemo(() => {
+    if (!formData.start_time || !formData.end_time) return null;
+    const [sh, sm] = formData.start_time.split(':').map(Number);
+    const [eh, em] = formData.end_time.split(':').map(Number);
+    let startMins = sh * 60 + sm;
+    let endMins = eh * 60 + em;
+    // Account for cross-day: add day difference in minutes
+    if (formData.start_date && formData.end_date && formData.start_date !== formData.end_date) {
+      try {
+        const dayDiff = Math.round(
+          (new Date(formData.end_date + 'T00:00:00').getTime() - new Date(formData.start_date + 'T00:00:00').getTime())
+          / 86400000
+        );
+        endMins += dayDiff * 1440;
+      } catch {}
+    }
+    let mins = endMins - startMins;
+    if (mins < 0) mins += 1440; // fallback for same-day wraparound
+    const h = Math.floor(mins / 60);
+    const m = mins % 60;
+    if (h === 0) return `${m}分`;
+    if (m === 0) return `${h}時`;
+    return `${h}時${m}分`;
+  }, [formData.start_time, formData.end_time, formData.start_date, formData.end_date]);
+
+  // ══ STEP 1: 選擇類別 ══
   if (step === 'pick-category') {
     return (
-      <div className="flex flex-col bg-[#1c1c1e] rounded-t-[32px] overflow-hidden" style={{ maxHeight: '92vh' }}>
-        <div className="shrink-0 px-5 border-b border-zinc-800/80 flex items-center justify-between" style={{ paddingTop: '1.25rem', paddingBottom: '1rem' }}>
-          <h2 className="text-base font-black text-white uppercase tracking-widest">新增預訂</h2>
-          <button type="button" onClick={onCancel} className="p-2 text-zinc-400 hover:text-white bg-[#242426] rounded-full transition-colors border border-zinc-800">
-            <X size={17} />
-          </button>
+      <div className="bg-zinc-900 rounded-3xl overflow-hidden shadow-2xl">
+        <div className="px-6 pt-5 pb-4 border-b border-zinc-800 flex items-center justify-between">
+          <h2 className="text-xl font-black text-white">新增訂票</h2>
+          <button type="button" onClick={onCancel} className="p-2 bg-zinc-800 rounded-full text-zinc-400 hover:text-white transition-colors"><X size={20} /></button>
         </div>
-
-        <div className="flex-1 overflow-y-auto px-5 py-5">
-          <p className="text-[10px] font-bold text-zinc-500 uppercase tracking-widest mb-4">選擇預訂類別</p>
+        <div className="px-6 py-5">
+          <p className="text-[10px] font-black text-zinc-500 uppercase tracking-widest mb-4">選擇類型</p>
           <div className="grid grid-cols-2 gap-3">
             {BOOKING_CATEGORIES.map(cat => {
               const Icon = cat.icon;
               return (
-                <motion.button
-                  key={cat.id} type="button" whileTap={{ scale: 0.97 }}
+                <motion.button key={cat.id} type="button" whileTap={{ scale: 0.97 }}
                   onClick={() => { setFormData(prev => ({ ...prev, category: cat.id })); setStep('fill-form'); }}
-                  className="flex flex-col items-start gap-3 p-5 rounded-3xl border border-zinc-800 bg-[#242426] hover:border-orange-500/40 hover:bg-orange-500/5 transition-all text-left active:scale-97"
-                >
-                  <div className="p-2.5 rounded-2xl bg-orange-500/10 text-orange-400">
-                    <Icon size={26} strokeWidth={1.8} />
+                  className="flex flex-col items-start gap-3 p-4 rounded-3xl border-2 border-orange-500/20 bg-orange-500/5 hover:bg-orange-500/10 hover:border-orange-500/40 transition-all text-left">
+                  <div className="p-2 rounded-2xl bg-orange-500/10 text-orange-400">
+                    <Icon size={24} strokeWidth={1.8} />
                   </div>
                   <div>
                     <div className="text-sm font-black text-white">{cat.label}</div>
-                    <div className="text-[11px] text-zinc-500 mt-0.5">{cat.description}</div>
+                    <div className="text-[10px] text-zinc-500 mt-0.5 leading-snug">{cat.description}</div>
                   </div>
                 </motion.button>
               );
@@ -161,232 +328,659 @@ export function BookingForm({ initialData, onSubmit, onCancel, onDelete, loading
     );
   }
 
-  // ── STEP 2: 填寫表單 ─────────────────────────────────────────────────
+  // ══ STEP 2: 填寫表單 ══
+  const selectedCat = BOOKING_CATEGORIES.find(c => c.id === formData.category)!;
+  const Icon = selectedCat.icon;
+
   return (
-    <form onSubmit={handleSubmit} className="flex flex-col bg-[#1c1c1e] rounded-t-[32px] overflow-hidden" style={{ maxHeight: '92vh' }}>
+    <div className="bg-zinc-900 rounded-3xl overflow-hidden shadow-2xl flex flex-col max-h-[90vh]">
 
-      {/* Sticky 頂部 */}
-      <div className="shrink-0 px-5 border-b border-zinc-800/80 bg-[#1c1c1e]" style={{ paddingTop: '1rem' }}>
-        <div className="flex items-center justify-between py-3.5">
-          <div className="flex items-center gap-3">
-            {!initialData && (
-              <button type="button" onClick={() => setStep('pick-category')}
-                className="p-2 bg-[#242426] rounded-full text-zinc-400 hover:text-white transition-colors border border-zinc-800">
-                <ArrowLeft size={16} />
-              </button>
-            )}
-            <div className="flex items-center gap-2.5">
-              <div className="p-2 rounded-xl bg-orange-500/10 text-orange-400">
-                <CatIcon size={18} strokeWidth={2} />
-              </div>
-              <span className="text-base font-black text-white">{selectedCatDef?.label}</span>
-            </div>
+      {/* 固定標頭 */}
+      <div className="shrink-0 px-6 pt-5 pb-4 border-b border-zinc-800 flex items-center justify-between">
+        <div className="flex items-center gap-3">
+          {!initialData && (
+            <button type="button" onClick={() => setStep('pick-category')}
+              className="p-2 bg-zinc-800 rounded-full text-zinc-400 hover:text-white transition-colors"><ArrowLeft size={16} /></button>
+          )}
+          <div className="flex items-center gap-2">
+            <div className="p-1.5 rounded-xl bg-orange-500/10 text-orange-400"><Icon size={18} strokeWidth={2} /></div>
+            <span className="text-base font-black text-white">{selectedCat.label}</span>
           </div>
-          <button type="button" onClick={onCancel}
-            className="p-2 text-zinc-400 hover:text-white bg-[#242426] rounded-full transition-colors border border-zinc-800">
-            <X size={17} />
-          </button>
         </div>
+        <button type="button" onClick={onCancel} className="p-2 text-zinc-400 hover:text-white transition-colors"><X size={20} /></button>
+      </div>
 
-        {initialData && (
-          <div className="flex gap-2 overflow-x-auto no-scrollbar pb-3.5">
+      {/* 可滑動內容 */}
+      <form id="booking-form" onSubmit={handleSubmit} className="flex-1 overflow-y-auto overflow-x-hidden custom-scrollbar">
+      <div className="px-6 py-5 space-y-5">
+
+      {/* 類別切換（編輯模式） */}
+      {initialData && (
+        <div>
+          <label className="block text-[10px] font-bold text-zinc-500 uppercase tracking-wider mb-2">類型</label>
+          <div className="flex gap-2 overflow-x-auto no-scrollbar pb-1">
             {BOOKING_CATEGORIES.map(cat => {
-              const Icon = cat.icon;
+              const CatIcon = cat.icon;
               return (
                 <button key={cat.id} type="button"
                   onClick={() => setFormData(prev => ({ ...prev, category: cat.id }))}
-                  className={clsx(
-                    'flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold transition-all border whitespace-nowrap shrink-0',
+                  className={clsx('flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-bold transition-all border whitespace-nowrap shrink-0',
                     formData.category === cat.id
                       ? 'bg-orange-500 border-orange-500 text-white shadow-lg shadow-orange-500/20'
-                      : 'bg-[#242426] border-zinc-800 text-zinc-400 hover:border-zinc-600'
+                      : 'bg-zinc-800 border-zinc-700 text-zinc-400 hover:border-zinc-500'
                   )}>
-                  <Icon size={12} />{cat.label}
+                  <CatIcon size={13} />{cat.label}
                 </button>
               );
             })}
           </div>
-        )}
+        </div>
+      )}
+
+      {/* 名稱 */}
+      <div>
+        <label className="block text-[10px] font-bold text-zinc-400 uppercase tracking-wider mb-2">名稱 *</label>
+        <input type="text" required value={formData.title} onChange={e => set('title', e.target.value)}
+          className="w-full bg-zinc-900 border border-zinc-800 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-orange-500 transition-colors"
+          placeholder={
+            formData.category === 'HOTEL'  ? '飯店名稱' :
+            formData.category === 'FLIGHT' ? '如：CI100' :
+            formData.category === 'TRAIN'  ? '如：高鐵0201' :
+            formData.category === 'BUS'    ? '如：統聯 12:00 台北→台中' :
+            '訂票名稱'
+          } />
       </div>
 
-      {/* 可捲動內容 */}
-      <div className="flex-1 overflow-y-auto px-5 py-5 space-y-5 custom-scrollbar">
-
-        {/* 標題 */}
+      {/* 訂購平台/航空公司/車種 + 訂單號 */}
+      <div className="grid grid-cols-2 gap-3">
         <div>
-          <FieldLabel required>標題</FieldLabel>
-          <input type="text" required value={formData.title}
-            onChange={e => setFormData(prev => ({ ...prev, title: e.target.value }))}
-            className={inputCls}
-            placeholder={isHotel ? '飯店名稱' : isTransport ? '航班 / 車次編號' : '預訂名稱'} />
+          <label className="block text-[10px] font-bold text-zinc-400 uppercase tracking-wider mb-2">
+            {getProviderLabel(formData.category)}
+          </label>
+          <input type="text" value={formData.provider} onChange={e => set('provider', e.target.value)}
+            className="w-full bg-zinc-900 border border-zinc-800 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-orange-500 transition-colors text-sm"
+            placeholder={getProviderPlaceholder(formData.category)} />
         </div>
-
-        {/* 服務商 + 訂單號 */}
-        <div className="grid grid-cols-2 gap-3">
-          <div>
-            <FieldLabel>服務商</FieldLabel>
-            <input type="text" value={formData.provider}
-              onChange={e => setFormData(prev => ({ ...prev, provider: e.target.value }))}
-              className={inputCls}
-              placeholder={isHotel ? 'Hilton' : isTransport ? 'China Airlines' : '服務商'} />
-          </div>
-          <div>
-            <FieldLabel>確認編號</FieldLabel>
-            <input type="text" value={formData.order_id}
-              onChange={e => setFormData(prev => ({ ...prev, order_id: e.target.value }))}
-              className={inputCls} placeholder="e.g. ABC123" />
-          </div>
-        </div>
-
-        {/* 日期與時間 */}
         <div>
-          <FieldLabel required>日期與時間</FieldLabel>
-          <DateRangePicker
-            category={formData.category}
-            value={dateRangeValue}
-            onChange={r => setFormData(prev => ({
-              ...prev,
-              start_date: r.start_date ? format(r.start_date, 'yyyy-MM-dd') : '',
-              end_date: r.end_date ? format(r.end_date, 'yyyy-MM-dd') : '',
-              start_time: r.start_time,
-              end_time: r.end_time,
-              pre_start_time: r.pre_start_time || '',
-              daily_start_time: r.daily_start_time || '08:00',
-              daily_end_time: r.daily_end_time || '22:00',
-            }))}
-          />
+          <label className="block text-[10px] font-bold text-zinc-400 uppercase tracking-wider mb-2">訂單號</label>
+          <input type="text" value={formData.order_id} onChange={e => set('order_id', e.target.value)}
+            className="w-full bg-zinc-900 border border-zinc-800 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-orange-500 transition-colors text-sm"
+            placeholder="ABC123" />
         </div>
+      </div>
 
-        {/* 城市 / 地點 */}
+      {/* 城市 — 有出發地和目的地時隱藏 */}
+      {showCity && (
         <div>
-          <FieldLabel>城市 / 地點</FieldLabel>
+          <label className="block text-[10px] font-bold text-zinc-400 uppercase tracking-wider mb-2">城市</label>
           <button type="button" onClick={() => setIsCityPickerOpen(true)}
-            className={clsx(inputCls, 'flex items-center gap-3 text-left')}>
-            <MapPin size={15} className="text-orange-500 shrink-0" />
+            className="w-full bg-zinc-900 border border-zinc-800 rounded-xl px-4 py-3 flex items-center gap-3 text-zinc-400 hover:border-zinc-600 transition-colors">
+            <MapPin size={16} className="text-orange-500 shrink-0" />
             <span className={formData.city_id ? 'text-white' : 'text-zinc-600'}>
-              {formData.city_id ? cities.find(c => String(c.id) === formData.city_id)?.name : '選擇城市或地點...'}
+              {formData.city_id ? cities.find(c => String(c.id) === formData.city_id)?.name : '選擇城市...'}
             </span>
-            {formData.google_place_id && (
-              <span className="ml-auto text-[10px] bg-orange-500/15 text-orange-400 px-2 py-0.5 rounded-full font-bold shrink-0">Google</span>
-            )}
           </button>
         </div>
+      )}
 
-        {/* 出發地 / 目的地 (交通 & 租車) */}
-        {(isTransport || isRental) && (
-          <div className="grid grid-cols-2 gap-3">
-            <div>
-              <FieldLabel>{isTransport ? '出發地' : '取車地點'}</FieldLabel>
-              <input type="text" value={formData.start_location}
-                onChange={e => setFormData(prev => ({ ...prev, start_location: e.target.value }))}
-                className={inputCls}
-                placeholder={formData.category === 'FLIGHT' ? 'TPE' : '出發地'} />
-            </div>
-            <div>
-              <FieldLabel>{isTransport ? '目的地' : '還車地點'}</FieldLabel>
-              <input type="text" value={formData.end_location}
-                onChange={e => setFormData(prev => ({ ...prev, end_location: e.target.value }))}
-                className={inputCls}
-                placeholder={formData.category === 'FLIGHT' ? 'NRT' : '目的地'} />
-            </div>
-          </div>
-        )}
-
-        {/* 航廈 / 月台 (FLIGHT, TRAIN, FERRY) */}
-        {isTransport && (
-          <div className="grid grid-cols-2 gap-3">
-            <div>
-              <FieldLabel>
-                {formData.category === 'FLIGHT' ? '出發航廈' : formData.category === 'TRAIN' ? '出發月台' : '出發碼頭'}
-              </FieldLabel>
-              <input type="text" value={formData.details?.dep_terminal || ''}
-                onChange={e => setDetail('dep_terminal', e.target.value)}
-                className={inputCls}
-                placeholder={formData.category === 'FLIGHT' ? 'Terminal 1' : formData.category === 'TRAIN' ? '第 1 月台' : '北碼頭'} />
-            </div>
-            <div>
-              <FieldLabel>
-                {formData.category === 'FLIGHT' ? '抵達航廈' : formData.category === 'TRAIN' ? '抵達月台' : '抵達碼頭'}
-              </FieldLabel>
-              <input type="text" value={formData.details?.arr_terminal || ''}
-                onChange={e => setDetail('arr_terminal', e.target.value)}
-                className={inputCls}
-                placeholder={formData.category === 'FLIGHT' ? 'Terminal 2' : formData.category === 'TRAIN' ? '第 3 月台' : '南碼頭'} />
-            </div>
-          </div>
-        )}
-
-        {/* 地址 (HOTEL) */}
-        {isHotel && (
-          <div>
-            <FieldLabel>飯店地址</FieldLabel>
-            <input type="text" value={formData.start_location}
-              onChange={e => setFormData(prev => ({ ...prev, start_location: e.target.value }))}
-              className={inputCls} placeholder="飯店地址" />
-          </div>
-        )}
-
-        {/* 備註 */}
-        <div>
-          <FieldLabel>備註</FieldLabel>
-          <textarea value={formData.notes}
-            onChange={e => setFormData(prev => ({ ...prev, notes: e.target.value }))}
-            className={clsx(inputCls, 'h-20 resize-none')}
-            placeholder="確認編號、特別要求..." />
+      {/* 出發地 / 目的地（交通） */}
+      {isTransport && (
+        <div className="grid grid-cols-2 gap-3">
+          {formData.category === 'FLIGHT' ? (
+            <>
+              <AddressSearchInput
+                label="出發機場"
+                value={startLocDisplay}
+                onChange={v => { setStartLocDisplay(v); set('start_location', v); }}
+                onPlaceSelect={place => {
+                  setFormData(prev => ({
+                    ...prev,
+                    lat: place.lat ?? prev.lat,
+                    lng: place.lng ?? prev.lng,
+                  }));
+                }}
+                placeholder="搜尋出發機場..."
+                showNameOnSelect
+              />
+              <AddressSearchInput
+                label="抵達機場"
+                value={endLocDisplay}
+                onChange={v => { setEndLocDisplay(v); set('end_location', v); }}
+                onPlaceSelect={place => {
+                  setFormData(prev => ({
+                    ...prev,
+                    arrival_lat: place.lat ?? prev.arrival_lat,
+                    arrival_lng: place.lng ?? prev.arrival_lng,
+                  }));
+                }}
+                placeholder="搜尋抵達機場..."
+                showNameOnSelect
+              />
+            </>
+          ) : (
+            <>
+              <AddressSearchInput
+                label="出發地"
+                value={startLocDisplay}
+                onChange={v => { setStartLocDisplay(v); set('start_location', v); }}
+                onPlaceSelect={_place => { /* start_location set by onChange to Chinese display name */ }}
+                placeholder="搜尋出發站..."
+                showNameOnSelect
+              />
+              <AddressSearchInput
+                label="目的地"
+                value={endLocDisplay}
+                onChange={v => { setEndLocDisplay(v); set('end_location', v); }}
+                onPlaceSelect={_place => { /* end_location set by onChange to Chinese display name */ }}
+                placeholder="搜尋目的站..."
+                showNameOnSelect
+              />
+            </>
+          )}
         </div>
+      )}
 
-        {/* 刪除 */}
-        {initialData && onDelete && (
-          <div className="pt-2 border-t border-zinc-800">
-            <button type="button" onClick={() => setShowDeleteConfirm(true)}
-              className="w-full py-3 bg-red-500/10 hover:bg-red-500/20 text-red-500 font-bold rounded-2xl transition-colors flex items-center justify-center gap-2 border border-red-500/20 text-sm">
-              <Trash2 size={16} />刪除預訂
-            </button>
+      {/* 飯店地址（Google Places 自動補全） */}
+      {formData.category === 'HOTEL' && (
+        <>
+          <AddressSearchInput
+            label="地址"
+            value={formData.start_location}
+            onChange={v => set('start_location', v)}
+            onPlaceSelect={place => {
+              setFormData(prev => ({
+                ...prev,
+                start_location:  place.address,
+                google_place_id: place.google_place_id || prev.google_place_id,
+                title:           prev.title || place.name || prev.title,
+                image_url:       prev.image_url || place.image_url || '',
+              }));
+            }}
+            placeholder="搜尋飯店或地址..."
+          />
+          {formData.image_url && (
+            <div className="relative rounded-2xl overflow-hidden h-32 bg-zinc-800">
+              <img src={formData.image_url} alt="" className="w-full h-full object-cover" />
+              <div className="absolute inset-0 bg-gradient-to-t from-black/60 to-transparent" />
+              <button
+                type="button"
+                onClick={() => set('image_url', '')}
+                className="absolute top-2 right-2 p-1.5 bg-black/60 rounded-full text-zinc-300 hover:text-white transition-colors"
+              >
+                <X size={12} />
+              </button>
+              <span className="absolute bottom-2 left-3 text-[10px] text-white/70 font-bold uppercase tracking-widest">封面圖片</span>
+            </div>
+          )}
+        </>
+      )}
+
+      {/* 日期範圍：僅 HOTEL 顯示獨立區塊；其他類別移至各自時間設定區塊內 */}
+      {formData.category === 'HOTEL' && (
+        <div>
+          <label className="block text-[10px] font-bold text-zinc-400 uppercase tracking-wider mb-2">
+            {formData.category === 'HOTEL' ? '入住 → 退房日期' : '出發 → 抵達日期'}
+            {tripStartDate && tripEndDate && (
+              <span className="ml-2 text-zinc-600 normal-case tracking-normal font-normal">({tripStartDate} — {tripEndDate})</span>
+            )}
+          </label>
+          <DateRangePicker
+            category={formData.category}
+            hideTime={true}
+            value={{
+              start_date: parsedStartDate,
+              end_date:   parsedEndDate,
+              start_time: formData.start_time,
+              end_time:   formData.end_time,
+            }}
+            onChange={r => {
+              setDateError('');
+              setFormData(prev => ({
+                ...prev,
+                start_date: r.start_date ? format(r.start_date, 'yyyy-MM-dd') : '',
+                end_date:   r.end_date   ? format(r.end_date,   'yyyy-MM-dd') : '',
+              }));
+            }}
+          />
+          {dateError && (
+            <p className="mt-2 text-[11px] text-red-400 font-bold">{dateError}</p>
+          )}
+        </div>
+      )}
+
+      {/* ─── 住宿時間設定 ─── */}
+      {formData.category === 'HOTEL' && (
+        <div className="space-y-4 bg-zinc-900/50 border border-zinc-800 rounded-2xl p-4">
+          <p className="text-[10px] font-black text-orange-500 uppercase tracking-widest">住宿時間設定</p>
+
+          {/* 入住 inline */}
+          <div className="space-y-1.5">
+            <div className="flex items-center justify-between">
+              <p className="text-[10px] font-bold text-zinc-500 uppercase tracking-wider">入住</p>
+              {hotelCheckInCalc && <span className="text-[9px] font-black text-orange-400">完成約 {hotelCheckInCalc}</span>}
+            </div>
+            <div className="flex items-center bg-zinc-900 border border-zinc-800 rounded-xl px-3 py-2 gap-2 focus-within:border-orange-500 transition-colors">
+              <Clock size={13} className="text-orange-500 shrink-0" />
+              <input type="time" value={formData.start_time} onChange={e => set('start_time', e.target.value)}
+                className="bg-transparent text-white font-mono font-bold text-sm outline-none [color-scheme:dark]" />
+              <div className="w-px h-4 bg-zinc-700 shrink-0 mx-1" />
+              <span className="text-[9px] text-zinc-600 shrink-0">辦理</span>
+              <input type="range" min="0" max="120" step="5" value={checkInStay}
+                onChange={e => setCheckInStay(parseInt(e.target.value))}
+                className="flex-1 accent-orange-500 h-1.5 bg-zinc-800 rounded-lg appearance-none cursor-pointer outline-none" />
+              <span className="text-[10px] font-black text-orange-400 shrink-0 w-7 text-right">{checkInStay}分</span>
+            </div>
           </div>
-        )}
-      </div>
 
-      {/* Sticky 底部 */}
-      <div className="shrink-0 px-5 py-4 border-t border-zinc-800/80 bg-[#1c1c1e] flex gap-3" style={{ paddingBottom: 'max(1rem, env(safe-area-inset-bottom))' }}>
-        <button type="button" onClick={onCancel}
-          className="flex-1 bg-[#242426] hover:bg-zinc-800 text-white font-bold rounded-2xl px-4 py-3.5 transition-colors text-sm border border-zinc-800">
-          取消
-        </button>
-        <button type="submit" disabled={loading}
-          className="flex-[2] bg-orange-500 hover:bg-orange-600 disabled:opacity-50 text-white font-black rounded-2xl px-4 py-3.5 transition-colors shadow-lg shadow-orange-500/20 flex items-center justify-center gap-2 text-sm uppercase tracking-wide">
-          {loading ? <Loader2 className="animate-spin" size={18} /> : '儲存預訂'}
-        </button>
-      </div>
+          {/* 退房 inline */}
+          <div className="space-y-1.5 border-t border-zinc-800 pt-3">
+            <div className="flex items-center justify-between">
+              <p className="text-[10px] font-bold text-zinc-500 uppercase tracking-wider">退房</p>
+              {hotelCheckOutCalc && <span className="text-[9px] font-black text-orange-400">完成約 {hotelCheckOutCalc}</span>}
+            </div>
+            <div className="flex items-center bg-zinc-900 border border-zinc-800 rounded-xl px-3 py-2 gap-2 focus-within:border-orange-500 transition-colors">
+              <Clock size={13} className="text-orange-500 shrink-0" />
+              <input type="time" value={formData.end_time} onChange={e => set('end_time', e.target.value)}
+                className="bg-transparent text-white font-mono font-bold text-sm outline-none [color-scheme:dark]" />
+              <div className="w-px h-4 bg-zinc-700 shrink-0 mx-1" />
+              <span className="text-[9px] text-zinc-600 shrink-0">辦理</span>
+              <input type="range" min="0" max="120" step="5" value={checkOutStay}
+                onChange={e => setCheckOutStay(parseInt(e.target.value))}
+                className="flex-1 accent-orange-500 h-1.5 bg-zinc-800 rounded-lg appearance-none cursor-pointer outline-none" />
+              <span className="text-[10px] font-black text-orange-400 shrink-0 w-7 text-right">{checkOutStay}分</span>
+            </div>
+          </div>
 
-      {/* 刪除確認 */}
-      <AnimatePresence>
-        {showDeleteConfirm && (
-          <div className="fixed inset-0 z-[200] flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm">
-            <motion.div initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.95 }}
-              className="bg-[#1c1c1e] border border-zinc-800 rounded-3xl p-6 w-full max-w-sm shadow-2xl">
-              <h3 className="text-lg font-bold text-white mb-2">刪除預訂？</h3>
-              <p className="text-zinc-400 mb-6 text-sm">確定要刪除這筆預訂嗎？相關行程卡片也會一併刪除。</p>
-              <div className="flex gap-3">
-                <button type="button" onClick={() => setShowDeleteConfirm(false)} className="flex-1 px-4 py-3 rounded-xl font-medium text-zinc-400 hover:bg-zinc-800 transition-colors">取消</button>
-                <button type="button" onClick={() => { setShowDeleteConfirm(false); onDelete?.(); }} className="flex-1 px-4 py-3 rounded-xl font-bold bg-red-500 text-white hover:bg-red-600 transition-colors">刪除</button>
+          {/* 每日出門／返回時間（每日自訂） */}
+          {middleHotelDates.length > 0 && (
+            <div className="space-y-2 border-t border-zinc-800 pt-3">
+              <p className="text-[10px] font-bold text-zinc-500 uppercase tracking-wider">每日出門／返回時間</p>
+              {middleHotelDates.map((date, idx) => {
+                const perDay = dailyTimes[date] || {};
+                const outVal = perDay.out    ?? dailyDepartTime;
+                const retVal = perDay.return ?? dailyReturnTime;
+                return (
+                  <div key={date} className="flex items-center gap-2">
+                    <span className="text-[10px] font-black text-zinc-500 shrink-0 w-10">
+                      Day {idx + 1}
+                    </span>
+                    <span className="text-[10px] text-zinc-600 shrink-0 w-9">
+                      {format(parseISO(date), 'M/d')}
+                    </span>
+                    <div className="flex-1 grid grid-cols-2 gap-1.5">
+                      <div className="flex items-center bg-zinc-900 border border-zinc-800 rounded-lg px-2 py-1.5 gap-1 focus-within:border-orange-500 transition-colors">
+                        <span className="text-[8px] text-zinc-500 shrink-0">出門</span>
+                        <input type="time" value={outVal}
+                          onChange={e => setDailyTimes(prev => ({
+                            ...prev, [date]: { ...prev[date], out: e.target.value }
+                          }))}
+                          className="flex-1 bg-transparent text-white font-mono text-xs outline-none [color-scheme:dark]" />
+                      </div>
+                      <div className="flex items-center bg-zinc-900 border border-zinc-800 rounded-lg px-2 py-1.5 gap-1 focus-within:border-orange-500 transition-colors">
+                        <span className="text-[8px] text-zinc-500 shrink-0">返回</span>
+                        <input type="time" value={retVal}
+                          onChange={e => setDailyTimes(prev => ({
+                            ...prev, [date]: { ...prev[date], return: e.target.value }
+                          }))}
+                          className="flex-1 bg-transparent text-white font-mono text-xs outline-none [color-scheme:dark]" />
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* ─── 機票/火車/船票：出發抵達時間 + 置中航行時長 ─── */}
+      {isFlightTrainFerry && (
+        <div className="space-y-4 bg-zinc-900/50 border border-zinc-800 rounded-2xl p-4">
+          <p className="text-[10px] font-black text-orange-500 uppercase tracking-widest">交通時間設定</p>
+
+          {/* 出發 → 抵達日期（整合進交通時間設定區塊） */}
+          <div>
+            <label className="block text-[10px] font-bold text-zinc-400 uppercase tracking-wider mb-2">
+              出發 → 抵達日期
+              {tripStartDate && tripEndDate && (
+                <span className="ml-2 text-zinc-600 normal-case tracking-normal font-normal">({tripStartDate} — {tripEndDate})</span>
+              )}
+            </label>
+            <DateRangePicker
+              category={formData.category}
+              hideTime={true}
+              value={{
+                start_date: parsedStartDate,
+                end_date:   parsedEndDate,
+                start_time: formData.start_time,
+                end_time:   formData.end_time,
+              }}
+              onChange={r => {
+                setDateError('');
+                setFormData(prev => ({
+                  ...prev,
+                  start_date: r.start_date ? format(r.start_date, 'yyyy-MM-dd') : '',
+                  end_date:   r.end_date   ? format(r.end_date,   'yyyy-MM-dd') : '',
+                }));
+              }}
+            />
+            {dateError && (
+              <p className="mt-2 text-[11px] text-red-400 font-bold">{dateError}</p>
+            )}
+          </div>
+
+          {/* 出發 | 行程時長 | 抵達 */}
+          <div className="grid grid-cols-[1fr_auto_1fr] gap-2 items-end">
+            <div className="space-y-1">
+              <label className="text-[10px] font-bold text-zinc-400 uppercase tracking-widest">出發</label>
+              <div className="flex items-center bg-zinc-900 border border-zinc-800 rounded-xl px-3 py-2.5 gap-2 focus-within:border-orange-500 transition-colors">
+                <Clock size={14} className="text-orange-500 shrink-0" />
+                <input type="time" value={formData.start_time} onChange={e => handleDepTimeChange(e.target.value)}
+                  className="flex-1 bg-transparent text-white font-mono font-bold text-sm outline-none [color-scheme:dark]" />
               </div>
-            </motion.div>
+            </div>
+
+            <div className="flex flex-col items-center pb-1.5 px-1 min-w-[52px]">
+              {calcFlightDuration ? (
+                <>
+                  <span className="text-[8px] text-zinc-600 uppercase tracking-wider leading-none">
+                    {formData.category === 'FLIGHT' ? '飛行' : formData.category === 'TRAIN' ? '行駛' : '航行'}
+                  </span>
+                  <span className="text-[11px] font-black text-orange-400 mt-1">{calcFlightDuration}</span>
+                  <ArrowRight size={12} className="text-zinc-600 mt-1" />
+                </>
+              ) : (
+                <ArrowRight size={16} className="text-zinc-700 mt-3" />
+              )}
+            </div>
+
+            <div className="space-y-1">
+              <label className="text-[10px] font-bold text-zinc-400 uppercase tracking-widest text-right block">抵達</label>
+              <div className="flex items-center bg-zinc-900 border border-zinc-800 rounded-xl px-3 py-2.5 gap-2 focus-within:border-orange-500 transition-colors">
+                <Clock size={14} className="text-orange-500 shrink-0" />
+                <input type="time" value={formData.end_time} onChange={e => set('end_time', e.target.value)}
+                  className="flex-1 bg-transparent text-white font-mono font-bold text-sm outline-none [color-scheme:dark]" />
+              </div>
+            </div>
           </div>
-        )}
-      </AnimatePresence>
+
+          {/* 報到與緩衝時間 */}
+          <div className="space-y-3 border-t border-zinc-800 pt-3">
+            {timeInput('報到時間', checkInTime, (v) => {
+              setCheckInTime(v);
+              if (v && formData.start_time) {
+                const [sh, sm] = formData.start_time.split(':').map(Number);
+                const [ch, cm] = v.split(':').map(Number);
+                let diff = (sh * 60 + sm) - (ch * 60 + cm);
+                if (diff < 0) diff += 24 * 60;
+                if (diff >= 0 && diff <= 240) setDepBuffer(diff);
+              }
+            })}
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-1">
+                <div className="flex items-center justify-between">
+                  <label className="text-[10px] font-bold text-zinc-400 uppercase tracking-widest">提前報到</label>
+                  <span className="text-[9px] font-black text-orange-400">{depBuffer}分</span>
+                </div>
+                <input type="range" min="0" max="240" step="5" value={depBuffer}
+                  onChange={e => handleDepBufferChange(parseInt(e.target.value))}
+                  className="w-full accent-orange-500 h-1.5 bg-zinc-800 rounded-lg appearance-none cursor-pointer outline-none" />
+              </div>
+              <div className="space-y-1">
+                <div className="flex items-center justify-between">
+                  <label className="text-[10px] font-bold text-zinc-400 uppercase tracking-widest">抵達停留</label>
+                  <span className="text-[9px] font-black text-orange-400">{arrStay}分</span>
+                </div>
+                <input type="range" min="0" max="180" step="5" value={arrStay}
+                  onChange={e => setArrStay(parseInt(e.target.value))}
+                  className="w-full accent-orange-500 h-1.5 bg-zinc-800 rounded-lg appearance-none cursor-pointer outline-none" />
+                {transportArrCalc && <p className="text-[9px] text-zinc-600 mt-0.5">離開約 {transportArrCalc}</p>}
+              </div>
+            </div>
+          </div>
+
+          {/* 航廈 / 月台 */}
+          <div className="grid grid-cols-2 gap-3 border-t border-zinc-800 pt-3">
+            <div>
+              <label className="block text-[10px] font-bold text-zinc-400 uppercase tracking-widest mb-2">出發{terminalLabel}</label>
+              <input type="text" value={depTerminal} onChange={e => setDepTerminal(e.target.value)}
+                className="w-full bg-zinc-900 border border-zinc-800 rounded-xl px-3 py-2.5 text-white text-sm focus:outline-none focus:border-orange-500 transition-colors"
+                placeholder={formData.category === 'FLIGHT' ? 'T1' : '1號月台'} />
+            </div>
+            <div>
+              <label className="block text-[10px] font-bold text-zinc-400 uppercase tracking-widest mb-2">抵達{terminalLabel}</label>
+              <input type="text" value={arrTerminal} onChange={e => setArrTerminal(e.target.value)}
+                className="w-full bg-zinc-900 border border-zinc-800 rounded-xl px-3 py-2.5 text-white text-sm focus:outline-none focus:border-orange-500 transition-colors"
+                placeholder={formData.category === 'FLIGHT' ? 'T2' : '3號月台'} />
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ─── 公車：時間 + duration 在同一行 ─── */}
+      {isBus && (
+        <div className="space-y-4 bg-zinc-900/50 border border-zinc-800 rounded-2xl p-4">
+          <p className="text-[10px] font-black text-orange-500 uppercase tracking-widest">交通時間設定</p>
+
+          {/* 出發 → 抵達日期（整合進交通時間設定區塊） */}
+          <div>
+            <label className="block text-[10px] font-bold text-zinc-400 uppercase tracking-wider mb-2">
+              出發 → 抵達日期
+              {tripStartDate && tripEndDate && (
+                <span className="ml-2 text-zinc-600 normal-case tracking-normal font-normal">({tripStartDate} — {tripEndDate})</span>
+              )}
+            </label>
+            <DateRangePicker
+              category={formData.category}
+              hideTime={true}
+              value={{
+                start_date: parsedStartDate,
+                end_date:   parsedEndDate,
+                start_time: formData.start_time,
+                end_time:   formData.end_time,
+              }}
+              onChange={r => {
+                setDateError('');
+                setFormData(prev => ({
+                  ...prev,
+                  start_date: r.start_date ? format(r.start_date, 'yyyy-MM-dd') : '',
+                  end_date:   r.end_date   ? format(r.end_date,   'yyyy-MM-dd') : '',
+                }));
+              }}
+            />
+            {dateError && <p className="mt-2 text-[11px] text-red-400 font-bold">{dateError}</p>}
+          </div>
+
+          {/* 出發 inline */}
+          <div className="space-y-1.5">
+            <div className="flex items-center justify-between">
+              <label className="text-[10px] font-bold text-zinc-400 uppercase tracking-widest">出發時間</label>
+              {checkInTime && <span className="text-[9px] font-black text-orange-400 normal-case">報到 {checkInTime}</span>}
+            </div>
+            <div className="flex items-center bg-zinc-900 border border-zinc-800 rounded-xl px-3 py-2 gap-2 focus-within:border-orange-500 transition-colors">
+              <Clock size={13} className="text-orange-500 shrink-0" />
+              <input type="time" value={formData.start_time} onChange={e => handleDepTimeChange(e.target.value)}
+                className="bg-transparent text-white font-mono font-bold text-sm outline-none [color-scheme:dark]" />
+              <div className="w-px h-4 bg-zinc-700 shrink-0 mx-1" />
+              <span className="text-[9px] text-zinc-600 shrink-0">提前</span>
+              <input type="range" min="0" max="120" step="5" value={depBuffer}
+                onChange={e => handleDepBufferChange(parseInt(e.target.value))}
+                className="flex-1 accent-orange-500 h-1.5 bg-zinc-800 rounded-lg appearance-none cursor-pointer outline-none" />
+              <span className="text-[10px] font-black text-orange-400 shrink-0 w-7 text-right">{depBuffer}分</span>
+            </div>
+          </div>
+
+          {/* 抵達 inline */}
+          <div className="space-y-1.5">
+            <div className="flex items-center justify-between">
+              <label className="text-[10px] font-bold text-zinc-400 uppercase tracking-widest">抵達時間</label>
+              {transportArrCalc && <span className="text-[9px] font-black text-orange-400 normal-case">離開約 {transportArrCalc}</span>}
+            </div>
+            <div className="flex items-center bg-zinc-900 border border-zinc-800 rounded-xl px-3 py-2 gap-2 focus-within:border-orange-500 transition-colors">
+              <Clock size={13} className="text-orange-500 shrink-0" />
+              <input type="time" value={formData.end_time} onChange={e => set('end_time', e.target.value)}
+                className="bg-transparent text-white font-mono font-bold text-sm outline-none [color-scheme:dark]" />
+              <div className="w-px h-4 bg-zinc-700 shrink-0 mx-1" />
+              <span className="text-[9px] text-zinc-600 shrink-0">停留</span>
+              <input type="range" min="0" max="180" step="5" value={arrStay}
+                onChange={e => setArrStay(parseInt(e.target.value))}
+                className="flex-1 accent-orange-500 h-1.5 bg-zinc-800 rounded-lg appearance-none cursor-pointer outline-none" />
+              <span className="text-[10px] font-black text-orange-400 shrink-0 w-7 text-right">{arrStay}分</span>
+            </div>
+          </div>
+
+          {/* 站牌 */}
+          <div className="grid grid-cols-2 gap-3 border-t border-zinc-800 pt-3">
+            <div>
+              <label className="block text-[10px] font-bold text-zinc-400 uppercase tracking-widest mb-2">出發{terminalLabel}</label>
+              <input type="text" value={depTerminal} onChange={e => setDepTerminal(e.target.value)}
+                className="w-full bg-zinc-900 border border-zinc-800 rounded-xl px-3 py-2.5 text-white text-sm focus:outline-none focus:border-orange-500 transition-colors"
+                placeholder="台北轉運站" />
+            </div>
+            <div>
+              <label className="block text-[10px] font-bold text-zinc-400 uppercase tracking-widest mb-2">抵達{terminalLabel}</label>
+              <input type="text" value={arrTerminal} onChange={e => setArrTerminal(e.target.value)}
+                className="w-full bg-zinc-900 border border-zinc-800 rounded-xl px-3 py-2.5 text-white text-sm focus:outline-none focus:border-orange-500 transition-colors"
+                placeholder="台中總站" />
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ─── 租車 / 接送時間 ─── */}
+      {isRentalOrTransfer && (
+        <div className="space-y-4 bg-zinc-900/50 border border-zinc-800 rounded-2xl p-4">
+          <p className="text-[10px] font-black text-orange-500 uppercase tracking-widest">時間設定</p>
+
+          {/* 取還車/出發抵達日期（整合進時間設定區塊） */}
+          <div>
+            <label className="block text-[10px] font-bold text-zinc-400 uppercase tracking-wider mb-2">
+              {formData.category === 'RENTAL' ? '取還車日期' : '出發 → 抵達日期'}
+              {tripStartDate && tripEndDate && (
+                <span className="ml-2 text-zinc-600 normal-case tracking-normal font-normal">({tripStartDate} — {tripEndDate})</span>
+              )}
+            </label>
+            <DateRangePicker
+              category={formData.category}
+              hideTime={true}
+              value={{
+                start_date: parsedStartDate,
+                end_date:   parsedEndDate,
+                start_time: formData.start_time,
+                end_time:   formData.end_time,
+              }}
+              onChange={r => {
+                setDateError('');
+                setFormData(prev => ({
+                  ...prev,
+                  start_date: r.start_date ? format(r.start_date, 'yyyy-MM-dd') : '',
+                  end_date:   r.end_date   ? format(r.end_date,   'yyyy-MM-dd') : '',
+                }));
+              }}
+            />
+            {dateError && <p className="mt-2 text-[11px] text-red-400 font-bold">{dateError}</p>}
+          </div>
+
+          {/* 取車/出發 inline */}
+          <div className="space-y-1.5">
+            <label className="text-[10px] font-bold text-zinc-400 uppercase tracking-widest">
+              {formData.category === 'RENTAL' ? '取車時間' : '出發時間'}
+            </label>
+            <div className="flex items-center bg-zinc-900 border border-zinc-800 rounded-xl px-3 py-2 gap-2 focus-within:border-orange-500 transition-colors">
+              <Clock size={13} className="text-orange-500 shrink-0" />
+              <input type="time" value={formData.start_time} onChange={e => set('start_time', e.target.value)}
+                className="bg-transparent text-white font-mono font-bold text-sm outline-none [color-scheme:dark]" />
+              <div className="w-px h-4 bg-zinc-700 shrink-0 mx-1" />
+              <span className="text-[9px] text-zinc-600 shrink-0">等候</span>
+              <input type="range" min="0" max="90" step="5" value={rentalPickupBuffer}
+                onChange={e => setRentalPickupBuffer(parseInt(e.target.value))}
+                className="flex-1 accent-orange-500 h-1.5 bg-zinc-800 rounded-lg appearance-none cursor-pointer outline-none" />
+              <span className="text-[10px] font-black text-orange-400 shrink-0 w-7 text-right">{rentalPickupBuffer}分</span>
+            </div>
+          </div>
+
+          {/* 還車/抵達 inline */}
+          <div className="space-y-1.5">
+            <label className="text-[10px] font-bold text-zinc-400 uppercase tracking-widest">
+              {formData.category === 'RENTAL' ? '還車時間' : '抵達時間'}
+            </label>
+            <div className="flex items-center bg-zinc-900 border border-zinc-800 rounded-xl px-3 py-2 gap-2 focus-within:border-orange-500 transition-colors">
+              <Clock size={13} className="text-orange-500 shrink-0" />
+              <input type="time" value={formData.end_time} onChange={e => set('end_time', e.target.value)}
+                className="bg-transparent text-white font-mono font-bold text-sm outline-none [color-scheme:dark]" />
+              <div className="w-px h-4 bg-zinc-700 shrink-0 mx-1" />
+              <span className="text-[9px] text-zinc-600 shrink-0">{formData.category === 'RENTAL' ? '手續' : '等候'}</span>
+              <input type="range" min="0" max="60" step="5" value={rentalReturnBuffer}
+                onChange={e => setRentalReturnBuffer(parseInt(e.target.value))}
+                className="flex-1 accent-orange-500 h-1.5 bg-zinc-800 rounded-lg appearance-none cursor-pointer outline-none" />
+              <span className="text-[10px] font-black text-orange-400 shrink-0 w-7 text-right">{rentalReturnBuffer}分</span>
+            </div>
+          </div>
+
+          {/* 地點（Google Places 自動補全） */}
+          <div className="grid grid-cols-2 gap-3 border-t border-zinc-800 pt-3">
+            <AddressSearchInput
+              label={formData.category === 'RENTAL' ? '取車地點' : '出發地點'}
+              value={startLocDisplay}
+              onChange={v => { setStartLocDisplay(v); set('start_location', v); }}
+              onPlaceSelect={_place => { /* start_location set by onChange to Chinese display name */ }}
+              placeholder={formData.category === 'RENTAL' ? '搜尋取車地點...' : '搜尋出發地...'}
+              showNameOnSelect
+            />
+            <AddressSearchInput
+              label={formData.category === 'RENTAL' ? '還車地點' : '目的地點'}
+              value={endLocDisplay}
+              onChange={v => { setEndLocDisplay(v); set('end_location', v); }}
+              onPlaceSelect={_place => { /* end_location set by onChange to Chinese display name */ }}
+              placeholder={formData.category === 'RENTAL' ? '搜尋還車地點...' : '搜尋目的地...'}
+              showNameOnSelect
+            />
+          </div>
+        </div>
+      )}
+
+      {/* 備註 */}
+      <div>
+        <label className="block text-[10px] font-bold text-zinc-400 uppercase tracking-wider mb-2">備註</label>
+        <textarea value={formData.notes} onChange={e => set('notes', e.target.value)}
+          className="w-full bg-zinc-900 border border-zinc-800 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-orange-500 transition-colors h-20 resize-none text-sm"
+          placeholder="確認號碼、特殊需求..." />
+      </div>
+
+      {/* 刪除訂票 — 在捲動區最底部 */}
+      {onDelete && (
+        <button type="button" onClick={onDelete}
+          className="w-full py-3 text-red-500 bg-red-500/10 hover:bg-red-500/20 font-bold rounded-xl transition-colors border border-red-500/20">
+          刪除訂票
+        </button>
+      )}
 
       <LocationPicker
         isOpen={isCityPickerOpen}
         onClose={() => setIsCityPickerOpen(false)}
         onSelect={res => setFormData(prev => ({
           ...prev,
-          city_id: res.id ? String(res.id) : prev.city_id,
-          title: res.google_place_id ? res.name : prev.title,
+          city_id:        res.id ? String(res.id) : prev.city_id,
+          title:          res.google_place_id ? res.name : prev.title,
           start_location: res.address || prev.start_location,
-          google_place_id: res.google_place_id || ''
+          google_place_id: res.google_place_id || '',
         }))}
         groupedCities={groupedCities}
       />
+      </div>
     </form>
+
+    {/* 固定底部 */}
+    <div className="shrink-0 px-6 pt-4 pb-5 border-t border-zinc-800">
+      <div className="flex gap-3">
+        <button type="button" onClick={onCancel}
+          className="flex-1 bg-zinc-800 hover:bg-zinc-700 text-white font-bold rounded-xl px-4 py-3.5 transition-colors">取消</button>
+        <button form="booking-form" type="submit" disabled={loading}
+          className="flex-[2] bg-orange-500 hover:bg-orange-600 disabled:opacity-50 text-white font-black rounded-xl px-4 py-3.5 transition-colors shadow-lg shadow-orange-500/20 flex items-center justify-center gap-2 uppercase tracking-widest text-sm">
+          {loading ? <Loader2 className="animate-spin" size={20} /> : '儲存訂票'}
+        </button>
+      </div>
+    </div>
+  </div>
   );
 }

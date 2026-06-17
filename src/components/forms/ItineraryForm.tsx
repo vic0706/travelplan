@@ -1,12 +1,15 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { useAppStore } from '../../store';
-import { X, MapPin, Loader2, Trash2, Camera, Image as ImageIcon, Upload, Sparkles, Search } from 'lucide-react';
+import { X, MapPin, Loader2, Plus, Trash2, Camera, Upload, Sparkles, Lock, Unlock, Check, AlertTriangle, Footprints } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { apiFetch } from '../../utils/api';
 import { DynamicIcon } from '../common/DynamicIcon';
 import { ImageCropper, uploadImageToSupabase } from '../widgets/ImageCropper';
 import { LocationPicker } from '../pickers/LocationPicker';
+import { AddressSearchInput } from '../inputs/AddressSearchInput';
 import { clsx } from 'clsx';
+import { useLiveQuery } from 'dexie-react-hooks';
+import { db, getCachedPlaceSuggestions, cachePlaceSuggestions } from '../../db';
 
 interface ItineraryFormProps {
   tripId: number;
@@ -14,6 +17,7 @@ interface ItineraryFormProps {
   onSuccess: () => void;
   onCancel: () => void;
   initialData?: any;
+  showToast?: (message: string, type?: 'success' | 'error') => void;
 }
 
 const safeParseArray = (data: any) => {
@@ -22,44 +26,24 @@ const safeParseArray = (data: any) => {
   try { const p = JSON.parse(data); return Array.isArray(p) ? p : []; } catch { return []; }
 };
 
-// ── 時間輸入（手機數字鍵盤）─────────────────────────────────────────
-const TimeInput = ({ value, onChange, placeholder = 'HH:MM', className }: {
-  value: string; onChange: (v: string) => void;
-  placeholder?: string; className?: string;
-}) => (
-  <input
-    type="text"
-    inputMode="numeric"
-    pattern="[0-9:]*"
-    value={value}
-    onChange={e => {
-      const d = e.target.value.replace(/[^0-9]/g, '').slice(0, 4);
-      onChange(d.length > 2 ? `${d.slice(0, 2)}:${d.slice(2)}` : d);
-    }}
-    onBlur={e => {
-      const parts = e.target.value.split(':');
-      if (parts.length === 2 && parts[0] && parts[1]) {
-        const h = Math.min(23, parseInt(parts[0]) || 0);
-        const m = Math.min(59, parseInt(parts[1]) || 0);
-        onChange(`${h.toString().padStart(2, '0')}:${m.toString().padStart(2, '0')}`);
-      }
-    }}
-    placeholder={placeholder}
-    className={className}
-  />
-);
-
-const timeToMins = (t: string) => {
-  const [h, m] = t.split(':').map(Number);
-  return (h || 0) * 60 + (m || 0);
-};
-const minsToTime = (mins: number) => {
-  const h = Math.floor(Math.max(0, mins) / 60) % 24;
-  const m = Math.max(0, mins) % 60;
-  return `${h.toString().padStart(2, '0')}:${m.toString().padStart(2, '0')}`;
+const addMinutesToTime = (timeStr: string, minutes: number): string => {
+  if (!timeStr) return '';
+  const [h, m] = timeStr.split(':').map(Number);
+  const total = h * 60 + (m || 0) + minutes;
+  const nh = Math.floor(total / 60) % 24;
+  const nm = total % 60;
+  return `${nh.toString().padStart(2, '0')}:${nm.toString().padStart(2, '0')}`;
 };
 
-export function ItineraryForm({ tripId, date, onSuccess, onCancel, initialData }: ItineraryFormProps) {
+const timeToMinutes = (t1: string, t2: string): number => {
+  if (!t1 || !t2) return 60;
+  const [h1, m1] = t1.split(':').map(Number);
+  const [h2, m2] = t2.split(':').map(Number);
+  const diff = (h2 * 60 + m2) - (h1 * 60 + m1);
+  return diff > 0 ? diff : 60;
+};
+
+export function ItineraryForm({ tripId, date, onSuccess, onCancel, initialData, showToast }: ItineraryFormProps) {
   const { categories: storeCategories = [], setCategories, cities: storeCities = [] } = useAppStore();
 
   const groupedCities = useMemo(() => storeCities.reduce((acc: any, city: any) => {
@@ -73,31 +57,62 @@ export function ItineraryForm({ tripId, date, onSuccess, onCancel, initialData }
   const [stayDuration, setStayDuration] = useState(
     initialData?.stay_duration ? parseInt(initialData.stay_duration) : 60
   );
+  const [fixedStayDuration, setFixedStayDuration] = useState(() => {
+    if (initialData?.start_time && initialData?.end_time) {
+      return timeToMinutes(initialData.start_time, initialData.end_time);
+    }
+    return 60;
+  });
   const [loading, setLoading] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [error, setError] = useState('');
   const [tagInput, setTagInput] = useState('');
-
   const [isIconPickerOpen, setIsIconPickerOpen] = useState(false);
   const [isPhotoModalOpen, setIsPhotoModalOpen] = useState(false);
   const [isSubItemModalOpen, setIsSubItemModalOpen] = useState(false);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
   const [isLocationPickerOpen, setIsLocationPickerOpen] = useState(false);
-  const [editingSubItem, setEditingSubItem] = useState<any>(null);
-
-  // 子行程表單 state
-  const [subTitle, setSubTitle] = useState('');
-  const [subStartTime, setSubStartTime] = useState('');
-  const [subEndTime, setSubEndTime] = useState('');
-  const [subNotes, setSubNotes] = useState('');
-  const [croppingImage, setCroppingImage] = useState<string | null>(null);
-  const [subItems, setSubItems] = useState<any[]>(safeParseArray(initialData?.sub_items));
-
   const [suggestions, setSuggestions] = useState<any[]>([]);
   const [isSearching, setIsSearching] = useState(false);
   const sessionToken = useRef(Math.random().toString(36).substring(2));
-  const [isLocationManuallyEdited, setIsLocationManuallyEdited] = useState(false);
+
+  // Live-query: google_place_ids in THIS trip — checks both itineraries and bookings
+  const knownPlaceIds = useLiveQuery(
+    async () => {
+      const [itinItems, bookingItems] = await Promise.all([
+        db.itineraries.where('trip_id').equals(tripId).toArray(),
+        db.bookings.where('trip_id').equals(tripId).toArray(),
+      ]);
+      const ids = new Set<string>();
+      for (const item of [...itinItems, ...bookingItems]) {
+        const pid = (item as any).google_place_id;
+        if (pid) ids.add(pid);
+      }
+      return ids;
+    },
+    [tripId],
+    new Set<string>()
+  ) ?? new Set<string>();
+
+  const [editingSubItem, setEditingSubItem] = useState<any>(null);
+  const [croppingImage, setCroppingImage] = useState<string | null>(null);
+  const [subItems, setSubItems] = useState<any[]>(safeParseArray(initialData?.sub_items));
+  const [subAddress, setSubAddress] = useState('');
+  const [subLat, setSubLat] = useState<number | null>(null);
+  const [subLng, setSubLng] = useState<number | null>(null);
+  const [subTitle, setSubTitle] = useState('');
+  const [subIsAddrEdited, setSubIsAddrEdited] = useState(false);
+  const [subDuration, setSubDuration] = useState(30);
+  const [subStartTime, setSubStartTime] = useState('');
+  const [subEndTime, setSubEndTime] = useState('');
+  const [subSaving, setSubSaving] = useState(false);
+  const [subNextWalkMins, setSubNextWalkMins] = useState(0);
+  const [subWalkAuto, setSubWalkAuto] = useState(true);
+  const [subWalkEstimate, setSubWalkEstimate] = useState(0);
+  const [showDurationWarn, setShowDurationWarn] = useState(false);
+  const [durationWarnInfo, setDurationWarnInfo] = useState({ total: 0, parent: 0 });
+  const [pendingSaveItem, setPendingSaveItem] = useState<any>(null);
 
   const [formData, setFormData] = useState({
     title: initialData?.title || '',
@@ -121,98 +136,177 @@ export function ItineraryForm({ tripId, date, onSuccess, onCancel, initialData }
     next_transport_auto_time: initialData?.next_transport_auto_time || ''
   });
 
-  const selectedCategory = storeCategories.find(c => c.icon === formData.icon) || { color: '#808080', icon: 'MapPin' };
+  const [isLocationManuallyEdited, setIsLocationManuallyEdited] = useState(false);
+  const selectedCategory = storeCategories.find((c: any) => c.icon === formData.icon) || { color: '#808080', icon: 'MapPin' };
 
-  // ── 時間同步邏輯 ────────────────────────────────────────────────────
-  const syncEndTime = (startTime: string, duration: number) => {
-    if (startTime.includes(':') && startTime.length >= 5) {
-      return minsToTime(timeToMins(startTime) + duration);
-    }
-    return formData.end_time;
-  };
-
-  const handleStartTimeChange = (val: string) => {
-    setFormData(prev => ({
-      ...prev,
-      start_time: val,
-      ...(isTimeFixed && val.includes(':') && val.length >= 5 && stayDuration > 0
-        ? { end_time: syncEndTime(val, stayDuration) }
-        : {})
-    }));
-  };
-
-  const handleEndTimeChange = (val: string) => {
-    setFormData(prev => ({ ...prev, end_time: val }));
-    if (val.includes(':') && val.length >= 5 && formData.start_time.includes(':')) {
-      const diff = timeToMins(val) - timeToMins(formData.start_time);
-      if (diff > 0) setStayDuration(diff);
-    }
-  };
-
-  const handleStayDurationChange = (mins: number) => {
-    setStayDuration(mins);
-    if (formData.start_time.includes(':') && formData.start_time.length >= 5) {
-      setFormData(prev => ({ ...prev, end_time: minsToTime(timeToMins(prev.start_time) + mins) }));
-    }
-  };
-
-  // ── Autocomplete ──────────────────────────────────────────────────
+  // Auto-fill transport mode from most common mode in this trip (only for new items)
   useEffect(() => {
-    const t = setTimeout(async () => {
-      if (isLocationManuallyEdited && formData.address.length > 1) {
-        setIsSearching(true);
-        try {
-          const res = await apiFetch(`/api/places/autocomplete?q=${encodeURIComponent(formData.address)}&session=${sessionToken.current}`);
-          if (res.ok) {
-            const data = await res.json();
-            setSuggestions(Array.isArray(data) ? data : []);
-          } else {
-            setSuggestions([]);
-          }
-        } catch { setSuggestions([]); }
-        finally { setIsSearching(false); }
-      } else {
-        setSuggestions([]);
-      }
+    if (initialData) return;
+    apiFetch(`/api/trips/${tripId}/itineraries`)
+      .then(r => r.ok ? r.json() : [])
+      .then((items: any[]) => {
+        const counts: Record<string, number> = {};
+        for (const i of items) {
+          if (i.next_transport_mode) counts[i.next_transport_mode] = (counts[i.next_transport_mode] || 0) + 1;
+        }
+        const mostCommon = Object.entries(counts).sort((a, b) => b[1] - a[1])[0]?.[0] || 'DRIVING';
+        setFormData(prev => ({
+          ...prev,
+          next_transport_mode: prev.next_transport_mode || mostCommon,
+          next_transport_time: prev.next_transport_time || 'auto',
+        }));
+      })
+      .catch(() => {});
+  }, [tripId, initialData]);
+
+  // 標題同步到地址欄（新增模式）
+  useEffect(() => {
+    if (!initialData && !isLocationManuallyEdited && !formData.google_place_id) {
+      setFormData(prev => ({ ...prev, address: prev.title }));
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [formData.title]);
+
+  // 子活動 Modal 開啟時初始化所有狀態
+  useEffect(() => {
+    if (isSubItemModalOpen) {
+      setSubTitle(editingSubItem?.title || '');
+      setSubAddress(editingSubItem?.address || '');
+      setSubLat(editingSubItem?.lat ?? null);
+      setSubLng(editingSubItem?.lng ?? null);
+      setSubIsAddrEdited(false);
+      setSubDuration(editingSubItem?.duration || 30);
+      setSubStartTime(editingSubItem?.start_time || (isTimeFixed ? formData.start_time : ''));
+      setSubEndTime(editingSubItem?.end_time || (isTimeFixed ? formData.end_time : ''));
+      setSubNextWalkMins(editingSubItem?.next_walk_mins || 0);
+      setSubWalkAuto(!(editingSubItem?.next_walk_mins > 0));
+      setSubWalkEstimate(0);
+    }
+  }, [isSubItemModalOpen, editingSubItem]);
+
+  // 自動估算步行時間（Haversine 直線距離 ×1.3 換算，供 auto 模式顯示）
+  useEffect(() => {
+    if (!isSubItemModalOpen) return;
+    const editingIdx = editingSubItem ? subItems.findIndex((i: any) => i.id === editingSubItem.id) : subItems.length;
+    const nextSub = subItems[editingIdx + 1];
+    const fromLat = subLat;
+    const fromLng = subLng;
+    const toLat = nextSub?.lat;
+    const toLng = nextSub?.lng;
+    if (!fromLat || !fromLng || !toLat || !toLng) { setSubWalkEstimate(0); return; }
+    apiFetch(`/api/walking-time?fromLat=${fromLat}&fromLng=${fromLng}&toLat=${toLat}&toLng=${toLng}`)
+      .then(r => r.ok ? r.json() : null)
+      .then((d: any) => { if (d?.minutes) setSubWalkEstimate(d.minutes); })
+      .catch(() => {});
+  }, [isSubItemModalOpen, subLat, subLng]);
+
+  // 子活動標題同步到地址欄（未手動編輯地址時）
+  useEffect(() => {
+    if (isSubItemModalOpen && !subIsAddrEdited && !subLat) {
+      setSubAddress(subTitle);
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [subTitle]);
+
+  // 自動搜尋地點（帶 DB 快取）
+  useEffect(() => {
+    const timer = setTimeout(async () => {
+      if (!isLocationManuallyEdited || formData.address.length < 2) { setSuggestions([]); return; }
+      setIsSearching(true);
+      try {
+        const q = formData.address;
+        const cached = await getCachedPlaceSuggestions(q);
+        if (cached) { setSuggestions(cached); setIsSearching(false); return; }
+        const res = await apiFetch(`/api/places/autocomplete?q=${encodeURIComponent(q)}&session=${sessionToken.current}`);
+        if (res.ok) {
+          const data = await res.json() as any[];
+          const results = Array.isArray(data) ? data : [];
+          setSuggestions(results);
+          await cachePlaceSuggestions(q, results);
+        } else { setSuggestions([]); }
+      } catch { setSuggestions([]); }
+      finally { setIsSearching(false); }
     }, 400);
-    return () => clearTimeout(t);
+    return () => clearTimeout(timer);
   }, [formData.address, isLocationManuallyEdited]);
 
-  const handleSuggestionSelect = (s: any) => {
-    setFormData(prev => ({ ...prev, address: s.description, google_place_id: s.place_id }));
+  const handleSuggestionSelect = (suggestion: any) => {
+    setFormData(prev => ({ ...prev, address: suggestion.description, google_place_id: suggestion.place_id }));
     setSuggestions([]);
     setIsLocationManuallyEdited(false);
   };
 
-  const handleFetchDetails = async () => {
-    if (!formData.google_place_id) return;
-    setIsSearching(true);
-    try {
-      const res = await apiFetch(`/api/places/details?placeId=${formData.google_place_id}&session=${sessionToken.current}`);
-      if (res.ok) {
-        const d = await res.json();
-        if (d.location) {
-          setFormData(prev => ({
-            ...prev,
-            lat: d.location.latitude, lng: d.location.longitude,
-            image_url: d.actual_photo_url || prev.image_url,
-            rating: d.rating || null, reviews_count: d.userRatingCount || null,
-            opening_hours: d.regularOpeningHours ? JSON.stringify(d.regularOpeningHours) : '',
-            place_website: d.websiteUri || '', place_phone: d.internationalPhoneNumber || '',
-          }));
-          sessionToken.current = Math.random().toString(36).substring(2);
-          alert('地點資訊已同步！✅');
-        }
-      }
-    } catch { alert('無法取得地點詳細資訊'); }
-    finally { setIsSearching(false); }
-  };
-
   useEffect(() => {
     if (storeCategories.length === 0) {
-      apiFetch('/api/settings/categories').then(res => { if (res.ok) res.json().then(setCategories); });
+      apiFetch('/api/settings/categories').then(r => r.ok && r.json().then(setCategories)).catch(() => {});
     }
   }, [storeCategories, setCategories]);
+
+  // 固定時間模式：start_time 改變時自動更新 end_time
+  const handleStartTimeChange = (newStart: string) => {
+    setFormData(prev => ({
+      ...prev,
+      start_time: newStart,
+      end_time: isTimeFixed ? addMinutesToTime(newStart, fixedStayDuration) : prev.end_time
+    }));
+  };
+
+  // 固定時間模式：停留時長滑桿改變 → 自動更新 end_time
+  const handleFixedDurationChange = (mins: number) => {
+    setFixedStayDuration(mins);
+    if (formData.start_time) {
+      setFormData(prev => ({ ...prev, end_time: addMinutesToTime(prev.start_time, mins) }));
+    }
+  };
+
+  // 固定時間模式：直接修改 end_time → 反向更新停留時長
+  const handleEndTimeChange = (newEnd: string) => {
+    setFormData(prev => ({ ...prev, end_time: newEnd }));
+    if (isTimeFixed && formData.start_time && newEnd) {
+      const newDuration = timeToMinutes(formData.start_time, newEnd);
+      if (newDuration > 0) setFixedStayDuration(newDuration);
+    }
+  };
+
+  const handleSubDurationChange = (mins: number) => {
+    setSubDuration(mins);
+    if (isTimeFixed && subStartTime) setSubEndTime(addMinutesToTime(subStartTime, mins));
+  };
+
+  const handleSubStartChange = (t: string) => {
+    setSubStartTime(t);
+    if (isTimeFixed && subDuration) setSubEndTime(addMinutesToTime(t, subDuration));
+  };
+
+  const executeSubItemSave = async (itemToSave: any) => {
+    if (initialData?.id) {
+      setSubSaving(true);
+      try {
+        if (editingSubItem?.id && typeof editingSubItem.id === 'number') {
+          await apiFetch(`/api/trips/${tripId}/itineraries/${initialData.id}/sub-items/${editingSubItem.id}`, {
+            method: 'PUT', body: JSON.stringify({ ...itemToSave, display_order: editingSubItem.display_order ?? 0 })
+          });
+          setSubItems((prev: any[]) => prev.map((i: any) => i.id === editingSubItem.id ? { ...i, ...itemToSave } : i));
+        } else {
+          const res = await apiFetch(`/api/trips/${tripId}/itineraries/${initialData.id}/sub-items`, {
+            method: 'POST', body: JSON.stringify({ ...itemToSave, display_order: subItems.length })
+          });
+          if (res.ok) {
+            const { id: newId } = await res.json() as any;
+            setSubItems((prev: any[]) => [...prev, { ...itemToSave, id: newId, display_order: prev.length }]);
+          }
+        }
+      } catch { showToast?.('子活動儲存失敗', 'error'); }
+      finally { setSubSaving(false); }
+    } else {
+      if (editingSubItem) {
+        setSubItems((prev: any[]) => prev.map((i: any) => i.id === editingSubItem.id ? { ...i, ...itemToSave } : i));
+      } else {
+        setSubItems((prev: any[]) => [...prev, { ...itemToSave, id: `tmp_${Date.now()}` }]);
+      }
+    }
+    setIsSubItemModalOpen(false);
+  };
 
   const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -225,10 +319,10 @@ export function ItineraryForm({ tripId, date, onSuccess, onCancel, initialData }
 
   const handleCropComplete = async (blob: Blob) => {
     setCroppingImage(null); setUploading(true);
-    try {
+    try { setFormData(prev => ({ ...prev, image_url: '' }));
       const url = await uploadImageToSupabase(blob, 'itineraries');
       setFormData(prev => ({ ...prev, image_url: url }));
-    } catch { alert('上傳失敗'); }
+    } catch { showToast?.('圖片上傳失敗', 'error'); }
     finally { setUploading(false); }
   };
 
@@ -236,8 +330,9 @@ export function ItineraryForm({ tripId, date, onSuccess, onCancel, initialData }
     setIsDeleting(true);
     try {
       const res = await apiFetch(`/api/trips/${tripId}/itineraries/${initialData.id}`, { method: 'DELETE' });
-      if (res.ok) onSuccess();
-    } catch { alert('刪除失敗'); }
+      if (res.ok) { showToast?.('活動已刪除', 'success'); onSuccess(); }
+      else showToast?.('刪除活動失敗', 'error');
+    } catch { showToast?.('刪除活動失敗', 'error'); }
     finally { setIsDeleting(false); }
   };
 
@@ -246,368 +341,312 @@ export function ItineraryForm({ tripId, date, onSuccess, onCancel, initialData }
     try {
       const payload = {
         ...formData,
-        trip_id: tripId, date,
+        trip_id: tripId,
+        date,
         tags: formData.tags.split(',').map(t => t.trim()).filter(Boolean),
-        sub_items: JSON.stringify(subItems),
         is_time_fixed: isTimeFixed ? 1 : 0,
-        stay_duration: stayDuration.toString()
+        stay_duration: isTimeFixed ? fixedStayDuration.toString() : stayDuration.toString(),
+        time_preference: 'anytime'
       };
       const res = await apiFetch(
         initialData ? `/api/trips/${tripId}/itineraries/${initialData.id}` : `/api/trips/${tripId}/itineraries`,
         { method: initialData ? 'PUT' : 'POST', body: JSON.stringify(payload) }
       );
-      if (res.ok) onSuccess();
-    } catch { setError('儲存失敗，請再試一次'); }
+      if (res.ok) {
+        // For new activities, batch-save any pending sub-items
+        if (!initialData && subItems.length > 0) {
+          const { id: newId } = await res.json() as any;
+          await Promise.all(subItems.map((sub, idx) =>
+            apiFetch(`/api/trips/${tripId}/itineraries/${newId}/sub-items`, {
+              method: 'POST',
+              body: JSON.stringify({ ...sub, display_order: idx })
+            })
+          ));
+        }
+        showToast?.('活動已儲存', 'success'); onSuccess();
+      } else { showToast?.('儲存活動失敗', 'error'); setError('儲存活動失敗'); }
+    } catch { showToast?.('儲存活動失敗', 'error'); setError('儲存活動失敗'); }
     finally { setLoading(false); }
   };
 
-  const durationLabel = (mins: number) => {
-    if (mins < 60) return `${mins} 分`;
-    const h = Math.floor(mins / 60), m = mins % 60;
-    return m > 0 ? `${h}h ${m}m` : `${h} 小時`;
-  };
+  const isKnownPlace = formData.google_place_id && knownPlaceIds.has(formData.google_place_id);
 
   return (
     <div className="bg-[#1c1c1e] border border-zinc-800 rounded-[32px] overflow-hidden flex flex-col w-full max-w-md mx-auto shadow-2xl relative max-h-[90vh]">
-
-      {/* ── 頂部 header ─────────────────────────────────────────────── */}
-      <div className="px-5 py-4 border-b border-zinc-800/80 flex items-center justify-between bg-[#1c1c1e]/95 backdrop-blur-md z-20 sticky top-0 shrink-0">
-        <h2 className="text-sm font-black text-white uppercase tracking-widest">
-          {initialData ? '編輯活動' : '新增活動'}
-        </h2>
-        <button type="button" onClick={onCancel} className="p-1.5 bg-zinc-800/60 rounded-full text-zinc-400 hover:text-white">
-          <X size={16} />
-        </button>
+      {/* 標頭 */}
+      <div className="px-6 py-4 border-b border-zinc-800 flex items-center justify-between bg-[#1c1c1e]/90 backdrop-blur-md z-20 sticky top-0">
+        <h2 className="text-lg font-bold text-white tracking-tight">{initialData ? '編輯活動' : '新增活動'}</h2>
+        <button type="button" onClick={onCancel} className="p-1.5 bg-zinc-800/50 rounded-full text-zinc-400 hover:text-white"><X size={18} /></button>
       </div>
 
-      {/* ── 可捲動內容 ──────────────────────────────────────────────── */}
-      <div className="overflow-y-auto px-5 py-5 space-y-5 pb-28 custom-scrollbar flex-1">
-        {error && <div className="text-red-400 text-xs font-bold bg-red-500/10 p-2.5 rounded-xl">{error}</div>}
+      <div className="overflow-y-auto px-5 py-5 space-y-5 pb-32 custom-scrollbar">
+        {error && <div className="text-red-400 text-xs font-bold bg-red-500/10 p-3 rounded-xl">{error}</div>}
 
-        {/* ─ 活動照片 & 名稱 ─ */}
-        <div className="space-y-3">
-          {/* 照片預覽區 */}
-          <div className="relative">
-            <button
-              type="button"
-              onClick={() => setIsPhotoModalOpen(true)}
-              className={clsx(
-                'w-full h-28 rounded-2xl overflow-hidden border flex items-center justify-center transition-all',
-                formData.image_url ? 'border-zinc-700' : 'border-dashed border-zinc-700 bg-zinc-900/50 text-zinc-600 hover:border-zinc-500'
-              )}
-            >
-              {formData.image_url
-                ? <img src={formData.image_url} className="w-full h-full object-cover" alt="預覽" />
-                : <div className="flex flex-col items-center gap-1.5"><Camera size={22} /><span className="text-[10px] font-bold uppercase tracking-widest">新增照片</span></div>
-              }
-              {uploading && <div className="absolute inset-0 bg-black/60 flex items-center justify-center"><Loader2 className="animate-spin text-orange-500" size={24} /></div>}
-            </button>
-            {/* 圖示選擇按鈕（疊在照片上） */}
-            <button
-              type="button"
-              onClick={() => setIsIconPickerOpen(true)}
-              className="absolute bottom-2.5 left-2.5 w-10 h-10 rounded-xl bg-black/60 backdrop-blur-md border border-white/15 flex items-center justify-center transition-all active:scale-95"
-              style={{ color: (selectedCategory as any).color }}
-            >
-              <DynamicIcon name={formData.icon} size={20} />
+        {/* 圖示 / AI鎖 / 照片 */}
+        <div className="grid grid-cols-3 gap-3">
+          <div className="flex flex-col gap-1.5">
+            <label className="text-[10px] font-bold text-zinc-500 uppercase tracking-widest ml-1">類別</label>
+            <button type="button" onClick={() => setIsIconPickerOpen(true)} className="h-12 bg-[#242426] border border-zinc-800 rounded-2xl flex items-center justify-center transition-all active:scale-95" style={{ color: (selectedCategory as any).color }}>
+              <DynamicIcon name={formData.icon} size={22} />
             </button>
           </div>
-
-          {/* 活動名稱 */}
-          <input
-            type="text"
-            required
-            value={formData.title}
-            onChange={e => setFormData(prev => ({ ...prev, title: e.target.value }))}
-            placeholder="活動名稱"
-            className="w-full bg-[#242426] border border-zinc-800 rounded-2xl px-4 py-3 text-white font-bold text-base focus:border-orange-500 outline-none placeholder:text-zinc-600"
-          />
+          <div className="flex flex-col gap-1.5">
+            <label className="text-[10px] font-bold text-zinc-500 uppercase tracking-widest ml-1">AI 鎖定</label>
+            <button type="button" onClick={() => setIsTimeFixed(!isTimeFixed)} className={clsx("h-12 border rounded-2xl flex items-center justify-center transition-all", isTimeFixed ? "bg-orange-500 border-orange-400 text-white shadow-lg shadow-orange-500/20" : "bg-zinc-800 border-zinc-700 text-zinc-500 hover:border-zinc-500")}>
+              {isTimeFixed ? <Lock size={18} /> : <Unlock size={18} />}
+            </button>
+          </div>
+          <div className="flex flex-col gap-1.5">
+            <label className="text-[10px] font-bold text-zinc-500 uppercase tracking-widest ml-1">照片</label>
+            <button type="button" onClick={() => setIsPhotoModalOpen(true)} className={clsx("h-12 border rounded-2xl flex items-center justify-center overflow-hidden transition-all", formData.image_url ? "border-orange-500/50" : "bg-zinc-800 border-zinc-700 text-zinc-500 hover:border-zinc-500")}>
+              {formData.image_url ? <img src={formData.image_url} className="w-full h-full object-cover" alt="預覽" /> : <Camera size={20} />}
+            </button>
+          </div>
         </div>
 
-        {/* ─ 時間模式 ─ */}
-        <div className="space-y-3">
-          <label className="text-[10px] font-bold text-zinc-500 uppercase tracking-widest">時間模式</label>
-          <div className="flex bg-zinc-900/60 p-1 rounded-2xl border border-zinc-800">
-            <button
-              type="button"
-              onClick={() => setIsTimeFixed(true)}
-              className={`flex-1 py-2.5 text-sm font-black rounded-xl transition-all ${isTimeFixed ? 'bg-zinc-800 text-white shadow-md' : 'text-zinc-500 hover:text-zinc-300'}`}
-            >
-              固定時間
+        {/* 活動名稱 */}
+        <div className="space-y-1.5">
+          <label className="text-[10px] font-bold text-zinc-500 uppercase tracking-widest ml-1">活動名稱</label>
+          <input type="text" required value={formData.title}
+            onChange={e => setFormData(prev => ({ ...prev, title: e.target.value }))}
+            className="w-full bg-[#242426] border border-zinc-800 rounded-2xl px-4 py-3 text-white font-bold text-base focus:border-orange-500 outline-none transition-all"
+            placeholder="活動名稱" />
+        </div>
+
+        {/* 排程模式 */}
+        <div className="space-y-3 pt-1">
+          <label className="text-[10px] font-bold text-zinc-500 uppercase tracking-widest ml-1">排程模式</label>
+          <div className="flex bg-zinc-900/80 p-1.5 rounded-2xl border border-zinc-800 shadow-inner">
+            <button type="button" onClick={() => setIsTimeFixed(true)}
+              className={`flex-1 py-2.5 text-sm font-black rounded-xl transition-all ${isTimeFixed ? 'bg-zinc-800 text-white shadow-md' : 'text-zinc-500 hover:text-zinc-300'}`}>
+              🔒 固定時間
             </button>
-            <button
-              type="button"
-              onClick={() => setIsTimeFixed(false)}
-              className={`flex-1 py-2.5 text-sm font-black rounded-xl transition-all flex items-center justify-center gap-1.5 ${!isTimeFixed ? 'bg-orange-500 text-white shadow-md shadow-orange-500/20' : 'text-zinc-500 hover:text-zinc-300'}`}
-            >
-              <Sparkles size={14} />智慧排程
+            <button type="button" onClick={() => setIsTimeFixed(false)}
+              className={`flex-1 py-2.5 text-sm font-black rounded-xl transition-all flex items-center justify-center gap-2 ${!isTimeFixed ? 'bg-orange-500 text-white shadow-md shadow-orange-500/20' : 'text-zinc-500 hover:text-zinc-300'}`}>
+              <Sparkles size={16} /> 智慧排程
             </button>
           </div>
 
           <AnimatePresence mode="wait">
             {isTimeFixed ? (
-              <motion.div key="fixed" initial={{ opacity: 0, y: 4 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -4 }}
-                className="bg-[#242426] border border-zinc-800 rounded-2xl p-4 space-y-4">
-                {/* 開始 / 停留 / 結束 */}
-                <div className="grid grid-cols-3 gap-2 items-end">
-                  <div className="space-y-1.5">
-                    <span className="text-[9px] text-zinc-500 font-bold uppercase tracking-tighter block">開始時間</span>
-                    <TimeInput
-                      value={formData.start_time}
-                      onChange={handleStartTimeChange}
-                      className="w-full bg-zinc-900 border border-zinc-700 rounded-xl px-3 py-2.5 text-white font-mono font-bold text-sm text-center outline-none focus:border-orange-500"
-                    />
+              <motion.div key="fixed" initial={{ opacity: 0, y: 5 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -5 }}
+                className="bg-[#242426] border border-zinc-800 p-4 rounded-2xl space-y-4">
+                {/* 時間輸入 */}
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="flex flex-col items-center bg-zinc-900/60 rounded-xl p-3">
+                    <span className="text-[9px] text-zinc-500 mb-1 font-bold uppercase tracking-tighter">開始時間</span>
+                    <input type="time" value={formData.start_time}
+                      onChange={e => handleStartTimeChange(e.target.value)}
+                      className="bg-transparent text-white font-mono font-bold text-base outline-none [color-scheme:dark]" />
                   </div>
-                  <div className="space-y-1.5">
-                    <span className="text-[9px] text-orange-500 font-bold uppercase tracking-tighter block text-center">停留時間</span>
-                    <div className="bg-orange-500/10 border border-orange-500/30 rounded-xl px-2 py-2 text-center">
-                      <span className="text-xs font-black text-orange-400">{durationLabel(stayDuration)}</span>
-                    </div>
-                  </div>
-                  <div className="space-y-1.5">
-                    <span className="text-[9px] text-zinc-500 font-bold uppercase tracking-tighter block">結束時間</span>
-                    <TimeInput
-                      value={formData.end_time}
-                      onChange={handleEndTimeChange}
-                      className="w-full bg-zinc-900 border border-zinc-700 rounded-xl px-3 py-2.5 text-white font-mono font-bold text-sm text-center outline-none focus:border-orange-500"
-                    />
+                  <div className="flex flex-col items-center bg-zinc-900/60 rounded-xl p-3 border-l border-zinc-700/50">
+                    <span className="text-[9px] text-zinc-500 mb-1 font-bold uppercase tracking-tighter">結束時間</span>
+                    <input type="time" value={formData.end_time}
+                      onChange={e => handleEndTimeChange(e.target.value)}
+                      className="bg-transparent text-white font-mono font-bold text-base outline-none [color-scheme:dark]" />
                   </div>
                 </div>
-
-                {/* 停留時間滑桿 */}
+                {/* 停留時長 */}
                 <div className="space-y-2">
-                  <input
-                    type="range" min="0" max="480" step="5"
-                    value={stayDuration}
-                    onChange={e => handleStayDurationChange(parseInt(e.target.value))}
-                    className="w-full accent-orange-500 h-1.5 bg-zinc-700 rounded-lg cursor-pointer outline-none appearance-none"
-                  />
-                  <div className="flex justify-between px-0.5 text-[9px] font-black text-zinc-600 uppercase">
-                    <span>0m</span><span>1h</span><span>2h</span><span>4h</span><span>8h</span>
+                  <div className="flex items-center justify-between">
+                    <span className="text-[10px] font-bold text-zinc-400 uppercase tracking-widest">停留時長</span>
+                    <div className="flex items-center gap-1 bg-zinc-900 border border-zinc-800 rounded-lg px-2.5 py-1">
+                      <input type="number" min="0" max="480" value={fixedStayDuration}
+                        onChange={e => handleFixedDurationChange(Math.min(480, Math.max(0, parseInt(e.target.value) || 0)))}
+                        className="w-10 bg-transparent text-white text-sm font-black text-right outline-none [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none" />
+                      <span className="text-[10px] text-zinc-500 font-bold">分</span>
+                    </div>
+                  </div>
+                  <input type="range" min="0" max="480" step="5" value={fixedStayDuration}
+                    onChange={e => handleFixedDurationChange(parseInt(e.target.value))}
+                    className="w-full accent-orange-500 h-1.5 bg-zinc-800 rounded-lg appearance-none cursor-pointer outline-none" />
+                  <div className="flex justify-between px-1 text-[9px] font-black text-zinc-600">
+                    <span>0分</span><span>2時</span><span>4時</span><span>6時</span><span>8時</span>
                   </div>
                 </div>
               </motion.div>
             ) : (
-              <motion.div key="smart" initial={{ opacity: 0, y: 4 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -4 }}
-                className="bg-orange-500/5 border border-orange-500/20 rounded-2xl p-4 space-y-3">
+              <motion.div key="smart" initial={{ opacity: 0, y: 5 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -5 }}
+                className="bg-orange-500/5 p-5 rounded-2xl border border-orange-500/20 space-y-4">
                 <div className="flex items-center justify-between">
-                  <span className="text-[10px] font-black text-orange-500 uppercase tracking-widest">停留時間</span>
+                  <label className="text-[10px] font-black text-orange-500 uppercase tracking-widest">停留時長</label>
                   <div className="flex items-center gap-1.5 bg-zinc-900 border border-zinc-800 rounded-lg px-3 py-1.5">
-                    <input
-                      type="number" min="0" max="480"
-                      value={stayDuration}
+                    <input type="number" min="0" max="480" value={stayDuration}
                       onChange={e => setStayDuration(Math.min(480, Math.max(0, parseInt(e.target.value) || 0)))}
-                      className="w-10 bg-transparent text-white text-sm font-black text-right outline-none [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
-                    />
-                    <span className="text-[10px] text-zinc-500 font-bold">MIN</span>
+                      className="w-10 bg-transparent text-white text-sm font-black text-right outline-none [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none" />
+                    <span className="text-[10px] text-zinc-500 font-bold">分</span>
                   </div>
                 </div>
-                <input
-                  type="range" min="0" max="480" step="5"
-                  value={stayDuration}
+                <input type="range" min="0" max="480" step="5" value={stayDuration}
                   onChange={e => setStayDuration(parseInt(e.target.value))}
-                  className="w-full accent-orange-500 h-1.5 bg-zinc-700 rounded-lg cursor-pointer appearance-none outline-none"
-                />
-                <div className="flex justify-between px-0.5 text-[9px] font-black text-zinc-600 uppercase">
-                  <span>0m</span><span>1h</span><span>2h</span><span>4h</span><span>8h</span>
+                  className="w-full accent-orange-500 h-1.5 bg-zinc-800 rounded-lg appearance-none cursor-pointer outline-none" />
+                <div className="flex justify-between px-1 text-[9px] font-black text-zinc-600">
+                  <span>0分</span><span>2時</span><span>4時</span><span>6時</span><span>8時</span>
                 </div>
+
               </motion.div>
             )}
           </AnimatePresence>
         </div>
 
-        {/* ─ 位置地址 ─ */}
-        <div className="space-y-2 relative">
-          <label className="text-[10px] font-bold text-zinc-500 uppercase tracking-widest">位置地址</label>
-
-          {/* 搜尋輸入框 */}
-          <div className={clsx(
-            'flex items-center gap-2 bg-[#242426] border rounded-2xl px-3.5 py-3 transition-all',
-            isSearching ? 'border-orange-500/60' : 'border-zinc-800 focus-within:border-orange-500/80'
-          )}>
-            <MapPin
-              size={16}
-              className={clsx('shrink-0 transition-colors', isSearching ? 'text-orange-500 animate-pulse' : 'text-zinc-500')}
-            />
-            <input
-              type="text"
-              value={formData.address}
+        {/* 地點位址 */}
+        <div className="relative">
+          <div className="flex items-center justify-between mb-1.5 ml-1">
+            <label className="text-[10px] font-bold text-zinc-500 uppercase tracking-widest">地點位址</label>
+            <div className="flex items-center gap-2">
+              {isKnownPlace && (
+                <div className="flex items-center gap-1 px-2 py-0.5 bg-orange-500/10 rounded-full border border-orange-500/20">
+                  <Sparkles size={8} className="text-orange-500" />
+                  <span className="text-[8px] font-black text-orange-500 uppercase">已收錄</span>
+                </div>
+              )}
+              {formData.lat && (
+                <div className="flex items-center gap-1 px-2 py-0.5 bg-green-500/10 rounded-full border border-green-500/20">
+                  <MapPin size={8} className="text-green-500" />
+                  <span className="text-[8px] font-black text-green-500 uppercase">GPS</span>
+                </div>
+              )}
+            </div>
+          </div>
+          <div className="relative flex items-center">
+            <MapPin size={16} className={clsx("absolute left-4 z-10 transition-colors",
+              isSearching ? "text-orange-500 animate-pulse" : isKnownPlace ? "text-orange-400" : "text-zinc-500"
+            )} />
+            <input type="text" value={formData.address}
               onChange={e => { setFormData(prev => ({ ...prev, address: e.target.value })); setIsLocationManuallyEdited(true); }}
-              className="flex-1 bg-transparent text-white text-sm outline-none placeholder:text-zinc-600 min-w-0"
-              placeholder="搜尋地點、景點..."
-            />
-            {isSearching
-              ? <Loader2 size={14} className="animate-spin text-orange-500 shrink-0" />
-              : formData.address
-                ? <button type="button" onClick={() => { setFormData(prev => ({ ...prev, address: '', google_place_id: '', lat: null, lng: null })); setSuggestions([]); setIsLocationManuallyEdited(false); }}
-                    className="shrink-0 p-0.5 text-zinc-600 hover:text-zinc-300 transition-colors">
-                    <X size={14} />
-                  </button>
-                : <Search size={14} className="shrink-0 text-zinc-700" />
-            }
+              onFocus={() => { if (!isLocationManuallyEdited) setIsLocationManuallyEdited(true); }}
+              className={clsx("w-full bg-[#242426] border rounded-2xl pl-11 pr-4 py-3.5 text-white text-xs focus:border-orange-500 outline-none transition-all",
+                isKnownPlace ? "border-orange-500/40" : "border-zinc-800"
+              )}
+              placeholder="輸入地點名稱搜尋..." />
           </div>
 
-          {/* GPS 取得詳細資訊 */}
-          <AnimatePresence>
-            {formData.google_place_id && !formData.lat && (
-              <motion.button
-                type="button"
-                onClick={handleFetchDetails}
-                initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: 'auto' }} exit={{ opacity: 0, height: 0 }}
-                className="w-full flex items-center justify-center gap-2 py-2.5 bg-orange-500/8 text-orange-400 rounded-xl text-xs font-bold border border-orange-500/20 hover:bg-orange-500/15 transition-all"
-              >
-                <Sparkles size={12} />
-                取得地點詳細資訊 (GPS、評分、開放時間)
-              </motion.button>
-            )}
-            {formData.lat && (
-              <motion.div
-                initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
-                className="flex items-center gap-1.5 px-3 py-1.5 bg-green-500/8 rounded-xl border border-green-500/20 w-fit"
-              >
-                <Sparkles size={10} className="text-green-400" />
-                <span className="text-[10px] font-black text-green-400 uppercase tracking-widest">GPS 已取得</span>
-              </motion.div>
-            )}
-          </AnimatePresence>
-
-          {/* 搜尋建議 */}
           <AnimatePresence>
             {suggestions.length > 0 && (
-              <motion.div
-                initial={{ opacity: 0, y: -6 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -6 }}
-                className="absolute left-0 z-[999] w-full bg-[#1c1c1e] border border-zinc-700/80 rounded-2xl overflow-hidden shadow-[0_16px_40px_rgba(0,0,0,0.6)]"
-                style={{ top: 'calc(100% + 6px)' }}
-              >
-                {suggestions.map((s, i) => (
-                  <button key={i} type="button" onClick={() => handleSuggestionSelect(s)}
-                    className="w-full px-4 py-3 flex items-center gap-3 hover:bg-orange-500/8 text-left border-b border-zinc-800/60 last:border-0 group transition-colors">
-                    <div className="w-7 h-7 rounded-lg bg-zinc-800 flex items-center justify-center shrink-0 group-hover:bg-orange-500/15 transition-colors">
-                      <MapPin size={13} className="text-zinc-500 group-hover:text-orange-400 transition-colors" />
-                    </div>
-                    <div className="flex-1 min-w-0">
-                      <div className="text-xs font-bold text-white truncate">{s.structured_formatting?.main_text || s.description}</div>
-                      {s.structured_formatting?.secondary_text && (
-                        <div className="text-[10px] text-zinc-500 truncate mt-0.5">{s.structured_formatting.secondary_text}</div>
-                      )}
-                    </div>
-                  </button>
-                ))}
+              <motion.div initial={{ opacity: 0, y: -10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -10 }}
+                className="absolute left-0 top-full z-[999] w-full mt-2 bg-zinc-900 border border-zinc-800 rounded-2xl overflow-hidden shadow-[0_20px_50px_rgba(0,0,0,0.5)]">
+                <div className="max-h-[220px] overflow-y-auto custom-scrollbar">
+                  {suggestions.map((s, idx) => {
+                    const isKnown = knownPlaceIds.has(s.place_id);
+                    return (
+                      <button key={idx} type="button" onClick={() => handleSuggestionSelect(s)}
+                        className={clsx(
+                          "w-full px-4 py-3 flex items-start gap-3 text-left border-b border-zinc-800/50 last:border-0 group transition-colors",
+                          isKnown ? "bg-orange-500/5 hover:bg-orange-500/10" : "hover:bg-zinc-800"
+                        )}>
+                        <MapPin size={14} className={clsx("mt-0.5 shrink-0 transition-colors", isKnown ? "text-orange-500" : "text-zinc-600 group-hover:text-orange-500")} />
+                        <div className="flex-1 min-w-0">
+                          <div className={clsx("text-xs font-bold truncate flex items-center gap-1.5", isKnown ? "text-orange-400" : "text-white")}>
+                            {s.structured_formatting.main_text}
+                            {isKnown && (
+                              <span className="inline-flex items-center gap-0.5 bg-orange-500/15 text-orange-400 text-[8px] font-black px-1.5 py-0.5 rounded-full border border-orange-500/20 shrink-0">
+                                ⚡ 已收錄
+                              </span>
+                            )}
+                          </div>
+                          <div className={clsx("text-[10px] truncate", isKnown ? "text-orange-400/50" : "text-zinc-500")}>{s.structured_formatting.secondary_text}</div>
+                        </div>
+                      </button>
+                    );
+                  })}
+                </div>
               </motion.div>
             )}
           </AnimatePresence>
         </div>
 
-        {/* ─ 子行程 ─ */}
-        <div className="space-y-2.5">
-          <div className="flex items-center justify-between">
-            <label className="text-[10px] font-bold text-zinc-500 uppercase tracking-widest">子行程</label>
-            <button type="button" onClick={() => {
-                setEditingSubItem(null); setSubTitle(''); setSubStartTime(formData.start_time); setSubEndTime(formData.end_time); setSubNotes('');
-                setIsSubItemModalOpen(true);
-              }}
-              className="text-[10px] text-orange-500 font-bold px-2.5 py-1 bg-orange-500/10 rounded-lg hover:bg-orange-500/20 transition-all">
-              + 新增
-            </button>
-          </div>
-          {subItems.length > 0 ? subItems.map((item, idx) => (
-            <div key={idx} onClick={() => { setEditingSubItem(item); setSubTitle(item.title); setSubStartTime(item.start_time); setSubEndTime(item.end_time); setSubNotes(item.notes || ''); setIsSubItemModalOpen(true); }}
-              className="bg-[#242426] border border-zinc-800 p-3 rounded-xl flex items-center justify-between cursor-pointer hover:border-zinc-600 transition-all">
-              <div className="flex items-center gap-2.5">
-                <div className="w-1.5 h-1.5 rounded-full bg-orange-500 shadow-[0_0_6px_rgba(249,115,22,0.5)]" />
-                <div>
-                  <div className="text-xs font-bold text-white">{item.title}</div>
-                  <div className="text-[10px] text-zinc-500 font-mono">{item.start_time} — {item.end_time}</div>
-                </div>
-              </div>
-              <button type="button" onClick={e => { e.stopPropagation(); setSubItems(subItems.filter((_, i) => i !== idx)); }}
-                className="p-1.5 text-zinc-600 hover:text-red-500 transition-colors">
-                <Trash2 size={13} />
-              </button>
-            </div>
-          )) : (
-            <div className="text-center py-5 border border-dashed border-zinc-800/50 rounded-xl text-zinc-600 text-[10px] uppercase font-bold tracking-widest">無子行程</div>
-          )}
-        </div>
-
-        {/* ─ 標籤 ─ */}
-        <div className="space-y-1.5">
-          <label className="text-[10px] font-bold text-zinc-500 uppercase tracking-widest">標籤</label>
-          <div className="bg-[#242426] border border-zinc-800 rounded-2xl p-2.5 flex flex-wrap gap-2 items-center min-h-[44px]">
+        {/* 標籤 */}
+        <div>
+          <label className="block text-[10px] font-bold text-zinc-500 uppercase tracking-widest mb-1.5 ml-1">標籤</label>
+          <div className="bg-[#242426] border border-zinc-800 rounded-2xl p-2 flex flex-wrap gap-2 items-center">
             {formData.tags.split(',').map(t => t.trim()).filter(Boolean).map(tag => (
-              <span key={tag} className="bg-orange-500/10 text-orange-400 px-2.5 py-1 rounded-lg text-[10px] font-bold flex items-center gap-1">
+              <span key={tag} className="bg-orange-500/10 text-orange-500 px-2 py-1 rounded-lg text-[10px] font-bold flex items-center gap-1.5">
                 {tag}
-                <button type="button" onClick={() => setFormData(prev => ({ ...prev, tags: prev.tags.split(',').map(t => t.trim()).filter(t => t !== tag).join(', ') }))}
-                  className="hover:text-white"><X size={9} /></button>
+                <button type="button" onClick={() => setFormData(prev => ({ ...prev, tags: prev.tags.split(',').map(t => t.trim()).filter(t => t !== tag).join(', ') }))} className="hover:text-white transition-colors"><X size={10} /></button>
               </span>
             ))}
-            <input
-              type="text" value={tagInput}
-              onChange={e => setTagInput(e.target.value)}
-              onKeyDown={e => {
-                if (e.key === 'Enter') {
-                  e.preventDefault();
-                  const val = tagInput.trim();
-                  if (val) {
-                    const cur = formData.tags ? formData.tags.split(',').map(t => t.trim()) : [];
-                    if (!cur.includes(val)) setFormData(prev => ({ ...prev, tags: [...cur, val].join(', ') }));
-                    setTagInput('');
-                  }
-                }
-              }}
-              className="flex-1 bg-transparent border-none outline-none text-white text-xs px-1 min-w-[80px] placeholder:text-zinc-600"
-              placeholder="+ 新增標籤"
-            />
+            <input type="text" value={tagInput} onChange={e => setTagInput(e.target.value)}
+              onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); const v = tagInput.trim(); if (v) { const cur = formData.tags ? formData.tags.split(',').map(t => t.trim()) : []; if (!cur.includes(v)) setFormData(prev => ({ ...prev, tags: [...cur, v].join(', ') })); setTagInput(''); } } }}
+              className="flex-1 bg-transparent border-none outline-none text-white text-xs px-1 min-w-[80px]" placeholder="+ 新增標籤" />
           </div>
         </div>
 
-        {/* ─ 備註 ─ */}
-        <div className="space-y-1.5">
-          <label className="text-[10px] font-bold text-zinc-500 uppercase tracking-widest">備註</label>
-          <textarea
-            value={formData.notes}
-            onChange={e => setFormData(prev => ({ ...prev, notes: e.target.value }))}
-            className="w-full bg-[#242426] border border-zinc-800 rounded-2xl px-4 py-3 text-white text-sm focus:border-orange-500 outline-none min-h-[90px] resize-none placeholder:text-zinc-600"
-            placeholder="特別備註..."
-          />
+        {/* 子活動 */}
+        <div>
+          <div className="flex items-center justify-between mb-2 px-1">
+            <label className="block text-[10px] font-bold text-zinc-500 uppercase tracking-widest">子活動</label>
+            <button type="button" onClick={() => { setEditingSubItem(null); setIsSubItemModalOpen(true); }}
+              className="text-[10px] text-orange-500 font-bold px-2.5 py-1 bg-orange-500/10 rounded-lg hover:bg-orange-500/20 transition-all">+ 新增</button>
+          </div>
+          {!isTimeFixed && (
+            <div className="flex items-center gap-1.5 mb-2 px-1">
+              <Sparkles size={10} className="text-orange-500" />
+              <span className="text-[9px] text-orange-500/70 font-bold">智慧排程模式：子活動時間將隨主活動自動調整</span>
+            </div>
+          )}
+          <div className="space-y-2">
+            {subItems.length > 0 ? subItems.map((item, idx) => (
+              <div key={idx} onClick={() => { setEditingSubItem(item); setIsSubItemModalOpen(true); }}
+                className="bg-[#242426] border border-zinc-800 p-3 rounded-2xl flex items-center justify-between group cursor-pointer hover:border-zinc-600 transition-all shadow-sm">
+                <div className="flex items-center gap-3">
+                  <div className="w-1.5 h-1.5 rounded-full bg-orange-500 shadow-[0_0_8px_rgba(249,115,22,0.5)]" />
+                  <div>
+                    <div className="text-xs font-bold text-white">{item.title}</div>
+                    {item.address && <div className="text-[9px] text-zinc-500 mt-0.5 truncate max-w-[180px]">{item.address}</div>}
+                    {(item.start_time || item.end_time) && (
+                      <div className="text-[10px] text-zinc-500 font-mono mt-0.5">{item.start_time} — {item.end_time}</div>
+                    )}
+                  </div>
+                </div>
+                <button type="button" onClick={e => { e.stopPropagation(); setSubItems(subItems.filter((_, i) => i !== idx)); }}
+                  className="p-2 text-zinc-600 hover:text-red-500 transition-colors"><Trash2 size={14} /></button>
+              </div>
+            )) : (
+              <div className="text-center py-6 border border-dashed border-zinc-800/50 rounded-2xl text-zinc-600 text-[10px] uppercase font-bold tracking-[0.2em]">尚無子活動</div>
+            )}
+          </div>
         </div>
 
-        {/* ─ 刪除 ─ */}
+        {/* 備註 */}
+        <div>
+          <label className="block text-[10px] font-bold text-zinc-500 uppercase tracking-widest mb-1.5 ml-1">備註</label>
+          <textarea value={formData.notes} onChange={e => setFormData(prev => ({ ...prev, notes: e.target.value }))}
+            className="w-full bg-[#242426] border border-zinc-800 rounded-2xl px-4 py-3 text-white text-xs focus:border-orange-500 outline-none min-h-[90px] resize-none transition-all"
+            placeholder="任何備注資訊..." />
+        </div>
+
         {initialData && (
-          <div className="pt-2 border-t border-zinc-800">
+          <div className="pt-4 border-t border-zinc-800">
             <button type="button" onClick={() => setShowDeleteConfirm(true)}
-              className="w-full py-3 bg-red-500/10 hover:bg-red-500/20 text-red-500 font-bold rounded-2xl transition-colors flex items-center justify-center gap-2 border border-red-500/20 text-sm">
-              <Trash2 size={16} />刪除活動
+              className="w-full py-3.5 bg-red-500/10 hover:bg-red-500/20 text-red-500 font-bold rounded-2xl transition-colors flex items-center justify-center gap-2 border border-red-500/20">
+              <Trash2 size={18} />刪除活動
             </button>
           </div>
         )}
       </div>
 
-      {/* ── 底部 footer（sticky）──────────────────────────────────── */}
-      <div className="absolute bottom-0 left-0 right-0 p-4 bg-[#1c1c1e]/95 backdrop-blur-md border-t border-zinc-800/80 flex gap-3 z-20">
-        <button type="button" onClick={onCancel}
-          className="flex-1 py-3.5 rounded-2xl font-bold text-zinc-500 text-sm hover:bg-zinc-800 transition-colors border border-zinc-800">
-          取消
-        </button>
+      {/* 底部按鈕 */}
+      <div className="absolute bottom-0 left-0 right-0 p-5 bg-[#1c1c1e] border-t border-zinc-800 flex gap-3 z-20">
+        <button type="button" onClick={onCancel} className="flex-1 py-4 rounded-2xl font-bold text-zinc-500 text-sm hover:bg-zinc-800 transition-colors">取消</button>
         <button type="submit" disabled={loading || uploading} onClick={handleSubmit}
-          className="flex-[2] py-3.5 bg-orange-500 text-white rounded-2xl font-black text-sm uppercase tracking-widest shadow-lg shadow-orange-500/20 flex items-center justify-center gap-2 active:scale-95 transition-all disabled:opacity-50">
-          {loading ? <Loader2 size={18} className="animate-spin" /> : (initialData ? '更新行程' : '新增行程')}
+          className="flex-[2] py-4 bg-orange-500 text-white rounded-2xl font-black text-sm uppercase tracking-widest shadow-lg shadow-orange-500/20 flex items-center justify-center gap-2 active:scale-95 transition-all">
+          {loading ? <Loader2 size={18} className="animate-spin" /> : (initialData ? '更新行程' : '加入行程')}
         </button>
       </div>
 
-      {/* ── Modals ────────────────────────────────────────────────── */}
+      {/* 刪除確認 */}
       <AnimatePresence>
         {showDeleteConfirm && (
           <div className="fixed inset-0 z-[200] flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm">
             <motion.div initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.95 }}
               className="bg-zinc-900 border border-zinc-800 rounded-3xl p-6 w-full max-w-sm shadow-2xl">
               <h3 className="text-xl font-bold text-white mb-2">刪除活動？</h3>
-              <p className="text-zinc-400 mb-6 text-sm">確定要刪除這個活動嗎？此操作無法復原。</p>
+              <p className="text-zinc-400 mb-6">確定要刪除此活動嗎？此操作無法復原。</p>
               <div className="flex gap-3">
                 <button type="button" onClick={() => setShowDeleteConfirm(false)} className="flex-1 px-4 py-3 rounded-xl font-medium text-zinc-400 hover:text-white hover:bg-zinc-800 transition-colors">取消</button>
                 <button type="button" onClick={handleDelete} disabled={isDeleting}
                   className="flex-1 px-4 py-3 rounded-xl font-bold bg-red-500 text-white hover:bg-red-600 transition-colors flex justify-center items-center gap-2">
-                  {isDeleting ? <Loader2 size={16} className="animate-spin" /> : '刪除'}
+                  {isDeleting ? <Loader2 size={18} className="animate-spin" /> : '刪除'}
                 </button>
               </div>
             </motion.div>
@@ -618,29 +657,48 @@ export function ItineraryForm({ tripId, date, onSuccess, onCancel, initialData }
       {/* 照片管理 */}
       <AnimatePresence>
         {isPhotoModalOpen && (
-          <div className="absolute inset-0 z-[100] flex items-center justify-center bg-black/90 backdrop-blur-xl p-5">
-            <motion.div initial={{ scale: 0.92, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0.92, opacity: 0 }}
-              className="bg-[#1c1c1e] border border-zinc-800 rounded-[32px] w-full overflow-hidden shadow-2xl">
-              <div className="p-4 border-b border-zinc-800 flex justify-between items-center">
-                <span className="text-sm font-black text-white uppercase tracking-widest">活動照片</span>
-                <button type="button" onClick={() => setIsPhotoModalOpen(false)} className="p-1.5 text-zinc-500 hover:text-white"><X size={18} /></button>
+          <div className="absolute inset-0 z-[100] flex items-center justify-center bg-black/90 backdrop-blur-xl p-6">
+            <motion.div initial={{ scale: 0.9, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0.9, opacity: 0 }}
+              className="bg-[#1c1c1e] border border-zinc-800 rounded-[40px] w-full max-w-sm overflow-hidden flex flex-col shadow-2xl">
+              <div className="p-4 border-b border-zinc-800 flex justify-between items-center bg-zinc-900/50">
+                <span className="text-xs font-black text-white uppercase tracking-widest">活動照片</span>
+                <button type="button" onClick={() => setIsPhotoModalOpen(false)}><X size={20} className="text-zinc-500" /></button>
               </div>
-              <div className="p-5 flex flex-col items-center gap-4">
-                <div className="w-full aspect-[21/9] rounded-2xl bg-zinc-950 border border-zinc-800 overflow-hidden relative">
-                  {formData.image_url
-                    ? <img src={formData.image_url} className="w-full h-full object-cover" alt="照片" />
-                    : <div className="absolute inset-0 flex flex-col items-center justify-center text-zinc-700 gap-2"><ImageIcon size={40} strokeWidth={1} /><span className="text-[10px] font-bold uppercase tracking-widest">尚未設定照片</span></div>
-                  }
-                </div>
+              <div className="p-6 flex flex-col items-center gap-4">
+                {/* 點擊框架即可上傳 */}
+                <label className="w-full aspect-[21/9] rounded-[28px] bg-zinc-950 border-2 border-dashed border-zinc-700 overflow-hidden relative shadow-inner cursor-pointer hover:border-orange-500/50 transition-colors group">
+                  {formData.image_url ? (
+                    <img src={formData.image_url} className="w-full h-full object-cover" alt="預覽" />
+                  ) : (
+                    <div className="absolute inset-0 flex flex-col items-center justify-center text-zinc-600 gap-2 group-hover:text-zinc-400 transition-colors">
+                      <Upload size={32} strokeWidth={1.5} />
+                      <span className="text-[10px] font-bold uppercase tracking-widest">點擊上傳照片</span>
+                    </div>
+                  )}
+                  {uploading && (
+                    <div className="absolute inset-0 bg-black/60 flex items-center justify-center backdrop-blur-sm">
+                      <Loader2 className="animate-spin text-orange-500" size={32} />
+                    </div>
+                  )}
+                  <input type="file" className="hidden" accept="image/*" onChange={handleFileSelect} disabled={uploading} />
+                </label>
+
                 <div className="flex w-full gap-3">
-                  <label className="flex-1 flex items-center justify-center gap-2 py-3.5 bg-white text-black rounded-2xl font-black text-xs uppercase cursor-pointer hover:bg-zinc-200 transition-colors">
-                    <Upload size={15} />上傳照片
-                    <input type="file" className="hidden" accept="image/*" onChange={handleFileSelect} />
-                  </label>
-                  {formData.image_url && (
-                    <button type="button" onClick={() => setFormData(prev => ({ ...prev, image_url: '' }))}
-                      className="w-14 flex items-center justify-center bg-red-500/10 text-red-500 rounded-2xl hover:bg-red-500/20 transition-colors">
-                      <Trash2 size={18} />
+                  {formData.image_url ? (
+                    <>
+                      <button type="button" onClick={() => setIsPhotoModalOpen(false)}
+                        className="flex-1 flex items-center justify-center gap-2 py-4 bg-orange-500 text-white rounded-2xl font-black text-xs uppercase tracking-widest shadow-lg shadow-orange-500/20 active:scale-95 transition-all">
+                        <Check size={16} /> 完成
+                      </button>
+                      <button type="button" onClick={() => setFormData(prev => ({ ...prev, image_url: '' }))}
+                        className="w-14 flex items-center justify-center bg-red-500/10 text-red-500 rounded-2xl hover:bg-red-500/20 transition-colors border border-red-500/20">
+                        <Trash2 size={18} />
+                      </button>
+                    </>
+                  ) : (
+                    <button type="button" onClick={() => setIsPhotoModalOpen(false)}
+                      className="flex-1 py-4 bg-zinc-800 text-zinc-400 rounded-2xl font-bold text-xs uppercase tracking-widest hover:bg-zinc-700 transition-colors">
+                      取消
                     </button>
                   )}
                 </div>
@@ -653,13 +711,13 @@ export function ItineraryForm({ tripId, date, onSuccess, onCancel, initialData }
       {/* 圖片裁切 */}
       <AnimatePresence>
         {croppingImage && (
-          <div className="fixed inset-0 z-[9999] bg-black/95 flex flex-col items-center justify-center p-4">
+          <div className="fixed inset-0 z-[9999] bg-black/95 flex flex-col items-center justify-center p-4 backdrop-blur-sm">
             <div className="w-full max-w-md flex justify-between items-center mb-4 px-2">
               <span className="text-white font-black tracking-widest uppercase text-sm">裁切圖片</span>
-              <button type="button" onClick={() => setCroppingImage(null)} className="p-2 bg-zinc-800 rounded-full text-zinc-400 hover:text-white"><X size={18} /></button>
+              <button type="button" onClick={() => setCroppingImage(null)} className="p-2 bg-zinc-800 rounded-full text-zinc-400 hover:text-white"><X size={20} /></button>
             </div>
-            <div className="w-full max-w-md h-[55vh] relative bg-zinc-950 rounded-[28px] overflow-hidden shadow-2xl border border-zinc-800">
-              <ImageCropper image={croppingImage} aspect={21 / 9} onCropComplete={handleCropComplete} onCancel={() => setCroppingImage(null)} />
+            <div className="w-full max-w-md h-[60vh] relative bg-zinc-950 rounded-[32px] overflow-hidden shadow-2xl border border-zinc-800">
+              <ImageCropper imageSrc={croppingImage} aspect={21/9} onCropComplete={handleCropComplete} onCancel={() => setCroppingImage(null)} />
             </div>
           </div>
         )}
@@ -670,20 +728,20 @@ export function ItineraryForm({ tripId, date, onSuccess, onCancel, initialData }
         {isIconPickerOpen && (
           <div className="absolute inset-0 z-50 flex items-end justify-center bg-black/60 backdrop-blur-sm p-4">
             <motion.div initial={{ y: '100%' }} animate={{ y: 0 }} exit={{ y: '100%' }}
-              className="bg-[#1c1c1e] border border-zinc-800 rounded-[28px] w-full p-5 shadow-2xl flex flex-col max-h-[60vh]">
-              <div className="flex justify-between items-center mb-4">
-                <h3 className="font-black text-white text-sm uppercase tracking-widest">選擇分類</h3>
-                <button type="button" onClick={() => setIsIconPickerOpen(false)} className="text-zinc-500 p-1.5 bg-zinc-800 rounded-full"><X size={15} /></button>
+              className="bg-[#1c1c1e] border border-zinc-800 rounded-[32px] w-full p-6 shadow-2xl flex flex-col max-h-[60vh]">
+              <div className="flex justify-between items-center mb-6 px-1">
+                <h3 className="font-black text-white text-base tracking-tight">選擇類別</h3>
+                <button type="button" onClick={() => setIsIconPickerOpen(false)} className="text-zinc-500 p-1.5 bg-zinc-800 rounded-full"><X size={16} /></button>
               </div>
-              <div className="overflow-y-auto grid grid-cols-4 gap-2.5 pb-4 custom-scrollbar">
-                {storeCategories.map(cat => (
-                  <button key={cat.id} type="button"
+              <div className="overflow-y-auto grid grid-cols-4 gap-3 pb-8 custom-scrollbar">
+                {storeCategories.map((cat: any) => (
+                  <button type="button" key={cat.id}
                     onClick={() => { setFormData(prev => ({ ...prev, icon: cat.icon })); setIsIconPickerOpen(false); }}
-                    className={clsx('flex flex-col items-center p-3 rounded-2xl transition-all border', formData.icon === cat.icon ? 'border-white/20 bg-white/5' : 'border-transparent hover:bg-white/5')}
-                    style={{ color: cat.color }}
-                  >
-                    <DynamicIcon name={cat.icon} size={22} />
-                    <span className="text-[9px] font-bold mt-1.5 text-zinc-400 truncate w-full text-center uppercase tracking-tight">{cat.name}</span>
+                    className={clsx("flex flex-col items-center justify-center p-3.5 rounded-3xl transition-all border",
+                      formData.icon === cat.icon ? "border-white/20 bg-white/5 shadow-inner" : "border-transparent hover:bg-white/5"
+                    )} style={{ color: cat.color }}>
+                    <DynamicIcon name={cat.icon} size={24} />
+                    <span className="text-[9px] font-bold mt-2 text-zinc-400 truncate w-full text-center uppercase tracking-tighter">{cat.name}</span>
                   </button>
                 ))}
               </div>
@@ -692,62 +750,237 @@ export function ItineraryForm({ tripId, date, onSuccess, onCancel, initialData }
         )}
       </AnimatePresence>
 
-      {/* 子行程 Modal */}
+      {/* 子活動 Modal */}
       <AnimatePresence>
         {isSubItemModalOpen && (
           <div className="absolute inset-0 z-[110] flex items-center justify-center bg-black/80 backdrop-blur-md p-4">
             <motion.div initial={{ scale: 0.95, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0.95, opacity: 0 }}
-              className="bg-[#1c1c1e] border border-zinc-800 rounded-[24px] w-full max-w-xs p-5 shadow-2xl">
-              <div className="flex justify-between items-center mb-4">
-                <h3 className="font-bold text-white text-sm uppercase tracking-widest">子行程</h3>
-                <button type="button" onClick={() => setIsSubItemModalOpen(false)}><X size={17} className="text-zinc-500" /></button>
+              className="bg-[#1c1c1e] border border-zinc-800 rounded-[28px] w-full max-w-[360px] p-6 shadow-3xl max-h-[80vh] overflow-y-auto">
+              <div className="flex justify-between items-center mb-5">
+                <h3 className="font-bold text-white text-sm tracking-tight">
+                  {editingSubItem ? '編輯子活動' : '新增子活動'}
+                </h3>
+                <button type="button" onClick={() => setIsSubItemModalOpen(false)}><X size={18} className="text-zinc-500" /></button>
               </div>
-              <div className="space-y-3.5">
-                <input type="text" required value={subTitle} onChange={e => setSubTitle(e.target.value)}
-                  placeholder="子行程名稱"
-                  className="w-full bg-[#242426] border border-zinc-800 rounded-xl px-3.5 py-2.5 text-white text-sm outline-none focus:border-orange-500" />
+              {isTimeFixed && formData.start_time && formData.end_time && (
+                <div className="mb-4 px-3 py-2 bg-zinc-900 rounded-xl border border-zinc-800 text-[10px] text-zinc-400 flex items-center gap-1.5">
+                  <Lock size={10} className="text-orange-500" />
+                  <span>主活動時段：{formData.start_time} — {formData.end_time}</span>
+                </div>
+              )}
+              {!isTimeFixed && (
+                <div className="mb-4 px-3 py-2 bg-orange-500/8 rounded-xl border border-orange-500/20 text-[10px] text-orange-400 flex items-center gap-1.5">
+                  <Sparkles size={10} />
+                  <span>智慧排程：填寫停留時間，系統將自動安排順序與時段</span>
+                </div>
+              )}
+              <form onSubmit={async e => {
+                e.preventDefault();
+                const f = e.target as HTMLFormElement;
+                const notesEl = f.elements.namedItem('notes') as HTMLTextAreaElement;
 
-                {/* 4-3: 智慧排程模式下禁用時間選擇 */}
-                {!isTimeFixed ? (
-                  <div className="bg-orange-500/5 border border-orange-500/20 rounded-xl px-3.5 py-2.5 text-center">
-                    <p className="text-[10px] text-orange-400 font-bold uppercase tracking-widest">智慧排程模式</p>
-                    <p className="text-[9px] text-zinc-500 mt-0.5">請先切換至「固定時間」模式才能設定子行程時間</p>
-                  </div>
-                ) : (
-                  <div className="grid grid-cols-2 gap-2.5">
-                    <div className="bg-[#242426] border border-zinc-800 rounded-xl px-3 py-2.5">
-                      <span className="block text-[9px] text-zinc-500 font-bold mb-1 uppercase">開始</span>
-                      <TimeInput value={subStartTime} onChange={setSubStartTime}
-                        className="w-full bg-transparent text-white font-mono text-sm outline-none" />
-                      {formData.start_time && subStartTime && subStartTime < formData.start_time && (
-                        <span className="text-[8px] text-red-400 font-bold">早於活動開始</span>
-                      )}
+                // Time validation (fixed mode)
+                if (isTimeFixed) {
+                  if (!subStartTime || !subEndTime || subStartTime >= subEndTime) {
+                    alert('請設定有效時間（開始 < 結束）'); return;
+                  }
+                  if (formData.start_time && subStartTime < formData.start_time) {
+                    alert(`子活動開始時間不可早於主活動 ${formData.start_time}`); return;
+                  }
+                  if (formData.end_time && subEndTime > formData.end_time) {
+                    alert(`子活動結束時間不可晚於主活動 ${formData.end_time}`); return;
+                  }
+                }
+
+                const newItem: any = {
+                  title: subTitle,
+                  start_time: isTimeFixed ? subStartTime : '',
+                  end_time: isTimeFixed ? subEndTime : '',
+                  notes: notesEl?.value || '',
+                  address: subAddress,
+                  lat: subLat ?? undefined,
+                  lng: subLng ?? undefined,
+                  duration: subDuration,
+                  next_walk_mins: subWalkAuto ? 0 : subNextWalkMins,
+                };
+
+                // Duration validation
+                const proposedItems = editingSubItem
+                  ? subItems.map((i: any) => i.id === editingSubItem.id ? { ...i, duration: subDuration } : i)
+                  : [...subItems, { duration: subDuration }];
+                const totalSubDuration = proposedItems.reduce((acc: number, i: any) => acc + (Number(i.duration) || 0), 0);
+                const parentDuration = (() => {
+                  if (isTimeFixed && formData.start_time && formData.end_time) {
+                    const [sh, sm] = formData.start_time.split(':').map(Number);
+                    const [eh, em] = formData.end_time.split(':').map(Number);
+                    return (eh * 60 + em) - (sh * 60 + sm);
+                  }
+                  return stayDuration || 0;
+                })();
+                if (parentDuration > 0 && totalSubDuration > parentDuration) {
+                  setDurationWarnInfo({ total: totalSubDuration, parent: parentDuration });
+                  setPendingSaveItem(newItem);
+                  setShowDurationWarn(true);
+                  return;
+                }
+
+                await executeSubItemSave(newItem);
+              }} className="space-y-4">
+                {/* Title */}
+                <input type="text" required value={subTitle} onChange={e => setSubTitle(e.target.value)} placeholder="子活動名稱"
+                  className="w-full bg-[#242426] border border-zinc-800 rounded-xl px-4 py-2.5 text-white text-sm outline-none focus:border-orange-500 transition-all" />
+                {/* Address */}
+                <AddressSearchInput
+                  value={subAddress}
+                  onChange={v => { setSubAddress(v); setSubLat(null); setSubLng(null); setSubIsAddrEdited(true); }}
+                  onPlaceSelect={p => { setSubAddress(p.address); setSubLat(p.lat ?? null); setSubLng(p.lng ?? null); setSubIsAddrEdited(true); }}
+                  placeholder="地點（選填）..."
+                />
+                {/* Duration slider — always visible */}
+                <div className="bg-[#242426] border border-zinc-800 rounded-xl px-3 py-2.5 space-y-2">
+                  <div className="flex items-center justify-between">
+                    <span className="text-[8px] text-zinc-500 font-bold uppercase tracking-widest">預計停留時間</span>
+                    <div className="flex items-center gap-1">
+                      <input type="number" min="5" max="480" step="5" value={subDuration}
+                        onChange={e => handleSubDurationChange(Math.max(5, parseInt(e.target.value) || 5))}
+                        className="w-14 text-right bg-transparent text-white font-mono text-sm outline-none" />
+                      <span className="text-[10px] text-zinc-500">分</span>
                     </div>
-                    <div className="bg-[#242426] border border-zinc-800 rounded-xl px-3 py-2.5">
-                      <span className="block text-[9px] text-zinc-500 font-bold mb-1 uppercase">結束</span>
-                      <TimeInput value={subEndTime} onChange={setSubEndTime}
-                        className="w-full bg-transparent text-white font-mono text-sm outline-none" />
-                      {formData.end_time && subEndTime && subEndTime > formData.end_time && (
-                        <span className="text-[8px] text-red-400 font-bold">晚於活動結束</span>
-                      )}
+                  </div>
+                  <input type="range" min="5" max="480" step="5" value={subDuration}
+                    onChange={e => handleSubDurationChange(parseInt(e.target.value))}
+                    className="w-full accent-orange-500" />
+                  <div className="flex justify-between text-[8px] text-zinc-600">
+                    <span>5分</span><span>2時</span><span>4時</span><span>6時</span><span>8時</span>
+                  </div>
+                </div>
+                {/* Fixed mode: start time + auto end time */}
+                {isTimeFixed && (
+                  <div className="grid grid-cols-2 gap-3">
+                    <div className="bg-[#242426] border border-zinc-800 rounded-xl px-3 py-2">
+                      <span className="block text-[8px] text-zinc-500 font-bold mb-1">開始時間</span>
+                      <input type="time" value={subStartTime}
+                        onChange={e => handleSubStartChange(e.target.value)}
+                        min={formData.start_time || undefined}
+                        max={formData.end_time || undefined}
+                        className="bg-transparent text-white font-mono text-sm w-full outline-none [color-scheme:dark]" />
+                    </div>
+                    <div className="bg-[#242426] border border-zinc-800 rounded-xl px-3 py-2">
+                      <span className="block text-[8px] text-zinc-500 font-bold mb-1">結束時間</span>
+                      <div className="font-mono text-sm text-zinc-300 pt-0.5">{subEndTime || '—'}</div>
+                      <div className="text-[8px] text-zinc-600 mt-0.5">自動計算</div>
                     </div>
                   </div>
                 )}
+                {/* Notes */}
+                <textarea name="notes" defaultValue={editingSubItem?.notes} placeholder="備注..."
+                  className="w-full bg-[#242426] border border-zinc-800 rounded-xl px-4 py-2.5 text-white text-sm outline-none min-h-[60px] focus:border-orange-500 transition-all" />
+                {/* 下一站步行時間（拉桿 + 手動輸入 + Auto 開關） */}
+                {(() => {
+                  const editingIdx = editingSubItem ? subItems.findIndex((i: any) => i.id === editingSubItem.id) : subItems.length;
+                  const isLastSub = editingIdx >= subItems.length - (editingSubItem ? 1 : 0);
+                  if (isLastSub) return null;
+                  const displayVal = subWalkAuto ? (subWalkEstimate || 0) : subNextWalkMins;
+                  return (
+                    <div className="bg-[#242426] border border-zinc-800 rounded-xl px-3 py-2.5 space-y-2">
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-1.5">
+                          <Footprints size={12} className="text-zinc-400 shrink-0" />
+                          <span className="text-[8px] text-zinc-500 font-bold uppercase tracking-widest">下一站步行時間</span>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            const next = !subWalkAuto;
+                            setSubWalkAuto(next);
+                            if (!next && subNextWalkMins === 0 && subWalkEstimate > 0) {
+                              setSubNextWalkMins(subWalkEstimate);
+                            }
+                          }}
+                          className={clsx(
+                            'text-[9px] font-bold px-2 py-0.5 rounded-lg transition-colors border',
+                            subWalkAuto
+                              ? 'bg-orange-500/20 text-orange-400 border-orange-500/30'
+                              : 'bg-zinc-700/50 text-zinc-400 border-zinc-700'
+                          )}
+                        >
+                          Auto
+                        </button>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <input
+                          type="range" min="0" max="60" step="1"
+                          value={displayVal}
+                          disabled={subWalkAuto}
+                          onChange={e => !subWalkAuto && setSubNextWalkMins(parseInt(e.target.value))}
+                          className="flex-1 accent-orange-500 disabled:opacity-40"
+                        />
+                        <input
+                          type="number" min="0" max="999"
+                          value={displayVal || ''}
+                          disabled={subWalkAuto}
+                          onChange={e => !subWalkAuto && setSubNextWalkMins(Math.max(0, parseInt(e.target.value) || 0))}
+                          placeholder="0"
+                          className="w-10 bg-transparent text-white text-sm font-mono text-right outline-none disabled:opacity-40 [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                        />
+                        <span className="text-[10px] text-zinc-500">分</span>
+                      </div>
+                      {subWalkAuto && subWalkEstimate > 0 && (
+                        <div className="text-[8px] text-zinc-600">自動估算（直線距離 ×1.3 換算）</div>
+                      )}
+                      {subWalkAuto && subWalkEstimate === 0 && (
+                        <div className="text-[8px] text-zinc-700">需要子活動座標才能自動估算</div>
+                      )}
+                    </div>
+                  );
+                })()}
+                <button type="submit" disabled={subSaving}
+                  className="w-full py-3.5 bg-orange-500 text-white rounded-2xl font-black text-xs uppercase tracking-widest shadow-lg shadow-orange-500/20 active:scale-95 transition-all disabled:opacity-50">
+                  {subSaving ? '儲存中...' : '儲存子活動'}
+                </button>
+              </form>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
 
-                <textarea value={subNotes} onChange={e => setSubNotes(e.target.value)}
-                  placeholder="備註..."
-                  className="w-full bg-[#242426] border border-zinc-800 rounded-xl px-3.5 py-2.5 text-white text-xs outline-none min-h-[60px] focus:border-orange-500" />
-                <button
-                  type="button"
-                  disabled={!subTitle}
-                  onClick={() => {
-                    const newItem = { id: editingSubItem?.id || Date.now().toString(), title: subTitle, start_time: isTimeFixed ? subStartTime : '', end_time: isTimeFixed ? subEndTime : '', notes: subNotes };
-                    if (editingSubItem) setSubItems(subItems.map(i => i.id === editingSubItem.id ? newItem : i));
-                    else setSubItems([...subItems, newItem].sort((a, b) => a.start_time.localeCompare(b.start_time)));
-                    setIsSubItemModalOpen(false);
+      {/* 子活動時間超出警告 */}
+      <AnimatePresence>
+        {showDurationWarn && (
+          <div className="absolute inset-0 z-[120] flex items-center justify-center bg-black/90 backdrop-blur-sm p-6">
+            <motion.div initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.95 }}
+              className="bg-zinc-900 border border-zinc-800 rounded-3xl p-6 w-full max-w-sm shadow-2xl">
+              <div className="flex items-start gap-3 mb-5">
+                <div className="w-10 h-10 rounded-2xl bg-yellow-500/10 flex items-center justify-center shrink-0">
+                  <AlertTriangle size={20} className="text-yellow-500" />
+                </div>
+                <div>
+                  <h3 className="text-base font-bold text-white mb-1">時間衝突</h3>
+                  <p className="text-sm text-zinc-400 leading-relaxed">
+                    子活動總時間 <span className="text-yellow-400 font-bold">{durationWarnInfo.total} 分</span> 超過主活動的 <span className="text-orange-400 font-bold">{durationWarnInfo.parent} 分</span>，請縮短子活動或拉長主活動。
+                  </p>
+                </div>
+              </div>
+              <div className="flex flex-col gap-2">
+                <button type="button"
+                  onClick={async () => {
+                    const newDur = durationWarnInfo.total;
+                    if (isTimeFixed) {
+                      handleFixedDurationChange(newDur);
+                    } else {
+                      setStayDuration(newDur);
+                    }
+                    setShowDurationWarn(false);
+                    if (pendingSaveItem) await executeSubItemSave(pendingSaveItem);
+                    setPendingSaveItem(null);
                   }}
-                  className="w-full py-3 bg-orange-500 text-white rounded-2xl font-black text-xs uppercase tracking-widest shadow-lg shadow-orange-500/20 active:scale-95 transition-all disabled:opacity-50">
-                  儲存子行程
+                  className="w-full py-3.5 bg-orange-500 text-white rounded-2xl font-black text-xs uppercase tracking-widest shadow-lg shadow-orange-500/20 active:scale-95 transition-all">
+                  拉長主活動（延伸至 {durationWarnInfo.total} 分鐘）
+                </button>
+                <button type="button"
+                  onClick={() => { setShowDurationWarn(false); setPendingSaveItem(null); }}
+                  className="w-full py-3 bg-zinc-800 text-zinc-400 rounded-2xl font-bold text-xs hover:bg-zinc-700 transition-colors">
+                  取消（調整子活動）
                 </button>
               </div>
             </motion.div>

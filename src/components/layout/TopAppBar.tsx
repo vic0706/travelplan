@@ -37,7 +37,7 @@ export function TopAppBar() {
   }, [isUserMenuOpen, setUserMenuOpen]);
 
   const handleClearCache = () => {
-    if (window.confirm('Are you sure you want to clear cache and reload?')) {
+    if (window.confirm('確定要清除快取並重新載入嗎？')) {
       setIsCleaningCache(true);
       setTimeout(() => {
         localStorage.clear();
@@ -57,7 +57,7 @@ export function TopAppBar() {
     
     // Show a brief notification
     const notification = document.createElement('div');
-    notification.textContent = 'Logging out...';
+    notification.textContent = '登出中...';
     notification.className = 'fixed top-24 left-1/2 -translate-x-1/2 bg-zinc-800 text-white px-6 py-3 rounded-full shadow-2xl z-[100] animate-pulse font-medium border border-zinc-700 flex items-center gap-2';
     
     // Add icon
@@ -114,7 +114,7 @@ export function TopAppBar() {
       }
     } catch (err) {
       console.error(err);
-      alert('Failed to upload avatar');
+      alert('頭像上傳失敗');
     } finally {
       setUploadingImage(false);
     }
@@ -195,9 +195,9 @@ export function TopAppBar() {
                             className="w-full flex items-center gap-3 px-3 py-2.5 text-sm text-zinc-300 hover:bg-zinc-800 hover:text-white rounded-xl transition-colors text-left font-medium"
                           >
                             <Plus size={16} />
-                            New Trip
+                            新增行程
                           </button>
-                          <button 
+                          <button
                             onClick={() => {
                               navigate('/admin/members');
                               setUserMenuOpen(false);
@@ -205,9 +205,9 @@ export function TopAppBar() {
                             className="w-full flex items-center gap-3 px-3 py-2.5 text-sm text-zinc-300 hover:bg-zinc-800 hover:text-white rounded-xl transition-colors text-left font-medium"
                           >
                             <Users size={16} />
-                            Member Management
+                            成員管理
                           </button>
-                          <button 
+                          <button
                             onClick={() => {
                               navigate('/admin/settings');
                               setUserMenuOpen(false);
@@ -215,7 +215,7 @@ export function TopAppBar() {
                             className="w-full flex items-center gap-3 px-3 py-2.5 text-sm text-zinc-300 hover:bg-zinc-800 hover:text-white rounded-xl transition-colors text-left font-medium"
                           >
                             <Settings size={16} />
-                            System Settings
+                            系統設定
                           </button>
                         </>
                       )}
@@ -225,7 +225,7 @@ export function TopAppBar() {
                         className="w-full flex items-center gap-3 px-3 py-2.5 text-sm text-zinc-300 hover:bg-zinc-800 hover:text-white rounded-xl transition-colors text-left font-medium cursor-pointer"
                       >
                         {uploadingImage ? <Loader2 size={16} className="animate-spin" /> : <Camera size={16} />}
-                        Change Avatar
+                        更換頭像
                       </label>
 
                       <button 
@@ -236,7 +236,7 @@ export function TopAppBar() {
                         className="w-full flex items-center gap-3 px-3 py-2.5 text-sm text-zinc-300 hover:bg-zinc-800 hover:text-white rounded-xl transition-colors text-left font-medium"
                       >
                         <RefreshCw size={16} />
-                        Clear Cache & Reload
+                        清除快取並重載
                       </button>
 
                       <div className="h-px bg-zinc-800 my-1 mx-2"></div>
@@ -245,7 +245,7 @@ export function TopAppBar() {
                         className="w-full flex items-center gap-3 px-3 py-2.5 text-sm text-red-400 hover:bg-red-500/10 rounded-xl transition-colors text-left font-medium"
                       >
                         <LogOut size={16} />
-                        Sign Out
+                        登出
                       </button>
                     </div>
                   </>
@@ -258,7 +258,7 @@ export function TopAppBar() {
                       }}
                       className="w-full flex items-center gap-3 px-3 py-2.5 text-sm text-white bg-orange-500 hover:bg-orange-600 rounded-xl transition-colors text-left font-bold justify-center mb-2 shadow-lg shadow-orange-500/20"
                     >
-                      Sign In
+                      登入
                     </button>
                     <button 
                       onClick={() => {
@@ -297,8 +297,8 @@ export function TopAppBar() {
               exit={{ opacity: 0, scale: 0.95 }}
               className="bg-zinc-900 border border-zinc-800 rounded-3xl p-6 w-full max-w-sm shadow-2xl"
             >
-              <h3 className="text-xl font-bold text-white mb-2">Sign Out?</h3>
-              <p className="text-zinc-400 mb-6">Are you sure you want to sign out of your account?</p>
+              <h3 className="text-xl font-bold text-white mb-2">確認登出？</h3>
+              <p className="text-zinc-400 mb-6">確定要登出帳號嗎？</p>
               <div className="flex gap-3">
                 <button
                   onClick={() => setShowLogoutConfirm(false)}
@@ -335,8 +335,8 @@ export function TopAppBar() {
       {isCleaningCache && (
         <div className="fixed inset-0 z-[100] bg-black/90 backdrop-blur-md flex flex-col items-center justify-center">
           <Loader2 size={48} className="text-orange-500 animate-spin mb-4" />
-          <h3 className="text-xl font-bold text-white">Cleaning Cache...</h3>
-          <p className="text-zinc-400 mt-2">The application will reload shortly.</p>
+          <h3 className="text-xl font-bold text-white">清除快取中...</h3>
+          <p className="text-zinc-400 mt-2">應用程式即將重新載入。</p>
         </div>
       )}
     </>

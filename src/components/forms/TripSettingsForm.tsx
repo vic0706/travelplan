@@ -1,40 +1,113 @@
-import React, { useState } from 'react';
-import { Loader2, Cpu, Wand2, Trash2, AlertTriangle, Check } from 'lucide-react';
+import React, { useState, useEffect, useCallback } from 'react';
+import { Loader2, CloudSun, MapPin, Wand2, Trash2, AlertTriangle, ChevronDown, ChevronUp, RotateCcw } from 'lucide-react';
 import { TripBaseForm, TripFormData } from './TripBaseForm';
 import { apiFetch } from '../../utils/api';
 import { Trip } from '../../types';
 import { ConfirmDialog } from '../common/ConfirmDialog';
 import { motion, AnimatePresence } from 'framer-motion';
+import { useAppStore } from '../../store';
+import { clsx } from 'clsx';
 
 interface TripSettingsFormProps {
   trip: Trip;
   onUpdate: () => void;
   onDelete: () => Promise<void>;
   onClose: () => void;
-  // ✅ 新增：由 TripDetails 傳入的底部 toast 函式
   showToast?: (message: string, type?: 'success' | 'error') => void;
 }
 
+interface QuotaState {
+  weather: { count: number; limit: number | null };
+  places: { count: number; limit: number | null };
+  optimize: { count: number; limit: number | null };
+  isAdmin: boolean;
+}
+
+interface MemberWithQuota {
+  id: number;
+  name: string;
+  avatar_url?: string;
+  trip_role: string;
+  quota?: Record<string, { count: number; limit: number }>;
+}
+
 export function TripSettingsForm({ trip, onUpdate, onDelete, onClose, showToast }: TripSettingsFormProps) {
+  const { user } = useAppStore();
   const [loading, setLoading] = useState(false);
-  const [isComputing, setIsComputing] = useState(false);
+  const [isWeatherUpdating, setIsWeatherUpdating] = useState(false);
+  const [isPlacesUpdating, setIsPlacesUpdating] = useState(false);
   const [isOptimizing, setIsOptimizing] = useState(false);
   const [isDeleteConfirmOpen, setIsDeleteConfirmOpen] = useState(false);
 
-  // 用於日期衝突的 pending 資料
+  const [quota, setQuota] = useState<QuotaState | null>(null);
+
+  const [showAdminPanel, setShowAdminPanel] = useState(false);
+  const [adminMembers, setAdminMembers] = useState<MemberWithQuota[]>([]);
+  const [adminMembersLoading, setAdminMembersLoading] = useState(false);
+
+  // Used for date conflict warning
   const [pendingSaveData, setPendingSaveData] = useState<any>(null);
   const [outOfBoundsDates, setOutOfBoundsDates] = useState<string[]>([]);
 
-  const performSave = async (data: any, autoSave = false) => {
+  const isMember = !!(user && (
+    trip.members?.some(m => Number((m as any).user_id ?? m.id) === Number(user.id)) ||
+    user.role === 'Admin'
+  ));
+
+  const fetchQuota = useCallback(async () => {
+    try {
+      const res = await apiFetch(`/api/trips/${trip.id}/quota-status`);
+      if (res.ok) setQuota(await res.json());
+    } catch {}
+  }, [trip.id]);
+
+  useEffect(() => { fetchQuota(); }, [fetchQuota]);
+
+  const loadAdminMembers = useCallback(async () => {
+    setAdminMembersLoading(true);
+    try {
+      const res = await apiFetch(`/api/trips/${trip.id}/members`);
+      if (!res.ok) return;
+      const members: any[] = await res.json();
+      const withQuota = await Promise.all(
+        members.map(async (m) => {
+          const qRes = await apiFetch(`/api/admin/user-quota/${m.id}`);
+          const q = qRes.ok ? await qRes.json() : undefined;
+          return { id: m.id, name: m.name || `#${m.id}`, avatar_url: m.avatar_url, trip_role: m.trip_role, quota: q };
+        })
+      );
+      setAdminMembers(withQuota);
+    } finally {
+      setAdminMembersLoading(false);
+    }
+  }, [trip.id]);
+
+  useEffect(() => {
+    if (showAdminPanel && user?.role === 'Admin') loadAdminMembers();
+  }, [showAdminPanel, loadAdminMembers, user?.role]);
+
+  const handleResetMemberQuota = async (memberId: number) => {
+    try {
+      const res = await apiFetch('/api/admin/user-quota/reset', {
+        method: 'POST',
+        body: JSON.stringify({ userId: memberId }),
+      });
+      if (res.ok) {
+        const data = await res.json() as any;
+        setAdminMembers(prev => prev.map(m => m.id === memberId ? { ...m, quota: data.quota } : m));
+        showToast?.('已重設使用次數', 'success');
+      }
+    } catch {}
+  };
+
+  const performSave = async (data: any) => {
     setLoading(true);
     try {
       const res = await apiFetch(`/api/trips/${trip.id}`, { method: 'PUT', body: JSON.stringify(data) });
       if (res.ok && data.members) {
         await apiFetch(`/api/trips/${trip.id}/members`, { method: 'PUT', body: JSON.stringify({ user_ids: data.members }) });
       }
-
       if (res.ok) {
-        // 更新本地 trip 物件（不觸發 navigate，保持在 settings 頁面）
         trip.title = data.title;
         trip.start_date = data.start_date;
         trip.end_date = data.end_date;
@@ -42,17 +115,14 @@ export function TripSettingsForm({ trip, onUpdate, onDelete, onClose, showToast 
         trip.cover_image_url = data.cover_image_url;
         (trip as any).currencies = JSON.stringify(data.currencies);
         (trip as any).members = data.members.map((id: number) => ({ user_id: id, role: 'Member' }));
-
         setPendingSaveData(null);
-
-        // ✅ 改成底部 toast 而非 inline 文字
-        showToast?.('Settings saved', 'success');
+        showToast?.('設定已儲存', 'success');
         setTimeout(() => onUpdate(), 300);
       } else {
-        showToast?.('Save failed', 'error');
+        showToast?.('儲存失敗', 'error');
       }
-    } catch (err: any) {
-      showToast?.('Save failed', 'error');
+    } catch {
+      showToast?.('儲存失敗', 'error');
     } finally {
       setLoading(false);
     }
@@ -66,10 +136,7 @@ export function TripSettingsForm({ trip, onUpdate, onDelete, onClose, showToast 
       if (res.ok) {
         const itineraries = await res.json();
         const existingDates = [...new Set(itineraries.map((i: any) => i.date))] as string[];
-        const newStart = data.start_date;
-        const newEnd = data.end_date;
-        const outOfBounds = existingDates.filter(date => date < newStart || date > newEnd);
-
+        const outOfBounds = existingDates.filter(date => date < data.start_date || date > data.end_date);
         if (outOfBounds.length > 0) {
           setOutOfBoundsDates(outOfBounds.sort());
           setPendingSaveData(data);
@@ -77,24 +144,58 @@ export function TripSettingsForm({ trip, onUpdate, onDelete, onClose, showToast 
           return;
         }
       }
-      await performSave(data, true);
-    } catch (err: any) {
-      showToast?.('Save failed', 'error');
+      await performSave(data);
+    } catch {
+      showToast?.('儲存失敗', 'error');
       setLoading(false);
     }
   };
 
-  const handleCompute = async () => {
-    setIsComputing(true);
+  const handleUpdateWeather = async () => {
+    setIsWeatherUpdating(true);
     try {
-      const res = await apiFetch(`/api/trips/${trip.id}/compute`, { method: 'POST' });
+      const res = await apiFetch(`/api/trips/${trip.id}/update-weather`, { method: 'POST' });
       if (res.ok) {
-        onUpdate();
-        showToast?.('Weather & places updated', 'success');
+        const data = await res.json() as any;
+        if (data.cached) {
+          showToast?.(data.message || '1小時內已是最新，無需重新更新', 'success');
+        } else {
+          onUpdate();
+          showToast?.('天氣資料已更新', 'success');
+          fetchQuota();
+        }
       } else {
-        showToast?.('Compute failed', 'error');
+        const data = await res.json() as any;
+        if (res.status === 429) {
+          showToast?.('今日已達使用上限（10次）', 'error');
+        } else {
+          showToast?.('更新天氣失敗', 'error');
+        }
       }
-    } finally { setIsComputing(false); }
+    } finally { setIsWeatherUpdating(false); }
+  };
+
+  const handleUpdatePlaces = async () => {
+    setIsPlacesUpdating(true);
+    try {
+      const res = await apiFetch(`/api/trips/${trip.id}/update-places`, { method: 'POST' });
+      if (res.ok) {
+        const data = await res.json() as any;
+        if (data.cached) {
+          showToast?.(data.message || '1小時內已是最新，無需重新更新', 'success');
+        } else {
+          onUpdate();
+          showToast?.('景點資訊已更新', 'success');
+          fetchQuota();
+        }
+      } else {
+        if (res.status === 429) {
+          showToast?.('今日已達使用上限（10次）', 'error');
+        } else {
+          showToast?.('更新景點失敗', 'error');
+        }
+      }
+    } finally { setIsPlacesUpdating(false); }
   };
 
   const handleOptimize = async () => {
@@ -102,47 +203,144 @@ export function TripSettingsForm({ trip, onUpdate, onDelete, onClose, showToast 
     try {
       const res = await apiFetch(`/api/trips/${trip.id}/optimize`, { method: 'POST' });
       if (res.ok) {
+        const data = await res.json() as any;
         onUpdate();
-        showToast?.('Itinerary optimized', 'success');
+        fetchQuota();
+        if (data.geminiErrors?.length > 0) console.warn('[Gemini fallback]', data.geminiErrors);
+        const aiTag = data.geminiDaysUsed > 0
+          ? ` (Gemini AI ✓ ${data.geminiDaysUsed} 天)`
+          : data.geminiErrors?.length > 0
+            ? ' (Gemini 失敗，改用規則排序)'
+            : '';
+        if (data.unplacedCount > 0) {
+          showToast?.(`排序失敗：有 ${data.unplacedCount} 個行程無法排入時間內`, 'error');
+        } else if (data.conflictCount > 0) {
+          showToast?.(`排序完成${aiTag}，但有 ${data.conflictCount} 個行程時間重疊`, 'error');
+        } else if (data.missingTransportDates?.length > 0) {
+          const dateLabel = data.missingTransportDates.map((d: string) => {
+            const parts = d.split('-');
+            return `${parseInt(parts[1])}/${parseInt(parts[2])}`;
+          }).join('、');
+          showToast?.(`排序完成${aiTag}，但 ${dateLabel} 有行程未設定交通方式`, 'error');
+        } else {
+          showToast?.(`行程排序完成${aiTag}`, 'success');
+        }
       } else {
-        showToast?.('Optimize failed', 'error');
+        if (res.status === 429) {
+          showToast?.('今日已達使用上限（10次）', 'error');
+        } else {
+          showToast?.('景點排序失敗', 'error');
+        }
       }
     } finally { setIsOptimizing(false); }
   };
+
+  const getQuotaLabel = (action: 'weather' | 'places' | 'optimize') => {
+    if (!quota) return null;
+    if (quota.isAdmin) return null;
+    const q = quota[action];
+    if (!q || q.limit == null) return null;
+    const used = q.count;
+    const limit = q.limit;
+    if (used >= limit) return '今日已達上限';
+    return `剩 ${limit - used}/${limit}`;
+  };
+
+  const isQuotaExhausted = (action: 'weather' | 'places' | 'optimize') => {
+    if (!quota || quota.isAdmin) return false;
+    const q = quota[action];
+    return q ? q.count >= (q.limit ?? 10) : false;
+  };
+
+  const canUse = (action: 'weather' | 'places' | 'optimize') => {
+    return isMember && !isQuotaExhausted(action);
+  };
+
+  const ACTION_LABELS: Record<string, string> = { weather: '天氣', places: '景點', optimize: '排序' };
 
   return (
     <>
       <div className="flex flex-col h-full bg-zinc-950 rounded-3xl border border-zinc-800 overflow-hidden">
 
-        {/* ✅ 標題列：移除 "Trip Settings" 文字，只留 AI 功能按鈕 */}
-        <div className="px-5 py-4 flex items-center justify-end border-b border-zinc-800/50">
-          <div className="flex items-center gap-2">
+        {/* AI 功能按鈕區 */}
+        <div className="px-4 py-4 border-b border-zinc-800/50 space-y-2">
+          <div className="grid grid-cols-3 gap-2">
+            {/* 更新天氣 */}
             <button
               type="button"
-              title="AI Computation: Update weather & places"
-              disabled={isComputing || loading}
-              onClick={handleCompute}
-              className="flex flex-col items-center gap-1 px-4 py-2.5 text-orange-500 hover:bg-orange-500/10 rounded-2xl transition-all disabled:opacity-30 min-w-[64px]"
+              disabled={!isMember || isWeatherUpdating || loading || isQuotaExhausted('weather')}
+              onClick={handleUpdateWeather}
+              className={clsx(
+                'flex flex-col items-center gap-1.5 px-2 py-3 rounded-2xl border transition-all',
+                isMember && !isQuotaExhausted('weather')
+                  ? 'text-orange-500 hover:bg-orange-500/10 border-orange-500/20 active:scale-95'
+                  : 'text-zinc-600 border-zinc-800 opacity-40 cursor-not-allowed'
+              )}
             >
-              {isComputing
-                ? <Loader2 size={24} className="animate-spin" />
-                : <Cpu size={24} />
-              }
-              <span className="text-[9px] font-black uppercase tracking-widest leading-none">Compute</span>
+              {isWeatherUpdating
+                ? <Loader2 size={18} className="animate-spin shrink-0" />
+                : <CloudSun size={18} className="shrink-0" />}
+              <div className="text-center leading-none">
+                <div className="text-[10px] font-black tracking-wide">更新天氣</div>
+                <div className={clsx('text-[8px] mt-0.5', isQuotaExhausted('weather') ? 'text-red-500/70' : 'text-orange-500/50')}>
+                  {!isMember ? '需為成員' : isQuotaExhausted('weather') ? '今日已達上限' : '1小時快取'}
+                </div>
+                {isMember && !quota?.isAdmin && (
+                  <div className="text-[8px] text-zinc-600 mt-0.5">{getQuotaLabel('weather')}</div>
+                )}
+              </div>
             </button>
 
+            {/* 更新景點 */}
             <button
               type="button"
-              title="AI Optimization: Re-sort itinerary flow"
-              disabled={isOptimizing || loading}
+              disabled={!isMember || isPlacesUpdating || loading || isQuotaExhausted('places')}
+              onClick={handleUpdatePlaces}
+              className={clsx(
+                'flex flex-col items-center gap-1.5 px-2 py-3 rounded-2xl border transition-all',
+                isMember && !isQuotaExhausted('places')
+                  ? 'text-orange-500 hover:bg-orange-500/10 border-orange-500/20 active:scale-95'
+                  : 'text-zinc-600 border-zinc-800 opacity-40 cursor-not-allowed'
+              )}
+            >
+              {isPlacesUpdating
+                ? <Loader2 size={18} className="animate-spin shrink-0" />
+                : <MapPin size={18} className="shrink-0" />}
+              <div className="text-center leading-none">
+                <div className="text-[10px] font-black tracking-wide">更新景點 💰</div>
+                <div className={clsx('text-[8px] mt-0.5', isQuotaExhausted('places') ? 'text-red-500/70' : 'text-orange-500/50')}>
+                  {!isMember ? '需為成員' : isQuotaExhausted('places') ? '今日已達上限' : '1小時快取'}
+                </div>
+                {isMember && !quota?.isAdmin && (
+                  <div className="text-[8px] text-zinc-600 mt-0.5">{getQuotaLabel('places')}</div>
+                )}
+              </div>
+            </button>
+
+            {/* 智能景點排序 */}
+            <button
+              type="button"
+              disabled={!isMember || isOptimizing || loading || isQuotaExhausted('optimize')}
               onClick={handleOptimize}
-              className="flex flex-col items-center gap-1 px-4 py-2.5 text-orange-500 hover:bg-orange-500/10 rounded-2xl transition-all disabled:opacity-30 min-w-[64px]"
+              className={clsx(
+                'flex flex-col items-center gap-1.5 px-2 py-3 rounded-2xl border transition-all',
+                isMember && !isQuotaExhausted('optimize')
+                  ? 'text-orange-500 hover:bg-orange-500/10 border-orange-500/20 active:scale-95'
+                  : 'text-zinc-600 border-zinc-800 opacity-40 cursor-not-allowed'
+              )}
             >
               {isOptimizing
-                ? <Loader2 size={24} className="animate-spin" />
-                : <Wand2 size={24} />
-              }
-              <span className="text-[9px] font-black uppercase tracking-widest leading-none">Optimize</span>
+                ? <Loader2 size={18} className="animate-spin shrink-0" />
+                : <Wand2 size={18} className="shrink-0" />}
+              <div className="text-center leading-none">
+                <div className="text-[10px] font-black tracking-wide">智能排序 💰</div>
+                <div className={clsx('text-[8px] mt-0.5', isQuotaExhausted('optimize') ? 'text-red-500/70' : 'text-orange-500/50')}>
+                  {!isMember ? '需為成員' : isQuotaExhausted('optimize') ? '今日已達上限' : '每次重新執行'}
+                </div>
+                {isMember && !quota?.isAdmin && (
+                  <div className="text-[8px] text-zinc-600 mt-0.5">{getQuotaLabel('optimize')}</div>
+                )}
+              </div>
             </button>
           </div>
         </div>
@@ -153,30 +351,96 @@ export function TripSettingsForm({ trip, onUpdate, onDelete, onClose, showToast 
             initialData={trip}
             onSubmit={handleAutoSave}
             loading={loading}
-            submitText="Save"
+            submitText="儲存"
             onChange={handleAutoSave}
             hideSubmit={true}
             extraButtons={
-              <div className="mt-6 pt-6 border-t border-zinc-800/50">
-                <button
-                  type="button"
-                  onClick={() => setIsDeleteConfirmOpen(true)}
-                  className="w-full bg-red-500/10 hover:bg-red-500/20 active:bg-red-500/30 text-red-500 font-bold rounded-2xl py-4 transition-colors border border-red-500/20 flex items-center justify-center gap-2"
-                >
-                  <Trash2 size={18} />
-                  <span className="uppercase tracking-widest text-xs font-black">Delete Trip</span>
-                </button>
+              <div className="mt-6 space-y-3">
+                {/* Admin quota management panel */}
+                {user?.role === 'Admin' && (
+                  <div className="border border-zinc-800 rounded-2xl overflow-hidden">
+                    <button
+                      type="button"
+                      onClick={() => setShowAdminPanel(p => !p)}
+                      className="w-full flex items-center justify-between px-4 py-3 text-zinc-400 hover:text-white hover:bg-zinc-800/50 transition-colors"
+                    >
+                      <span className="text-[10px] font-black uppercase tracking-widest">成員使用量管理（今日）</span>
+                      {showAdminPanel ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
+                    </button>
+                    <AnimatePresence>
+                      {showAdminPanel && (
+                        <motion.div
+                          initial={{ height: 0, opacity: 0 }}
+                          animate={{ height: 'auto', opacity: 1 }}
+                          exit={{ height: 0, opacity: 0 }}
+                          transition={{ duration: 0.2 }}
+                          className="overflow-hidden"
+                        >
+                          <div className="px-4 pb-4 space-y-2 border-t border-zinc-800">
+                            {adminMembersLoading ? (
+                              <div className="flex justify-center py-4">
+                                <Loader2 size={18} className="animate-spin text-zinc-500" />
+                              </div>
+                            ) : adminMembers.length === 0 ? (
+                              <p className="text-[10px] text-zinc-600 text-center py-3">無成員資料</p>
+                            ) : (
+                              adminMembers.map(m => (
+                                <div key={m.id} className="flex items-center justify-between py-2 border-b border-zinc-800/50 last:border-0">
+                                  <div className="flex-1 min-w-0">
+                                    <div className="text-[11px] font-bold text-zinc-300 truncate">{m.name}</div>
+                                    <div className="flex gap-2 mt-0.5">
+                                      {(['weather', 'places', 'optimize'] as const).map(action => {
+                                        const count = m.quota?.[action]?.count ?? 0;
+                                        const limit = m.quota?.[action]?.limit ?? 10;
+                                        return (
+                                          <span key={action} className={clsx(
+                                            'text-[9px] font-bold',
+                                            count >= limit ? 'text-red-400' : 'text-zinc-500'
+                                          )}>
+                                            {ACTION_LABELS[action]} {count}/{limit}
+                                          </span>
+                                        );
+                                      })}
+                                    </div>
+                                  </div>
+                                  <button
+                                    type="button"
+                                    onClick={() => handleResetMemberQuota(m.id)}
+                                    className="ml-3 flex items-center gap-1 px-2 py-1 rounded-lg text-[9px] font-bold text-zinc-400 hover:text-white hover:bg-zinc-800 border border-zinc-800 transition-colors"
+                                  >
+                                    <RotateCcw size={10} />
+                                    重設
+                                  </button>
+                                </div>
+                              ))
+                            )}
+                          </div>
+                        </motion.div>
+                      )}
+                    </AnimatePresence>
+                  </div>
+                )}
+
+                <div className="pt-3 border-t border-zinc-800/50">
+                  <button
+                    type="button"
+                    onClick={() => setIsDeleteConfirmOpen(true)}
+                    className="w-full bg-red-500/10 hover:bg-red-500/20 active:bg-red-500/30 text-red-500 font-bold rounded-2xl py-4 transition-colors border border-red-500/20 flex items-center justify-center gap-2"
+                  >
+                    <Trash2 size={18} />
+                    <span className="uppercase tracking-widest text-xs font-black">刪除行程</span>
+                  </button>
+                </div>
               </div>
             }
           />
         </div>
       </div>
 
-      {/* ✅ Delete Trip 確認彈窗 */}
       <ConfirmDialog
         isOpen={isDeleteConfirmOpen}
         title="刪除行程"
-        message={`您確定要永久刪除「${trip.title}」嗎？\n所有相關的活動、記帳與預訂資料都將一併刪除，此操作無法復原。`}
+        message={`確定要刪除「${trip.title}」嗎？\n所有活動、記帳與預訂資料都將一併移除，此操作無法復原。`}
         confirmText="永久刪除"
         cancelText="取消"
         type="danger"
@@ -187,7 +451,6 @@ export function TripSettingsForm({ trip, onUpdate, onDelete, onClose, showToast 
         onCancel={() => setIsDeleteConfirmOpen(false)}
       />
 
-      {/* 日期超出範圍警告彈窗 */}
       <AnimatePresence>
         {pendingSaveData && (
           <div className="fixed inset-0 z-[99999] bg-black/90 backdrop-blur-sm flex items-center justify-center p-4">
@@ -201,9 +464,9 @@ export function TripSettingsForm({ trip, onUpdate, onDelete, onClose, showToast 
               <div className="w-16 h-16 bg-red-500/10 rounded-full flex items-center justify-center mb-5 border border-red-500/20 relative z-10">
                 <AlertTriangle size={32} className="text-red-500" />
               </div>
-              <h3 className="text-lg font-black text-white uppercase tracking-widest mb-3 relative z-10">Date Conflict</h3>
+              <h3 className="text-lg font-black text-white uppercase tracking-widest mb-3 relative z-10">日期衝突</h3>
               <p className="text-sm text-zinc-400 mb-4 leading-relaxed relative z-10">
-                Activities outside range: <br />
+                超出範圍的活動：<br />
                 <span className="font-mono font-bold text-red-400 bg-red-500/10 px-3 py-1 rounded-lg block mt-3 inline-block">
                   {outOfBoundsDates.join(', ')}
                 </span>
@@ -213,14 +476,14 @@ export function TripSettingsForm({ trip, onUpdate, onDelete, onClose, showToast 
                   onClick={() => setPendingSaveData(null)}
                   className="flex-1 py-4 bg-zinc-800 text-white font-bold rounded-2xl transition-colors"
                 >
-                  Cancel
+                  取消
                 </button>
                 <button
-                  onClick={() => performSave(pendingSaveData, true)}
+                  onClick={() => performSave(pendingSaveData)}
                   disabled={loading}
                   className="flex-[1.5] py-4 bg-red-500 hover:bg-red-600 text-white font-black uppercase tracking-widest text-[12px] rounded-2xl transition-colors shadow-lg shadow-red-500/20 flex items-center justify-center gap-2"
                 >
-                  {loading ? <Loader2 size={18} className="animate-spin" /> : 'Proceed Anyway'}
+                  {loading ? <Loader2 size={18} className="animate-spin" /> : '強制儲存'}
                 </button>
               </div>
             </motion.div>

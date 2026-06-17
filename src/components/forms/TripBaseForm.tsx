@@ -48,8 +48,12 @@ const safeParseArray = (data: any) => {
 };
 
 const parseInitialMembers = (membersData: any, currentUserId?: number) => {
-  if (!Array.isArray(membersData)) return currentUserId ? [currentUserId] : [];
-  return membersData.map(m => (typeof m === 'object' && m !== null ? m.user_id : m));
+  const ids: number[] = Array.isArray(membersData)
+    ? membersData.map(m => Number(typeof m === 'object' && m !== null ? (m.id ?? m.user_id) : m)).filter(Boolean)
+    : [];
+  // Always include the current user (admin) even if they're not yet in TripMembers
+  if (currentUserId && !ids.includes(currentUserId)) ids.push(currentUserId);
+  return ids;
 };
 
 export function TripBaseForm({ initialData, onSubmit, onCancel, submitText, loading = false, extraButtons, onChange, hideSubmit = false }: TripBaseFormProps) {
@@ -136,9 +140,9 @@ export function TripBaseForm({ initialData, onSubmit, onCancel, submitText, load
   const toggleMember = (userId: number) => {
     setFormData(prev => ({
       ...prev,
-      members: prev.members.includes(userId)
-        ? prev.members.filter(id => id !== userId)
-        : [...prev.members, userId]
+      members: prev.members.map(Number).includes(Number(userId))
+        ? prev.members.filter(id => Number(id) !== Number(userId))
+        : [...prev.members, Number(userId)]
     }));
   };
 
@@ -157,7 +161,7 @@ export function TripBaseForm({ initialData, onSubmit, onCancel, submitText, load
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!formData.title || !formData.start_date || !formData.end_date) {
-      alert('Please fill in all required fields.');
+      alert('請填寫所有必填欄位。');
       return;
     }
     await onSubmit(formData);
@@ -174,19 +178,19 @@ export function TripBaseForm({ initialData, onSubmit, onCancel, submitText, load
       
       {/* Cover Image */}
       <div>
-        <label className="block text-xs font-bold text-zinc-500 uppercase tracking-wider mb-2">Cover Image</label>
+        <label className="block text-xs font-bold text-zinc-500 uppercase tracking-wider mb-2">封面照片</label>
         <div className="relative aspect-[21/9] w-full bg-zinc-800 rounded-2xl overflow-hidden border border-zinc-700 group cursor-pointer">
           {formData.cover_image_url ? (
             <>
               <img src={formData.cover_image_url} alt="Cover" className="w-full h-full object-cover" />
               <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
-                <span className="text-white font-medium bg-black/50 px-4 py-2 rounded-xl backdrop-blur-md">Change Image</span>
+                <span className="text-white font-medium bg-black/50 px-4 py-2 rounded-xl backdrop-blur-md">更換照片</span>
               </div>
             </>
           ) : (
             <div className="absolute inset-0 flex flex-col items-center justify-center text-zinc-500">
               <ImageIcon size={32} className="mb-2 opacity-50" />
-              <span className="text-sm font-medium">Click to upload cover image</span>
+              <span className="text-sm font-medium">點擊上傳封面照片</span>
             </div>
           )}
           <input
@@ -199,7 +203,7 @@ export function TripBaseForm({ initialData, onSubmit, onCancel, submitText, load
           {uploading && (
             <div className="absolute inset-0 bg-black/60 flex flex-col items-center justify-center backdrop-blur-sm z-10">
               <Loader2 className="animate-spin text-orange-500 mb-2" size={28} />
-              <span className="text-sm text-white font-medium">Uploading...</span>
+              <span className="text-sm text-white font-medium">上傳中...</span>
             </div>
           )}
         </div>
@@ -207,21 +211,21 @@ export function TripBaseForm({ initialData, onSubmit, onCancel, submitText, load
 
       {/* Trip Title */}
       <div>
-        <label className="block text-xs font-bold text-zinc-500 uppercase tracking-wider mb-2">Trip Title *</label>
+        <label className="block text-xs font-bold text-zinc-500 uppercase tracking-wider mb-2">行程名稱 *</label>
         <input
           type="text"
           required
           value={formData.title}
           onChange={e => setFormData({ ...formData, title: e.target.value })}
           className="w-full bg-zinc-800 border border-zinc-700 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-orange-500 transition-colors"
-          placeholder="e.g., Summer in Tokyo"
+          placeholder="例如：東京五日遊"
         />
       </div>
 
       {/* Date Range */}
       <div className="w-full">
         <DateRangePicker
-          label="Schedule *"
+          label="行程日期 *"
           hideTime={true}
           value={{
             start_date: formData.start_date ? parseISO(formData.start_date) : null,
@@ -240,7 +244,7 @@ export function TripBaseForm({ initialData, onSubmit, onCancel, submitText, load
       {/* Default City */}
       <div className="w-full">
         <label className="block text-xs font-bold text-zinc-500 uppercase tracking-wider mb-2 flex items-center gap-1.5">
-           Default City
+           預設城市
         </label>
         <button
           type="button"
@@ -250,7 +254,7 @@ export function TripBaseForm({ initialData, onSubmit, onCancel, submitText, load
           <div className="flex items-center gap-3 w-full">
             <MapPin size={18} className="text-orange-500 shrink-0" />
             <span className={clsx("truncate text-sm font-medium", formData.default_city_id ? "text-white" : "text-zinc-500")}>
-              {formData.default_city_id ? cities.find(c => c.id === formData.default_city_id)?.name : 'Select city...'}
+              {formData.default_city_id ? cities.find(c => c.id === formData.default_city_id)?.name : '選擇城市...'}
             </span>
           </div>
           <ChevronDown size={16} className="text-zinc-500 shrink-0" />
@@ -260,7 +264,7 @@ export function TripBaseForm({ initialData, onSubmit, onCancel, submitText, load
       {/* Supported Currencies */}
       <div className="w-full">
         <label className="block text-xs font-bold text-zinc-500 uppercase tracking-wider mb-2 flex items-center gap-1.5">
-          <Globe size={14} /> Supported Currencies
+          <Globe size={14} /> 支援幣別
         </label>
         <button
           type="button"
@@ -308,7 +312,7 @@ export function TripBaseForm({ initialData, onSubmit, onCancel, submitText, load
       {/* Trip Members */}
       <div>
         <label className="block text-xs font-bold text-zinc-500 uppercase tracking-wider mb-2 flex items-center gap-1.5">
-          <Users size={14} /> Trip Members
+          <Users size={14} /> 行程成員
         </label>
         <button
           type="button"
@@ -317,7 +321,7 @@ export function TripBaseForm({ initialData, onSubmit, onCancel, submitText, load
         >
           <div className="flex items-center gap-2">
             <span className="bg-zinc-700 text-white text-xs font-bold px-2 py-0.5 rounded-full">{formData.members.length}</span>
-            <span className="text-sm font-medium text-zinc-300">Members Selected</span>
+            <span className="text-sm font-medium text-zinc-300">位成員已加入</span>
           </div>
           {isMembersOpen ? <ChevronUp size={16} className="text-zinc-500 shrink-0" /> : <ChevronDown size={16} className="text-zinc-500 shrink-0" />}
         </button>
@@ -327,7 +331,7 @@ export function TripBaseForm({ initialData, onSubmit, onCancel, submitText, load
             <motion.div initial={{ height: 0, opacity: 0 }} animate={{ height: 'auto', opacity: 1 }} exit={{ height: 0, opacity: 0 }} className="overflow-hidden">
               <div className="bg-zinc-800/50 border border-zinc-700/50 rounded-xl p-2 mt-2 max-h-[180px] overflow-y-auto custom-scrollbar">
                 {availableUsers.map(u => {
-                  const isSelected = formData.members.includes(u.id);
+                  const isSelected = formData.members.map(Number).includes(Number(u.id));
                   const isSelf = u.id === user?.id;
                   return (
                     <label key={u.id} className={clsx("flex items-center justify-between p-3 rounded-lg cursor-pointer transition-colors", isSelected ? "bg-orange-500/10" : "hover:bg-zinc-700/50", isSelf && "opacity-70 pointer-events-none")}>
@@ -336,7 +340,7 @@ export function TripBaseForm({ initialData, onSubmit, onCancel, submitText, load
                         <div>
                           <div className="text-sm font-bold text-white">
                             {u.name} 
-                            {isSelf && <span className="text-[10px] text-orange-400 font-bold ml-1 uppercase">(You / Admin)</span>}
+                            {isSelf && <span className="text-[10px] text-orange-400 font-bold ml-1">（你／管理員）</span>}
                           </div>
                           <div className="text-[10px] text-zinc-500">{u.role}</div>
                         </div>
@@ -357,7 +361,7 @@ export function TripBaseForm({ initialData, onSubmit, onCancel, submitText, load
       {/* 💡 Privacy Setting (Public / Private) */}
       <div className="w-full">
         <label className="block text-xs font-bold text-zinc-500 uppercase tracking-wider mb-2 flex items-center gap-1.5">
-          Privacy Setting
+          隱私設定
         </label>
         <button
           type="button"
@@ -373,10 +377,10 @@ export function TripBaseForm({ initialData, onSubmit, onCancel, submitText, load
             {formData.is_public ? <Globe size={20} className="text-emerald-500 shrink-0" /> : <LockIcon size={20} className="text-zinc-500 shrink-0" />}
             <div className="flex flex-col items-start text-left">
               <span className={clsx("text-sm font-bold", formData.is_public ? "text-emerald-500" : "text-zinc-300")}>
-                {formData.is_public ? 'Public Trip' : 'Private Trip'}
+                {formData.is_public ? '公開行程' : '私人行程'}
               </span>
               <span className="text-[10px] text-zinc-500 mt-0.5">
-                {formData.is_public ? 'Anyone with the link can view (Read-only)' : 'Only invited members can access'}
+                {formData.is_public ? '任何人均可查看（唯讀）' : '僅受邀成員可存取'}
               </span>
             </div>
           </div>
@@ -394,7 +398,7 @@ export function TripBaseForm({ initialData, onSubmit, onCancel, submitText, load
             <div className="flex gap-3">
               {onCancel && (
                 <button type="button" onClick={onCancel} className="flex-1 bg-zinc-800 hover:bg-zinc-700 text-white font-bold rounded-xl px-4 py-3.5 transition-colors">
-                  Cancel
+                  取消
                 </button>
               )}
               <button type="submit" disabled={loading || uploading} className="flex-[2] bg-orange-500 hover:bg-orange-600 disabled:opacity-50 text-white font-black uppercase tracking-widest text-sm rounded-xl px-4 py-3.5 transition-colors shadow-lg shadow-orange-500/20 flex items-center justify-center gap-2">

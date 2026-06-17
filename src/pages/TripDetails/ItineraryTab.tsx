@@ -15,32 +15,35 @@ interface ItineraryTabProps {
   canEdit: boolean;
   expandSignal: number;
   collapseSignal: number;
-  showWeather?: boolean;
-  onWeatherClose?: () => void;
+  defaultSignal: number;
+  expandState: 'default' | 'expanded' | 'collapsed';
+  isWeatherExpanded: boolean;
+  onToggleWeather: () => void;
   onAddActivity: () => void;
   onEditItinerary: (item: Itinerary) => void;
   onEditNextTransport: (item: Itinerary) => void;
   onEditBooking: (booking: Booking) => void;
+  onCopyItinerary: (item: Itinerary) => void;
+  onChangeDateItinerary: (item: Itinerary) => void;
 }
 
 export function ItineraryTab({
   tripId, selectedDate, isFutureTrip, filteredItineraries, conflictedIdsInView,
-  bookings, canEdit, expandSignal, collapseSignal,
-  showWeather, onWeatherClose,
+  bookings, canEdit, expandSignal, collapseSignal, defaultSignal, expandState,
+  isWeatherExpanded, onToggleWeather,
   onAddActivity, onEditItinerary, onEditNextTransport, onEditBooking,
+  onCopyItinerary, onChangeDateItinerary,
 }: ItineraryTabProps) {
   return (
     <div className="space-y-6">
-      {showWeather && (
-        <WeatherWidget
-          tripId={tripId}
-          date={selectedDate}
-          isFutureTrip={isFutureTrip}
-          expandSignal={expandSignal}
-          collapseSignal={collapseSignal}
-          onClose={onWeatherClose}
-        />
-      )}
+      <WeatherWidget
+        tripId={tripId}
+        date={selectedDate}
+        isFutureTrip={isFutureTrip}
+        controlled={true}
+        isExpanded={isWeatherExpanded}
+        onToggle={onToggleWeather}
+      />
 
       <div className="space-y-4">
         {filteredItineraries.length > 0 ? (
@@ -57,27 +60,40 @@ export function ItineraryTab({
                     showNextTransport={index < filteredItineraries.length - 1}
                     onEditNextTransport={() => onEditNextTransport(item)}
                     selectedDate={selectedDate || new Date()}
-                    expandSignal={expandSignal} collapseSignal={collapseSignal}
+                    expandSignal={expandSignal} collapseSignal={collapseSignal} defaultSignal={defaultSignal}
+                    expandState={expandState}
                   />
                 );
               }
             }
+            // Any item with related_id pointing to a known booking (non-TRANSPORTATION) → BookingForm
+            const linkedBooking = item.related_id
+              ? bookings.find(b => b.id === item.related_id)
+              : undefined;
+            const displayItem = linkedBooking && !item.image_url
+              ? { ...item, image_url: linkedBooking.image_url || '' }
+              : item;
             return (
               <div key={`itinerary-${item.id}`} className="space-y-2">
                 <ItineraryCard
-                  item={item} canEdit={canEdit}
+                  item={displayItem}
+                  nextItem={filteredItineraries[index + 1]}
+                  canEdit={canEdit}
                   isConflicted={conflictedIdsInView.has(item.id)}
-                  onEdit={() => onEditItinerary(item)}
-                  showNextTransport={true}
+                  onEdit={() => linkedBooking ? onEditBooking(linkedBooking) : onEditItinerary(item)}
+                  showNextTransport={index < filteredItineraries.length - 1}
                   onEditNextTransport={() => onEditNextTransport(item)}
-                  expandSignal={expandSignal} collapseSignal={collapseSignal}
+                  expandSignal={expandSignal} collapseSignal={collapseSignal} defaultSignal={defaultSignal}
+                  expandState={expandState}
+                  onCopy={() => onCopyItinerary(item)}
+                  onChangeDate={() => onChangeDateItinerary(item)}
                 />
               </div>
             );
           })
         ) : (
           <div className="text-center py-12 text-zinc-500 border border-dashed border-zinc-800 rounded-3xl">
-            <p>No activities for this day.</p>
+            <p>這天還沒有活動</p>
           </div>
         )}
 
@@ -86,7 +102,7 @@ export function ItineraryTab({
             onClick={onAddActivity}
             className="w-full mt-6 py-4 border-2 border-dashed border-zinc-800 rounded-3xl flex items-center justify-center gap-2 text-zinc-500 hover:text-orange-500 hover:border-orange-500/50 hover:bg-orange-500/5 transition-all"
           >
-            <Plus size={20} /><span className="font-medium">Add Activity</span>
+            <Plus size={20} /><span className="font-medium">＋ 新增活動</span>
           </button>
         )}
       </div>

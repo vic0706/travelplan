@@ -75,14 +75,23 @@ export function useTripData(tripId: string | undefined) {
         // 確保每個成員都有 ID 才能寫入 IndexedDB
         const validMembers = data.filter(m => m.id);
         await db.users.bulkPut(validMembers.map((m) => ({ id: m.id, name: m.name, role: m.role, avatar_url: m.avatar_url || '', allow_login: 1 })));
-        
+
+        // Also ensure current logged-in user exists in db.users (e.g. admin not in old trip's TripMembers)
+        if (user && !validMembers.some(m => m.id === user.id)) {
+          await db.users.put({ id: user.id, name: user.name, role: user.role, avatar_url: user.avatar_url || '', allow_login: 1 });
+        }
+
         const existingMembers = await db.tripMembers.where('trip_id').equals(id).toArray();
         const incomingMemberIds = validMembers.map(m => m.id);
-        const membersToDelete = existingMembers.filter(m => !incomingMemberIds.includes(m.user_id));
-        
+        // Preserve current user in tripMembers even if API doesn't return them (e.g. admin)
+        const membersToDelete = existingMembers.filter(m => !incomingMemberIds.includes(m.user_id) && m.user_id !== user?.id);
+
         await db.transaction('rw', db.tripMembers, async () => {
           for (const m of membersToDelete) await db.tripMembers.where({ trip_id: id, user_id: m.user_id }).delete();
           await db.tripMembers.bulkPut(validMembers.map((m) => ({ trip_id: id, user_id: m.id, role: 'Member' })));
+          if (user && !validMembers.some(m => m.id === user.id)) {
+            await db.tripMembers.put({ trip_id: id, user_id: user.id, role: user.role || 'Admin' });
+          }
         });
       }
 
