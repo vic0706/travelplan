@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Car, Train, Bus, AlertTriangle, Star, Plus, Footprints, Bike, Navigation2, Sparkles, Clock, Asterisk, ChevronLeft, ChevronRight, ChevronDown, Motorbike, Copy, CalendarDays, MapPin } from 'lucide-react';
+import { Car, Train, Bus, AlertTriangle, Star, Plus, Footprints, Bike, Navigation2, Sparkles, Clock, Asterisk, ChevronLeft, ChevronRight, ChevronDown, Motorbike, Copy, CalendarDays, MapPin, Lock, LockOpen, GripVertical } from 'lucide-react';
 import { apiFetch } from '../../utils/api';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Itinerary } from '../../types';
@@ -22,6 +22,8 @@ interface ItineraryCardProps {
   isDragOverlay?: boolean;
   onCopy?: () => void;
   onChangeDate?: () => void;
+  onToggleLock?: () => void;
+  dragHandleListeners?: React.HTMLAttributes<HTMLButtonElement>;
 }
 
 const formatDuration = (mins: number) => {
@@ -55,6 +57,7 @@ const checkIsClosed = (dateStr: string, openingHoursJson?: string | null) => {
 export function ItineraryCard({
   item, nextItem, canEdit, isConflicted, onEdit, showNextTransport, onEditNextTransport,
   expandSignal, collapseSignal, defaultSignal, expandState, isDragOverlay, onCopy, onChangeDate,
+  onToggleLock, dragHandleListeners,
 }: ItineraryCardProps) {
   const { categories } = useAppStore();
   const category = (categories || []).find((c: any) => c.icon === item.icon) || { color: '#808080' };
@@ -512,7 +515,7 @@ export function ItineraryCard({
 
           <div className="flex-1 min-w-0 cursor-pointer" onClick={handleTitleClick}>
             {/* ── Time (top, clock style) ── */}
-            {item.start_time && (
+            {item.start_time ? (
               <div className="flex items-center gap-1.5 mb-0.5">
                 <span className={clsx(
                   'font-mono text-[13px] font-bold tracking-[0.06em] leading-none',
@@ -522,6 +525,11 @@ export function ItineraryCard({
                 </span>
                 {!(item as any).is_time_fixed && !isPast && <Sparkles size={9} className="text-orange-500/60" />}
                 {isCircuitBreaker && <span className="w-1.5 h-1.5 rounded-full bg-red-500 animate-pulse shrink-0" />}
+              </div>
+            ) : (
+              <div className="flex items-center gap-1 mb-0.5 animate-pulse">
+                <Sparkles size={9} className="text-zinc-600" />
+                <span className="text-[11px] font-bold text-zinc-600 tracking-wide">待排程</span>
               </div>
             )}
             {/* ── Title ── */}
@@ -577,6 +585,30 @@ export function ItineraryCard({
                 title="更改日期"
               >
                 <CalendarDays size={15} />
+              </button>
+              {/* 拖曳 handle（僅 unlocked 卡片顯示） */}
+              {!(item as any).is_time_fixed && dragHandleListeners && (
+                <button
+                  {...dragHandleListeners}
+                  onClick={(e) => e.stopPropagation()}
+                  className="shrink-0 p-2 rounded-xl text-zinc-600 hover:text-zinc-400 transition-colors cursor-grab active:cursor-grabbing touch-none"
+                  title="長按拖曳排序"
+                >
+                  <GripVertical size={15} />
+                </button>
+              )}
+              {/* 鎖頭：切換 is_time_fixed */}
+              <button
+                onClick={(e) => { e.stopPropagation(); onToggleLock?.(); }}
+                className={clsx(
+                  'shrink-0 p-2 rounded-xl transition-colors active:scale-90',
+                  (item as any).is_time_fixed
+                    ? 'text-orange-500 hover:text-orange-400'
+                    : 'text-zinc-600 hover:text-zinc-400'
+                )}
+                title={(item as any).is_time_fixed ? '解鎖時間（讓 AI 可調整）' : '鎖定時間'}
+              >
+                {(item as any).is_time_fixed ? <Lock size={15} /> : <LockOpen size={15} />}
               </button>
             </>
           )}

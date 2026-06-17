@@ -117,7 +117,18 @@ CREATE TABLE Itineraries (
     place_status TEXT,
     review_summary TEXT,
     sync_conflict_warning TEXT,
+    display_order INTEGER DEFAULT NULL,
 
+    FOREIGN KEY (trip_id) REFERENCES Trips(id) ON DELETE CASCADE
+);
+
+-- 每日設定 (TripDaySettings)
+CREATE TABLE IF NOT EXISTS TripDaySettings (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    trip_id INTEGER NOT NULL,
+    date TEXT NOT NULL,
+    default_transport_mode TEXT DEFAULT 'AUTO',
+    UNIQUE(trip_id, date),
     FOREIGN KEY (trip_id) REFERENCES Trips(id) ON DELETE CASCADE
 );
 

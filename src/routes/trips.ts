@@ -223,7 +223,7 @@ trips.get('/:id/itineraries', async (c) => {
     if (!canView) return c.json({ error: 'Unauthorized' }, 403);
 
     const { results: items } = await c.env.DB.prepare(
-      'SELECT * FROM Itineraries WHERE trip_id = ? ORDER BY date, start_time'
+      'SELECT * FROM Itineraries WHERE trip_id = ? ORDER BY date, COALESCE(display_order, 9999), start_time'
     ).bind(tripId).all();
 
     // Fetch all sub-items for these itineraries in one query
@@ -856,6 +856,118 @@ trips.post('/:id/compute', async (c) => {
     }
     computeLog.forEach(l => console.log('[compute]', l));
     return c.json({ success: true, message: '資訊已更新', log: computeLog });
+  } catch (error: any) {
+    return c.json({ error: error.message }, 500);
+  }
+});
+
+// ==========================================
+// 8. 行程排序 (Reorder)
+// ==========================================
+
+// 批次更新 display_order，清空非固定行程時間，觸發 optimizer
+trips.patch('/:id/itineraries/reorder', async (c) => {
+  const tripId = c.req.param('id');
+  try {
+    const canEdit = await checkTripAccess(c, Number(tripId), 'edit');
+    if (!canEdit) return c.json({ error: 'Unauthorized' }, 403);
+
+    const body = await c.req.json().catch(() => ({}));
+    const { date, items } = body as { date: string; items: { id: number; display_order: number }[] };
+    if (!date || !Array.isArray(items) || items.length === 0) {
+      return c.json({ error: 'date and items[] are required' }, 400);
+    }
+
+    // Fetch current item states to know which are non-fixed
+    const ids = items.map(i => i.id);
+    const placeholders = ids.map(() => '?').join(',');
+    const { results: currentItems } = await c.env.DB.prepare(
+      `SELECT id, is_time_fixed, next_transport_mode FROM Itineraries WHERE id IN (${placeholders}) AND trip_id = ?`
+    ).bind(...ids, tripId).all() as { results: { id: number; is_time_fixed: number; next_transport_mode: string }[] };
+
+    // Fetch daily default transport
+    const { results: daySettings } = await c.env.DB.prepare(
+      'SELECT default_transport_mode FROM TripDaySettings WHERE trip_id = ? AND date = ?'
+    ).bind(tripId, date).all();
+    const defaultTransport = (daySettings[0] as any)?.default_transport_mode || 'AUTO';
+
+    const currentMap = new Map(currentItems.map((it: any) => [it.id, it]));
+
+    const statements: any[] = [];
+    for (const { id, display_order } of items) {
+      const current = currentMap.get(id);
+      if (!current) continue;
+      if (current.is_time_fixed) {
+        // Fixed: only update display_order, keep times
+        statements.push(
+          c.env.DB.prepare('UPDATE Itineraries SET display_order = ? WHERE id = ? AND trip_id = ?')
+            .bind(display_order, id, tripId)
+        );
+      } else {
+        // Non-fixed: update display_order, clear times and resolved transport
+        const transportMode = current.next_transport_mode || defaultTransport;
+        statements.push(
+          c.env.DB.prepare(`UPDATE Itineraries SET
+            display_order = ?, start_time = '', end_time = '',
+            next_transport_resolved_mode = '', next_transport_auto_time = '',
+            next_transport_mode = ?, sync_conflict_warning = NULL
+            WHERE id = ? AND trip_id = ?`)
+            .bind(display_order, transportMode, id, tripId)
+        );
+      }
+    }
+
+    if (statements.length > 0) await c.env.DB.batch(statements);
+
+    // Trigger optimizer for this date
+    const dayLogs = await optimizeDailyItinerary(c.env, Number(tripId), date);
+    dayLogs.forEach(l => console.log('[reorder]', l));
+
+    return c.json({ success: true });
+  } catch (error: any) {
+    console.error('[reorder]', error);
+    return c.json({ error: error.message }, 500);
+  }
+});
+
+// ==========================================
+// 9. 每日設定 (Day Settings)
+// ==========================================
+
+trips.get('/:id/days/:date/settings', async (c) => {
+  const tripId = c.req.param('id');
+  const date = c.req.param('date');
+  try {
+    const canView = await checkTripAccess(c, Number(tripId), 'view');
+    if (!canView) return c.json({ error: 'Unauthorized' }, 403);
+
+    const { results } = await c.env.DB.prepare(
+      'SELECT * FROM TripDaySettings WHERE trip_id = ? AND date = ?'
+    ).bind(tripId, date).all();
+
+    return c.json(results[0] ?? { trip_id: Number(tripId), date, default_transport_mode: 'AUTO' });
+  } catch (error: any) {
+    return c.json({ error: error.message }, 500);
+  }
+});
+
+trips.put('/:id/days/:date/settings', async (c) => {
+  const tripId = c.req.param('id');
+  const date = c.req.param('date');
+  try {
+    const canEdit = await checkTripAccess(c, Number(tripId), 'edit');
+    if (!canEdit) return c.json({ error: 'Unauthorized' }, 403);
+
+    const body = await c.req.json().catch(() => ({}));
+    const { default_transport_mode = 'AUTO' } = body;
+
+    await c.env.DB.prepare(`
+      INSERT INTO TripDaySettings (trip_id, date, default_transport_mode)
+      VALUES (?, ?, ?)
+      ON CONFLICT(trip_id, date) DO UPDATE SET default_transport_mode = excluded.default_transport_mode
+    `).bind(tripId, date, default_transport_mode).run();
+
+    return c.json({ success: true });
   } catch (error: any) {
     return c.json({ error: error.message }, 500);
   }

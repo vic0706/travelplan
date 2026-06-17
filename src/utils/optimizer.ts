@@ -445,7 +445,16 @@ export async function optimizeDailyItinerary(env: any, tripId: number, dateStr: 
     .filter(i => i.is_time_fixed === 1)
     .sort((a: any, b: any) => timeToMins(a.start_time) - timeToMins(b.start_time));
 
-  const smartItems = (rawItems as any[]).filter(i => i.is_time_fixed !== 1);
+  const smartItems = (rawItems as any[])
+    .filter(i => i.is_time_fixed !== 1)
+    .sort((a: any, b: any) => {
+      const aOrder = a.display_order ?? 9999;
+      const bOrder = b.display_order ?? 9999;
+      return aOrder - bOrder;
+    });
+
+  // Whether user has explicitly set a preferred order for this day
+  const hasUserOrder = smartItems.some((i: any) => i.display_order != null);
 
   for (const item of fixedItems) {
     statements.push(env.DB.prepare(`UPDATE Itineraries SET sync_conflict_warning = null WHERE id = ?`).bind(item.id));
@@ -518,7 +527,8 @@ export async function optimizeDailyItinerary(env: any, tripId: number, dateStr: 
 
   const unplaced = new Set(smartItems.map((_: any, idx: number) => idx));
 
-  // Pass 1: preferred-window placement with nearest-neighbor ordering per gap
+  // Pass 1: preferred-window placement
+  // When user has set display_order, iterate in that order; otherwise use nearest-neighbor
   for (const gap of gaps) {
     const candidates: any[] = [];
     for (const idx of unplaced) {
@@ -530,7 +540,9 @@ export async function optimizeDailyItinerary(env: any, tripId: number, dateStr: 
       if (winEnd - winStart >= stayDuration) candidates.push(item);
     }
 
-    const sorted = sortByPriorityGroups(candidates, gap.lastLat, gap.lastLng, dateStr);
+    const sorted = hasUserOrder
+      ? candidates // already sorted by display_order from smartItems
+      : sortByPriorityGroups(candidates, gap.lastLat, gap.lastLng, dateStr);
 
     for (const item of sorted) {
       const idx = smartItems.indexOf(item);
@@ -548,7 +560,9 @@ export async function optimizeDailyItinerary(env: any, tripId: number, dateStr: 
   // Pass 2: preferred-window first, fall back to full gap only if no window overlap
   for (const gap of gaps) {
     const candidates = [...unplaced].map(idx => smartItems[idx]);
-    const sorted = sortByPriorityGroups(candidates, gap.lastLat, gap.lastLng, dateStr);
+    const sorted = hasUserOrder
+      ? candidates
+      : sortByPriorityGroups(candidates, gap.lastLat, gap.lastLng, dateStr);
 
     for (const item of sorted) {
       const idx = smartItems.indexOf(item);
@@ -714,7 +728,13 @@ export async function geminiOptimizeDay(env: any, tripId: number, dateStr: strin
     .filter(i => i.is_time_fixed === 1)
     .sort((a: any, b: any) => timeToMins(a.start_time) - timeToMins(b.start_time));
 
-  const smartItems = (rawItems as any[]).filter(i => i.is_time_fixed !== 1);
+  const smartItems = (rawItems as any[])
+    .filter(i => i.is_time_fixed !== 1)
+    .sort((a: any, b: any) => {
+      const aOrder = a.display_order ?? 9999;
+      const bOrder = b.display_order ?? 9999;
+      return aOrder - bOrder;
+    });
 
   // Clear stale warnings and auto transport times on fixed items
   const preStmts: any[] = [];

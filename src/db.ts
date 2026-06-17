@@ -1,7 +1,7 @@
 import Dexie, { Table } from 'dexie';
 import {
   User, Trip, TripMember, Itinerary, SubItinerary,
-  Expense, AppSetting, Booking, City
+  Expense, AppSetting, Booking, City, TripDaySetting
 } from './types';
 
 export interface PlacesCacheEntry {
@@ -56,6 +56,7 @@ export class TravelPlanDB extends Dexie {
   appSettings!: Table<AppSetting, string>;
   placesCache!: Table<PlacesCacheEntry, string>;
   placeDetailsCache!: Table<PlaceDetailsCacheEntry, string>;
+  tripDaySettings!: Table<TripDaySetting, number>;
 
   constructor() {
     super('TravelPlanDB');
@@ -96,6 +97,21 @@ export class TravelPlanDB extends Dexie {
       appSettings: 'id, key_name',
       placesCache: 'query, cachedAt',
       placeDetailsCache: 'place_id, cachedAt'
+    });
+    // v13: itineraries get display_order for manual sorting; new tripDaySettings store
+    this.version(13).stores({
+      users: 'id, role, allow_login',
+      trips: 'id, title, start_date, end_date, visible_status, is_public, last_accessed',
+      tripMembers: '[trip_id+user_id], trip_id, user_id',
+      itineraries: 'id, trip_id, date, start_time, display_order, google_place_id',
+      subItineraries: '++id, itinerary_id, [itinerary_id+display_order], start_time',
+      expenses: 'id, trip_id, date, payer_id',
+      bookings: 'id, trip_id, start_date, category, google_place_id',
+      cities: 'id, name, country',
+      appSettings: 'id, key_name',
+      placesCache: 'query, cachedAt',
+      placeDetailsCache: 'place_id, cachedAt',
+      tripDaySettings: '++id, [trip_id+date]'
     });
   }
 }

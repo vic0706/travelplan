@@ -80,6 +80,8 @@ export interface Itinerary {
   place_status?: string;
   review_summary?: string;
   sync_conflict_warning?: string;
+  display_order?: number | null;
+  is_time_fixed?: number;
 }
 
 export interface SubItinerary {
@@ -158,4 +160,11 @@ export interface TransportBookingDetails {
 export interface HotelBookingDetails {
   daily_start_time?: string;
   daily_end_time?: string;
+}
+
+export interface TripDaySetting {
+  id?: number;
+  trip_id: number;
+  date: string;
+  default_transport_mode: string;
 }

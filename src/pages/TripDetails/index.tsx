@@ -2,7 +2,7 @@ import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useAppStore } from '../../store';
 import { format, parseISO, addDays, differenceInDays, isSameDay, addMinutes, isBefore, startOfDay } from 'date-fns';
-import { Map, Info, Wallet, ArrowLeft, Settings, Edit3, ChevronsUpDown, ChevronsDownUp, Sparkles, Unlock, Loader2, Camera, CheckCircle2, XCircle, X } from 'lucide-react';
+import { Map, Info, Wallet, ArrowLeft, Settings, Edit3, ChevronsUpDown, ChevronsDownUp, Sparkles, Unlock, Loader2, Camera, CheckCircle2, XCircle, X, Car, Train, Footprints, Bike } from 'lucide-react';
 import { Trip, Itinerary, Expense, Booking } from '../../types';
 import { clsx } from 'clsx';
 import { db } from '../../db';
@@ -208,6 +208,31 @@ export function TripDetails() {
 
   const [isEditMode, setIsEditMode] = useState(false);
 
+  // ── 每日預設交通方式 ──────────────────────────────────────────────────
+  const [dayDefaultTransport, setDayDefaultTransport] = useState('AUTO');
+  useEffect(() => {
+    if (!id || !selectedDate) return;
+    const dateStr = format(selectedDate, 'yyyy-MM-dd');
+    apiFetch(`/api/trips/${id}/days/${dateStr}/settings`)
+      .then(r => r.ok ? r.json() : null)
+      .then((data: any) => {
+        if (data?.default_transport_mode) setDayDefaultTransport(data.default_transport_mode);
+        else setDayDefaultTransport('AUTO');
+      })
+      .catch(() => {});
+  }, [id, selectedDate]);
+
+  const handleDayTransportChange = async (mode: string) => {
+    if (!id || !selectedDate) return;
+    const dateStr = format(selectedDate, 'yyyy-MM-dd');
+    setDayDefaultTransport(mode);
+    await apiFetch(`/api/trips/${id}/days/${dateStr}/settings`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ default_transport_mode: mode }),
+    }).catch(() => {});
+  };
+
   const [confirmConfig, setConfirmConfig] = useState<{
     isOpen: boolean; title: string; message: string;
     confirmText?: string; cancelText?: string; onConfirm: () => void;
@@ -261,6 +286,55 @@ export function TripDetails() {
     setCopyTarget(item);
     setCopyTitle(`${item.title}（複製）`);
     setCopyDate(item.date || (selectedDate ? format(selectedDate, 'yyyy-MM-dd') : ''));
+  };
+
+  // ── 鎖頭切換 is_time_fixed ─────────────────────────────────────────────
+  const handleToggleLock = async (item: Itinerary) => {
+    if (!id) return;
+    const newFixed = (item as any).is_time_fixed ? 0 : 1;
+    try {
+      await db.itineraries.update(item.id, { is_time_fixed: newFixed } as any);
+      await apiFetch(`/api/trips/${id}/itineraries/${item.id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ...item, is_time_fixed: newFixed, tags: Array.isArray(item.tags) ? item.tags : [] }),
+      });
+    } catch (err) {
+      await db.itineraries.update(item.id, { is_time_fixed: (item as any).is_time_fixed } as any);
+      showToast('更新失敗', 'error');
+    }
+  };
+
+  // ── 拖曳重排 ──────────────────────────────────────────────────────────
+  const handleReorder = async (orderedItems: Itinerary[]) => {
+    if (!id || !selectedDate) return;
+    const dateStr = format(selectedDate, 'yyyy-MM-dd');
+
+    // Optimistic update: assign display_order and clear times for non-fixed items
+    const updates: Array<{ id: number; display_order: number; start_time?: string; end_time?: string }> = [];
+    for (let i = 0; i < orderedItems.length; i++) {
+      const item = orderedItems[i];
+      const isFixed = !!(item as any).is_time_fixed;
+      if (isFixed) {
+        updates.push({ id: item.id, display_order: i });
+      } else {
+        updates.push({ id: item.id, display_order: i, start_time: '', end_time: '' });
+      }
+    }
+    await Promise.all(updates.map(u => db.itineraries.update(u.id, u as any)));
+
+    try {
+      const payload = orderedItems.map((item, i) => ({ id: item.id, display_order: i }));
+      await apiFetch(`/api/trips/${id}/itineraries/reorder`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ date: dateStr, items: payload }),
+      });
+      setTimeout(() => refreshTripData(), 300);
+    } catch (err) {
+      showToast('排序更新失敗', 'error');
+      setTimeout(() => refreshTripData(), 300);
+    }
   };
 
   const handleCopyConfirm = async () => {
@@ -337,7 +411,12 @@ export function TripDetails() {
     return itineraries.filter(item => {
       const itemDate = safeParse(item.date);
       return itemDate && isSameDay(itemDate, selectedDate);
-    }).sort((a, b) => a.start_time.localeCompare(b.start_time));
+    }).sort((a, b) => {
+      const aOrder = a.display_order ?? 9999;
+      const bOrder = b.display_order ?? 9999;
+      if (aOrder !== bOrder) return aOrder - bOrder;
+      return (a.start_time || '').localeCompare(b.start_time || '');
+    });
   }, [itineraries, selectedDate]);
 
   const conflictedIdsInView = useMemo(() => {
@@ -525,6 +604,35 @@ export function TripDetails() {
         </div>
       )}
 
+      {/* ── 每日預設交通（編輯模式才顯示）──────────────────────────────── */}
+      {canEdit && activeTab === 'itinerary' && (
+        <div className="bg-black/90 border-b border-zinc-800/60 px-4 py-2 shrink-0 flex items-center gap-2">
+          <span className="text-[10px] font-black text-zinc-500 uppercase tracking-widest shrink-0">預設交通</span>
+          <div className="flex items-center gap-1.5 overflow-x-auto no-scrollbar">
+            {[
+              { mode: 'AUTO',       label: '自動', icon: <Sparkles size={12} /> },
+              { mode: 'DRIVING',    label: '開車', icon: <Car size={12} /> },
+              { mode: 'TRANSIT',    label: '捷運', icon: <Train size={12} /> },
+              { mode: 'WALKING',    label: '步行', icon: <Footprints size={12} /> },
+              { mode: 'BICYCLING',  label: '騎車', icon: <Bike size={12} /> },
+            ].map(({ mode, label, icon }) => (
+              <button
+                key={mode}
+                onClick={() => handleDayTransportChange(mode)}
+                className={clsx(
+                  'flex items-center gap-1 px-2.5 py-1 rounded-full text-[10px] font-bold transition-all shrink-0',
+                  dayDefaultTransport === mode
+                    ? 'bg-orange-500 text-white'
+                    : 'bg-zinc-800 text-zinc-400 hover:bg-zinc-700'
+                )}
+              >
+                {icon}{label}
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+
       {/* ── 主要內容區 ──────────────────────────────────────────────────── */}
       <div className="flex-1 overflow-y-auto p-4 pb-32 custom-scrollbar overscroll-none">
 
@@ -549,6 +657,8 @@ export function TripDetails() {
             onEditBooking={(booking) => { setEditingBooking(booking); setIsBookingFormOpen(true); }}
             onCopyItinerary={(item) => handleCopyClick(item)}
             onChangeDateItinerary={(item) => setChangingDateItem(item)}
+            onToggleLock={handleToggleLock}
+            onReorder={handleReorder}
           />
         )}
 
