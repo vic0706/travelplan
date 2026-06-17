@@ -327,17 +327,8 @@ export function TripDetails() {
     if (!id || !selectedDate) return;
     const dateStr = format(selectedDate, 'yyyy-MM-dd');
 
-    // Optimistic update: assign display_order and clear times for non-fixed items
-    const updates: Array<{ id: number; display_order: number; start_time?: string; end_time?: string }> = [];
-    for (let i = 0; i < orderedItems.length; i++) {
-      const item = orderedItems[i];
-      const isFixed = !!(item as any).is_time_fixed;
-      if (isFixed) {
-        updates.push({ id: item.id, display_order: i });
-      } else {
-        updates.push({ id: item.id, display_order: i, start_time: '', end_time: '' });
-      }
-    }
+    // Optimistic update: assign display_order only, keep existing times until optimizer responds
+    const updates = orderedItems.map((item, i) => ({ id: item.id, display_order: i }));
     await Promise.all(updates.map(u => db.itineraries.update(u.id, u as any)));
 
     try {

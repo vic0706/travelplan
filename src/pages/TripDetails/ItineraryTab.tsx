@@ -257,7 +257,7 @@ export function ItineraryTab({
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, y: 24 }}
             transition={{ type: 'spring', damping: 22, stiffness: 300 }}
-            className="fixed bottom-32 left-1/2 -translate-x-1/2 z-[201] w-[300px] bg-zinc-900 border border-orange-500/40 rounded-3xl shadow-2xl overflow-hidden"
+            className="fixed bottom-20 left-1/2 -translate-x-1/2 z-[201] w-[300px] bg-zinc-900 border border-orange-500/40 rounded-3xl shadow-2xl overflow-hidden"
           >
             <div className="px-4 pt-4 pb-2">
               <p className="text-[12px] text-zinc-400 text-center">順序已調整，確認後儲存</p>
