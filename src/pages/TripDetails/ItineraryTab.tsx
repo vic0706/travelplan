@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { Plus, Check, X } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
-  DndContext, DragOverlay, PointerSensor,
+  DndContext, DragOverlay, PointerSensor, TouchSensor,
   closestCenter, useSensor, useSensors,
 } from '@dnd-kit/core';
 import { SortableContext, useSortable, verticalListSortingStrategy, arrayMove } from '@dnd-kit/sortable';
@@ -108,7 +108,6 @@ function SortableCard({
       ref={setNodeRef}
       {...preventSelect}
       {...attributes}
-      {...(!isLocked && canEdit ? listeners : {})}
       className="space-y-2"
     >
       <ItineraryCard
@@ -124,6 +123,7 @@ function SortableCard({
         onCopy={() => onCopyItinerary(item)}
         onChangeDate={() => onChangeDateItinerary(item)}
         onToggleLock={() => onToggleLock(item)}
+        dragHandleListeners={!isLocked && canEdit ? listeners : undefined}
       />
     </div>
   );
@@ -147,6 +147,7 @@ export function ItineraryTab({
 
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { delay: 250, tolerance: 5 } }),
+    useSensor(TouchSensor,   { activationConstraint: { delay: 250, tolerance: 5 } }),
   );
 
   const displayList = pendingOrder ?? filteredItineraries;

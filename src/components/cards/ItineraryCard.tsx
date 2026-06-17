@@ -23,6 +23,7 @@ interface ItineraryCardProps {
   onCopy?: () => void;
   onChangeDate?: () => void;
   onToggleLock?: () => void;
+  dragHandleListeners?: Record<string, unknown>;
 }
 
 const formatDuration = (mins: number) => {
@@ -56,7 +57,7 @@ const checkIsClosed = (dateStr: string, openingHoursJson?: string | null) => {
 export function ItineraryCard({
   item, nextItem, canEdit, isConflicted, onEdit, showNextTransport, onEditNextTransport,
   expandSignal, collapseSignal, defaultSignal, expandState, isDragOverlay, onCopy, onChangeDate,
-  onToggleLock,
+  onToggleLock, dragHandleListeners,
 }: ItineraryCardProps) {
   const { categories } = useAppStore();
   const category = (categories || []).find((c: any) => c.icon === item.icon) || { color: '#808080' };
@@ -505,7 +506,11 @@ export function ItineraryCard({
       )}>
 
         {/* ── ROW 1: ICON ｜ 標題 ｜ 導航 ── */}
-        <div className="px-4 pt-4 pb-2 flex items-center gap-3 min-h-[76px]">
+        <div
+          className="px-4 pt-4 pb-2 flex items-center gap-3 min-h-[76px]"
+          {...(dragHandleListeners as React.HTMLAttributes<HTMLDivElement>)}
+          style={dragHandleListeners ? { touchAction: 'none' } : undefined}
+        >
           <div
             className="shrink-0 w-9 h-9 rounded-2xl flex items-center justify-center"
             style={{
