@@ -208,24 +208,41 @@ export function TripDetails() {
 
   const [isEditMode, setIsEditMode] = useState(false);
 
-  // ── 每日預設交通方式 ──────────────────────────────────────────────────
+  // ── 每日預設交通方式（長按日期開啟 popup）────────────────────────────
   const [dayDefaultTransport, setDayDefaultTransport] = useState('AUTO');
+  const [transportPopupDate, setTransportPopupDate] = useState<Date | null>(null);
+  const longPressTimerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
+
   useEffect(() => {
     if (!id || !selectedDate) return;
     const dateStr = format(selectedDate, 'yyyy-MM-dd');
     apiFetch(`/api/trips/${id}/days/${dateStr}/settings`)
       .then(r => r.ok ? r.json() : null)
       .then((data: any) => {
-        if (data?.default_transport_mode) setDayDefaultTransport(data.default_transport_mode);
-        else setDayDefaultTransport('AUTO');
+        setDayDefaultTransport(data?.default_transport_mode || 'AUTO');
       })
       .catch(() => {});
   }, [id, selectedDate]);
 
+  const handleDateLongPressStart = (date: Date) => {
+    if (!canEdit) return;
+    longPressTimerRef.current = setTimeout(() => {
+      setTransportPopupDate(date);
+    }, 400);
+  };
+
+  const handleDateLongPressEnd = () => {
+    if (longPressTimerRef.current) {
+      clearTimeout(longPressTimerRef.current);
+      longPressTimerRef.current = null;
+    }
+  };
+
   const handleDayTransportChange = async (mode: string) => {
-    if (!id || !selectedDate) return;
-    const dateStr = format(selectedDate, 'yyyy-MM-dd');
+    if (!id || !transportPopupDate) return;
+    const dateStr = format(transportPopupDate, 'yyyy-MM-dd');
     setDayDefaultTransport(mode);
+    setTransportPopupDate(null);
     await apiFetch(`/api/trips/${id}/days/${dateStr}/settings`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
@@ -569,8 +586,15 @@ export function TripDetails() {
                   <button
                     key={index}
                     onClick={() => setSelectedDate(date)}
+                    onMouseDown={() => handleDateLongPressStart(date)}
+                    onMouseUp={handleDateLongPressEnd}
+                    onMouseLeave={handleDateLongPressEnd}
+                    onTouchStart={() => handleDateLongPressStart(date)}
+                    onTouchEnd={handleDateLongPressEnd}
+                    onTouchMove={handleDateLongPressEnd}
+                    onContextMenu={(e) => e.preventDefault()}
                     className={clsx(
-                      'flex flex-col items-center justify-center min-w-[56px] h-16 rounded-xl transition-all shrink-0',
+                      'flex flex-col items-center justify-center min-w-[56px] h-16 rounded-xl transition-all shrink-0 select-none',
                       isActive
                         ? 'bg-orange-500 text-white shadow-lg shadow-orange-500/20 scale-105'
                         : 'bg-zinc-900 text-zinc-400 hover:bg-zinc-800 border border-zinc-800'
@@ -600,35 +624,6 @@ export function TripDetails() {
                 {expandState === 'expanded' ? '展開' : expandState === 'collapsed' ? '收合' : '自動'}
               </span>
             </button>
-          </div>
-        </div>
-      )}
-
-      {/* ── 每日預設交通（編輯模式才顯示）──────────────────────────────── */}
-      {canEdit && activeTab === 'itinerary' && (
-        <div className="bg-black/90 border-b border-zinc-800/60 px-4 py-2 shrink-0 flex items-center gap-2">
-          <span className="text-[10px] font-black text-zinc-500 uppercase tracking-widest shrink-0">預設交通</span>
-          <div className="flex items-center gap-1.5 overflow-x-auto no-scrollbar">
-            {[
-              { mode: 'AUTO',       label: '自動', icon: <Sparkles size={12} /> },
-              { mode: 'DRIVING',    label: '開車', icon: <Car size={12} /> },
-              { mode: 'TRANSIT',    label: '捷運', icon: <Train size={12} /> },
-              { mode: 'WALKING',    label: '步行', icon: <Footprints size={12} /> },
-              { mode: 'BICYCLING',  label: '騎車', icon: <Bike size={12} /> },
-            ].map(({ mode, label, icon }) => (
-              <button
-                key={mode}
-                onClick={() => handleDayTransportChange(mode)}
-                className={clsx(
-                  'flex items-center gap-1 px-2.5 py-1 rounded-full text-[10px] font-bold transition-all shrink-0',
-                  dayDefaultTransport === mode
-                    ? 'bg-orange-500 text-white'
-                    : 'bg-zinc-800 text-zinc-400 hover:bg-zinc-700'
-                )}
-              >
-                {icon}{label}
-              </button>
-            ))}
           </div>
         </div>
       )}
@@ -735,6 +730,57 @@ export function TripDetails() {
 
       {/* Toast */}
       <Toast message={toast.message} type={toast.type} visible={toast.visible} />
+
+      {/* 每日預設交通 popup（長按日期觸發）*/}
+      <AnimatePresence>
+        {transportPopupDate && (
+          <>
+            {/* 背景遮罩 */}
+            <motion.div
+              initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+              className="fixed inset-0 z-[200]"
+              onClick={() => setTransportPopupDate(null)}
+            />
+            {/* Popup 本體 */}
+            <motion.div
+              initial={{ opacity: 0, y: 12, scale: 0.95 }}
+              animate={{ opacity: 1, y: 0, scale: 1 }}
+              exit={{ opacity: 0, y: 8, scale: 0.95 }}
+              transition={{ duration: 0.18 }}
+              className="fixed z-[201] left-1/2 -translate-x-1/2 bottom-32 w-[280px] bg-zinc-900 border border-zinc-700 rounded-3xl shadow-2xl overflow-hidden"
+            >
+              <div className="px-4 pt-4 pb-2">
+                <p className="text-[11px] font-black text-zinc-500 uppercase tracking-widest">
+                  {format(transportPopupDate, 'M月d日')} 預設交通方式
+                </p>
+              </div>
+              <div className="px-3 pb-3 grid grid-cols-5 gap-2">
+                {[
+                  { mode: 'AUTO',       label: '自動', icon: <Sparkles size={16} /> },
+                  { mode: 'DRIVING',    label: '開車', icon: <Car size={16} /> },
+                  { mode: 'TRANSIT',    label: '捷運', icon: <Train size={16} /> },
+                  { mode: 'WALKING',    label: '步行', icon: <Footprints size={16} /> },
+                  { mode: 'BICYCLING',  label: '騎車', icon: <Bike size={16} /> },
+                ].map(({ mode, label, icon }) => (
+                  <button
+                    key={mode}
+                    onClick={() => handleDayTransportChange(mode)}
+                    className={clsx(
+                      'flex flex-col items-center gap-1 py-2.5 rounded-2xl text-[10px] font-bold transition-all',
+                      dayDefaultTransport === mode
+                        ? 'bg-orange-500 text-white'
+                        : 'bg-zinc-800 text-zinc-400 hover:bg-zinc-700'
+                    )}
+                  >
+                    {icon}
+                    <span>{label}</span>
+                  </button>
+                ))}
+              </div>
+            </motion.div>
+          </>
+        )}
+      </AnimatePresence>
 
       {/* Modals */}
       <AnimatePresence>

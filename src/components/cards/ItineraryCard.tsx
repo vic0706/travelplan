@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Car, Train, Bus, AlertTriangle, Star, Plus, Footprints, Bike, Navigation2, Sparkles, Clock, Asterisk, ChevronLeft, ChevronRight, ChevronDown, Motorbike, Copy, CalendarDays, MapPin, Lock, LockOpen, GripVertical } from 'lucide-react';
+import { Car, Train, Bus, AlertTriangle, Star, Plus, Footprints, Bike, Navigation2, Sparkles, Clock, Asterisk, ChevronLeft, ChevronRight, ChevronDown, Motorbike, Copy, CalendarDays, MapPin, Lock, LockOpen } from 'lucide-react';
 import { apiFetch } from '../../utils/api';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Itinerary } from '../../types';
@@ -23,7 +23,6 @@ interface ItineraryCardProps {
   onCopy?: () => void;
   onChangeDate?: () => void;
   onToggleLock?: () => void;
-  dragHandleListeners?: React.HTMLAttributes<HTMLButtonElement>;
 }
 
 const formatDuration = (mins: number) => {
@@ -57,7 +56,7 @@ const checkIsClosed = (dateStr: string, openingHoursJson?: string | null) => {
 export function ItineraryCard({
   item, nextItem, canEdit, isConflicted, onEdit, showNextTransport, onEditNextTransport,
   expandSignal, collapseSignal, defaultSignal, expandState, isDragOverlay, onCopy, onChangeDate,
-  onToggleLock, dragHandleListeners,
+  onToggleLock,
 }: ItineraryCardProps) {
   const { categories } = useAppStore();
   const category = (categories || []).find((c: any) => c.icon === item.icon) || { color: '#808080' };
@@ -493,7 +492,7 @@ export function ItineraryCard({
   };
 
   return (
-    <div className={clsx('flex flex-col w-full mb-3 px-1 transition-all', isDragOverlay && 'opacity-90 scale-105 shadow-2xl z-50')}>
+    <div className={clsx('flex flex-col w-full mb-3 px-1 transition-all select-none', isDragOverlay && 'opacity-90 scale-105 shadow-2xl z-50')}>
       <div className={clsx(
         'relative flex flex-col bg-[#1c1c1e] rounded-[32px] overflow-hidden border transition-all',
         isConflicted     && 'border-red-500 ring-2 ring-red-500/50',
@@ -586,17 +585,6 @@ export function ItineraryCard({
               >
                 <CalendarDays size={15} />
               </button>
-              {/* 拖曳 handle（僅 unlocked 卡片顯示） */}
-              {!(item as any).is_time_fixed && dragHandleListeners && (
-                <button
-                  {...dragHandleListeners}
-                  onClick={(e) => e.stopPropagation()}
-                  className="shrink-0 p-2 rounded-xl text-zinc-600 hover:text-zinc-400 transition-colors cursor-grab active:cursor-grabbing touch-none"
-                  title="長按拖曳排序"
-                >
-                  <GripVertical size={15} />
-                </button>
-              )}
               {/* 鎖頭：切換 is_time_fixed */}
               <button
                 onClick={(e) => { e.stopPropagation(); onToggleLock?.(); }}
