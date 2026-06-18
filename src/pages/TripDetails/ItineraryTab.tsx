@@ -10,6 +10,7 @@ import { CSS } from '@dnd-kit/utilities';
 import { Itinerary, Booking } from '../../types';
 import { WeatherWidget } from '../../components/widgets/WeatherWidget';
 import { ItineraryCard } from '../../components/cards/ItineraryCard';
+import { StackedItineraryCard } from '../../components/cards/StackedItineraryCard';
 import { TransportationCard } from '../../components/cards/TransportationCard';
 
 interface ItineraryTabProps {
@@ -34,10 +35,15 @@ interface ItineraryTabProps {
   onChangeDateItinerary: (item: Itinerary) => void;
   onToggleLock: (item: Itinerary) => void;
   onReorder: (orderedItems: Itinerary[]) => void;
+  backupMap: Map<number, Itinerary[]>;
+  onAddBackup: (primary: Itinerary) => void;
+  onSwapBackup: (primaryId: number, backupId: number) => void;
+  onDeleteBackup: (backupId: number) => void;
 }
 
 interface SortableCardProps {
   item: Itinerary;
+  backups: Itinerary[];
   index: number;
   displayList: Itinerary[];
   conflictedIdsInView: Set<number>;
@@ -53,13 +59,16 @@ interface SortableCardProps {
   onCopyItinerary: (item: Itinerary) => void;
   onChangeDateItinerary: (item: Itinerary) => void;
   onToggleLock: (item: Itinerary) => void;
+  onAddBackup: (primary: Itinerary) => void;
+  onSwapBackup: (primaryId: number, backupId: number) => void;
 }
 
 function SortableCard({
-  item, index, displayList, conflictedIdsInView, bookings, canEdit,
+  item, backups, index, displayList, conflictedIdsInView, bookings, canEdit,
   expandSignal, collapseSignal, defaultSignal, expandState,
   onEditItinerary, onEditNextTransport, onEditBooking,
   onCopyItinerary, onChangeDateItinerary, onToggleLock,
+  onAddBackup, onSwapBackup,
 }: SortableCardProps) {
   const isLocked = !!(item as any).is_time_fixed;
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
@@ -98,11 +107,6 @@ function SortableCard({
     }
   }
 
-  const linkedBooking = item.related_id ? bookings.find(b => b.id === item.related_id) : undefined;
-  const displayItem = linkedBooking && !item.image_url
-    ? { ...item, image_url: linkedBooking.image_url || '' }
-    : item;
-
   return (
     <div
       ref={setNodeRef}
@@ -110,20 +114,27 @@ function SortableCard({
       {...attributes}
       className="space-y-2"
     >
-      <ItineraryCard
-        item={displayItem}
-        nextItem={displayList[index + 1]}
+      <StackedItineraryCard
+        item={item}
+        backups={backups}
+        index={index}
+        displayList={displayList}
+        conflictedIdsInView={conflictedIdsInView}
+        bookings={bookings}
         canEdit={canEdit}
-        isConflicted={conflictedIdsInView.has(item.id)}
-        onEdit={() => linkedBooking ? onEditBooking(linkedBooking) : onEditItinerary(item)}
-        showNextTransport={index < displayList.length - 1}
-        onEditNextTransport={() => onEditNextTransport(item)}
-        expandSignal={expandSignal} collapseSignal={collapseSignal} defaultSignal={defaultSignal}
+        expandSignal={expandSignal}
+        collapseSignal={collapseSignal}
+        defaultSignal={defaultSignal}
         expandState={expandState}
-        onCopy={() => onCopyItinerary(item)}
-        onChangeDate={() => onChangeDateItinerary(item)}
-        onToggleLock={() => onToggleLock(item)}
+        onEditItinerary={onEditItinerary}
+        onEditNextTransport={onEditNextTransport}
+        onEditBooking={onEditBooking}
+        onCopyItinerary={onCopyItinerary}
+        onChangeDateItinerary={onChangeDateItinerary}
+        onToggleLock={onToggleLock}
         dragHandleListeners={!isLocked && canEdit ? listeners : undefined}
+        onAddBackup={onAddBackup}
+        onSwapBackup={onSwapBackup}
       />
     </div>
   );
@@ -135,6 +146,7 @@ export function ItineraryTab({
   isWeatherExpanded, onToggleWeather,
   onAddActivity, onEditItinerary, onEditNextTransport, onEditBooking,
   onCopyItinerary, onChangeDateItinerary, onToggleLock, onReorder,
+  backupMap, onAddBackup, onSwapBackup, onDeleteBackup,
 }: ItineraryTabProps) {
   const [activeId, setActiveId] = useState<number | null>(null);
   // pendingOrder: 暫存拖曳後的新順序，等用戶確認才送出
@@ -202,6 +214,7 @@ export function ItineraryTab({
                 <SortableCard
                   key={item.id}
                   item={item}
+                  backups={backupMap.get(item.id) ?? []}
                   index={index}
                   displayList={displayList}
                   conflictedIdsInView={conflictedIdsInView}
@@ -217,6 +230,8 @@ export function ItineraryTab({
                   onCopyItinerary={onCopyItinerary}
                   onChangeDateItinerary={onChangeDateItinerary}
                   onToggleLock={onToggleLock}
+                  onAddBackup={onAddBackup}
+                  onSwapBackup={onSwapBackup}
                 />
               ))}
             </SortableContext>

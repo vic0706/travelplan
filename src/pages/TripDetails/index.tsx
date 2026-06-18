@@ -200,6 +200,7 @@ export function TripDetails() {
   const [editingItinerary, setEditingItinerary] = useState<Itinerary | null>(null);
   const [changingDateItem, setChangingDateItem] = useState<Itinerary | null>(null);
   const [editingExpense,   setEditingExpense]   = useState<Expense | null>(null);
+  const [addingBackupFor,  setAddingBackupFor]  = useState<Itinerary | null>(null);
   const [editingBooking,   setEditingBooking]   = useState<Booking | null>(null);
 
   const [copyTarget, setCopyTarget] = useState<Itinerary | null>(null);
@@ -345,6 +346,38 @@ export function TripDetails() {
     }
   };
 
+  // ── 備案操作 ──────────────────────────────────────────────────────────
+  const handleAddBackup = (primaryItem: Itinerary) => {
+    setAddingBackupFor(primaryItem);
+    setEditingItinerary(null);
+    setIsItineraryFormOpen(true);
+  };
+
+  const handleSwapBackup = async (primaryId: number, backupId: number) => {
+    if (!id) return;
+    try {
+      await apiFetch(`/api/trips/${id}/itineraries/${primaryId}/swap-backup/${backupId}`, { method: 'PATCH' });
+      await db.transaction('rw', db.itineraries, async () => {
+        await db.itineraries.update(backupId, { backup_for_id: null } as any);
+        await db.itineraries.update(primaryId, { backup_for_id: backupId } as any);
+      });
+      setTimeout(() => refreshTripData(), 300);
+    } catch {
+      showToast('切換備案失敗', 'error');
+    }
+  };
+
+  const handleDeleteBackup = async (backupId: number) => {
+    if (!id) return;
+    try {
+      const res = await apiFetch(`/api/trips/${id}/itineraries/${backupId}`, { method: 'DELETE' });
+      if (!res.ok) throw new Error();
+      await db.itineraries.delete(backupId);
+    } catch {
+      showToast('刪除備案失敗', 'error');
+    }
+  };
+
   const handleCopyConfirm = async () => {
     if (!id || !copyTarget || !copyTitle.trim() || !copyDate) return;
     try {
@@ -418,7 +451,7 @@ export function TripDetails() {
     if (!selectedDate) return [];
     return itineraries.filter(item => {
       const itemDate = safeParse(item.date);
-      return itemDate && isSameDay(itemDate, selectedDate);
+      return itemDate && isSameDay(itemDate, selectedDate) && !item.backup_for_id;
     }).sort((a, b) => {
       const aOrder = a.display_order ?? 9999;
       const bOrder = b.display_order ?? 9999;
@@ -426,6 +459,17 @@ export function TripDetails() {
       return (a.start_time || '').localeCompare(b.start_time || '');
     });
   }, [itineraries, selectedDate]);
+
+  const backupMap = useMemo(() => {
+    const map = new Map<number, Itinerary[]>();
+    itineraries.forEach(item => {
+      if (item.backup_for_id) {
+        const arr = map.get(item.backup_for_id) ?? [];
+        map.set(item.backup_for_id, [...arr, item]);
+      }
+    });
+    return map;
+  }, [itineraries]);
 
   const conflictedIdsInView = useMemo(() => {
     const conflicts = new Set<number>();
@@ -645,6 +689,10 @@ export function TripDetails() {
             onChangeDateItinerary={(item) => setChangingDateItem(item)}
             onToggleLock={handleToggleLock}
             onReorder={handleReorder}
+            backupMap={backupMap}
+            onAddBackup={handleAddBackup}
+            onSwapBackup={handleSwapBackup}
+            onDeleteBackup={handleDeleteBackup}
           />
         )}
 
@@ -780,11 +828,12 @@ export function TripDetails() {
             <motion.div initial={{ y: '100%' }} animate={{ y: 0 }} exit={{ y: '100%' }} transition={{ duration: 0.22, ease: [0.32, 0.72, 0, 1] }} className="w-full max-w-md max-h-[90vh]">
               <ItineraryForm
                 tripId={Number(id)}
-                date={selectedDate ? format(selectedDate, 'yyyy-MM-dd') : ''}
+                date={addingBackupFor ? addingBackupFor.date : (selectedDate ? format(selectedDate, 'yyyy-MM-dd') : '')}
                 initialData={editingItinerary}
+                backupForId={addingBackupFor?.id}
                 showToast={showToast}
-                onSuccess={() => { setIsItineraryFormOpen(false); setEditingItinerary(null); setTimeout(() => refreshTripData(), 300); }}
-                onCancel={() => { setIsItineraryFormOpen(false); setEditingItinerary(null); }}
+                onSuccess={() => { setIsItineraryFormOpen(false); setEditingItinerary(null); setAddingBackupFor(null); setTimeout(() => refreshTripData(), 300); }}
+                onCancel={() => { setIsItineraryFormOpen(false); setEditingItinerary(null); setAddingBackupFor(null); }}
               />
             </motion.div>
           </div>

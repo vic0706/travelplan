@@ -446,7 +446,7 @@ export async function optimizeDailyItinerary(env: any, tripId: number, dateStr: 
     .sort((a: any, b: any) => timeToMins(a.start_time) - timeToMins(b.start_time));
 
   const smartItems = (rawItems as any[])
-    .filter(i => i.is_time_fixed !== 1)
+    .filter(i => i.is_time_fixed !== 1 && !i.backup_for_id)
     .sort((a: any, b: any) => {
       const aOrder = a.display_order ?? 9999;
       const bOrder = b.display_order ?? 9999;
@@ -729,7 +729,7 @@ export async function geminiOptimizeDay(env: any, tripId: number, dateStr: strin
     .sort((a: any, b: any) => timeToMins(a.start_time) - timeToMins(b.start_time));
 
   const smartItems = (rawItems as any[])
-    .filter(i => i.is_time_fixed !== 1)
+    .filter(i => i.is_time_fixed !== 1 && !i.backup_for_id)
     .sort((a: any, b: any) => {
       const aOrder = a.display_order ?? 9999;
       const bOrder = b.display_order ?? 9999;

@@ -18,6 +18,7 @@ interface ItineraryFormProps {
   onCancel: () => void;
   initialData?: any;
   showToast?: (message: string, type?: 'success' | 'error') => void;
+  backupForId?: number;
 }
 
 const safeParseArray = (data: any) => {
@@ -43,7 +44,7 @@ const timeToMinutes = (t1: string, t2: string): number => {
   return diff > 0 ? diff : 60;
 };
 
-export function ItineraryForm({ tripId, date, onSuccess, onCancel, initialData, showToast }: ItineraryFormProps) {
+export function ItineraryForm({ tripId, date, onSuccess, onCancel, initialData, showToast, backupForId }: ItineraryFormProps) {
   const { categories: storeCategories = [], setCategories, cities: storeCities = [] } = useAppStore();
 
   const groupedCities = useMemo(() => storeCities.reduce((acc: any, city: any) => {
@@ -348,10 +349,12 @@ export function ItineraryForm({ tripId, date, onSuccess, onCancel, initialData, 
         stay_duration: isTimeFixed ? fixedStayDuration.toString() : stayDuration.toString(),
         time_preference: 'anytime'
       };
-      const res = await apiFetch(
-        initialData ? `/api/trips/${tripId}/itineraries/${initialData.id}` : `/api/trips/${tripId}/itineraries`,
-        { method: initialData ? 'PUT' : 'POST', body: JSON.stringify(payload) }
-      );
+      const url = initialData
+        ? `/api/trips/${tripId}/itineraries/${initialData.id}`
+        : backupForId
+          ? `/api/trips/${tripId}/itineraries/${backupForId}/backups`
+          : `/api/trips/${tripId}/itineraries`;
+      const res = await apiFetch(url, { method: initialData ? 'PUT' : 'POST', body: JSON.stringify(payload) });
       if (res.ok) {
         // For new activities, batch-save any pending sub-items
         if (!initialData && subItems.length > 0) {

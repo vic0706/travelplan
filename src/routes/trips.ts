@@ -973,4 +973,98 @@ trips.put('/:id/days/:date/settings', async (c) => {
   }
 });
 
+// ==========================================
+// 10. 備案 (Backup Items)
+// ==========================================
+
+// 新增備案
+trips.post('/:id/itineraries/:itemId/backups', async (c) => {
+  const tripId = c.req.param('id');
+  const itemId = c.req.param('itemId');
+  try {
+    const canEdit = await checkTripAccess(c, Number(tripId), 'edit');
+    if (!canEdit) return c.json({ error: 'Unauthorized' }, 403);
+
+    // Verify the parent item exists and belongs to this trip
+    const { results: parentItems } = await c.env.DB.prepare(
+      'SELECT id, date FROM Itineraries WHERE id = ? AND trip_id = ? AND backup_for_id IS NULL'
+    ).bind(itemId, tripId).all();
+    if (!parentItems.length) return c.json({ error: 'Parent item not found' }, 404);
+    const parent = parentItems[0] as { id: number; date: string };
+
+    const body = await c.req.json().catch(() => ({}));
+    const {
+      title, address = '', icon = '', lat, lng, google_place_id = '',
+      rating, reviews_count, opening_hours, place_website, place_phone,
+      place_status, review_summary, image_url = '', notes = '',
+    } = body;
+
+    if (!title) return c.json({ error: 'title is required' }, 400);
+
+    const { meta } = await c.env.DB.prepare(`
+      INSERT INTO Itineraries (
+        trip_id, date, title, address, icon, lat, lng, google_place_id,
+        rating, reviews_count, opening_hours, place_website, place_phone,
+        place_status, review_summary, image_url, notes,
+        backup_for_id, type, tags
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'GENERAL', '[]')
+    `).bind(
+      tripId, parent.date, title, address, icon,
+      lat ?? null, lng ?? null, google_place_id,
+      rating ?? null, reviews_count ?? null, opening_hours ?? null,
+      place_website ?? null, place_phone ?? null,
+      place_status ?? null, review_summary ?? null,
+      image_url, notes,
+      Number(itemId),
+    ).run();
+
+    const newId = meta.last_row_id;
+    const { results } = await c.env.DB.prepare('SELECT * FROM Itineraries WHERE id = ?').bind(newId).all();
+    return c.json(results[0], 201);
+  } catch (error: any) {
+    console.error('[backup post]', error);
+    return c.json({ error: error.message }, 500);
+  }
+});
+
+// 切換主備案（backup ↔ primary swap）
+trips.patch('/:id/itineraries/:itemId/swap-backup/:backupId', async (c) => {
+  const tripId = c.req.param('id');
+  const itemId = c.req.param('itemId');
+  const backupId = c.req.param('backupId');
+  try {
+    const canEdit = await checkTripAccess(c, Number(tripId), 'edit');
+    if (!canEdit) return c.json({ error: 'Unauthorized' }, 403);
+
+    // Verify both items exist and belong to this trip
+    const { results: items } = await c.env.DB.prepare(
+      `SELECT id, date, backup_for_id FROM Itineraries WHERE id IN (?, ?) AND trip_id = ?`
+    ).bind(itemId, backupId, tripId).all() as { results: { id: number; date: string; backup_for_id: number | null }[] };
+
+    if (items.length !== 2) return c.json({ error: 'Items not found' }, 404);
+    const primary = items.find(i => i.id === Number(itemId));
+    const backup  = items.find(i => i.id === Number(backupId));
+    if (!primary || !backup) return c.json({ error: 'Items not found' }, 404);
+
+    // Swap: backup becomes primary, primary becomes backup
+    await c.env.DB.batch([
+      c.env.DB.prepare('UPDATE Itineraries SET backup_for_id = NULL WHERE id = ?').bind(backupId),
+      c.env.DB.prepare('UPDATE Itineraries SET backup_for_id = ? WHERE id = ?').bind(backupId, itemId),
+      // Also reassign any other backups of the old primary to the new primary
+      c.env.DB.prepare(
+        'UPDATE Itineraries SET backup_for_id = ? WHERE backup_for_id = ? AND id != ?'
+      ).bind(backupId, itemId, Number(backupId)),
+    ]);
+
+    // Trigger optimizer for the date of the new primary
+    const dayLogs = await optimizeDailyItinerary(c.env, Number(tripId), primary.date);
+    dayLogs.forEach(l => console.log('[swap-backup]', l));
+
+    return c.json({ success: true });
+  } catch (error: any) {
+    console.error('[swap-backup]', error);
+    return c.json({ error: error.message }, 500);
+  }
+});
+
 export default trips;

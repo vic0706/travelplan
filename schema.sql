@@ -118,6 +118,7 @@ CREATE TABLE Itineraries (
     review_summary TEXT,
     sync_conflict_warning TEXT,
     display_order INTEGER DEFAULT NULL,
+    backup_for_id INTEGER DEFAULT NULL REFERENCES Itineraries(id) ON DELETE CASCADE,
 
     FOREIGN KEY (trip_id) REFERENCES Trips(id) ON DELETE CASCADE
 );

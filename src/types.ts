@@ -82,6 +82,7 @@ export interface Itinerary {
   sync_conflict_warning?: string;
   display_order?: number | null;
   is_time_fixed?: number;
+  backup_for_id?: number | null;
 }
 
 export interface SubItinerary {

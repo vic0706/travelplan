@@ -24,6 +24,14 @@ interface ItineraryCardProps {
   onChangeDate?: () => void;
   onToggleLock?: () => void;
   dragHandleListeners?: Record<string, unknown>;
+  // 備案導航
+  cardIndex?: number;
+  totalCards?: number;
+  onPrevCard?: () => void;
+  onNextCard?: () => void;
+  isBackup?: boolean;
+  onSwapToMain?: () => void;
+  onAddBackup?: () => void;
 }
 
 const formatDuration = (mins: number) => {
@@ -58,6 +66,7 @@ export function ItineraryCard({
   item, nextItem, canEdit, isConflicted, onEdit, showNextTransport, onEditNextTransport,
   expandSignal, collapseSignal, defaultSignal, expandState, isDragOverlay, onCopy, onChangeDate,
   onToggleLock, dragHandleListeners,
+  cardIndex, totalCards, onPrevCard, onNextCard, isBackup, onSwapToMain, onAddBackup,
 }: ItineraryCardProps) {
   const { categories } = useAppStore();
   const category = (categories || []).find((c: any) => c.icon === item.icon) || { color: '#808080' };
@@ -423,8 +432,52 @@ export function ItineraryCard({
     );
   };
 
+  const hasNavigation = !!(totalCards && totalCards > 1);
+
+  const renderNavCenter = (onPhoto: boolean) => {
+    if (!hasNavigation) return null;
+    return (
+      <div className="flex items-center gap-1">
+        <button
+          type="button"
+          onClick={(e) => { e.stopPropagation(); onPrevCard?.(); }}
+          disabled={cardIndex === 0}
+          className={clsx('p-0.5 rounded transition-colors disabled:opacity-20',
+            onPhoto ? 'text-white/50 hover:text-white/80' : 'text-zinc-500 hover:text-zinc-300')}
+        >
+          <ChevronLeft size={13} />
+        </button>
+        <div className="flex gap-1 items-center">
+          {Array.from({ length: totalCards! }).map((_, i) => (
+            <div key={i} className={clsx('w-1.5 h-1.5 rounded-full transition-colors',
+              i === cardIndex ? 'bg-orange-400' : (onPhoto ? 'bg-white/30' : 'bg-zinc-600'))} />
+          ))}
+        </div>
+        <button
+          type="button"
+          onClick={(e) => { e.stopPropagation(); onNextCard?.(); }}
+          disabled={cardIndex === totalCards! - 1 && !onAddBackup}
+          className={clsx('p-0.5 rounded transition-colors disabled:opacity-20',
+            onPhoto ? 'text-white/50 hover:text-white/80' : 'text-zinc-500 hover:text-zinc-300')}
+        >
+          <ChevronRight size={13} />
+        </button>
+        {canEdit && cardIndex === totalCards! - 1 && onAddBackup && (
+          <button
+            type="button"
+            onClick={(e) => { e.stopPropagation(); onAddBackup(); }}
+            className={clsx('p-0.5 rounded transition-colors',
+              onPhoto ? 'text-white/40 hover:text-orange-400' : 'text-zinc-600 hover:text-orange-400')}
+          >
+            <Plus size={13} />
+          </button>
+        )}
+      </div>
+    );
+  };
+
   const renderBottomBar = (onPhoto: boolean) => {
-    const hasBar = hasContent || (showNextTransport && (canEdit || !!item.next_transport_mode));
+    const hasBar = hasContent || (showNextTransport && (canEdit || !!item.next_transport_mode)) || hasNavigation;
     if (!hasBar) return null;
     if (onPhoto) {
       return (
@@ -436,6 +489,7 @@ export function ItineraryCard({
               <span className="text-[9px] font-black tracking-wider">{detailLabel}</span>
             </button>
           ) : <div />}
+          {renderNavCenter(true)}
           {showNextTransport && (canEdit || !!item.next_transport_mode) && (
             <button type="button" disabled={!canEdit}
               onClick={(e) => { e.stopPropagation(); if (canEdit && onEditNextTransport) onEditNextTransport(); }}
@@ -456,6 +510,7 @@ export function ItineraryCard({
               )}
             </button>
           )}
+          {!showNextTransport && <div />}
         </div>
       );
     }
@@ -468,7 +523,8 @@ export function ItineraryCard({
             <span className="text-[9px] font-black tracking-wider">{detailLabel}</span>
           </button>
         ) : <div />}
-        {showNextTransport && (canEdit || !!item.next_transport_mode) && (
+        {renderNavCenter(false)}
+        {showNextTransport && (canEdit || !!item.next_transport_mode) ? (
           <button type="button" disabled={!canEdit}
             onClick={(e) => { e.stopPropagation(); if (canEdit && onEditNextTransport) onEditNextTransport(); }}
             className={clsx('flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl transition-colors',
@@ -487,7 +543,7 @@ export function ItineraryCard({
               </div>
             )}
           </button>
-        )}
+        ) : <div />}
       </div>
     );
   };
@@ -571,11 +627,26 @@ export function ItineraryCard({
             )}
           </div>
 
-          {item.rating && (
+          {item.rating && !isBackup && (
             <div className="shrink-0 flex items-center gap-0.5 bg-yellow-500/15 rounded-lg px-1.5 py-0.5">
               <Star size={9} className="text-yellow-400 fill-yellow-400" />
               <span className="text-[10px] font-black text-yellow-300">{(item.rating as number).toFixed(1)}</span>
             </div>
+          )}
+
+          {isBackup && (
+            <>
+              <span className="shrink-0 text-[9px] font-bold text-orange-400 bg-orange-400/10 px-1.5 py-0.5 rounded-md">備案</span>
+              {onSwapToMain && (
+                <button
+                  type="button"
+                  onClick={(e) => { e.stopPropagation(); onSwapToMain(); }}
+                  className="shrink-0 px-2 py-1 rounded-xl bg-orange-500 text-white text-[10px] font-bold hover:bg-orange-600 transition-colors active:scale-95"
+                >
+                  切換為主要
+                </button>
+              )}
+            </>
           )}
 
           {canEdit && (
