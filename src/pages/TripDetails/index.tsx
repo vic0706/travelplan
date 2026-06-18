@@ -2,7 +2,7 @@ import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useAppStore } from '../../store';
 import { format, parseISO, addDays, differenceInDays, isSameDay, addMinutes, isBefore, startOfDay } from 'date-fns';
-import { Map, Info, Wallet, ArrowLeft, Settings, Edit3, ChevronsUpDown, ChevronsDownUp, Sparkles, Unlock, Loader2, Camera, CheckCircle2, XCircle, X, Car, Train, Footprints, Bike } from 'lucide-react';
+import { Map as MapIcon, Info, Wallet, ArrowLeft, Settings, Edit3, ChevronsUpDown, ChevronsDownUp, Sparkles, Unlock, Loader2, Camera, CheckCircle2, XCircle, X, Car, Train, Footprints, Bike } from 'lucide-react';
 import { Trip, Itinerary, Expense, Booking } from '../../types';
 import { clsx } from 'clsx';
 import { db } from '../../db';
@@ -744,7 +744,7 @@ export function TripDetails() {
         style={{ paddingBottom: 'max(0.5rem, calc(env(safe-area-inset-bottom) + 0.5rem))' }}
       >
         {[
-          { tab: 'itinerary', icon: Map,    label: '行程' },
+          { tab: 'itinerary', icon: MapIcon, label: '行程' },
           { tab: 'info',      icon: Info,   label: '訂票' },
           { tab: 'finance',   icon: Wallet, label: '記帳' },
         ].map(({ tab, icon: Icon, label }) => (
