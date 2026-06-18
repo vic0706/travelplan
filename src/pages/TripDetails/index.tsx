@@ -832,6 +832,7 @@ export function TripDetails() {
                 initialData={editingItinerary}
                 backupForId={addingBackupFor?.id}
                 showToast={showToast}
+                onAddBackup={editingItinerary ? () => handleAddBackup(editingItinerary) : undefined}
                 onSuccess={() => { setIsItineraryFormOpen(false); setEditingItinerary(null); setAddingBackupFor(null); setTimeout(() => refreshTripData(), 300); }}
                 onCancel={() => { setIsItineraryFormOpen(false); setEditingItinerary(null); setAddingBackupFor(null); }}
               />

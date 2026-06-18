@@ -19,6 +19,7 @@ interface ItineraryFormProps {
   initialData?: any;
   showToast?: (message: string, type?: 'success' | 'error') => void;
   backupForId?: number;
+  onAddBackup?: () => void;
 }
 
 const safeParseArray = (data: any) => {
@@ -44,7 +45,7 @@ const timeToMinutes = (t1: string, t2: string): number => {
   return diff > 0 ? diff : 60;
 };
 
-export function ItineraryForm({ tripId, date, onSuccess, onCancel, initialData, showToast, backupForId }: ItineraryFormProps) {
+export function ItineraryForm({ tripId, date, onSuccess, onCancel, initialData, showToast, backupForId, onAddBackup }: ItineraryFormProps) {
   const { categories: storeCategories = [], setCategories, cities: storeCities = [] } = useAppStore();
 
   const groupedCities = useMemo(() => storeCities.reduce((acc: any, city: any) => {
@@ -619,7 +620,13 @@ export function ItineraryForm({ tripId, date, onSuccess, onCancel, initialData, 
         </div>
 
         {initialData && (
-          <div className="pt-4 border-t border-zinc-800">
+          <div className="pt-4 border-t border-zinc-800 space-y-3">
+            {onAddBackup && (
+              <button type="button" onClick={onAddBackup}
+                className="w-full py-3.5 bg-orange-500/10 hover:bg-orange-500/20 text-orange-500 font-bold rounded-2xl transition-colors flex items-center justify-center gap-2 border border-orange-500/20">
+                <Plus size={18} />新增備案
+              </button>
+            )}
             <button type="button" onClick={() => setShowDeleteConfirm(true)}
               className="w-full py-3.5 bg-red-500/10 hover:bg-red-500/20 text-red-500 font-bold rounded-2xl transition-colors flex items-center justify-center gap-2 border border-red-500/20">
               <Trash2 size={18} />刪除活動
