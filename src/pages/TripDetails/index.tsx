@@ -831,6 +831,7 @@ export function TripDetails() {
                 date={addingBackupFor ? addingBackupFor.date : (selectedDate ? format(selectedDate, 'yyyy-MM-dd') : '')}
                 initialData={editingItinerary}
                 backupForId={addingBackupFor?.id}
+                backupForTitle={addingBackupFor?.title}
                 showToast={showToast}
                 onAddBackup={editingItinerary ? () => handleAddBackup(editingItinerary) : undefined}
                 onSuccess={() => { setIsItineraryFormOpen(false); setEditingItinerary(null); setAddingBackupFor(null); setTimeout(() => refreshTripData(), 300); }}

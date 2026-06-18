@@ -19,6 +19,7 @@ interface ItineraryFormProps {
   initialData?: any;
   showToast?: (message: string, type?: 'success' | 'error') => void;
   backupForId?: number;
+  backupForTitle?: string;
   onAddBackup?: () => void;
 }
 
@@ -45,7 +46,7 @@ const timeToMinutes = (t1: string, t2: string): number => {
   return diff > 0 ? diff : 60;
 };
 
-export function ItineraryForm({ tripId, date, onSuccess, onCancel, initialData, showToast, backupForId, onAddBackup }: ItineraryFormProps) {
+export function ItineraryForm({ tripId, date, onSuccess, onCancel, initialData, showToast, backupForId, backupForTitle, onAddBackup }: ItineraryFormProps) {
   const { categories: storeCategories = [], setCategories, cities: storeCities = [] } = useAppStore();
 
   const groupedCities = useMemo(() => storeCities.reduce((acc: any, city: any) => {
@@ -379,7 +380,14 @@ export function ItineraryForm({ tripId, date, onSuccess, onCancel, initialData, 
     <div className="bg-[#1c1c1e] border border-zinc-800 rounded-[32px] overflow-hidden flex flex-col w-full max-w-md mx-auto shadow-2xl relative max-h-[90vh]">
       {/* 標頭 */}
       <div className="px-6 py-4 border-b border-zinc-800 flex items-center justify-between bg-[#1c1c1e]/90 backdrop-blur-md z-20 sticky top-0">
-        <h2 className="text-lg font-bold text-white tracking-tight">{initialData ? '編輯活動' : '新增活動'}</h2>
+        <div>
+          <h2 className="text-lg font-bold text-white tracking-tight">
+            {backupForId ? '新增備案' : initialData ? '編輯活動' : '新增活動'}
+          </h2>
+          {backupForId && backupForTitle && (
+            <p className="text-[11px] text-orange-400/80 mt-0.5 truncate max-w-[240px]">為「{backupForTitle}」的備案</p>
+          )}
+        </div>
         <button type="button" onClick={onCancel} className="p-1.5 bg-zinc-800/50 rounded-full text-zinc-400 hover:text-white"><X size={18} /></button>
       </div>
 
