@@ -317,7 +317,7 @@ export function TripSettingsForm({ trip, onUpdate, onDelete, onClose, showToast 
               </div>
             </button>
 
-            {/* 智能景點排序 */}
+            {/* AI景點排序 */}
             <button
               type="button"
               disabled={!isMember || isOptimizing || loading || isQuotaExhausted('optimize')}
@@ -333,7 +333,7 @@ export function TripSettingsForm({ trip, onUpdate, onDelete, onClose, showToast 
                 ? <Loader2 size={18} className="animate-spin shrink-0" />
                 : <Wand2 size={18} className="shrink-0" />}
               <div className="text-center leading-none">
-                <div className="text-[10px] font-black tracking-wide">智能排序 💰</div>
+                <div className="text-[10px] font-black tracking-wide">AI排序 💰</div>
                 <div className={clsx('text-[8px] mt-0.5', isQuotaExhausted('optimize') ? 'text-red-500/70' : 'text-orange-500/50')}>
                   {!isMember ? '需為成員' : isQuotaExhausted('optimize') ? '今日已達上限' : '每次重新執行'}
                 </div>
