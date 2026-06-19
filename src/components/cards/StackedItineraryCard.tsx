@@ -83,7 +83,6 @@ export function StackedItineraryCard({
       <div
         onPointerDown={handlePointerDown}
         onPointerUp={handlePointerUp}
-        style={{ touchAction: 'pan-y' }}
       >
         <AnimatePresence mode="wait" initial={false}>
           <motion.div

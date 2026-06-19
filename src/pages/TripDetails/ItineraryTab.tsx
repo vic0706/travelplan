@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { Plus, Check, X } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
-  DndContext, DragOverlay, PointerSensor, TouchSensor,
+  DndContext, DragOverlay, MouseSensor, TouchSensor,
   closestCenter, useSensor, useSensors,
 } from '@dnd-kit/core';
 import { SortableContext, useSortable, verticalListSortingStrategy, arrayMove } from '@dnd-kit/sortable';
@@ -158,8 +158,8 @@ export function ItineraryTab({
   }, [selectedDate]);
 
   const sensors = useSensors(
-    useSensor(PointerSensor, { activationConstraint: { delay: 250, tolerance: 5 } }),
-    useSensor(TouchSensor,   { activationConstraint: { delay: 250, tolerance: 5 } }),
+    useSensor(MouseSensor,  { activationConstraint: { distance: 5 } }),
+    useSensor(TouchSensor,  { activationConstraint: { delay: 200, tolerance: 10 } }),
   );
 
   const displayList = pendingOrder ?? filteredItineraries;
