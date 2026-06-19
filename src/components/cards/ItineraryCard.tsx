@@ -27,7 +27,6 @@ interface ItineraryCardProps {
   onChangeDate?: () => void;
   onToggleLock?: () => void;
   dragHandleListeners?: Record<string, unknown>;
-  // 備案導航
   cardIndex?: number;
   totalCards?: number;
   onPrevCard?: () => void;
@@ -51,17 +50,47 @@ const safeParse = (data: any) => {
   catch { return []; }
 };
 
-const checkIsClosed = (dateStr: string, openingHoursJson?: string | null) => {
+interface TodayHoursInfo {
+  text: string;
+  isClosedToday: boolean;
+  isOutsideHours: boolean;
+}
+
+const getTodayHours = (dateStr: string, openingHoursJson?: string | null, startTime?: string | null): TodayHoursInfo | null => {
   if (!openingHoursJson) return null;
   try {
     const data = JSON.parse(openingHoursJson);
-    if (data.periods?.length === 1) {
-      const p = data.periods[0];
-      if (p.open?.day === 0 && p.open?.hour === 0 && !p.close) return null;
+    if (!data.periods?.length) return null;
+    // 24h
+    if (data.periods.length === 1 && data.periods[0].open?.day === 0 &&
+        data.periods[0].open?.hour === 0 && !data.periods[0].close) {
+      return { text: '全天 24 小時', isClosedToday: false, isOutsideHours: false };
     }
-    const dayOfWeek = new Date(dateStr).getDay();
-    const isOpen = data.periods?.some((p: any) => p.open?.day === dayOfWeek);
-    return !isOpen ? '排定日期可能公休' : null;
+    const tripDay = new Date(dateStr).getDay();
+    const todayPeriods = (data.periods as any[]).filter(p => p.open?.day === tripDay);
+    if (todayPeriods.length === 0) {
+      return { text: '公休', isClosedToday: true, isOutsideHours: false };
+    }
+    const text = todayPeriods.map((p: any) => {
+      const oh = String(p.open.hour).padStart(2, '0');
+      const om = String(p.open.minute || 0).padStart(2, '0');
+      if (!p.close) return '全天';
+      const ch = String(p.close.hour).padStart(2, '0');
+      const cm = String(p.close.minute || 0).padStart(2, '0');
+      return `${oh}:${om}–${ch}:${cm}`;
+    }).join('、');
+    let isOutsideHours = false;
+    if (startTime) {
+      const [h, m] = startTime.split(':').map(Number);
+      const itemMins = h * 60 + (m || 0);
+      isOutsideHours = !todayPeriods.some((p: any) => {
+        const openMins = p.open.hour * 60 + (p.open.minute || 0);
+        if (!p.close) return true;
+        const closeMins = p.close.hour * 60 + (p.close.minute || 0);
+        return itemMins >= openMins && itemMins < closeMins;
+      });
+    }
+    return { text, isClosedToday: false, isOutsideHours };
   } catch { return null; }
 };
 
@@ -84,11 +113,15 @@ interface SortableSubItemProps {
   walkOverrides: Record<number, number>;
   onSelect: (idx: number) => void;
   isLast: boolean;
+  canEdit?: boolean;
 }
 
-function SortableSubItem({ sub, idx, nextSub, walkOverrides, onSelect, isLast }: SortableSubItemProps) {
+function SortableSubItem({ sub, idx, nextSub, walkOverrides, onSelect, isLast, canEdit }: SortableSubItemProps) {
   const subHasDetails = !!sub.notes;
-  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: sub.id });
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
+    id: sub.id,
+    disabled: !canEdit,
+  });
 
   const style: React.CSSProperties = {
     transform: CSS.Transform.toString(transform),
@@ -121,15 +154,17 @@ function SortableSubItem({ sub, idx, nextSub, walkOverrides, onSelect, isLast }:
       >
         <div className="absolute left-0 top-0 bottom-0 w-0.5 bg-orange-500/50 rounded-r-full" />
         <div className="flex items-center gap-2 pl-0.5">
-          <div
-            {...attributes}
-            {...listeners}
-            className="shrink-0 text-zinc-700 hover:text-zinc-500 cursor-grab active:cursor-grabbing"
-            style={{ touchAction: 'none' }}
-            onClick={(e) => e.stopPropagation()}
-          >
-            <GripVertical size={13} />
-          </div>
+          {canEdit && (
+            <div
+              {...attributes}
+              {...listeners}
+              className="shrink-0 text-zinc-700 hover:text-zinc-500 cursor-grab active:cursor-grabbing"
+              style={{ touchAction: 'none' }}
+              onClick={(e) => e.stopPropagation()}
+            >
+              <GripVertical size={13} />
+            </div>
+          )}
           <div className="flex-1 min-w-0">
             {!!sub.start_time && (
               <div className="font-mono text-[10px] text-zinc-500 mb-0.5">
@@ -186,9 +221,10 @@ interface SubItemsListProps {
   walkOverrides: Record<number, number>;
   onReorder: (newItems: any[]) => void;
   onSelectItem: (idx: number) => void;
+  canEdit?: boolean;
 }
 
-function SubItemsList({ items, walkOverrides, onReorder, onSelectItem }: SubItemsListProps) {
+function SubItemsList({ items, walkOverrides, onReorder, onSelectItem, canEdit }: SubItemsListProps) {
   const sensors = useSensors(
     useSensor(MouseSensor, { activationConstraint: { distance: 5 } }),
     useSensor(TouchSensor, { activationConstraint: { delay: 300, tolerance: 5 } }),
@@ -216,6 +252,7 @@ function SubItemsList({ items, walkOverrides, onReorder, onSelectItem }: SubItem
               walkOverrides={walkOverrides}
               onSelect={onSelectItem}
               isLast={idx === items.length - 1}
+              canEdit={canEdit}
             />
           ))}
         </div>
@@ -241,12 +278,14 @@ export function ItineraryCard({
   const endTimeStr = item.end_time || item.start_time || '23:59';
   const isPast = Date.now() > new Date(`${item.date}T${endTimeStr}`).getTime();
 
-  const closedWarning    = checkIsClosed(item.date, item.opening_hours);
+  const todayHours       = getTodayHours(item.date, item.opening_hours, item.start_time);
+  const isScheduledDuringClosed = !!todayHours && (todayHours.isClosedToday || todayHours.isOutsideHours) && !!item.start_time;
+  const closedWarning    = todayHours?.isClosedToday ? '排定日期公休' : todayHours?.isOutsideHours ? '排程時間可能不在營業時段' : null;
   const hasWarning       = !!closedWarning || !!item.sync_conflict_warning || !!isConflicted;
   const isCircuitBreaker = canEdit && !!showNextTransport && !!item.start_time && (!item.next_transport_mode || item.next_transport_mode === '');
 
   const hasSubItems = subItems.length > 0;
-  const hasDetails  = tags.length > 0 || !!item.rating || !!item.opening_hours || hasWarning || !!item.review_summary;
+  const hasDetails  = tags.length > 0 || !!item.rating || !!todayHours || hasWarning || !!item.review_summary;
   const hasNotes    = !!item.notes;
   const hasContent  = hasSubItems || hasDetails || hasNotes;
   const hasPhoto    = !!item.image_url;
@@ -257,11 +296,11 @@ export function ItineraryCard({
     if (expandState === 'collapsed') return false;
     return !isPast && hasPhoto;
   };
-  const [isExpanded,    setIsExpanded]    = useState(getInitialExpanded);
+  const [isExpanded,     setIsExpanded]     = useState(getInitialExpanded);
   const [overlaySection, setOverlaySection] = useState<'sub-items' | 'details' | 'notes' | null>(null);
-  const [subItemIdx,    setSubItemIdx]    = useState<number | null>(null);
-  const [walkOverrides, setWalkOverrides] = useState<Record<number, number>>({});
-  const [localSubItems, setLocalSubItems] = useState<any[]>(() => safeParse(item.sub_items));
+  const [subItemIdx,     setSubItemIdx]     = useState<number | null>(null);
+  const [walkOverrides,  setWalkOverrides]  = useState<Record<number, number>>({});
+  const [localSubItems,  setLocalSubItems]  = useState<any[]>(() => safeParse(item.sub_items));
   const fetchedWalkRef = useRef<Set<number>>(new Set());
 
   useEffect(() => {
@@ -354,7 +393,23 @@ export function ItineraryCard({
   };
 
   const handleSubItemsReorder = useCallback(async (newItems: any[]) => {
-    setLocalSubItems(newItems);
+    // Recalculate sub-item times locally (optimistic update)
+    let itemsWithTimes = newItems;
+    if (item.start_time) {
+      const toMins = (t: string) => { const [h, m] = t.split(':').map(Number); return h * 60 + (m || 0); };
+      const toTime = (m: number) => `${String(Math.floor(m / 60) % 24).padStart(2,'0')}:${String(m % 60).padStart(2,'0')}`;
+      let cursor = toMins(item.start_time);
+      itemsWithTimes = newItems.map(sub => {
+        const dur = sub.duration || 0;
+        const walk = sub.next_walk_mins || 0;
+        const updated = dur > 0
+          ? { ...sub, start_time: toTime(cursor), end_time: toTime(cursor + dur) }
+          : { ...sub };
+        cursor += dur + walk;
+        return updated;
+      });
+    }
+    setLocalSubItems(itemsWithTimes);
     try {
       await apiFetch(
         `/api/trips/${item.trip_id}/itineraries/${item.id}/sub-items/reorder`,
@@ -367,9 +422,8 @@ export function ItineraryCard({
     } catch {
       setLocalSubItems(safeParse(item.sub_items));
     }
-  }, [item.trip_id, item.id, item.sub_items]);
+  }, [item.trip_id, item.id, item.sub_items, item.start_time]);
 
-  // Use the optimizer-resolved mode (when AUTO) or the user-set mode
   const displayMode = (item.next_transport_resolved_mode || item.next_transport_mode || '').toLowerCase();
   const isAutoUnresolved = (item.next_transport_mode || '').toUpperCase() === 'AUTO' && !item.next_transport_resolved_mode;
 
@@ -406,51 +460,8 @@ export function ItineraryCard({
     }
   };
 
-  const renderOpeningHours = () => {
-    if (!item.opening_hours) return null;
-    try {
-      const data = JSON.parse(item.opening_hours);
-      if (!data.periods || data.periods.length === 0) return null;
-      if (data.periods.length === 1 && data.periods[0].open?.day === 0 &&
-          data.periods[0].open?.hour === 0 && !data.periods[0].close) {
-        return <div className="text-[10px] text-zinc-300 font-bold">全天候 24 小時</div>;
-      }
-      const dayNames = ['日', '一', '二', '三', '四', '五', '六'];
-      const tripDay = new Date(item.date).getDay();
-      const hoursByDay: Record<number, string[]> = {};
-      for (const period of data.periods) {
-        const day = period.open?.day;
-        if (day == null) continue;
-        if (!hoursByDay[day]) hoursByDay[day] = [];
-        const oh = String(period.open.hour).padStart(2, '0');
-        const om = String(period.open.minute || 0).padStart(2, '0');
-        if (!period.close) {
-          hoursByDay[day].push('全天');
-        } else {
-          const ch = String(period.close.hour).padStart(2, '0');
-          const cm = String(period.close.minute || 0).padStart(2, '0');
-          hoursByDay[day].push(`${oh}:${om}–${ch}:${cm}`);
-        }
-      }
-      return (
-        <div className="space-y-0.5">
-          {[0,1,2,3,4,5,6].map(day => (
-            <div key={day} className={clsx('flex items-center gap-2 text-[10px]',
-              day === tripDay ? 'text-orange-300 font-bold' : (hoursByDay[day] ? 'text-zinc-400' : 'text-zinc-600'))}>
-              <span className="w-4 shrink-0">周{dayNames[day]}</span>
-              <span className="flex-1">{hoursByDay[day]?.join('、') || '公休'}</span>
-              {day === tripDay && (
-                <span className="text-[8px] bg-orange-500/20 text-orange-400 px-1.5 py-0.5 rounded-md font-bold shrink-0">行程日</span>
-              )}
-            </div>
-          ))}
-        </div>
-      );
-    } catch { return null; }
-  };
-
   const renderOverlayContent = () => {
-    // Sub-item detail drill-down (takes precedence over section)
+    // Sub-item detail drill-down
     if (subItemIdx !== null) {
       const sub = localSubItems[subItemIdx];
       if (!sub) return null;
@@ -514,6 +525,7 @@ export function ItineraryCard({
             walkOverrides={walkOverrides}
             onReorder={handleSubItemsReorder}
             onSelectItem={(idx) => setSubItemIdx(idx)}
+            canEdit={canEdit}
           />
         </div>
       );
@@ -521,14 +533,30 @@ export function ItineraryCard({
 
     // ── 詳情 section ──
     if (overlaySection === 'details') {
-      const hoursContent = renderOpeningHours();
+      const isClosed = todayHours?.isClosedToday || todayHours?.isOutsideHours;
       return (
-        <div className="space-y-3">
+        <div className="space-y-2.5">
           {/* Rating */}
           {item.rating && !isBackup && (
-            <div className="flex items-center gap-2">
-              <Star size={14} className="text-yellow-400 fill-yellow-400 shrink-0" />
-              <span className="text-[15px] font-black text-yellow-300">{(item.rating as number).toFixed(1)}</span>
+            <div className="flex items-center gap-1.5 pb-2 border-b border-white/8">
+              <Star size={13} className="text-yellow-400 fill-yellow-400 shrink-0" />
+              <span className="text-[16px] font-black text-yellow-300 leading-none">{(item.rating as number).toFixed(1)}</span>
+            </div>
+          )}
+          {/* Today's opening hours */}
+          {todayHours && (
+            <div className={clsx(
+              'flex items-center gap-2 rounded-xl px-2.5 py-2',
+              isClosed ? 'bg-red-500/10 border border-red-500/30' : 'bg-white/5 border border-white/8'
+            )}>
+              <Clock size={11} className={clsx('shrink-0', isClosed ? 'text-red-400' : 'text-zinc-500')} />
+              <span className="text-[9px] text-zinc-500 font-bold shrink-0">今日</span>
+              <span className={clsx('text-[10px] font-bold flex-1', isClosed ? 'text-red-400' : 'text-zinc-200')}>
+                {todayHours.text}
+              </span>
+              {todayHours.isOutsideHours && item.start_time && (
+                <span className="text-[9px] text-red-400/80 font-bold shrink-0">排程 {item.start_time}</span>
+              )}
             </div>
           )}
           {/* Tags */}
@@ -539,28 +567,16 @@ export function ItineraryCard({
               ))}
             </div>
           )}
-          {/* Opening hours */}
-          {hoursContent && (
-            <div>
-              <div className="text-[8px] font-black text-zinc-500 uppercase tracking-[0.15em] mb-1.5">營業時間</div>
-              {hoursContent}
-            </div>
-          )}
-          {/* Warnings */}
-          {hasWarning && (
+          {/* Conflict / sync warnings */}
+          {(isConflicted || item.sync_conflict_warning) && (
             <div className="space-y-1">
               {isConflicted && (
-                <div className="flex items-center gap-1 text-red-400 text-[10px] font-bold">
+                <div className="flex items-center gap-1.5 text-red-400 text-[10px] font-bold">
                   <AlertTriangle size={10} />行程時間衝突
                 </div>
               )}
-              {closedWarning && (
-                <div className="flex items-center gap-1 text-red-400 text-[10px] font-bold">
-                  <Clock size={10} />⚠️ {closedWarning}
-                </div>
-              )}
-              {item.sync_conflict_warning && !closedWarning && (
-                <div className="flex items-center gap-1 text-orange-400 text-[10px] font-bold">
+              {item.sync_conflict_warning && (
+                <div className="flex items-center gap-1.5 text-orange-400 text-[10px] font-bold">
                   <AlertTriangle size={10} />{item.sync_conflict_warning}
                 </div>
               )}
@@ -643,19 +659,13 @@ export function ItineraryCard({
     return (
       <div className="flex items-center gap-0.5">
         {hasSubItems && (
-          <button type="button" onClick={() => openSection('sub-items')} className={btnClass('sub-items')}>
-            子活動
-          </button>
+          <button type="button" onClick={() => openSection('sub-items')} className={btnClass('sub-items')}>子活動</button>
         )}
         {hasDetails && (
-          <button type="button" onClick={() => openSection('details')} className={btnClass('details')}>
-            詳情
-          </button>
+          <button type="button" onClick={() => openSection('details')} className={btnClass('details')}>詳情</button>
         )}
         {hasNotes && (
-          <button type="button" onClick={() => openSection('notes')} className={btnClass('notes')}>
-            備註
-          </button>
+          <button type="button" onClick={() => openSection('notes')} className={btnClass('notes')}>備註</button>
         )}
       </div>
     );
@@ -728,9 +738,10 @@ export function ItineraryCard({
     >
       <div className={clsx(
         'relative flex flex-col bg-[#1c1c1e] rounded-[32px] overflow-hidden border transition-all',
-        isConflicted     && 'border-red-500 ring-2 ring-red-500/50',
-        isCircuitBreaker && 'border-red-500 shadow-[0_0_15px_rgba(239,68,68,0.2)] bg-[#2a1a1a]',
-        !isConflicted && !isCircuitBreaker && (canEdit ? 'border-zinc-800 hover:border-zinc-700' : 'border-zinc-800'),
+        isConflicted       && 'border-red-500 ring-2 ring-red-500/50',
+        isCircuitBreaker   && !isConflicted && 'border-red-500 shadow-[0_0_15px_rgba(239,68,68,0.2)] bg-[#2a1a1a]',
+        isScheduledDuringClosed && !isConflicted && !isCircuitBreaker && 'border-red-500/70 ring-1 ring-red-500/20',
+        !isConflicted && !isCircuitBreaker && !isScheduledDuringClosed && (canEdit ? 'border-zinc-800 hover:border-zinc-700' : 'border-zinc-800'),
       )}>
 
         {/* ── ROW 1: ICON ｜ 標題 ｜ 按鈕 ── */}
@@ -783,7 +794,7 @@ export function ItineraryCard({
                   </span>
                 )}
                 {closedWarning && (
-                  <span className="flex items-center gap-0.5 text-[10px] font-bold text-yellow-500">
+                  <span className="flex items-center gap-0.5 text-[10px] font-bold text-red-400">
                     <Clock size={9} />{closedWarning}
                   </span>
                 )}
@@ -835,7 +846,7 @@ export function ItineraryCard({
                     ? 'text-orange-500 hover:text-orange-400'
                     : 'text-zinc-600 hover:text-zinc-400'
                 )}
-                title={(item as any).is_time_fixed ? '解鎖時間（讓 AI 可調整）' : '鎖定時間'}
+                title={(item as any).is_time_fixed ? '解鎖時間' : '鎖定時間'}
               >
                 {(item as any).is_time_fixed ? <Lock size={15} /> : <LockOpen size={15} />}
               </button>
