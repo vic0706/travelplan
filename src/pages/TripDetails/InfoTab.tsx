@@ -113,17 +113,14 @@ export function InfoTab({
               if (group.length === 0) return null;
               return (
                 <div key={cat} className="space-y-2">
-                  {group.flatMap(booking => {
-                    const isRentalCat = booking.category === 'RENTAL';
-                    if (isRentalCat) {
-                      const hasReturn = !!(booking.end_time || (booking.end_date && booking.end_date !== booking.start_date));
-                      return [
-                        <BookingCard key={`${booking.id}-pickup`} booking={booking} canEdit={canEdit} onEdit={() => onEditBooking(booking)} rentalView="pickup" />,
-                        ...(hasReturn ? [<BookingCard key={`${booking.id}-return`} booking={booking} canEdit={canEdit} onEdit={() => onEditBooking(booking)} rentalView="return" />] : []),
-                      ];
-                    }
-                    return [<BookingCard key={booking.id} booking={booking} canEdit={canEdit} onEdit={() => onEditBooking(booking)} />];
-                  })}
+                  {group.map(booking => (
+                    <BookingCard
+                      key={booking.id}
+                      booking={booking}
+                      canEdit={canEdit}
+                      onEdit={() => onEditBooking(booking)}
+                    />
+                  ))}
                 </div>
               );
             })}
