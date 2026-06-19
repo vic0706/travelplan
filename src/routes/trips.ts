@@ -329,6 +329,32 @@ trips.delete('/:id/itineraries/:itemId/sub-items/:subId', async (c) => {
   }
 });
 
+// 批次更新子活動排序
+trips.patch('/:id/itineraries/:itemId/sub-items/reorder', async (c) => {
+  const tripId = c.req.param('id');
+  const itineraryId = c.req.param('itemId');
+  try {
+    const canEdit = await checkTripAccess(c, Number(tripId), 'edit');
+    if (!canEdit) return c.json({ error: 'Unauthorized' }, 403);
+
+    const body = await c.req.json().catch(() => ({}));
+    const { items } = body as { items: { id: number; display_order: number }[] };
+    if (!Array.isArray(items) || items.length === 0) {
+      return c.json({ error: 'items[] is required' }, 400);
+    }
+
+    const statements = items.map(({ id, display_order }) =>
+      c.env.DB.prepare('UPDATE SubItemItineraries SET display_order = ? WHERE id = ? AND itinerary_id = ?')
+        .bind(display_order, id, itineraryId)
+    );
+    await c.env.DB.batch(statements);
+
+    return c.json({ success: true });
+  } catch (error: any) {
+    return c.json({ error: error.message }, 500);
+  }
+});
+
 // 一次性資料遷移：將 sub_items JSON → SubItemItineraries table
 trips.post('/:id/migrate-sub-items', async (c) => {
   const tripId = c.req.param('id');

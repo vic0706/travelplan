@@ -1,11 +1,14 @@
-import React, { useState, useEffect, useRef } from 'react';
-import { Car, Train, Bus, AlertTriangle, Star, Plus, Footprints, Bike, Navigation2, Sparkles, Clock, Asterisk, ChevronLeft, ChevronRight, ChevronDown, Motorbike, Copy, CalendarDays, MapPin, Lock, LockOpen } from 'lucide-react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
+import { Car, Train, Bus, AlertTriangle, Star, Plus, Footprints, Bike, Navigation2, Sparkles, Clock, Asterisk, ChevronLeft, ChevronRight, ChevronDown, Motorbike, Copy, CalendarDays, MapPin, Lock, LockOpen, GripVertical } from 'lucide-react';
 import { apiFetch } from '../../utils/api';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Itinerary } from '../../types';
 import { DynamicIcon } from '../common/DynamicIcon';
 import { useAppStore } from '../../store';
 import { clsx } from 'clsx';
+import { DndContext, closestCenter, MouseSensor, TouchSensor, useSensor, useSensors } from '@dnd-kit/core';
+import { SortableContext, useSortable, verticalListSortingStrategy, arrayMove } from '@dnd-kit/sortable';
+import { CSS } from '@dnd-kit/utilities';
 
 interface ItineraryCardProps {
   item: Itinerary;
@@ -62,6 +65,170 @@ const checkIsClosed = (dateStr: string, openingHoursJson?: string | null) => {
   } catch { return null; }
 };
 
+const walkEstimate = (from: any, to: any): number | null => {
+  if (!from?.lat || !from?.lng || !to?.lat || !to?.lng) return null;
+  const R = 6371;
+  const dLat = (to.lat - from.lat) * Math.PI / 180;
+  const dLon = (to.lng - from.lng) * Math.PI / 180;
+  const a = Math.sin(dLat / 2) ** 2 + Math.cos(from.lat * Math.PI / 180) * Math.cos(to.lat * Math.PI / 180) * Math.sin(dLon / 2) ** 2;
+  const dist = R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(Math.max(0, 1 - a)));
+  return Math.ceil(dist * 1.3 * 13) + 3;
+};
+
+// ── Sub-item drag components ──────────────────────────────────────────────────
+
+interface SortableSubItemProps {
+  sub: any;
+  idx: number;
+  nextSub?: any;
+  walkOverrides: Record<number, number>;
+  onSelect: (idx: number) => void;
+  isLast: boolean;
+}
+
+function SortableSubItem({ sub, idx, nextSub, walkOverrides, onSelect, isLast }: SortableSubItemProps) {
+  const subHasDetails = !!sub.notes;
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: sub.id });
+
+  const style: React.CSSProperties = {
+    transform: CSS.Transform.toString(transform),
+    transition,
+    opacity: isDragging ? 0.35 : 1,
+  };
+
+  const walkMins = walkOverrides[sub.id] !== undefined ? walkOverrides[sub.id] : (sub.next_walk_mins || 0);
+  const est = !isLast ? walkEstimate(sub, nextSub) : null;
+  const displayWalk = walkMins > 0
+    ? { mins: walkMins, isEstimate: false }
+    : est !== null
+      ? { mins: est, isEstimate: true }
+      : null;
+
+  const subNavUrl = (sub.lat && sub.lng)
+    ? `https://maps.google.com/maps?daddr=${encodeURIComponent(sub.title || '')}@${sub.lat},${sub.lng}`
+    : sub.address
+    ? `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(sub.address)}`
+    : null;
+
+  return (
+    <div ref={setNodeRef} style={style}>
+      <div
+        onClick={subHasDetails ? (e) => { e.stopPropagation(); onSelect(idx); } : undefined}
+        className={clsx(
+          "w-full flex flex-col px-3 py-2.5 bg-white/5 border border-white/10 rounded-xl relative overflow-hidden transition-colors",
+          subHasDetails ? "active:bg-white/10 cursor-pointer" : "cursor-default"
+        )}
+      >
+        {/* Left accent */}
+        <div className="absolute left-0 top-0 bottom-0 w-0.5 bg-orange-500/50 rounded-r-full" />
+        {/* Main row */}
+        <div className="flex items-center gap-2 pl-0.5">
+          {/* Drag handle */}
+          <div
+            {...attributes}
+            {...listeners}
+            className="shrink-0 text-zinc-700 hover:text-zinc-500 cursor-grab active:cursor-grabbing"
+            style={{ touchAction: 'none' }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <GripVertical size={13} />
+          </div>
+          <div className="flex-1 min-w-0">
+            {!!sub.start_time && (
+              <div className="font-mono text-[10px] text-zinc-500 mb-0.5">
+                {sub.start_time}{sub.end_time && sub.end_time !== sub.start_time ? ` — ${sub.end_time}` : ''}
+              </div>
+            )}
+            <div className="text-[13px] font-bold text-white truncate">{sub.title}</div>
+            {Array.isArray(sub.tags) && (sub.tags as string[]).length > 0 && (
+              <div className="flex flex-wrap gap-1 mt-0.5">
+                {(sub.tags as string[]).map((t: string) => (
+                  <span key={t} className="text-[8px] font-bold text-orange-400/70 bg-orange-400/10 px-1 py-0.5 rounded border border-orange-400/15">#{t}</span>
+                ))}
+              </div>
+            )}
+          </div>
+          <div className="flex items-center gap-1 shrink-0">
+            {subNavUrl && (
+              <a
+                href={subNavUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                onClick={(e) => e.stopPropagation()}
+                className="p-1.5 rounded-lg text-zinc-500 hover:text-orange-400 active:bg-white/10 transition-colors"
+              >
+                <Navigation2 size={13} />
+              </a>
+            )}
+            {subHasDetails && (
+              <>
+                <Asterisk size={9} strokeWidth={3} className="text-zinc-600" />
+                <ChevronRight size={11} className="text-zinc-700" />
+              </>
+            )}
+          </div>
+        </div>
+        {!isLast && displayWalk && (
+          <div className="flex items-center justify-end gap-0.5 mt-1.5">
+            <span className="text-[7px] text-zinc-600 font-bold leading-none">下一站</span>
+            <span className={clsx('flex items-center gap-0.5', displayWalk.isEstimate ? 'text-zinc-700' : 'text-zinc-500')}>
+              <Footprints size={8} />
+              <span className="text-[8px] font-mono leading-none">
+                {displayWalk.isEstimate && '~'}{formatDuration(displayWalk.mins)}
+              </span>
+            </span>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+interface SubItemsListProps {
+  items: any[];
+  walkOverrides: Record<number, number>;
+  onReorder: (newItems: any[]) => void;
+  onSelectItem: (idx: number) => void;
+}
+
+function SubItemsList({ items, walkOverrides, onReorder, onSelectItem }: SubItemsListProps) {
+  const sensors = useSensors(
+    useSensor(MouseSensor, { activationConstraint: { distance: 5 } }),
+    useSensor(TouchSensor, { activationConstraint: { delay: 300, tolerance: 5 } }),
+  );
+
+  const handleDragEnd = (event: any) => {
+    const { active, over } = event;
+    if (!over || active.id === over.id) return;
+    const oldIdx = items.findIndex((s: any) => s.id === active.id);
+    const newIdx = items.findIndex((s: any) => s.id === over.id);
+    if (oldIdx === -1 || newIdx === -1) return;
+    onReorder(arrayMove(items, oldIdx, newIdx));
+  };
+
+  return (
+    <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
+      <SortableContext items={items.map((s: any) => s.id)} strategy={verticalListSortingStrategy}>
+        <div className="space-y-1">
+          {items.map((sub: any, idx: number) => (
+            <SortableSubItem
+              key={sub.id}
+              sub={sub}
+              idx={idx}
+              nextSub={items[idx + 1]}
+              walkOverrides={walkOverrides}
+              onSelect={onSelectItem}
+              isLast={idx === items.length - 1}
+            />
+          ))}
+        </div>
+      </SortableContext>
+    </DndContext>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+
 export function ItineraryCard({
   item, nextItem, canEdit, isConflicted, onEdit, showNextTransport, onEditNextTransport,
   expandSignal, collapseSignal, defaultSignal, expandState, isDragOverlay, onCopy, onChangeDate,
@@ -94,6 +261,7 @@ export function ItineraryCard({
   const [overlayVisible, setOverlayVisible] = useState(false);
   const [subItemIdx,     setSubItemIdx]     = useState<number | null>(null);
   const [walkOverrides,  setWalkOverrides]  = useState<Record<number, number>>({});
+  const [localSubItems,  setLocalSubItems]  = useState<any[]>(() => safeParse(item.sub_items));
   const fetchedWalkRef = useRef<Set<number>>(new Set());
 
   useEffect(() => {
@@ -162,6 +330,10 @@ export function ItineraryCard({
     }
   }, [defaultSignal, isPast, hasPhoto]);
 
+  useEffect(() => {
+    setLocalSubItems(safeParse(item.sub_items));
+  }, [item.sub_items]);
+
   const openGoogleMaps = () => {
     let url: string;
     if ((item as any).google_place_id) {
@@ -172,7 +344,6 @@ export function ItineraryCard({
       const dest = encodeURIComponent(item.address || item.title);
       url = `https://maps.google.com/maps?daddr=${dest}`;
     }
-    // window.open is blocked in iOS PWA standalone mode; use location redirect via anchor
     const a = document.createElement('a');
     a.href = url;
     a.target = '_blank';
@@ -181,6 +352,22 @@ export function ItineraryCard({
     a.click();
     document.body.removeChild(a);
   };
+
+  const handleSubItemsReorder = useCallback(async (newItems: any[]) => {
+    setLocalSubItems(newItems);
+    try {
+      await apiFetch(
+        `/api/trips/${item.trip_id}/itineraries/${item.id}/sub-items/reorder`,
+        {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ items: newItems.map((s: any, i: number) => ({ id: s.id, display_order: i })) }),
+        }
+      );
+    } catch {
+      setLocalSubItems(safeParse(item.sub_items));
+    }
+  }, [item.trip_id, item.id, item.sub_items]);
 
   // Use the optimizer-resolved mode (when AUTO) or the user-set mode
   const displayMode = (item.next_transport_resolved_mode || item.next_transport_mode || '').toLowerCase();
@@ -229,19 +416,9 @@ export function ItineraryCard({
     }
   };
 
-  const walkEstimate = (from: any, to: any): number | null => {
-    if (!from?.lat || !from?.lng || !to?.lat || !to?.lng) return null;
-    const R = 6371;
-    const dLat = (to.lat - from.lat) * Math.PI / 180;
-    const dLon = (to.lng - from.lng) * Math.PI / 180;
-    const a = Math.sin(dLat / 2) ** 2 + Math.cos(from.lat * Math.PI / 180) * Math.cos(to.lat * Math.PI / 180) * Math.sin(dLon / 2) ** 2;
-    const dist = R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(Math.max(0, 1 - a)));
-    return Math.ceil(dist * 1.3 * 13) + 3;
-  };
-
   const renderOverlayContent = () => {
     if (subItemIdx !== null) {
-      const sub = subItems[subItemIdx];
+      const sub = localSubItems[subItemIdx];
       if (!sub) return null;
       const subNavUrl = (sub.lat && sub.lng)
         ? `https://maps.google.com/maps?daddr=${encodeURIComponent(sub.title || '')}@${sub.lat},${sub.lng}`
@@ -310,91 +487,15 @@ export function ItineraryCard({
         )}
 
         {/* 子活動 */}
-        {subItems.length > 0 && (
+        {localSubItems.length > 0 && (
           <div className="space-y-1">
             <div className="text-[8px] font-black text-zinc-500 uppercase tracking-[0.15em]">子活動</div>
-            {subItems.map((sub: any, idx: number) => {
-              const subHasDetails = !!sub.notes;
-              const showTime = !!sub.start_time;
-              const subNavUrl = (sub.lat && sub.lng)
-                ? `https://maps.google.com/maps?daddr=${encodeURIComponent(sub.title || '')}@${sub.lat},${sub.lng}`
-                : sub.address
-                ? `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(sub.address)}`
-                : null;
-              const walkMins = walkOverrides[sub.id] !== undefined ? walkOverrides[sub.id] : (sub.next_walk_mins || 0);
-              const hasWalkRow = idx < subItems.length - 1;
-              const nextSub = subItems[idx + 1];
-              const est = hasWalkRow ? walkEstimate(sub, nextSub) : null;
-              const displayWalk = walkMins > 0
-                ? { mins: walkMins, isEstimate: false }
-                : est !== null
-                  ? { mins: est, isEstimate: true }
-                  : null;
-
-              return (
-                <div
-                  key={idx}
-                  onClick={subHasDetails ? (e) => { e.stopPropagation(); setSubItemIdx(idx); } : undefined}
-                  className={clsx(
-                    "w-full flex flex-col px-3 py-2.5 bg-white/5 border border-white/10 rounded-xl relative overflow-hidden transition-colors",
-                    subHasDetails ? "active:bg-white/10 cursor-pointer" : "cursor-default"
-                  )}
-                >
-                  {/* Left accent */}
-                  <div className="absolute left-0 top-0 bottom-0 w-0.5 bg-orange-500/50 rounded-r-full" />
-
-                  {/* Main row */}
-                  <div className="flex items-center gap-3 pl-0.5">
-                    <div className="flex-1 min-w-0">
-                      {showTime && (
-                        <div className="font-mono text-[10px] text-zinc-500 mb-0.5">
-                          {sub.start_time}{sub.end_time && sub.end_time !== sub.start_time ? ` — ${sub.end_time}` : ''}
-                        </div>
-                      )}
-                      <div className="text-[13px] font-bold text-white truncate">{sub.title}</div>
-                      {Array.isArray(sub.tags) && (sub.tags as string[]).length > 0 && (
-                        <div className="flex flex-wrap gap-1 mt-0.5">
-                          {(sub.tags as string[]).map((t: string) => (
-                            <span key={t} className="text-[8px] font-bold text-orange-400/70 bg-orange-400/10 px-1 py-0.5 rounded border border-orange-400/15">#{t}</span>
-                          ))}
-                        </div>
-                      )}
-                    </div>
-                    <div className="flex items-center gap-1 shrink-0">
-                      {subNavUrl && (
-                        <a
-                          href={subNavUrl}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          onClick={(e) => e.stopPropagation()}
-                          className="p-1.5 rounded-lg text-zinc-500 hover:text-orange-400 active:bg-white/10 transition-colors"
-                        >
-                          <Navigation2 size={13} />
-                        </a>
-                      )}
-                      {subHasDetails && (
-                        <>
-                          <Asterisk size={9} strokeWidth={3} className="text-zinc-600" />
-                          <ChevronRight size={11} className="text-zinc-700" />
-                        </>
-                      )}
-                    </div>
-                  </div>
-                  {/* Walk time to next sub-item — shown as bottom row to keep nav button vertically centered */}
-                  {hasWalkRow && displayWalk && (
-                    <div className="flex items-center justify-end gap-0.5 mt-1.5">
-                      <span className="text-[7px] text-zinc-600 font-bold leading-none">下一站</span>
-                      <span className={clsx('flex items-center gap-0.5', displayWalk.isEstimate ? 'text-zinc-700' : 'text-zinc-500')}>
-                        <Footprints size={8} />
-                        <span className="text-[8px] font-mono leading-none">
-                          {displayWalk.isEstimate && '~'}{formatDuration(displayWalk.mins)}
-                        </span>
-                      </span>
-                    </div>
-                  )}
-                </div>
-              );
-            })}
+            <SubItemsList
+              items={localSubItems}
+              walkOverrides={walkOverrides}
+              onReorder={handleSubItemsReorder}
+              onSelectItem={(idx) => setSubItemIdx(idx)}
+            />
           </div>
         )}
 
@@ -529,7 +630,7 @@ export function ItineraryCard({
             onClick={(e) => { e.stopPropagation(); if (canEdit && onEditNextTransport) onEditNextTransport(); }}
             className={clsx('flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl transition-colors',
               canEdit ? 'cursor-pointer hover:bg-zinc-800/30 active:bg-zinc-800/50' : 'cursor-default')}>
-            {item.next_transport_mode ? (
+          {item.next_transport_mode ? (
               <div className="flex items-center gap-1.5 text-zinc-400">
                 <span className="text-[9px] text-zinc-600 font-bold">下一站</span>
                 {getTransportIcon()}

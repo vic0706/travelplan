@@ -148,6 +148,8 @@ export function ItineraryTab({
   backupMap, onAddBackup, onSwapBackup, onDeleteBackup,
 }: ItineraryTabProps) {
   const [activeId, setActiveId] = useState<number | null>(null);
+  const [dragCollapseSignal, setDragCollapseSignal] = useState(0);
+  const [dragDefaultSignal, setDragDefaultSignal] = useState(0);
 
   const sensors = useSensors(
     useSensor(MouseSensor,  { activationConstraint: { distance: 5 } }),
@@ -157,9 +159,15 @@ export function ItineraryTab({
   const itemIds = filteredItineraries.map(i => i.id);
   const activeItem = activeId != null ? filteredItineraries.find(i => i.id === activeId) : null;
 
+  const handleDragStart = ({ active }: any) => {
+    setActiveId(active.id as number);
+    setDragCollapseSignal(c => c + 1);
+  };
+
   const handleDragEnd = (event: any) => {
     const { active, over } = event;
     setActiveId(null);
+    setDragDefaultSignal(c => c + 1);
     if (!over || active.id === over.id) return;
 
     const oldIndex = filteredItineraries.findIndex(i => i.id === active.id);
@@ -167,6 +175,11 @@ export function ItineraryTab({
     if (oldIndex === -1 || newIndex === -1) return;
 
     onReorder(arrayMove(filteredItineraries, oldIndex, newIndex));
+  };
+
+  const handleDragCancel = () => {
+    setActiveId(null);
+    setDragDefaultSignal(c => c + 1);
   };
 
   return (
@@ -185,9 +198,9 @@ export function ItineraryTab({
           <DndContext
             sensors={sensors}
             collisionDetection={closestCenter}
-            onDragStart={({ active }) => setActiveId(active.id as number)}
+            onDragStart={handleDragStart}
             onDragEnd={handleDragEnd}
-            onDragCancel={() => setActiveId(null)}
+            onDragCancel={handleDragCancel}
           >
             <SortableContext items={itemIds} strategy={verticalListSortingStrategy}>
               {filteredItineraries.map((item, index) => (
@@ -201,8 +214,8 @@ export function ItineraryTab({
                   bookings={bookings}
                   canEdit={canEdit}
                   expandSignal={expandSignal}
-                  collapseSignal={collapseSignal}
-                  defaultSignal={defaultSignal}
+                  collapseSignal={collapseSignal + dragCollapseSignal}
+                  defaultSignal={defaultSignal + dragDefaultSignal}
                   expandState={expandState}
                   onEditItinerary={onEditItinerary}
                   onEditNextTransport={onEditNextTransport}
