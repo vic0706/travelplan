@@ -289,7 +289,7 @@ export async function optimizeDailyItinerary(env: any, tripId: number, dateStr: 
       _log.push(`[travel-skip] no transport info: ${prevItem?.title ?? 'start'} → ${smartItem.title}`);
     }
 
-    const start = Math.round((cursor + travel) / 10) * 10;
+    const start = Math.ceil((cursor + travel) / 10) * 10;
     const stayDuration = parseInt(smartItem.stay_duration) || 60;
     const end = start + stayDuration;
 
