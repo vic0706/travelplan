@@ -458,20 +458,44 @@ trips.post('/:id/itineraries', async (c) => {
       return c.json({ error: 'title and date are required' }, 400);
     }
 
+    // For fixed-time items, compute display_order so insertion lands in chronological position
+    let displayOrder: number | null = null;
+    if (is_time_fixed && start_time) {
+      const { results: existing } = await c.env.DB.prepare(
+        `SELECT id, start_time FROM Itineraries WHERE trip_id = ? AND date = ? ORDER BY COALESCE(display_order, 9999), start_time`
+      ).bind(tripId, date).all() as { results: { id: number; start_time: string }[] };
+
+      let insertIdx = existing.length;
+      for (let i = 0; i < existing.length; i++) {
+        if ((existing[i].start_time || '') > start_time) { insertIdx = i; break; }
+      }
+      // Shift items at and after insertion point
+      for (let i = insertIdx; i < existing.length; i++) {
+        await c.env.DB.prepare(`UPDATE Itineraries SET display_order = ? WHERE id = ?`)
+          .bind(i + 2, existing[i].id).run();
+      }
+      // Assign explicit order to items before insertion point (normalize)
+      for (let i = 0; i < insertIdx; i++) {
+        await c.env.DB.prepare(`UPDATE Itineraries SET display_order = ? WHERE id = ?`)
+          .bind(i + 1, existing[i].id).run();
+      }
+      displayOrder = insertIdx + 1;
+    }
+
     const { meta } = await c.env.DB.prepare(`
       INSERT INTO Itineraries (
         trip_id, city_id, date, start_time, end_time, title, address,
         image_url, notes, tags, icon, sub_items, type, related_id,
-        is_time_fixed, stay_duration,
+        is_time_fixed, stay_duration, display_order,
         next_transport_mode, next_transport_time, next_transport_auto_time,
         next_transport_resolved_mode, next_transport_haversine_time, next_transport_custom_label,
         lat, lng, arrival_lat, arrival_lng, google_place_id, rating, reviews_count, opening_hours,
         place_website, place_phone, review_summary, place_status
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).bind(
       tripId, city_id, date, start_time, end_time, title, address,
       image_url, notes, JSON.stringify(tags), icon, sub_items, type, related_id,
-      is_time_fixed ? 1 : 0, String(stay_duration),
+      is_time_fixed ? 1 : 0, String(stay_duration), displayOrder,
       next_transport_mode, next_transport_time, String(next_transport_auto_time),
       next_transport_resolved_mode, next_transport_haversine_time, next_transport_custom_label,
       lat, lng, arrival_lat, arrival_lng, google_place_id, rating, reviews_count, opening_hours,

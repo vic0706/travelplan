@@ -98,14 +98,15 @@ async function generateItineraryItems(db: any, tripId: string, bookingId: number
       const retTime = perDay.return ?? dailyReturn;
 
       const placeId = b.google_place_id || '';
+      const hotelNotes = [b.title, notes].filter(Boolean).join('\n');
       if (isFirst && isLast) {
-        await insertItinerary(db, tripId, { date, start_time: checkInTime,  end_time: checkInTime,  title: `Check-in ${b.title}`,  address: addr, image_url: imageUrl, notes, icon: 'Bed', type: 'ACCOMMODATION', related_id: bookingId, google_place_id: placeId }, defaultMode, defaultTime);
-        await insertItinerary(db, tripId, { date, start_time: checkOutTime, end_time: checkOutTime, title: `Check-out ${b.title}`, address: addr, image_url: imageUrl, notes, icon: 'Bed', type: 'ACCOMMODATION', related_id: bookingId, google_place_id: placeId }, defaultMode, defaultTime);
+        await insertItinerary(db, tripId, { date, start_time: checkInTime,  end_time: checkInTime,  title: 'Check-in',  address: addr, image_url: imageUrl, notes: hotelNotes, icon: 'Bed', type: 'ACCOMMODATION', related_id: bookingId, google_place_id: placeId }, defaultMode, defaultTime);
+        await insertItinerary(db, tripId, { date, start_time: checkOutTime, end_time: checkOutTime, title: 'Check-out', address: addr, image_url: imageUrl, notes: hotelNotes, icon: 'Bed', type: 'ACCOMMODATION', related_id: bookingId, google_place_id: placeId }, defaultMode, defaultTime);
       } else if (isFirst) {
-        await insertItinerary(db, tripId, { date, start_time: checkInTime, end_time: checkInTime, title: `Check-in ${b.title}`, address: addr, image_url: imageUrl, notes, icon: 'Bed', type: 'ACCOMMODATION', related_id: bookingId, google_place_id: placeId }, defaultMode, defaultTime);
-        await insertItinerary(db, tripId, { date, start_time: retTime,     end_time: retTime,     title: '返回飯店',               address: addr, image_url: imageUrl, notes: b.title, icon: 'Bed', type: 'ACCOMMODATION', related_id: bookingId, google_place_id: placeId }, defaultMode, defaultTime);
+        await insertItinerary(db, tripId, { date, start_time: checkInTime, end_time: checkInTime, title: 'Check-in', address: addr, image_url: imageUrl, notes: hotelNotes, icon: 'Bed', type: 'ACCOMMODATION', related_id: bookingId, google_place_id: placeId }, defaultMode, defaultTime);
+        await insertItinerary(db, tripId, { date, start_time: retTime,     end_time: retTime,     title: '返回飯店', address: addr, image_url: imageUrl, notes: b.title, icon: 'Bed', type: 'ACCOMMODATION', related_id: bookingId, google_place_id: placeId }, defaultMode, defaultTime);
       } else if (isLast) {
-        await insertItinerary(db, tripId, { date, start_time: checkOutTime, end_time: checkOutTime, title: `Check-out ${b.title}`, address: addr, image_url: imageUrl, notes, icon: 'Bed', type: 'ACCOMMODATION', related_id: bookingId, google_place_id: placeId }, defaultMode, defaultTime);
+        await insertItinerary(db, tripId, { date, start_time: checkOutTime, end_time: checkOutTime, title: 'Check-out', address: addr, image_url: imageUrl, notes: hotelNotes, icon: 'Bed', type: 'ACCOMMODATION', related_id: bookingId, google_place_id: placeId }, defaultMode, defaultTime);
       } else {
         await insertItinerary(db, tripId, { date, start_time: outTime, end_time: outTime, title: '離開飯店', address: addr, image_url: imageUrl, notes: b.title, icon: 'Bed', type: 'ACCOMMODATION', related_id: bookingId, google_place_id: placeId }, defaultMode, defaultTime);
         await insertItinerary(db, tripId, { date, start_time: retTime, end_time: retTime, title: '返回飯店', address: addr, image_url: imageUrl, notes: b.title, icon: 'Bed', type: 'ACCOMMODATION', related_id: bookingId, google_place_id: placeId }, defaultMode, defaultTime);

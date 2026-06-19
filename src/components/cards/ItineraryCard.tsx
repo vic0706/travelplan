@@ -552,16 +552,15 @@ export function ItineraryCard({
               {item.rating && todayHours && <div className="w-px h-4 bg-white/10 shrink-0" />}
               {todayHours && (
                 <div className={clsx(
-                  'flex items-center gap-1.5 flex-1 rounded-lg px-2 py-1.5',
+                  'flex items-center gap-1.5 flex-1 min-w-0 rounded-lg px-2.5 py-1.5',
                   isClosed ? 'bg-red-500/10 border border-red-500/30' : 'bg-white/5 border border-white/8'
                 )}>
-                  <Clock size={10} className={clsx('shrink-0', isClosed ? 'text-red-400' : 'text-zinc-500')} />
-                  <span className="text-[9px] text-zinc-500 font-bold shrink-0">今日</span>
-                  <span className={clsx('text-[10px] font-bold leading-tight', isClosed ? 'text-red-400' : 'text-zinc-200')}>
-                    {todayHours.text}
+                  <Clock size={11} className={clsx('shrink-0', isClosed ? 'text-red-400' : 'text-zinc-400')} />
+                  <span className={clsx('text-[11px] font-bold leading-tight truncate', isClosed ? 'text-red-400' : 'text-zinc-200')}>
+                    營業時間：{todayHours.text}
                   </span>
                   {isClosed && (
-                    <AlertTriangle size={9} className="text-red-400 shrink-0 ml-auto" />
+                    <AlertTriangle size={10} className="text-red-400 shrink-0 ml-auto" />
                   )}
                 </div>
               )}
