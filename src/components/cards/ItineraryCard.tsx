@@ -87,6 +87,10 @@ const getTodayHours = (dateStr: string, openingHoursJson?: string | null, startT
         const openMins = p.open.hour * 60 + (p.open.minute || 0);
         if (!p.close) return true;
         const closeMins = p.close.hour * 60 + (p.close.minute || 0);
+        // Handle midnight crossing (e.g. 11:00–01:30 next day)
+        if (closeMins <= openMins) {
+          return itemMins >= openMins || itemMins < closeMins;
+        }
         return itemMins >= openMins && itemMins < closeMins;
       });
     }
@@ -227,7 +231,7 @@ interface SubItemsListProps {
 function SubItemsList({ items, walkOverrides, onReorder, onSelectItem, canEdit }: SubItemsListProps) {
   const sensors = useSensors(
     useSensor(MouseSensor, { activationConstraint: { distance: 5 } }),
-    useSensor(TouchSensor, { activationConstraint: { delay: 300, tolerance: 5 } }),
+    useSensor(TouchSensor, { activationConstraint: { distance: 8 } }),
   );
 
   const handleDragEnd = (event: any) => {
@@ -536,34 +540,38 @@ export function ItineraryCard({
       const isClosed = todayHours?.isClosedToday || todayHours?.isOutsideHours;
       return (
         <div className="space-y-2.5">
-          {/* Rating */}
-          {item.rating && !isBackup && (
-            <div className="flex items-center gap-1.5 pb-2 border-b border-white/8">
-              <Star size={13} className="text-yellow-400 fill-yellow-400 shrink-0" />
-              <span className="text-[16px] font-black text-yellow-300 leading-none">{(item.rating as number).toFixed(1)}</span>
-            </div>
-          )}
-          {/* Today's opening hours */}
-          {todayHours && (
-            <div className={clsx(
-              'flex items-center gap-2 rounded-xl px-2.5 py-2',
-              isClosed ? 'bg-red-500/10 border border-red-500/30' : 'bg-white/5 border border-white/8'
-            )}>
-              <Clock size={11} className={clsx('shrink-0', isClosed ? 'text-red-400' : 'text-zinc-500')} />
-              <span className="text-[9px] text-zinc-500 font-bold shrink-0">今日</span>
-              <span className={clsx('text-[10px] font-bold flex-1', isClosed ? 'text-red-400' : 'text-zinc-200')}>
-                {todayHours.text}
-              </span>
-              {todayHours.isOutsideHours && item.start_time && (
-                <span className="text-[9px] text-red-400/80 font-bold shrink-0">排程 {item.start_time}</span>
+          {/* Rating + Today's hours on the same row */}
+          {(item.rating || todayHours) && !isBackup && (
+            <div className="flex items-center gap-2">
+              {item.rating && (
+                <div className="flex items-center gap-1 shrink-0">
+                  <Star size={12} className="text-yellow-400 fill-yellow-400" />
+                  <span className="text-[15px] font-black text-yellow-300 leading-none">{(item.rating as number).toFixed(1)}</span>
+                </div>
+              )}
+              {item.rating && todayHours && <div className="w-px h-4 bg-white/10 shrink-0" />}
+              {todayHours && (
+                <div className={clsx(
+                  'flex items-center gap-1.5 flex-1 rounded-lg px-2 py-1.5',
+                  isClosed ? 'bg-red-500/10 border border-red-500/30' : 'bg-white/5 border border-white/8'
+                )}>
+                  <Clock size={10} className={clsx('shrink-0', isClosed ? 'text-red-400' : 'text-zinc-500')} />
+                  <span className="text-[9px] text-zinc-500 font-bold shrink-0">今日</span>
+                  <span className={clsx('text-[10px] font-bold leading-tight', isClosed ? 'text-red-400' : 'text-zinc-200')}>
+                    {todayHours.text}
+                  </span>
+                  {isClosed && (
+                    <AlertTriangle size={9} className="text-red-400 shrink-0 ml-auto" />
+                  )}
+                </div>
               )}
             </div>
           )}
           {/* Tags */}
           {tags.length > 0 && (
-            <div className="flex flex-wrap gap-1">
+            <div className="flex flex-wrap gap-1.5">
               {tags.map((t: string) => (
-                <span key={t} className="text-[9px] font-bold text-orange-400 bg-orange-500/10 px-1.5 py-0.5 rounded-md border border-orange-500/20">#{t}</span>
+                <span key={t} className="text-[11px] font-bold text-orange-400 bg-orange-500/10 px-2 py-0.5 rounded-md border border-orange-500/20">#{t}</span>
               ))}
             </div>
           )}
@@ -584,7 +592,7 @@ export function ItineraryCard({
           )}
           {/* Review summary */}
           {item.review_summary && (
-            <div className="text-[10px] text-zinc-400 leading-relaxed italic border-l-2 border-zinc-700 pl-2">
+            <div className="text-[10px] text-zinc-400 leading-relaxed border-l-2 border-zinc-700 pl-2">
               {item.review_summary}
             </div>
           )}
@@ -595,7 +603,7 @@ export function ItineraryCard({
     // ── 備註 section ──
     if (overlaySection === 'notes') {
       return (
-        <p className="text-[11px] text-zinc-300 leading-relaxed italic whitespace-pre-wrap">{item.notes}</p>
+        <p className="text-[13px] text-zinc-200 leading-relaxed whitespace-pre-wrap">{item.notes}</p>
       );
     }
 
