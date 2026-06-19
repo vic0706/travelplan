@@ -103,12 +103,12 @@ async function generateItineraryItems(db: any, tripId: string, bookingId: number
         await insertItinerary(db, tripId, { date, start_time: checkOutTime, end_time: checkOutTime, title: `Check-out ${b.title}`, address: addr, image_url: imageUrl, notes, icon: 'Bed', type: 'ACCOMMODATION', related_id: bookingId, google_place_id: placeId }, defaultMode, defaultTime);
       } else if (isFirst) {
         await insertItinerary(db, tripId, { date, start_time: checkInTime, end_time: checkInTime, title: `Check-in ${b.title}`, address: addr, image_url: imageUrl, notes, icon: 'Bed', type: 'ACCOMMODATION', related_id: bookingId, google_place_id: placeId }, defaultMode, defaultTime);
-        await insertItinerary(db, tripId, { date, start_time: retTime,     end_time: retTime,     title: `返回 ${b.title}`,      address: addr, image_url: imageUrl, notes: '', icon: 'Bed', type: 'ACCOMMODATION', related_id: bookingId, google_place_id: placeId }, defaultMode, defaultTime);
+        await insertItinerary(db, tripId, { date, start_time: retTime,     end_time: retTime,     title: '返回飯店',               address: addr, image_url: imageUrl, notes: b.title, icon: 'Bed', type: 'ACCOMMODATION', related_id: bookingId, google_place_id: placeId }, defaultMode, defaultTime);
       } else if (isLast) {
         await insertItinerary(db, tripId, { date, start_time: checkOutTime, end_time: checkOutTime, title: `Check-out ${b.title}`, address: addr, image_url: imageUrl, notes, icon: 'Bed', type: 'ACCOMMODATION', related_id: bookingId, google_place_id: placeId }, defaultMode, defaultTime);
       } else {
-        await insertItinerary(db, tripId, { date, start_time: outTime, end_time: outTime, title: `出門 ${b.title}`, address: addr, image_url: imageUrl, notes: '', icon: 'Bed', type: 'ACCOMMODATION', related_id: bookingId, google_place_id: placeId }, defaultMode, defaultTime);
-        await insertItinerary(db, tripId, { date, start_time: retTime, end_time: retTime, title: `返回 ${b.title}`, address: addr, image_url: imageUrl, notes: '', icon: 'Bed', type: 'ACCOMMODATION', related_id: bookingId, google_place_id: placeId }, defaultMode, defaultTime);
+        await insertItinerary(db, tripId, { date, start_time: outTime, end_time: outTime, title: '離開飯店', address: addr, image_url: imageUrl, notes: b.title, icon: 'Bed', type: 'ACCOMMODATION', related_id: bookingId, google_place_id: placeId }, defaultMode, defaultTime);
+        await insertItinerary(db, tripId, { date, start_time: retTime, end_time: retTime, title: '返回飯店', address: addr, image_url: imageUrl, notes: b.title, icon: 'Bed', type: 'ACCOMMODATION', related_id: bookingId, google_place_id: placeId }, defaultMode, defaultTime);
       }
     }
     return;
@@ -120,6 +120,16 @@ async function generateItineraryItems(db: any, tripId: string, bookingId: number
     if (b.end_date && b.end_date !== b.start_date) {
       await insertItinerary(db, tripId, { date: b.end_date, start_time: b.end_time || '10:00', end_time: b.end_time || '10:00', title: `還車：${b.title}`, address: b.end_location || addr, image_url: imageUrl, notes, icon: 'Car', type: 'RENTAL', related_id: bookingId, google_place_id: placeId }, defaultMode, defaultTime);
     }
+    return;
+  }
+
+  if (cat === 'RESTAURANT') {
+    await insertItinerary(db, tripId, {
+      date: b.start_date, start_time: b.start_time || '19:00', end_time: b.start_time || '19:00',
+      title: b.title, address: b.start_location || addr, image_url: imageUrl, notes,
+      icon: 'UtensilsCrossed', type: 'GENERAL', related_id: bookingId,
+      google_place_id: b.google_place_id || '', lat: b.lat ?? null, lng: b.lng ?? null,
+    }, defaultMode, defaultTime);
     return;
   }
 

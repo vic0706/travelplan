@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Plane, Train, Ship, Car, Bed, Bus, ChevronDown } from 'lucide-react';
+import { Plane, Train, Ship, Car, Bed, Bus, UtensilsCrossed, ChevronDown } from 'lucide-react';
 import { clsx } from 'clsx';
 import { parseISO, isSameDay, isPast } from 'date-fns';
 import { Booking } from '../../types';
@@ -16,9 +16,10 @@ function getIcon(category: string) {
     case 'FLIGHT': return Plane;
     case 'TRAIN':  return Train;
     case 'FERRY':  return Ship;
-    case 'HOTEL':  return Bed;
-    case 'BUS':    return Bus;
-    default:       return Car;
+    case 'HOTEL':      return Bed;
+    case 'BUS':        return Bus;
+    case 'RESTAURANT': return UtensilsCrossed;
+    default:           return Car;
   }
 }
 
@@ -187,6 +188,11 @@ export function BookingCard({ booking, canEdit, onEdit }: BookingCardProps) {
                 <div className="text-[11px] text-zinc-400">還車手續 {details.return_buffer}分</div>
               )}
             </>
+          )}
+
+          {/* Restaurant */}
+          {booking.category === 'RESTAURANT' && details.pax && (
+            <div className="text-[11px] text-zinc-400">{details.pax} 人</div>
           )}
 
           {booking.notes && (

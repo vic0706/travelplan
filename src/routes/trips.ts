@@ -445,7 +445,7 @@ trips.post('/:id/itineraries', async (c) => {
       notes = '', icon = 'MapPin', tags = [], image_url = '',
       google_place_id = '', lat = null, lng = null, arrival_lat = null, arrival_lng = null,
       rating = null, reviews_count = null, opening_hours = '',
-      place_website = '', place_phone = '',
+      place_website = '', place_phone = '', review_summary = null, place_status = null,
       // Default to AUTO mode — optimizer will pick the fastest transport when smart scheduling runs
       next_transport_mode = 'AUTO', next_transport_time = 'auto', next_transport_auto_time = '',
       next_transport_resolved_mode = '', next_transport_haversine_time = '',
@@ -466,8 +466,8 @@ trips.post('/:id/itineraries', async (c) => {
         next_transport_mode, next_transport_time, next_transport_auto_time,
         next_transport_resolved_mode, next_transport_haversine_time, next_transport_custom_label,
         lat, lng, arrival_lat, arrival_lng, google_place_id, rating, reviews_count, opening_hours,
-        place_website, place_phone
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        place_website, place_phone, review_summary, place_status
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).bind(
       tripId, city_id, date, start_time, end_time, title, address,
       image_url, notes, JSON.stringify(tags), icon, sub_items, type, related_id,
@@ -475,7 +475,7 @@ trips.post('/:id/itineraries', async (c) => {
       next_transport_mode, next_transport_time, String(next_transport_auto_time),
       next_transport_resolved_mode, next_transport_haversine_time, next_transport_custom_label,
       lat, lng, arrival_lat, arrival_lng, google_place_id, rating, reviews_count, opening_hours,
-      place_website, place_phone
+      place_website, place_phone, review_summary ?? null, place_status ?? null
     ).run();
 
     return c.json({ id: meta.last_row_id, success: true }, 201);
@@ -497,7 +497,7 @@ trips.put('/:id/itineraries/:itineraryId', async (c) => {
     const {
       title, date, address, start_time, end_time, notes, icon, tags,
       image_url, google_place_id, lat, lng, arrival_lat, arrival_lng, rating, reviews_count,
-      opening_hours, place_website, place_phone, place_status, sync_conflict_warning,
+      opening_hours, place_website, place_phone, review_summary, place_status, sync_conflict_warning,
       next_transport_mode, next_transport_time, next_transport_auto_time,
       next_transport_resolved_mode, next_transport_haversine_time, next_transport_custom_label,
       sub_items, is_time_fixed, stay_duration, type, related_id, city_id,
@@ -513,7 +513,7 @@ trips.put('/:id/itineraries/:itineraryId', async (c) => {
         next_transport_resolved_mode = ?, next_transport_haversine_time = ?, next_transport_custom_label = ?,
         lat = ?, lng = ?, arrival_lat = ?, arrival_lng = ?, google_place_id = ?, rating = ?, reviews_count = ?,
         opening_hours = ?, place_website = ?, place_phone = ?,
-        place_status = ?, sync_conflict_warning = ?
+        review_summary = ?, place_status = ?, sync_conflict_warning = ?
       WHERE id = ? AND trip_id = ?
     `).bind(
       city_id ?? null, date, start_time ?? '', end_time ?? '', title,
@@ -525,7 +525,7 @@ trips.put('/:id/itineraries/:itineraryId', async (c) => {
       next_transport_resolved_mode ?? '', String(next_transport_haversine_time ?? ''), next_transport_custom_label ?? '',
       lat ?? null, lng ?? null, arrival_lat ?? null, arrival_lng ?? null, google_place_id ?? '', rating ?? null, reviews_count ?? null,
       opening_hours ?? '', place_website ?? '', place_phone ?? '',
-      place_status ?? null, sync_conflict_warning ?? null,
+      review_summary ?? null, place_status ?? null, sync_conflict_warning ?? null,
       itineraryId, tripId
     ).run();
 
