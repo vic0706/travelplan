@@ -649,7 +649,7 @@ export function ItineraryCard({
             </>
           )}
 
-          {canEdit && (
+          {canEdit && !isBackup && (
             <>
               <button
                 onClick={(e) => { e.stopPropagation(); onCopy?.(); }}

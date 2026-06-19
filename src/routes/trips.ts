@@ -1056,10 +1056,6 @@ trips.patch('/:id/itineraries/:itemId/swap-backup/:backupId', async (c) => {
       ).bind(backupId, itemId, Number(backupId)),
     ]);
 
-    // Trigger optimizer for the date of the new primary
-    const dayLogs = await optimizeDailyItinerary(c.env, Number(tripId), primary.date);
-    dayLogs.forEach(l => console.log('[swap-backup]', l));
-
     return c.json({ success: true });
   } catch (error: any) {
     console.error('[swap-backup]', error);

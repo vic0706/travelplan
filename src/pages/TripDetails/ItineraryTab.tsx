@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { Plus, Check, X } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
-  DndContext, DragOverlay, PointerSensor, TouchSensor,
+  DndContext, DragOverlay, MouseSensor, TouchSensor,
   closestCenter, useSensor, useSensors,
 } from '@dnd-kit/core';
 import { SortableContext, useSortable, verticalListSortingStrategy, arrayMove } from '@dnd-kit/sortable';
@@ -34,7 +34,7 @@ interface ItineraryTabProps {
   onCopyItinerary: (item: Itinerary) => void;
   onChangeDateItinerary: (item: Itinerary) => void;
   onToggleLock: (item: Itinerary) => void;
-  onReorder: (orderedItems: Itinerary[]) => void;
+  onReorder: (orderedItems: Itinerary[]) => Promise<void>;
   backupMap: Map<number, Itinerary[]>;
   onAddBackup: (primary: Itinerary) => void;
   onSwapBackup: (primaryId: number, backupId: number) => void;
@@ -158,8 +158,8 @@ export function ItineraryTab({
   }, [selectedDate]);
 
   const sensors = useSensors(
-    useSensor(PointerSensor, { activationConstraint: { delay: 250, tolerance: 5 } }),
-    useSensor(TouchSensor,   { activationConstraint: { delay: 250, tolerance: 5 } }),
+    useSensor(MouseSensor,  { activationConstraint: { distance: 5 } }),
+    useSensor(TouchSensor,  { activationConstraint: { delay: 200, tolerance: 10 } }),
   );
 
   const displayList = pendingOrder ?? filteredItineraries;
@@ -178,10 +178,13 @@ export function ItineraryTab({
     setPendingOrder(arrayMove(displayList, oldIndex, newIndex));
   };
 
-  const handleConfirmSort = () => {
+  const handleConfirmSort = async () => {
     if (pendingOrder) {
-      onReorder(pendingOrder);
-      setPendingOrder(null);
+      try {
+        await onReorder(pendingOrder);
+      } finally {
+        setPendingOrder(null);
+      }
     }
   };
 

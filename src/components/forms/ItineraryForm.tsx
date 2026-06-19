@@ -19,6 +19,9 @@ interface ItineraryFormProps {
   initialData?: any;
   showToast?: (message: string, type?: 'success' | 'error') => void;
   backupForId?: number;
+  backupForTitle?: string;
+  backupPrimaryItem?: any;
+  onAddBackup?: () => void;
 }
 
 const safeParseArray = (data: any) => {
@@ -44,7 +47,7 @@ const timeToMinutes = (t1: string, t2: string): number => {
   return diff > 0 ? diff : 60;
 };
 
-export function ItineraryForm({ tripId, date, onSuccess, onCancel, initialData, showToast, backupForId }: ItineraryFormProps) {
+export function ItineraryForm({ tripId, date, onSuccess, onCancel, initialData, showToast, backupForId, backupForTitle, backupPrimaryItem, onAddBackup }: ItineraryFormProps) {
   const { categories: storeCategories = [], setCategories, cities: storeCities = [] } = useAppStore();
 
   const groupedCities = useMemo(() => storeCities.reduce((acc: any, city: any) => {
@@ -54,13 +57,21 @@ export function ItineraryForm({ tripId, date, onSuccess, onCancel, initialData, 
     return acc;
   }, {}), [storeCities]);
 
-  const [isTimeFixed, setIsTimeFixed] = useState(initialData?.is_time_fixed === 1);
-  const [stayDuration, setStayDuration] = useState(
-    initialData?.stay_duration ? parseInt(initialData.stay_duration) : 60
+  const [isTimeFixed, setIsTimeFixed] = useState(
+    initialData?.is_time_fixed === 1 ||
+    (backupForId != null && backupPrimaryItem?.is_time_fixed === 1)
   );
+  const [stayDuration, setStayDuration] = useState(() => {
+    if (initialData?.stay_duration) return parseInt(initialData.stay_duration);
+    if (backupForId != null && backupPrimaryItem?.stay_duration) return parseInt(backupPrimaryItem.stay_duration);
+    return 60;
+  });
   const [fixedStayDuration, setFixedStayDuration] = useState(() => {
     if (initialData?.start_time && initialData?.end_time) {
       return timeToMinutes(initialData.start_time, initialData.end_time);
+    }
+    if (backupForId != null && backupPrimaryItem?.start_time && backupPrimaryItem?.end_time) {
+      return timeToMinutes(backupPrimaryItem.start_time, backupPrimaryItem.end_time);
     }
     return 60;
   });
@@ -118,8 +129,8 @@ export function ItineraryForm({ tripId, date, onSuccess, onCancel, initialData, 
   const [formData, setFormData] = useState({
     title: initialData?.title || '',
     address: initialData?.address || '',
-    start_time: initialData?.start_time || '',
-    end_time: initialData?.end_time || '',
+    start_time: initialData?.start_time || (backupForId != null ? (backupPrimaryItem?.start_time ?? '') : ''),
+    end_time: initialData?.end_time || (backupForId != null ? (backupPrimaryItem?.end_time ?? '') : ''),
     notes: initialData?.notes || '',
     icon: initialData?.icon || 'MapPin',
     tags: safeParseArray(initialData?.tags).join(', '),
@@ -378,7 +389,14 @@ export function ItineraryForm({ tripId, date, onSuccess, onCancel, initialData, 
     <div className="bg-[#1c1c1e] border border-zinc-800 rounded-[32px] overflow-hidden flex flex-col w-full max-w-md mx-auto shadow-2xl relative max-h-[90vh]">
       {/* 標頭 */}
       <div className="px-6 py-4 border-b border-zinc-800 flex items-center justify-between bg-[#1c1c1e]/90 backdrop-blur-md z-20 sticky top-0">
-        <h2 className="text-lg font-bold text-white tracking-tight">{initialData ? '編輯活動' : '新增活動'}</h2>
+        <div>
+          <h2 className="text-lg font-bold text-white tracking-tight">
+            {backupForId ? '新增備案' : initialData ? '編輯活動' : '新增活動'}
+          </h2>
+          {backupForId && backupForTitle && (
+            <p className="text-[11px] text-orange-400/80 mt-0.5 truncate max-w-[240px]">為「{backupForTitle}」的備案</p>
+          )}
+        </div>
         <button type="button" onClick={onCancel} className="p-1.5 bg-zinc-800/50 rounded-full text-zinc-400 hover:text-white"><X size={18} /></button>
       </div>
 
@@ -619,7 +637,13 @@ export function ItineraryForm({ tripId, date, onSuccess, onCancel, initialData, 
         </div>
 
         {initialData && (
-          <div className="pt-4 border-t border-zinc-800">
+          <div className="pt-4 border-t border-zinc-800 space-y-3">
+            {onAddBackup && !(initialData as any).backup_for_id && (
+              <button type="button" onClick={onAddBackup}
+                className="w-full py-3.5 bg-orange-500/10 hover:bg-orange-500/20 text-orange-500 font-bold rounded-2xl transition-colors flex items-center justify-center gap-2 border border-orange-500/20">
+                <Plus size={18} />新增備案
+              </button>
+            )}
             <button type="button" onClick={() => setShowDeleteConfirm(true)}
               className="w-full py-3.5 bg-red-500/10 hover:bg-red-500/20 text-red-500 font-bold rounded-2xl transition-colors flex items-center justify-center gap-2 border border-red-500/20">
               <Trash2 size={18} />刪除活動
