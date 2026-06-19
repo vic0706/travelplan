@@ -20,6 +20,7 @@ interface ItineraryFormProps {
   showToast?: (message: string, type?: 'success' | 'error') => void;
   backupForId?: number;
   backupForTitle?: string;
+  backupPrimaryItem?: any;
   onAddBackup?: () => void;
 }
 
@@ -46,7 +47,7 @@ const timeToMinutes = (t1: string, t2: string): number => {
   return diff > 0 ? diff : 60;
 };
 
-export function ItineraryForm({ tripId, date, onSuccess, onCancel, initialData, showToast, backupForId, backupForTitle, onAddBackup }: ItineraryFormProps) {
+export function ItineraryForm({ tripId, date, onSuccess, onCancel, initialData, showToast, backupForId, backupForTitle, backupPrimaryItem, onAddBackup }: ItineraryFormProps) {
   const { categories: storeCategories = [], setCategories, cities: storeCities = [] } = useAppStore();
 
   const groupedCities = useMemo(() => storeCities.reduce((acc: any, city: any) => {
@@ -56,13 +57,21 @@ export function ItineraryForm({ tripId, date, onSuccess, onCancel, initialData, 
     return acc;
   }, {}), [storeCities]);
 
-  const [isTimeFixed, setIsTimeFixed] = useState(initialData?.is_time_fixed === 1);
-  const [stayDuration, setStayDuration] = useState(
-    initialData?.stay_duration ? parseInt(initialData.stay_duration) : 60
+  const [isTimeFixed, setIsTimeFixed] = useState(
+    initialData?.is_time_fixed === 1 ||
+    (backupForId != null && backupPrimaryItem?.is_time_fixed === 1)
   );
+  const [stayDuration, setStayDuration] = useState(() => {
+    if (initialData?.stay_duration) return parseInt(initialData.stay_duration);
+    if (backupForId != null && backupPrimaryItem?.stay_duration) return parseInt(backupPrimaryItem.stay_duration);
+    return 60;
+  });
   const [fixedStayDuration, setFixedStayDuration] = useState(() => {
     if (initialData?.start_time && initialData?.end_time) {
       return timeToMinutes(initialData.start_time, initialData.end_time);
+    }
+    if (backupForId != null && backupPrimaryItem?.start_time && backupPrimaryItem?.end_time) {
+      return timeToMinutes(backupPrimaryItem.start_time, backupPrimaryItem.end_time);
     }
     return 60;
   });
@@ -120,8 +129,8 @@ export function ItineraryForm({ tripId, date, onSuccess, onCancel, initialData, 
   const [formData, setFormData] = useState({
     title: initialData?.title || '',
     address: initialData?.address || '',
-    start_time: initialData?.start_time || '',
-    end_time: initialData?.end_time || '',
+    start_time: initialData?.start_time || (backupForId != null ? (backupPrimaryItem?.start_time ?? '') : ''),
+    end_time: initialData?.end_time || (backupForId != null ? (backupPrimaryItem?.end_time ?? '') : ''),
     notes: initialData?.notes || '',
     icon: initialData?.icon || 'MapPin',
     tags: safeParseArray(initialData?.tags).join(', '),
@@ -629,7 +638,7 @@ export function ItineraryForm({ tripId, date, onSuccess, onCancel, initialData, 
 
         {initialData && (
           <div className="pt-4 border-t border-zinc-800 space-y-3">
-            {onAddBackup && (
+            {onAddBackup && !(initialData as any).backup_for_id && (
               <button type="button" onClick={onAddBackup}
                 className="w-full py-3.5 bg-orange-500/10 hover:bg-orange-500/20 text-orange-500 font-bold rounded-2xl transition-colors flex items-center justify-center gap-2 border border-orange-500/20">
                 <Plus size={18} />新增備案
