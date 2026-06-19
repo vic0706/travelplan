@@ -41,12 +41,15 @@ interface BookingCardProps {
   booking: Booking;
   canEdit: boolean;
   onEdit: () => void;
+  rentalView?: 'pickup' | 'return';
 }
 
-export function BookingCard({ booking, canEdit, onEdit }: BookingCardProps) {
+export function BookingCard({ booking, canEdit, onEdit, rentalView }: BookingCardProps) {
   const [isExpanded, setIsExpanded] = useState(false);
 
-  const startDate = (() => { try { return parseISO(`${booking.start_date}T${booking.start_time || '00:00'}`); } catch { return null; } })();
+  const refDateStr = rentalView === 'return' ? (booking.end_date || booking.start_date) : booking.start_date;
+  const refTimeStr = rentalView === 'return' ? booking.end_time : booking.start_time;
+  const startDate = (() => { try { return parseISO(`${refDateStr}T${refTimeStr || '00:00'}`); } catch { return null; } })();
   const isToday    = startDate && isSameDay(startDate, new Date());
   const isPastItem = startDate && !isNaN(startDate.getTime()) && isPast(startDate) && !isToday;
   const isCrossDay = booking.start_date !== booking.end_date;
@@ -59,7 +62,9 @@ export function BookingCard({ booking, canEdit, onEdit }: BookingCardProps) {
   const isHotel      = booking.category === 'HOTEL';
   const isRestaurant = booking.category === 'RESTAURANT';
 
-  const displayTitle = booking.title;
+  const displayTitle = rentalView === 'pickup' ? `取車：${booking.title}`
+    : rentalView === 'return' ? `還車：${booking.title}`
+    : booking.title;
 
   const nights = isHotel && isCrossDay
     ? Math.round((parseISO(booking.end_date + 'T00:00:00').getTime() -
@@ -67,6 +72,11 @@ export function BookingCard({ booking, canEdit, onEdit }: BookingCardProps) {
     : 0;
 
   const chipStr = (() => {
+    if (rentalView) {
+      const date = rentalView === 'pickup' ? booking.start_date : (booking.end_date || booking.start_date);
+      const time = rentalView === 'pickup' ? booking.start_time : booking.end_time;
+      return time ? `${fmtDate(date)} ${time}` : fmtDate(date);
+    }
     if (isHotel) {
       const base = `${fmtDate(booking.start_date)} — ${fmtDate(booking.end_date)}`;
       return nights > 0 ? `${base} · ${nights}晚` : base;
@@ -117,7 +127,7 @@ export function BookingCard({ booking, canEdit, onEdit }: BookingCardProps) {
             <div className="mt-0.5 text-[11px] font-semibold text-zinc-400 leading-tight">{chipStr}</div>
           )}
           {/* 供應商 + 訂單號 — 第三行 */}
-          {(booking.provider || booking.order_id) && (
+          {(booking.provider || booking.order_id) && rentalView !== 'return' && (
             <div className="flex items-center gap-1.5 mt-0.5 flex-wrap">
               {booking.provider && <span className="text-[10px] text-zinc-600">{booking.provider}</span>}
               {booking.provider && booking.order_id && <span className="text-zinc-700 text-[10px]">·</span>}
@@ -196,15 +206,14 @@ export function BookingCard({ booking, canEdit, onEdit }: BookingCardProps) {
           )}
 
           {/* Rental / Transfer */}
-          {isRental && (
-            <>
-              {details.pickup_buffer > 0 && (
-                <div className="text-[11px] text-zinc-400">取車等候 {details.pickup_buffer}分</div>
-              )}
-              {details.return_buffer > 0 && (
-                <div className="text-[11px] text-zinc-400">還車手續 {details.return_buffer}分</div>
-              )}
-            </>
+          {isRental && rentalView !== 'return' && details.pickup_buffer > 0 && (
+            <div className="text-[11px] text-zinc-400">取車等候 {details.pickup_buffer}分</div>
+          )}
+          {isRental && rentalView !== 'pickup' && details.return_buffer > 0 && (
+            <div className="text-[11px] text-zinc-400">還車手續 {details.return_buffer}分</div>
+          )}
+          {isRental && rentalView === 'return' && booking.end_location && booking.end_location !== booking.start_location && (
+            <div className="text-[11px] text-zinc-400">{booking.end_location}</div>
           )}
 
           {/* Restaurant */}
