@@ -264,9 +264,20 @@ export async function optimizeDailyItinerary(env: any, tripId: number, dateStr: 
   const fixedQueue = [...fixedItems];
 
   for (const smartItem of smartItems) {
-    // Advance past fixed anchors that start at or before the current cursor
-    while (fixedQueue.length > 0 && timeToMins(fixedQueue[0].start_time) <= cursor) {
-      const fixed = fixedQueue.shift()!;
+    // Advance past fixed anchors that either:
+    // (a) are explicitly ordered before this smart item (display_order comparison), or
+    // (b) have no display_order but their start_time has already passed the cursor.
+    // This ensures e.g. a locked Check-in at 18:00 (display_order=0) is consumed
+    // before scheduling DOOTA Mall (display_order=1), so DOOTA starts at 18:30+ not 09:00.
+    while (fixedQueue.length > 0) {
+      const fixed = fixedQueue[0];
+      const fixedOrder = fixed.display_order;
+      const smartOrder = smartItem.display_order;
+      const shouldAdvance =
+        (fixedOrder != null && smartOrder != null && fixedOrder < smartOrder) ||
+        timeToMins(fixed.start_time) <= cursor;
+      if (!shouldAdvance) break;
+      fixedQueue.shift();
       cursor = Math.max(cursor, timeToMins(fixed.end_time || fixed.start_time));
       prevItem = fixed;
     }
