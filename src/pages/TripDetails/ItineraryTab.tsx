@@ -34,7 +34,7 @@ interface ItineraryTabProps {
   onCopyItinerary: (item: Itinerary) => void;
   onChangeDateItinerary: (item: Itinerary) => void;
   onToggleLock: (item: Itinerary) => void;
-  onReorder: (orderedItems: Itinerary[]) => void;
+  onReorder: (orderedItems: Itinerary[]) => Promise<void>;
   backupMap: Map<number, Itinerary[]>;
   onAddBackup: (primary: Itinerary) => void;
   onSwapBackup: (primaryId: number, backupId: number) => void;
@@ -178,10 +178,13 @@ export function ItineraryTab({
     setPendingOrder(arrayMove(displayList, oldIndex, newIndex));
   };
 
-  const handleConfirmSort = () => {
+  const handleConfirmSort = async () => {
     if (pendingOrder) {
-      onReorder(pendingOrder);
-      setPendingOrder(null);
+      try {
+        await onReorder(pendingOrder);
+      } finally {
+        setPendingOrder(null);
+      }
     }
   };
 

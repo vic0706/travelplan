@@ -37,6 +37,7 @@ export function StackedItineraryCard({
   const [direction, setDirection] = useState(1);
   const [showSwapConfirm, setShowSwapConfirm] = useState(false);
   const swipeStartX = useRef<number | null>(null);
+  const swipeStartY = useRef<number | null>(null);
 
   const allCards = [item, ...backups];
   const currentCard = allCards[currentIndex];
@@ -57,14 +58,19 @@ export function StackedItineraryCard({
 
   const handlePointerDown = (e: React.PointerEvent) => {
     swipeStartX.current = e.clientX;
+    swipeStartY.current = e.clientY;
   };
 
   const handlePointerUp = (e: React.PointerEvent) => {
     if (swipeStartX.current === null) return;
-    const diff = e.clientX - swipeStartX.current;
+    const diffX = e.clientX - swipeStartX.current;
+    const diffY = Math.abs(e.clientY - (swipeStartY.current ?? e.clientY));
     swipeStartX.current = null;
-    if (diff < -50) gotoNext();
-    else if (diff > 50) gotoPrev();
+    swipeStartY.current = null;
+    // Ignore if primarily a vertical gesture (drag-to-reorder)
+    if (Math.abs(diffX) < 50 || diffY > Math.abs(diffX)) return;
+    if (diffX < 0) gotoNext();
+    else gotoPrev();
   };
 
   const linkedBooking = currentCard.related_id ? bookings.find(b => b.id === currentCard.related_id) : undefined;
