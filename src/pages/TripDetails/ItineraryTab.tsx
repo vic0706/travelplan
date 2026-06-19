@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Plus, Check, X } from 'lucide-react';
+import { Plus, Check, X, Loader2 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
   DndContext, DragOverlay, MouseSensor, TouchSensor,
@@ -149,8 +149,8 @@ export function ItineraryTab({
   backupMap, onAddBackup, onSwapBackup, onDeleteBackup,
 }: ItineraryTabProps) {
   const [activeId, setActiveId] = useState<number | null>(null);
-  // pendingOrder: 暫存拖曳後的新順序，等用戶確認才送出
   const [pendingOrder, setPendingOrder] = useState<Itinerary[] | null>(null);
+  const [isConfirming, setIsConfirming] = useState(false);
 
   // 切換日期時重置 pending
   useEffect(() => {
@@ -179,11 +179,13 @@ export function ItineraryTab({
   };
 
   const handleConfirmSort = async () => {
-    if (pendingOrder) {
+    if (pendingOrder && !isConfirming) {
+      setIsConfirming(true);
       try {
         await onReorder(pendingOrder);
       } finally {
         setPendingOrder(null);
+        setIsConfirming(false);
       }
     }
   };
@@ -289,9 +291,11 @@ export function ItineraryTab({
               </button>
               <button
                 onClick={handleConfirmSort}
-                className="flex-1 flex items-center justify-center gap-1 py-2.5 rounded-2xl bg-orange-500 text-white text-[12px] font-bold hover:bg-orange-400 active:scale-95 transition-all"
+                disabled={isConfirming}
+                className="flex-1 flex items-center justify-center gap-1 py-2.5 rounded-2xl bg-orange-500 text-white text-[12px] font-bold hover:bg-orange-400 active:scale-95 transition-all disabled:opacity-60"
               >
-                <Check size={13} />確認排序
+                {isConfirming ? <Loader2 size={13} className="animate-spin" /> : <Check size={13} />}
+                {isConfirming ? '排序中...' : '確認排序'}
               </button>
             </div>
           </motion.div>

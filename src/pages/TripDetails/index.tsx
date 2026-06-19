@@ -473,15 +473,16 @@ export function TripDetails() {
 
   const conflictedIdsInView = useMemo(() => {
     const conflicts = new Set<number>();
-    for (let i = 0; i < filteredItineraries.length - 1; i++) {
-      const curr = filteredItineraries[i];
-      const next = filteredItineraries[i + 1];
-      if (curr.start_time && curr.end_time && next.start_time && next.end_time) {
-        if (!selectedDate) continue;
-        const currTimes = getEffectiveTimes(curr, selectedDate);
-        const nextTimes = getEffectiveTimes(next, selectedDate);
-        if (currTimes.end > nextTimes.start) { conflicts.add(curr.id); conflicts.add(next.id); }
-      }
+    if (!selectedDate) return conflicts;
+    const sorted = [...filteredItineraries]
+      .filter(i => i.start_time && i.end_time)
+      .sort((a, b) => (a.start_time || '').localeCompare(b.start_time || ''));
+    for (let i = 0; i < sorted.length - 1; i++) {
+      const curr = sorted[i];
+      const next = sorted[i + 1];
+      const currTimes = getEffectiveTimes(curr, selectedDate);
+      const nextTimes = getEffectiveTimes(next, selectedDate);
+      if (currTimes.end > nextTimes.start) { conflicts.add(curr.id); conflicts.add(next.id); }
     }
     return conflicts;
   }, [filteredItineraries, selectedDate]);
