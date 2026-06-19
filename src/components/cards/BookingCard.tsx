@@ -29,6 +29,14 @@ function parseDetails(d: any) {
   return d;
 }
 
+const WEEKDAYS = ['日','一','二','三','四','五','六'];
+function fmtDate(dateStr: string): string {
+  try {
+    const d = parseISO(dateStr + 'T00:00:00');
+    return `${d.getMonth() + 1}/${d.getDate()}(${WEEKDAYS[d.getDay()]})`;
+  } catch { return dateStr.slice(5).replace('-', '/'); }
+}
+
 interface BookingCardProps {
   booking: Booking;
   canEdit: boolean;
@@ -46,28 +54,45 @@ export function BookingCard({ booking, canEdit, onEdit }: BookingCardProps) {
   const details   = parseDetails(booking.details);
   const Icon      = getIcon(booking.category);
   const termLabel = TERMINAL_LABEL[booking.category] ?? '月台';
-  const isTransport = ['FLIGHT','TRAIN','FERRY','BUS'].includes(booking.category);
-  const isRental    = ['RENTAL','PRIVATE_TRANSFER'].includes(booking.category);
+  const isTransport  = ['FLIGHT','TRAIN','FERRY','BUS'].includes(booking.category);
+  const isRental     = ['RENTAL','PRIVATE_TRANSFER'].includes(booking.category);
+  const isHotel      = booking.category === 'HOTEL';
+  const isRestaurant = booking.category === 'RESTAURANT';
 
   const displayTitle = isRental
     ? `${booking.provider || ''} ${booking.title}`.trim()
     : booking.title;
 
-  const dateStr = isCrossDay
-    ? `${booking.start_date} → ${booking.end_date}`
-    : booking.start_date;
+  const nights = isHotel && isCrossDay
+    ? Math.round((parseISO(booking.end_date + 'T00:00:00').getTime() -
+                  parseISO(booking.start_date + 'T00:00:00').getTime()) / 86400000)
+    : 0;
 
-  const timeStr = (() => {
-    if (!booking.start_time) return '';
-    const startPart = isCrossDay
-      ? `${booking.start_date.slice(5).replace('-', '/')} ${booking.start_time}`
-      : booking.start_time;
+  const chipStr = (() => {
+    if (isHotel) {
+      const base = `${fmtDate(booking.start_date)} — ${fmtDate(booking.end_date)}`;
+      return nights > 0 ? `${base} · ${nights}晚` : base;
+    }
+    if (isRestaurant) {
+      const adultPax = details.adult_pax;
+      const childPax = details.child_pax;
+      const paxStr = [adultPax && `大人${adultPax}`, childPax && `小孩${childPax}`]
+        .filter(Boolean).join('+');
+      const timeRange = booking.start_time
+        ? (booking.end_time && booking.end_time !== booking.start_time
+            ? `${booking.start_time} — ${booking.end_time}` : booking.start_time)
+        : '';
+      const base = `${fmtDate(booking.start_date)}${timeRange ? ` ${timeRange}` : ''}`;
+      return paxStr ? `${base} · ${paxStr}` : base;
+    }
+    if (!booking.start_time) return fmtDate(booking.start_date);
+    if (isCrossDay) {
+      const endPart = booking.end_time ? ` ${booking.end_time}` : '';
+      return `${fmtDate(booking.start_date)} ${booking.start_time} → ${fmtDate(booking.end_date)}${endPart}`;
+    }
     const endPart = booking.end_time && booking.end_time !== booking.start_time
-      ? (isCrossDay
-          ? ` — ${booking.end_date.slice(5).replace('-', '/')} ${booking.end_time}`
-          : ` — ${booking.end_time}`)
-      : '';
-    return `${startPart}${endPart}`;
+      ? ` — ${booking.end_time}` : '';
+    return `${fmtDate(booking.start_date)} ${booking.start_time}${endPart}`;
   })();
 
   return (
@@ -87,22 +112,16 @@ export function BookingCard({ booking, canEdit, onEdit }: BookingCardProps) {
         </div>
 
         <div className="flex-1 min-w-0">
-          {/* Date row — hidden for cross-day (date is merged into timeStr) */}
-          {booking.start_date && !isCrossDay && (
-            <div className="font-mono text-[10px] text-zinc-600 mb-0.5">{dateStr}</div>
-          )}
-          {/* Time row */}
-          {timeStr && (
-            <div className="font-mono text-[13px] font-bold tracking-[0.06em] leading-none text-zinc-300 mb-0.5">
-              {timeStr}
-            </div>
-          )}
-          {/* Title */}
+          {/* 標題 — 第一行，最重要的識別資訊 */}
           <div className="text-[15px] font-black text-white leading-tight truncate">{displayTitle}</div>
-          {/* Provider + order_id */}
+          {/* 日期+時間 chip — 第二行 */}
+          {chipStr && (
+            <div className="mt-0.5 text-[11px] font-semibold text-zinc-400 leading-tight">{chipStr}</div>
+          )}
+          {/* 供應商 + 訂單號 — 第三行 */}
           {(booking.provider || booking.order_id) && !isRental && (
             <div className="flex items-center gap-1.5 mt-0.5 flex-wrap">
-              {booking.provider && <span className="text-[10px] text-zinc-500">{booking.provider}</span>}
+              {booking.provider && <span className="text-[10px] text-zinc-600">{booking.provider}</span>}
               {booking.provider && booking.order_id && <span className="text-zinc-700 text-[10px]">·</span>}
               {booking.order_id && <span className="text-[10px] text-zinc-600 font-mono">#{booking.order_id}</span>}
             </div>
@@ -191,8 +210,11 @@ export function BookingCard({ booking, canEdit, onEdit }: BookingCardProps) {
           )}
 
           {/* Restaurant */}
-          {booking.category === 'RESTAURANT' && details.pax && (
-            <div className="text-[11px] text-zinc-400">{details.pax} 人</div>
+          {isRestaurant && (details.adult_pax || details.child_pax) && (
+            <div className="text-[11px] text-zinc-400">
+              {[details.adult_pax && `大人 ${details.adult_pax}`, details.child_pax && `小孩 ${details.child_pax}`]
+                .filter(Boolean).join(' · ')}
+            </div>
           )}
 
           {booking.notes && (

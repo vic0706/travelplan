@@ -160,7 +160,9 @@ export function BookingForm({ initialData, onSubmit, onCancel, onDelete, loading
   const [rentalReturnBuffer, setRentalReturnBuffer] = useState<number>(initialDetails.return_buffer ?? 15);
 
   // Restaurant specific
-  const [restaurantPax, setRestaurantPax] = useState<number>(initialDetails.pax ?? 2);
+  const [restaurantAdultPax, setRestaurantAdultPax] = useState<number>(initialDetails.adult_pax ?? 2);
+  const [restaurantChildPax, setRestaurantChildPax] = useState<number>(initialDetails.child_pax ?? 0);
+  const [restaurantDuration, setRestaurantDuration] = useState<number>(initialDetails.duration ?? 90);
 
   // Display-only states for location inputs (show place name; backend stores address)
   const [startLocDisplay, setStartLocDisplay] = useState<string>(initialData?.start_location || '');
@@ -235,7 +237,7 @@ export function BookingForm({ initialData, onSubmit, onCancel, onDelete, loading
       };
     }
     if (cat === 'RESTAURANT') {
-      return { pax: restaurantPax };
+      return { adult_pax: restaurantAdultPax, child_pax: restaurantChildPax, duration: restaurantDuration };
     }
     return formData.details || {};
   };
@@ -976,21 +978,53 @@ export function BookingForm({ initialData, onSubmit, onCancel, onDelete, loading
           </div>
 
           {/* 用餐時間 */}
-          {timeInput('用餐時間', formData.start_time, v => set('start_time', v))}
+          {timeInput('用餐時間', formData.start_time, v => {
+            set('start_time', v);
+            if (v && restaurantDuration > 0) set('end_time', addMinutes(v, restaurantDuration));
+          })}
 
-          {/* 用餐人數 */}
-          <div>
-            <label className="block text-[10px] font-bold text-zinc-400 uppercase tracking-widest mb-2">用餐人數</label>
-            <div className="flex items-center bg-zinc-900 border border-zinc-800 rounded-xl px-4 py-3 gap-3 focus-within:border-orange-500 transition-colors w-36">
-              <input
-                type="number"
-                min="1"
-                max="50"
-                value={restaurantPax}
-                onChange={e => setRestaurantPax(Math.max(1, parseInt(e.target.value) || 1))}
-                className="w-10 bg-transparent text-white font-bold text-sm outline-none text-center"
-              />
-              <span className="text-zinc-400 text-sm">人</span>
+          {/* 結束時間 + 時長滑桿 */}
+          <div className="space-y-1.5">
+            <div className="flex items-center justify-between">
+              <label className="text-[10px] font-bold text-zinc-400 uppercase tracking-widest">結束時間</label>
+              <span className="text-[9px] font-black text-orange-400">用餐約 {restaurantDuration}分</span>
+            </div>
+            <div className="flex items-center bg-zinc-900 border border-zinc-800 rounded-xl px-3 py-2 gap-2 focus-within:border-orange-500 transition-colors">
+              <Clock size={13} className="text-orange-500 shrink-0" />
+              <input type="time" value={formData.end_time} onChange={e => set('end_time', e.target.value)}
+                className="bg-transparent text-white font-mono font-bold text-sm outline-none [color-scheme:dark]" />
+              <div className="w-px h-4 bg-zinc-700 shrink-0 mx-1" />
+              <span className="text-[9px] text-zinc-600 shrink-0">時長</span>
+              <input type="range" min="30" max="180" step="15" value={restaurantDuration}
+                onChange={e => {
+                  const mins = parseInt(e.target.value);
+                  setRestaurantDuration(mins);
+                  if (formData.start_time) set('end_time', addMinutes(formData.start_time, mins));
+                }}
+                className="flex-1 accent-orange-500 h-1.5 bg-zinc-800 rounded-lg appearance-none cursor-pointer outline-none" />
+              <span className="text-[10px] font-black text-orange-400 shrink-0 w-7 text-right">{restaurantDuration}分</span>
+            </div>
+          </div>
+
+          {/* 用餐人數（大人 + 小孩） */}
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="block text-[10px] font-bold text-zinc-400 uppercase tracking-widest mb-2">大人</label>
+              <div className="flex items-center bg-zinc-900 border border-zinc-800 rounded-xl px-4 py-3 gap-2 focus-within:border-orange-500 transition-colors">
+                <input type="number" min="0" max="50" value={restaurantAdultPax}
+                  onChange={e => setRestaurantAdultPax(Math.max(0, parseInt(e.target.value) || 0))}
+                  className="w-10 bg-transparent text-white font-bold text-sm outline-none text-center" />
+                <span className="text-zinc-400 text-sm">位</span>
+              </div>
+            </div>
+            <div>
+              <label className="block text-[10px] font-bold text-zinc-400 uppercase tracking-widest mb-2">小孩</label>
+              <div className="flex items-center bg-zinc-900 border border-zinc-800 rounded-xl px-4 py-3 gap-2 focus-within:border-orange-500 transition-colors">
+                <input type="number" min="0" max="50" value={restaurantChildPax}
+                  onChange={e => setRestaurantChildPax(Math.max(0, parseInt(e.target.value) || 0))}
+                  className="w-10 bg-transparent text-white font-bold text-sm outline-none text-center" />
+                <span className="text-zinc-400 text-sm">位</span>
+              </div>
             </div>
           </div>
 
