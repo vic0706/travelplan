@@ -257,30 +257,44 @@ export async function optimizeDailyItinerary(env: any, tripId: number, dateStr: 
     return _log;
   }
 
+  // Clear stale auto transport times on smart items too, so old values don't persist
+  for (const item of smartItems) {
+    if (item.next_transport_time === 'auto') {
+      statements.push(env.DB.prepare(`UPDATE Itineraries SET next_transport_auto_time = '' WHERE id = ?`).bind(item.id));
+    }
+  }
+
   // Sequential pass: place smart items one by one in display_order,
   // advancing cursor past any fixed items that anchor before the current position.
   let cursor = DAY_START;
   let prevItem: any = null;
   const fixedQueue = [...fixedItems];
 
-  for (const smartItem of smartItems) {
-    // Advance past fixed anchors that either:
-    // (a) are explicitly ordered before this smart item (display_order comparison), or
-    // (b) have no display_order but their start_time has already passed the cursor.
-    // This ensures e.g. a locked Check-in at 18:00 (display_order=0) is consumed
-    // before scheduling DOOTA Mall (display_order=1), so DOOTA starts at 18:30+ not 09:00.
+  const advancePastFixed = async (upToSmartOrder: number | null) => {
     while (fixedQueue.length > 0) {
       const fixed = fixedQueue[0];
       const fixedOrder = fixed.display_order;
-      const smartOrder = smartItem.display_order;
       const shouldAdvance =
-        (fixedOrder != null && smartOrder != null && fixedOrder < smartOrder) ||
+        (fixedOrder != null && upToSmartOrder != null && fixedOrder < upToSmartOrder) ||
         timeToMins(fixed.start_time) <= cursor;
       if (!shouldAdvance) break;
       fixedQueue.shift();
+      // Compute travel from previous item to this fixed anchor
+      if (prevItem?.next_transport_time === 'auto') {
+        try {
+          await computeTravelMins(prevItem, fixed, env, statements, metaStatements);
+        } catch { /* skip if no coords */ }
+      }
       cursor = Math.max(cursor, timeToMins(fixed.end_time || fixed.start_time));
       prevItem = fixed;
     }
+  };
+
+  for (const smartItem of smartItems) {
+    // Advance past fixed items that are explicitly ordered before this smart item,
+    // or whose start_time has already passed the cursor.
+    // Also computes transport time from prevItem → fixed item while advancing.
+    await advancePastFixed(smartItem.display_order);
 
     let travel = 0;
     try {
@@ -303,7 +317,14 @@ export async function optimizeDailyItinerary(env: any, tripId: number, dateStr: 
     prevItem = smartItem;
   }
 
-  // Clear warnings on remaining fixed items that come after all smart items
+  // Compute travel from last placed item to first remaining fixed item (e.g. Olive Young → 返回 Hotel)
+  if (prevItem?.next_transport_time === 'auto' && fixedQueue.length > 0) {
+    try {
+      await computeTravelMins(prevItem, fixedQueue[0], env, statements, metaStatements);
+    } catch { /* skip if no coords */ }
+  }
+
+  // Clear warnings on remaining fixed items
   for (const fixed of fixedQueue) {
     statements.push(env.DB.prepare(`UPDATE Itineraries SET sync_conflict_warning = null WHERE id = ?`).bind(fixed.id));
   }
