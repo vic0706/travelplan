@@ -120,7 +120,7 @@ async function generateItineraryItems(db: any, tripId: string, bookingId: number
     const placeId = b.google_place_id || '';
     await insertItinerary(db, tripId, { date: b.start_date, start_time: b.start_time || '10:00', end_time: b.start_time || '10:00', title: `取車：${b.title}`, address: addr, image_url: imageUrl, notes, icon: 'Car', type: 'RENTAL', related_id: bookingId, google_place_id: placeId, lat: b.lat ?? null, lng: b.lng ?? null }, defaultMode, defaultTime);
     if (b.end_date && b.end_date !== b.start_date) {
-      await insertItinerary(db, tripId, { date: b.end_date, start_time: b.end_time || '10:00', end_time: b.end_time || '10:00', title: `還車：${b.title}`, address: b.end_location || addr, image_url: imageUrl, notes, icon: 'Car', type: 'RENTAL', related_id: bookingId, google_place_id: placeId, lat: b.lat ?? null, lng: b.lng ?? null }, defaultMode, defaultTime);
+      await insertItinerary(db, tripId, { date: b.end_date, start_time: b.end_time || '10:00', end_time: b.end_time || '10:00', title: `還車：${b.title}`, address: b.end_location || addr, image_url: imageUrl, notes, icon: 'Car', type: 'RENTAL', related_id: bookingId, google_place_id: placeId, lat: b.arrival_lat ?? b.lat ?? null, lng: b.arrival_lng ?? b.lng ?? null }, defaultMode, defaultTime);
     }
     return;
   }
