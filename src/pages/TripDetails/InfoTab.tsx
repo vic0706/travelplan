@@ -114,7 +114,7 @@ export function InfoTab({
               return (
                 <div key={cat} className="space-y-2">
                   {group.flatMap(booking => {
-                    const isRentalCat = ['RENTAL', 'PRIVATE_TRANSFER'].includes(booking.category);
+                    const isRentalCat = booking.category === 'RENTAL';
                     if (isRentalCat) {
                       const hasReturn = !!(booking.end_time || (booking.end_date && booking.end_date !== booking.start_date));
                       return [
