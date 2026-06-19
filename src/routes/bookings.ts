@@ -118,9 +118,12 @@ async function generateItineraryItems(db: any, tripId: string, bookingId: number
 
   if (cat === 'RENTAL' || cat === 'PRIVATE_TRANSFER') {
     const placeId = b.google_place_id || '';
+    // 取車：取車地點 + start_time
     await insertItinerary(db, tripId, { date: b.start_date, start_time: b.start_time || '10:00', end_time: b.start_time || '10:00', title: `取車：${b.title}`, address: addr, image_url: imageUrl, notes, icon: 'Car', type: 'RENTAL', related_id: bookingId, google_place_id: placeId, lat: b.lat ?? null, lng: b.lng ?? null }, defaultMode, defaultTime);
-    if (b.end_date && b.end_date !== b.start_date) {
-      await insertItinerary(db, tripId, { date: b.end_date, start_time: b.end_time || '10:00', end_time: b.end_time || '10:00', title: `還車：${b.title}`, address: b.end_location || addr, image_url: imageUrl, notes, icon: 'Car', type: 'RENTAL', related_id: bookingId, google_place_id: placeId, lat: b.arrival_lat ?? b.lat ?? null, lng: b.arrival_lng ?? b.lng ?? null }, defaultMode, defaultTime);
+    // 還車：還車地點 + end_time（同日或跨日皆建立，只要有 end_time 或 end_date）
+    const returnDate = b.end_date || b.start_date;
+    if (b.end_time || (b.end_date && b.end_date !== b.start_date)) {
+      await insertItinerary(db, tripId, { date: returnDate, start_time: b.end_time || '10:00', end_time: b.end_time || '10:00', title: `還車：${b.title}`, address: b.end_location || addr, image_url: imageUrl, notes, icon: 'Car', type: 'RENTAL', related_id: bookingId, google_place_id: placeId, lat: b.arrival_lat ?? b.lat ?? null, lng: b.arrival_lng ?? b.lng ?? null }, defaultMode, defaultTime);
     }
     return;
   }
