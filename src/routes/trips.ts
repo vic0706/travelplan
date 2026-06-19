@@ -329,7 +329,7 @@ trips.delete('/:id/itineraries/:itemId/sub-items/:subId', async (c) => {
   }
 });
 
-// 批次更新子活動排序
+// 批次更新子活動排序，並依序重算時間
 trips.patch('/:id/itineraries/:itemId/sub-items/reorder', async (c) => {
   const tripId = c.req.param('id');
   const itineraryId = c.req.param('itemId');
@@ -343,11 +343,42 @@ trips.patch('/:id/itineraries/:itemId/sub-items/reorder', async (c) => {
       return c.json({ error: 'items[] is required' }, 400);
     }
 
-    const statements = items.map(({ id, display_order }) =>
+    // Update display_order
+    const orderStatements = items.map(({ id, display_order }) =>
       c.env.DB.prepare('UPDATE SubItemItineraries SET display_order = ? WHERE id = ? AND itinerary_id = ?')
         .bind(display_order, id, itineraryId)
     );
-    await c.env.DB.batch(statements);
+    await c.env.DB.batch(orderStatements);
+
+    // Recalculate sub-item times if parent has a start_time
+    const { results: parents } = await c.env.DB.prepare(
+      'SELECT start_time FROM Itineraries WHERE id = ? AND trip_id = ?'
+    ).bind(itineraryId, tripId).all();
+    const parent = (parents as any[])[0];
+
+    if (parent?.start_time) {
+      const { results: subs } = await c.env.DB.prepare(
+        'SELECT * FROM SubItemItineraries WHERE itinerary_id = ? ORDER BY display_order, id'
+      ).bind(itineraryId).all();
+
+      const toMins = (t: string) => { const [h, m] = t.split(':').map(Number); return h * 60 + (m || 0); };
+      const toTime = (m: number) => `${String(Math.floor(m / 60) % 24).padStart(2, '0')}:${String(m % 60).padStart(2, '0')}`;
+
+      let cursor = toMins(parent.start_time);
+      const timeStatements: any[] = [];
+      for (const sub of subs as any[]) {
+        const dur = (sub as any).duration || 0;
+        const walk = (sub as any).next_walk_mins || 0;
+        if (dur > 0) {
+          timeStatements.push(
+            c.env.DB.prepare('UPDATE SubItemItineraries SET start_time = ?, end_time = ? WHERE id = ?')
+              .bind(toTime(cursor), toTime(cursor + dur), (sub as any).id)
+          );
+        }
+        cursor += dur + walk;
+      }
+      if (timeStatements.length > 0) await c.env.DB.batch(timeStatements);
+    }
 
     return c.json({ success: true });
   } catch (error: any) {

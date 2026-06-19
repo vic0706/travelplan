@@ -119,11 +119,8 @@ function SortableSubItem({ sub, idx, nextSub, walkOverrides, onSelect, isLast }:
           subHasDetails ? "active:bg-white/10 cursor-pointer" : "cursor-default"
         )}
       >
-        {/* Left accent */}
         <div className="absolute left-0 top-0 bottom-0 w-0.5 bg-orange-500/50 rounded-r-full" />
-        {/* Main row */}
         <div className="flex items-center gap-2 pl-0.5">
-          {/* Drag handle */}
           <div
             {...attributes}
             {...listeners}
@@ -248,20 +245,23 @@ export function ItineraryCard({
   const hasWarning       = !!closedWarning || !!item.sync_conflict_warning || !!isConflicted;
   const isCircuitBreaker = canEdit && !!showNextTransport && !!item.start_time && (!item.next_transport_mode || item.next_transport_mode === '');
 
-  const hasContent = !!item.rating || subItems.length > 0 || tags.length > 0 || !!item.notes || hasWarning;
-  const hasPhoto   = !!item.image_url;
-  const canExpand  = hasPhoto || hasContent;
+  const hasSubItems = subItems.length > 0;
+  const hasDetails  = tags.length > 0 || !!item.rating || !!item.opening_hours || hasWarning || !!item.review_summary;
+  const hasNotes    = !!item.notes;
+  const hasContent  = hasSubItems || hasDetails || hasNotes;
+  const hasPhoto    = !!item.image_url;
+  const canExpand   = hasPhoto || hasContent;
 
   const getInitialExpanded = () => {
     if (expandState === 'expanded') return canExpand;
     if (expandState === 'collapsed') return false;
     return !isPast && hasPhoto;
   };
-  const [isExpanded,     setIsExpanded]     = useState(getInitialExpanded);
-  const [overlayVisible, setOverlayVisible] = useState(false);
-  const [subItemIdx,     setSubItemIdx]     = useState<number | null>(null);
-  const [walkOverrides,  setWalkOverrides]  = useState<Record<number, number>>({});
-  const [localSubItems,  setLocalSubItems]  = useState<any[]>(() => safeParse(item.sub_items));
+  const [isExpanded,    setIsExpanded]    = useState(getInitialExpanded);
+  const [overlaySection, setOverlaySection] = useState<'sub-items' | 'details' | 'notes' | null>(null);
+  const [subItemIdx,    setSubItemIdx]    = useState<number | null>(null);
+  const [walkOverrides, setWalkOverrides] = useState<Record<number, number>>({});
+  const [localSubItems, setLocalSubItems] = useState<any[]>(() => safeParse(item.sub_items));
   const fetchedWalkRef = useRef<Set<number>>(new Set());
 
   useEffect(() => {
@@ -300,17 +300,9 @@ export function ItineraryCard({
   };
 
   useEffect(() => {
-    if (overlayVisible) { setTimeout(checkOverlayScroll, 60); }
+    if (overlaySection) { setTimeout(checkOverlayScroll, 60); }
     else setCanScrollDown(false);
-  }, [overlayVisible, subItemIdx]);
-
-  const detailParts: string[] = [
-    item.notes ? '備注' : '',
-    tags.length > 0 ? '標籤' : '',
-    subItems.length > 0 ? '子活動' : '',
-    hasWarning ? '⚠' : '',
-  ].filter(Boolean) as string[];
-  const detailLabel = detailParts.length > 0 ? detailParts.join(' · ') : '詳情';
+  }, [overlaySection, subItemIdx]);
 
   useEffect(() => {
     if (expandSignal && expandSignal > 0 && hasPhoto) setIsExpanded(true);
@@ -318,14 +310,14 @@ export function ItineraryCard({
 
   useEffect(() => {
     if (collapseSignal && collapseSignal > 0) {
-      setIsExpanded(false); setOverlayVisible(false); setSubItemIdx(null);
+      setIsExpanded(false); setOverlaySection(null); setSubItemIdx(null);
     }
   }, [collapseSignal]);
 
   useEffect(() => {
     if (defaultSignal && defaultSignal > 0) {
       setIsExpanded(!isPast && hasPhoto);
-      setOverlayVisible(false);
+      setOverlaySection(null);
       setSubItemIdx(null);
     }
   }, [defaultSignal, isPast, hasPhoto]);
@@ -333,6 +325,18 @@ export function ItineraryCard({
   useEffect(() => {
     setLocalSubItems(safeParse(item.sub_items));
   }, [item.sub_items]);
+
+  const openSection = (section: 'sub-items' | 'details' | 'notes') => {
+    setSubItemIdx(null);
+    if (!isExpanded) {
+      setIsExpanded(true);
+      setOverlaySection(section);
+    } else if (overlaySection === section) {
+      setOverlaySection(null);
+    } else {
+      setOverlaySection(section);
+    }
+  };
 
   const openGoogleMaps = () => {
     let url: string;
@@ -345,12 +349,8 @@ export function ItineraryCard({
       url = `https://maps.google.com/maps?daddr=${dest}`;
     }
     const a = document.createElement('a');
-    a.href = url;
-    a.target = '_blank';
-    a.rel = 'noopener noreferrer';
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
+    a.href = url; a.target = '_blank'; a.rel = 'noopener noreferrer';
+    document.body.appendChild(a); a.click(); document.body.removeChild(a);
   };
 
   const handleSubItemsReorder = useCallback(async (newItems: any[]) => {
@@ -399,24 +399,58 @@ export function ItineraryCard({
     if (!canExpand) return;
     if (isExpanded) {
       setIsExpanded(false);
-      setOverlayVisible(false);
+      setOverlaySection(null);
       setSubItemIdx(null);
     } else {
       setIsExpanded(true);
     }
   };
 
-  const handleDetailBtn = () => {
-    if (!isExpanded) {
-      setIsExpanded(true);
-      setOverlayVisible(true);
-    } else {
-      setOverlayVisible(v => !v);
-      setSubItemIdx(null);
-    }
+  const renderOpeningHours = () => {
+    if (!item.opening_hours) return null;
+    try {
+      const data = JSON.parse(item.opening_hours);
+      if (!data.periods || data.periods.length === 0) return null;
+      if (data.periods.length === 1 && data.periods[0].open?.day === 0 &&
+          data.periods[0].open?.hour === 0 && !data.periods[0].close) {
+        return <div className="text-[10px] text-zinc-300 font-bold">全天候 24 小時</div>;
+      }
+      const dayNames = ['日', '一', '二', '三', '四', '五', '六'];
+      const tripDay = new Date(item.date).getDay();
+      const hoursByDay: Record<number, string[]> = {};
+      for (const period of data.periods) {
+        const day = period.open?.day;
+        if (day == null) continue;
+        if (!hoursByDay[day]) hoursByDay[day] = [];
+        const oh = String(period.open.hour).padStart(2, '0');
+        const om = String(period.open.minute || 0).padStart(2, '0');
+        if (!period.close) {
+          hoursByDay[day].push('全天');
+        } else {
+          const ch = String(period.close.hour).padStart(2, '0');
+          const cm = String(period.close.minute || 0).padStart(2, '0');
+          hoursByDay[day].push(`${oh}:${om}–${ch}:${cm}`);
+        }
+      }
+      return (
+        <div className="space-y-0.5">
+          {[0,1,2,3,4,5,6].map(day => (
+            <div key={day} className={clsx('flex items-center gap-2 text-[10px]',
+              day === tripDay ? 'text-orange-300 font-bold' : (hoursByDay[day] ? 'text-zinc-400' : 'text-zinc-600'))}>
+              <span className="w-4 shrink-0">周{dayNames[day]}</span>
+              <span className="flex-1">{hoursByDay[day]?.join('、') || '公休'}</span>
+              {day === tripDay && (
+                <span className="text-[8px] bg-orange-500/20 text-orange-400 px-1.5 py-0.5 rounded-md font-bold shrink-0">行程日</span>
+              )}
+            </div>
+          ))}
+        </div>
+      );
+    } catch { return null; }
   };
 
   const renderOverlayContent = () => {
+    // Sub-item detail drill-down (takes precedence over section)
     if (subItemIdx !== null) {
       const sub = localSubItems[subItemIdx];
       if (!sub) return null;
@@ -449,12 +483,8 @@ export function ItineraryCard({
               <MapPin size={10} className="text-zinc-500 shrink-0" />
               <span className="text-[11px] text-zinc-400 flex-1 leading-tight">{sub.address}</span>
               {subNavUrl && (
-                <a
-                  href={subNavUrl}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="shrink-0 p-1.5 rounded-lg bg-orange-500/10 text-orange-400 hover:bg-orange-500/20 transition-colors"
-                >
+                <a href={subNavUrl} target="_blank" rel="noopener noreferrer"
+                  className="shrink-0 p-1.5 rounded-lg bg-orange-500/10 text-orange-400 hover:bg-orange-500/20 transition-colors">
                   <Navigation2 size={12} />
                 </a>
               )}
@@ -475,62 +505,85 @@ export function ItineraryCard({
       );
     }
 
-    return (
-      <div className="space-y-2">
-        {/* Tags */}
-        {tags.length > 0 && (
-          <div className="flex flex-wrap gap-1">
-            {tags.map((t: string) => (
-              <span key={t} className="text-[9px] font-bold text-orange-400 bg-orange-500/10 px-1.5 py-0.5 rounded-md border border-orange-500/20">#{t}</span>
-            ))}
-          </div>
-        )}
+    // ── 子活動 section ──
+    if (overlaySection === 'sub-items') {
+      return (
+        <div onClick={(e) => e.stopPropagation()}>
+          <SubItemsList
+            items={localSubItems}
+            walkOverrides={walkOverrides}
+            onReorder={handleSubItemsReorder}
+            onSelectItem={(idx) => setSubItemIdx(idx)}
+          />
+        </div>
+      );
+    }
 
-        {/* 子活動 */}
-        {localSubItems.length > 0 && (
-          <div className="space-y-1">
-            <div className="text-[8px] font-black text-zinc-500 uppercase tracking-[0.15em]">子活動</div>
-            <SubItemsList
-              items={localSubItems}
-              walkOverrides={walkOverrides}
-              onReorder={handleSubItemsReorder}
-              onSelectItem={(idx) => setSubItemIdx(idx)}
-            />
-          </div>
-        )}
+    // ── 詳情 section ──
+    if (overlaySection === 'details') {
+      const hoursContent = renderOpeningHours();
+      return (
+        <div className="space-y-3">
+          {/* Rating */}
+          {item.rating && !isBackup && (
+            <div className="flex items-center gap-2">
+              <Star size={14} className="text-yellow-400 fill-yellow-400 shrink-0" />
+              <span className="text-[15px] font-black text-yellow-300">{(item.rating as number).toFixed(1)}</span>
+            </div>
+          )}
+          {/* Tags */}
+          {tags.length > 0 && (
+            <div className="flex flex-wrap gap-1">
+              {tags.map((t: string) => (
+                <span key={t} className="text-[9px] font-bold text-orange-400 bg-orange-500/10 px-1.5 py-0.5 rounded-md border border-orange-500/20">#{t}</span>
+              ))}
+            </div>
+          )}
+          {/* Opening hours */}
+          {hoursContent && (
+            <div>
+              <div className="text-[8px] font-black text-zinc-500 uppercase tracking-[0.15em] mb-1.5">營業時間</div>
+              {hoursContent}
+            </div>
+          )}
+          {/* Warnings */}
+          {hasWarning && (
+            <div className="space-y-1">
+              {isConflicted && (
+                <div className="flex items-center gap-1 text-red-400 text-[10px] font-bold">
+                  <AlertTriangle size={10} />行程時間衝突
+                </div>
+              )}
+              {closedWarning && (
+                <div className="flex items-center gap-1 text-red-400 text-[10px] font-bold">
+                  <Clock size={10} />⚠️ {closedWarning}
+                </div>
+              )}
+              {item.sync_conflict_warning && !closedWarning && (
+                <div className="flex items-center gap-1 text-orange-400 text-[10px] font-bold">
+                  <AlertTriangle size={10} />{item.sync_conflict_warning}
+                </div>
+              )}
+            </div>
+          )}
+          {/* Review summary */}
+          {item.review_summary && (
+            <div className="text-[10px] text-zinc-400 leading-relaxed italic border-l-2 border-zinc-700 pl-2">
+              {item.review_summary}
+            </div>
+          )}
+        </div>
+      );
+    }
 
-        {/* AI 評論摘要 */}
-        {item.review_summary && (
-          <div className="text-[10px] text-zinc-400 leading-relaxed italic border-l-2 border-zinc-700 pl-2">
-            {item.review_summary}
-          </div>
-        )}
+    // ── 備註 section ──
+    if (overlaySection === 'notes') {
+      return (
+        <p className="text-[11px] text-zinc-300 leading-relaxed italic whitespace-pre-wrap">{item.notes}</p>
+      );
+    }
 
-        {/* 警告 + 備註 */}
-        {(hasWarning || item.notes) && (
-          <div className="space-y-1.5">
-            {isConflicted && (
-              <div className="flex items-center gap-1 text-red-400 text-[10px] font-bold">
-                <AlertTriangle size={10} />行程時間衝突
-              </div>
-            )}
-            {closedWarning && (
-              <div className="flex items-center gap-1 text-red-400 text-[10px] font-bold">
-                <Clock size={10} />⚠️ {closedWarning}
-              </div>
-            )}
-            {item.sync_conflict_warning && !closedWarning && (
-              <div className="flex items-center gap-1 text-orange-400 text-[10px] font-bold">
-                <AlertTriangle size={10} />{item.sync_conflict_warning}
-              </div>
-            )}
-            {item.notes && (
-              <p className="text-[11px] text-zinc-300 leading-relaxed italic whitespace-pre-wrap">{item.notes}</p>
-            )}
-          </div>
-        )}
-      </div>
-    );
+    return null;
   };
 
   const hasNavigation = !!(totalCards && totalCards > 1);
@@ -577,21 +630,46 @@ export function ItineraryCard({
     );
   };
 
+  const renderSectionButtons = (onPhoto: boolean) => {
+    const btnClass = (section: 'sub-items' | 'details' | 'notes') => clsx(
+      'px-2 py-1 rounded-lg transition-all text-[9px] font-black tracking-wider',
+      overlaySection === section
+        ? 'text-orange-400 bg-orange-500/10'
+        : onPhoto
+          ? 'text-white/55 hover:text-white/80 active:bg-white/10'
+          : 'text-zinc-600 hover:text-zinc-400 active:bg-zinc-800/50'
+    );
+    if (!hasSubItems && !hasDetails && !hasNotes) return <div />;
+    return (
+      <div className="flex items-center gap-0.5">
+        {hasSubItems && (
+          <button type="button" onClick={() => openSection('sub-items')} className={btnClass('sub-items')}>
+            子活動
+          </button>
+        )}
+        {hasDetails && (
+          <button type="button" onClick={() => openSection('details')} className={btnClass('details')}>
+            詳情
+          </button>
+        )}
+        {hasNotes && (
+          <button type="button" onClick={() => openSection('notes')} className={btnClass('notes')}>
+            備註
+          </button>
+        )}
+      </div>
+    );
+  };
+
   const renderBottomBar = (onPhoto: boolean) => {
     const hasBar = hasContent || (showNextTransport && (canEdit || !!item.next_transport_mode)) || hasNavigation;
     if (!hasBar) return null;
     if (onPhoto) {
       return (
         <div className="absolute bottom-0 left-0 right-0 z-20 flex items-center justify-between px-3 py-2 bg-black/50 backdrop-blur-[8px] border-t border-white/5">
-          {detailParts.length > 0 ? (
-            <button type="button" onClick={handleDetailBtn}
-              className={clsx('flex items-center gap-1 px-2 py-1 rounded-lg transition-all',
-                overlayVisible ? 'text-orange-400 bg-orange-500/10' : 'text-white/55 hover:text-white/80')}>
-              <span className="text-[9px] font-black tracking-wider">{detailLabel}</span>
-            </button>
-          ) : <div />}
+          {renderSectionButtons(true)}
           {renderNavCenter(true)}
-          {showNextTransport && (canEdit || !!item.next_transport_mode) && (
+          {showNextTransport && (canEdit || !!item.next_transport_mode) ? (
             <button type="button" disabled={!canEdit}
               onClick={(e) => { e.stopPropagation(); if (canEdit && onEditNextTransport) onEditNextTransport(); }}
               className={clsx('flex items-center gap-1.5 px-2 py-1 rounded-lg transition-colors',
@@ -610,27 +688,20 @@ export function ItineraryCard({
                 </div>
               )}
             </button>
-          )}
-          {!showNextTransport && <div />}
+          ) : <div />}
         </div>
       );
     }
     return (
       <div className="flex items-center justify-between px-3 pb-3 pt-1">
-        {detailParts.length > 0 ? (
-          <button type="button" onClick={handleDetailBtn}
-            className={clsx('flex items-center gap-1 px-2.5 py-1.5 rounded-xl transition-all',
-              overlayVisible ? 'text-orange-500 bg-orange-500/8' : 'text-zinc-600 hover:text-zinc-400')}>
-            <span className="text-[9px] font-black tracking-wider">{detailLabel}</span>
-          </button>
-        ) : <div />}
+        {renderSectionButtons(false)}
         {renderNavCenter(false)}
         {showNextTransport && (canEdit || !!item.next_transport_mode) ? (
           <button type="button" disabled={!canEdit}
             onClick={(e) => { e.stopPropagation(); if (canEdit && onEditNextTransport) onEditNextTransport(); }}
             className={clsx('flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl transition-colors',
               canEdit ? 'cursor-pointer hover:bg-zinc-800/30 active:bg-zinc-800/50' : 'cursor-default')}>
-          {item.next_transport_mode ? (
+            {item.next_transport_mode ? (
               <div className="flex items-center gap-1.5 text-zinc-400">
                 <span className="text-[9px] text-zinc-600 font-bold">下一站</span>
                 {getTransportIcon()}
@@ -662,7 +733,7 @@ export function ItineraryCard({
         !isConflicted && !isCircuitBreaker && (canEdit ? 'border-zinc-800 hover:border-zinc-700' : 'border-zinc-800'),
       )}>
 
-        {/* ── ROW 1: ICON ｜ 標題 ｜ 導航 ── */}
+        {/* ── ROW 1: ICON ｜ 標題 ｜ 按鈕 ── */}
         <div
           className="px-4 pt-4 pb-2 flex items-center gap-3 min-h-[76px]"
           {...(dragHandleListeners as React.HTMLAttributes<HTMLDivElement>)}
@@ -679,7 +750,6 @@ export function ItineraryCard({
           </div>
 
           <div className="flex-1 min-w-0 cursor-pointer" onClick={handleTitleClick}>
-            {/* ── Time (top, clock style) ── */}
             {item.start_time ? (
               <div className="flex items-center gap-1.5 mb-0.5">
                 <span className={clsx(
@@ -688,7 +758,7 @@ export function ItineraryCard({
                 )}>
                   {item.start_time}{item.end_time && item.end_time !== item.start_time ? ` — ${item.end_time}` : ''}
                 </span>
-                {!(item as any).is_time_fixed && !isPast && <Sparkles size={9} className="text-orange-500/60" />}
+                {!(item as any).is_time_fixed && !isPast && canEdit && <Sparkles size={9} className="text-orange-500/60" />}
                 {isCircuitBreaker && <span className="w-1.5 h-1.5 rounded-full bg-red-500 animate-pulse shrink-0" />}
               </div>
             ) : (
@@ -697,11 +767,9 @@ export function ItineraryCard({
                 <span className="text-[11px] font-bold text-zinc-600 tracking-wide">待排程</span>
               </div>
             )}
-            {/* ── Title ── */}
             <h4 className={clsx('text-[16px] font-black leading-tight truncate', isPast ? 'text-zinc-600' : 'text-white')}>
               {item.title}
             </h4>
-            {/* Warning summary — visible without expanding */}
             {(isConflicted || isCircuitBreaker || closedWarning || item.sync_conflict_warning) && (
               <div className="flex flex-wrap items-center gap-x-2 gap-y-0 mt-0.5">
                 {isConflicted && (
@@ -727,13 +795,6 @@ export function ItineraryCard({
               </div>
             )}
           </div>
-
-          {item.rating && !isBackup && (
-            <div className="shrink-0 flex items-center gap-0.5 bg-yellow-500/15 rounded-lg px-1.5 py-0.5">
-              <Star size={9} className="text-yellow-400 fill-yellow-400" />
-              <span className="text-[10px] font-black text-yellow-300">{(item.rating as number).toFixed(1)}</span>
-            </div>
-          )}
 
           {isBackup && (
             <>
@@ -766,7 +827,6 @@ export function ItineraryCard({
               >
                 <CalendarDays size={15} />
               </button>
-              {/* 鎖頭：切換 is_time_fixed */}
               <button
                 onClick={(e) => { e.stopPropagation(); onToggleLock?.(); }}
                 className={clsx(
@@ -789,7 +849,7 @@ export function ItineraryCard({
           </button>
         </div>
 
-        {/* ── 展開區域（照片延伸到卡片底部，底部列懸浮其上） ── */}
+        {/* ── 展開區域 ── */}
         <AnimatePresence initial={false}>
           {isExpanded && canExpand && (
             <motion.div
@@ -801,7 +861,6 @@ export function ItineraryCard({
               className="overflow-hidden"
             >
               <div className="relative" style={{ height: 197 }}>
-                {/* 背景：照片或深色底 */}
                 {hasPhoto ? (
                   <img
                     src={item.image_url!}
@@ -816,9 +875,8 @@ export function ItineraryCard({
                   />
                 )}
 
-                {/* 內容遮罩 - z-10，底部留出底部列空間 */}
                 <AnimatePresence>
-                  {overlayVisible && (
+                  {overlaySection && (
                     <motion.div
                       initial={{ opacity: 0 }}
                       animate={{ opacity: 1 }}
@@ -829,7 +887,7 @@ export function ItineraryCard({
                       <div
                         ref={overlayScrollRef}
                         onScroll={checkOverlayScroll}
-                        onClick={canEdit ? () => onEdit() : undefined}
+                        onClick={canEdit && overlaySection !== 'sub-items' ? () => onEdit() : undefined}
                         className="absolute inset-0 overflow-y-auto no-scrollbar p-3 pb-11"
                       >
                         {renderOverlayContent()}
@@ -843,14 +901,12 @@ export function ItineraryCard({
                   )}
                 </AnimatePresence>
 
-                {/* 底部列 - 懸浮在照片上，z-20 */}
                 {renderBottomBar(true)}
               </div>
             </motion.div>
           )}
         </AnimatePresence>
 
-        {/* 底部列 - 未展開時顯示於卡片下方 */}
         {!isExpanded && renderBottomBar(false)}
 
       </div>
