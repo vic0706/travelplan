@@ -121,7 +121,7 @@ interface SortableSubItemProps {
 }
 
 function SortableSubItem({ sub, idx, nextSub, walkOverrides, onSelect, isLast, canEdit }: SortableSubItemProps) {
-  const subHasDetails = !!sub.notes;
+  const subHasDetails = !!sub.notes || (Array.isArray(sub.tags) && sub.tags.length > 0);
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
     id: sub.id,
     disabled: !canEdit,
@@ -367,6 +367,7 @@ export function ItineraryCard({
 
   useEffect(() => {
     setLocalSubItems(safeParse(item.sub_items));
+    setSubItemIdx(null);
   }, [item.sub_items]);
 
   const openSection = (section: 'sub-items' | 'details' | 'notes') => {
@@ -505,7 +506,7 @@ export function ItineraryCard({
               )}
             </div>
           )}
-          {sub.tags?.length > 0 && (
+          {Array.isArray(sub.tags) && sub.tags.length > 0 && (
             <div className="flex flex-wrap gap-1 mb-2">
               {sub.tags.map((t: string) => (
                 <span key={t} className="text-[8px] font-bold text-orange-400 bg-orange-400/10 px-1.5 py-0.5 rounded-md border border-orange-400/20">#{t}</span>
