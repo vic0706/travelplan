@@ -477,46 +477,10 @@ export function ItineraryCard({
         : null;
       return (
         <div>
-          <button
-            type="button"
-            onClick={() => setSubItemIdx(null)}
-            className="w-full flex items-center gap-2 bg-white/5 active:bg-white/10 rounded-xl px-3 py-2.5 mb-3 text-orange-400 transition-colors"
-          >
-            <ChevronLeft size={14} strokeWidth={2.5} />
-            <span className="text-[11px] font-black tracking-wide">返回</span>
-          </button>
-          {sub.start_time && !!(item as any).is_time_fixed && (
-            <div className="font-mono text-[9px] text-zinc-500 mb-1">
-              {sub.start_time}{sub.end_time && sub.end_time !== sub.start_time ? ` — ${sub.end_time}` : ''}
-            </div>
+          <h5 className="text-[13px] font-black text-white mb-2">{sub.title}</h5>
+          {sub.notes && (
+            <p className="text-[11px] text-zinc-300 leading-relaxed">{sub.notes}</p>
           )}
-          <h5 className="text-[13px] font-black text-white mb-1">{sub.title}</h5>
-          {sub.duration > 0 && (
-            <div className="text-[9px] text-orange-400/70 mb-2">{sub.duration} 分鐘</div>
-          )}
-          {sub.address && (
-            <div className="flex items-center gap-1.5 mb-2">
-              <MapPin size={10} className="text-zinc-500 shrink-0" />
-              <span className="text-[11px] text-zinc-400 flex-1 leading-tight">{sub.address}</span>
-              {subNavUrl && (
-                <a href={subNavUrl} target="_blank" rel="noopener noreferrer"
-                  className="shrink-0 p-1.5 rounded-lg bg-orange-500/10 text-orange-400 hover:bg-orange-500/20 transition-colors">
-                  <Navigation2 size={12} />
-                </a>
-              )}
-            </div>
-          )}
-          {Array.isArray(sub.tags) && sub.tags.length > 0 && (
-            <div className="flex flex-wrap gap-1 mb-2">
-              {sub.tags.map((t: string) => (
-                <span key={t} className="text-[8px] font-bold text-orange-400 bg-orange-400/10 px-1.5 py-0.5 rounded-md border border-orange-400/20">#{t}</span>
-              ))}
-            </div>
-          )}
-          {sub.notes
-            ? <p className="text-[11px] text-zinc-300 leading-relaxed italic">{sub.notes}</p>
-            : <p className="text-[10px] text-zinc-600 italic">沒有備註</p>
-          }
         </div>
       );
     }
@@ -663,11 +627,15 @@ export function ItineraryCard({
           ? 'text-white/55 hover:text-white/80 active:bg-white/10'
           : 'text-zinc-600 hover:text-zinc-400 active:bg-zinc-800/50'
     );
+    const activeClass = 'px-2 py-1 rounded-lg text-[9px] font-black tracking-wider text-orange-400 bg-orange-500/10';
     if (!hasSubItems && !hasDetails && !hasNotes) return <div />;
     return (
       <div className="flex items-center gap-0.5">
         {hasSubItems && (
           <button type="button" onClick={() => openSection('sub-items')} className={btnClass('sub-items')}>子活動</button>
+        )}
+        {subItemIdx !== null && (
+          <button type="button" onClick={() => setSubItemIdx(null)} className={activeClass}>子活動詳情</button>
         )}
         {hasDetails && (
           <button type="button" onClick={() => openSection('details')} className={btnClass('details')}>詳情</button>

@@ -858,8 +858,8 @@ export function ItineraryForm({ tripId, date, onSuccess, onCancel, initialData, 
 
                 const newItem: any = {
                   title: subTitle,
-                  start_time: isTimeFixed ? subStartTime : '',
-                  end_time: isTimeFixed ? subEndTime : '',
+                  start_time: isTimeFixed ? subStartTime : (editingSubItem?.start_time ?? ''),
+                  end_time: isTimeFixed ? subEndTime : (editingSubItem?.end_time ?? ''),
                   notes: notesEl?.value || '',
                   address: subAddress,
                   lat: subLat ?? undefined,
