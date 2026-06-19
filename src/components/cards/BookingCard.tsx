@@ -59,9 +59,7 @@ export function BookingCard({ booking, canEdit, onEdit }: BookingCardProps) {
   const isHotel      = booking.category === 'HOTEL';
   const isRestaurant = booking.category === 'RESTAURANT';
 
-  const displayTitle = isRental
-    ? `${booking.provider || ''} ${booking.title}`.trim()
-    : booking.title;
+  const displayTitle = booking.title;
 
   const nights = isHotel && isCrossDay
     ? Math.round((parseISO(booking.end_date + 'T00:00:00').getTime() -
@@ -119,7 +117,7 @@ export function BookingCard({ booking, canEdit, onEdit }: BookingCardProps) {
             <div className="mt-0.5 text-[11px] font-semibold text-zinc-400 leading-tight">{chipStr}</div>
           )}
           {/* 供應商 + 訂單號 — 第三行 */}
-          {(booking.provider || booking.order_id) && !isRental && (
+          {(booking.provider || booking.order_id) && (
             <div className="flex items-center gap-1.5 mt-0.5 flex-wrap">
               {booking.provider && <span className="text-[10px] text-zinc-600">{booking.provider}</span>}
               {booking.provider && booking.order_id && <span className="text-zinc-700 text-[10px]">·</span>}
