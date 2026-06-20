@@ -462,7 +462,7 @@ trips.post('/:id/itineraries', async (c) => {
     let displayOrder: number | null = null;
     if (is_time_fixed && start_time) {
       const { results: existing } = await c.env.DB.prepare(
-        `SELECT id, start_time FROM Itineraries WHERE trip_id = ? AND date = ? ORDER BY COALESCE(display_order, 9999), start_time`
+        `SELECT id, start_time FROM Itineraries WHERE trip_id = ? AND date = ? ORDER BY COALESCE(start_time, '99:99'), COALESCE(display_order, 9999)`
       ).bind(tripId, date).all() as { results: { id: number; start_time: string }[] };
 
       let insertIdx = existing.length;
