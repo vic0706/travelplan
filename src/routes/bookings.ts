@@ -1,5 +1,6 @@
 import { Hono } from 'hono';
 import { Env } from '../worker';
+import { optimizeDailyItinerary } from '../utils/optimizer';
 
 const bookings = new Hono<{ Bindings: Env }>();
 
@@ -98,6 +99,14 @@ function timeDiffMins(startTime: string, endTime: string): number {
   const [sh, sm] = startTime.split(':').map(Number);
   const [eh, em] = endTime.split(':').map(Number);
   return Math.max(0, (eh * 60 + em) - (sh * 60 + sm));
+}
+
+// ── Helper: collect all dates affected by a booking (for optimizer) ──────────
+function affectedDates(b: any): string[] {
+  if (b.category === 'HOTEL' && b.start_date && b.end_date) {
+    return iterateDates(b.start_date, b.end_date);
+  }
+  return [...new Set([b.start_date, b.end_date].filter(Boolean))] as string[];
 }
 
 // ── Auto-generate itinerary items based on booking category ──────────────────
@@ -259,6 +268,11 @@ bookings.post('/', async (c) => {
     console.error('[bookings] generateItineraryItems failed:', err);
   }
 
+  // Re-optimize affected dates so smart items get rescheduled around new fixed anchors
+  for (const date of affectedDates(b)) {
+    try { await optimizeDailyItinerary(c.env.DB, tripId, date); } catch {}
+  }
+
   const created = await c.env.DB.prepare('SELECT * FROM Bookings WHERE id = ?').bind(bookingId).first() as any;
   return c.json({ ...created, details: created?.details ? JSON.parse(created.details) : {} });
 });
@@ -293,6 +307,11 @@ bookings.put('/:bookingId', async (c) => {
     await generateItineraryItems(c.env.DB, tripId, Number(bookingId), b, details, b.image_url || '');
   } catch (err) {
     console.error('[bookings PUT] generateItineraryItems failed:', err);
+  }
+
+  // Re-optimize affected dates so smart items get rescheduled around updated fixed anchors
+  for (const date of affectedDates(b)) {
+    try { await optimizeDailyItinerary(c.env.DB, tripId, date); } catch {}
   }
 
   return c.json({ success: true });
