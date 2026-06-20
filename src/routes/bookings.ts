@@ -30,6 +30,7 @@ async function insertItinerary(db: any, tripId: string, item: {
     displayOrder = insertIdx + 1;
   }
 
+  const stayDuration = timeDiffMins(item.start_time, item.end_time);
   const result = await db.prepare(`
     INSERT INTO Itineraries (
       trip_id, city_id, date, start_time, end_time, title, address,
@@ -37,12 +38,12 @@ async function insertItinerary(db: any, tripId: string, item: {
       is_time_fixed, stay_duration, display_order, next_transport_mode, next_transport_time,
       next_transport_auto_time, lat, lng, google_place_id, rating,
       reviews_count, opening_hours, place_website, place_phone
-    ) VALUES (?, NULL, ?, ?, ?, ?, ?, ?, ?, '[]', ?, '[]', ?, ?, 1, '0', ?, ?, ?, '0', ?, ?, ?, NULL, NULL, NULL, NULL, NULL)
+    ) VALUES (?, NULL, ?, ?, ?, ?, ?, ?, ?, '[]', ?, '[]', ?, ?, 1, ?, ?, ?, ?, '0', ?, ?, ?, NULL, NULL, NULL, NULL, NULL)
   `).bind(
     tripId, item.date, item.start_time, item.end_time,
     item.title, item.address, item.image_url, item.notes,
     item.icon, item.type, item.related_id,
-    displayOrder, transportMode, transportTime,
+    String(stayDuration), displayOrder, transportMode, transportTime,
     item.lat ?? null, item.lng ?? null,
     item.google_place_id || ''
   ).run();
@@ -90,6 +91,13 @@ function addMins(time: string, mins: number): string {
   const [h, m] = time.split(':').map(Number);
   const total = ((h * 60 + m + mins) % 1440 + 1440) % 1440;
   return `${String(Math.floor(total / 60)).padStart(2, '0')}:${String(total % 60).padStart(2, '0')}`;
+}
+
+function timeDiffMins(startTime: string, endTime: string): number {
+  if (!startTime || !endTime) return 0;
+  const [sh, sm] = startTime.split(':').map(Number);
+  const [eh, em] = endTime.split(':').map(Number);
+  return Math.max(0, (eh * 60 + em) - (sh * 60 + sm));
 }
 
 // ── Auto-generate itinerary items based on booking category ──────────────────

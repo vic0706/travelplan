@@ -706,7 +706,7 @@ export function ItineraryCard({
                 <span className="text-[9px] text-zinc-600 font-bold">下一站</span>
                 {getTransportIcon()}
                 <span className="text-[11px] font-black tracking-tight">
-                  {manualVal > 0 ? formatDuration(manualVal) : autoVal > 0 ? formatDuration(autoVal) : '自動'}
+                  {manualVal > 0 ? formatDuration(manualVal) : autoVal > 0 ? formatDuration(autoVal) : haversineEst ? `~${formatDuration(haversineEst)}` : '自動'}
                 </span>
               </div>
             ) : (

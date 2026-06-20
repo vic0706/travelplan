@@ -476,7 +476,13 @@ export function BookingForm({ initialData, onSubmit, onCancel, onDelete, loading
                 label="出發地"
                 value={startLocDisplay}
                 onChange={v => { setStartLocDisplay(v); set('start_location', v); }}
-                onPlaceSelect={_place => { /* start_location set by onChange to Chinese display name */ }}
+                onPlaceSelect={place => {
+                  setFormData(prev => ({
+                    ...prev,
+                    lat: place.lat ?? prev.lat,
+                    lng: place.lng ?? prev.lng,
+                  }));
+                }}
                 placeholder="搜尋出發站..."
                 showNameOnSelect
               />
@@ -484,7 +490,13 @@ export function BookingForm({ initialData, onSubmit, onCancel, onDelete, loading
                 label="目的地"
                 value={endLocDisplay}
                 onChange={v => { setEndLocDisplay(v); set('end_location', v); }}
-                onPlaceSelect={_place => { /* end_location set by onChange to Chinese display name */ }}
+                onPlaceSelect={place => {
+                  setFormData(prev => ({
+                    ...prev,
+                    arrival_lat: place.lat ?? prev.arrival_lat,
+                    arrival_lng: place.lng ?? prev.arrival_lng,
+                  }));
+                }}
                 placeholder="搜尋目的站..."
                 showNameOnSelect
               />
@@ -938,7 +950,13 @@ export function BookingForm({ initialData, onSubmit, onCancel, onDelete, loading
               label={formData.category === 'RENTAL' ? '取車地點' : '出發地點'}
               value={startLocDisplay}
               onChange={v => { setStartLocDisplay(v); set('start_location', v); }}
-              onPlaceSelect={_place => { /* start_location set by onChange to Chinese display name */ }}
+              onPlaceSelect={place => {
+                setFormData(prev => ({
+                  ...prev,
+                  lat: place.lat ?? prev.lat,
+                  lng: place.lng ?? prev.lng,
+                }));
+              }}
               placeholder={formData.category === 'RENTAL' ? '搜尋取車地點...' : '搜尋出發地...'}
               showNameOnSelect
             />
@@ -946,7 +964,13 @@ export function BookingForm({ initialData, onSubmit, onCancel, onDelete, loading
               label={formData.category === 'RENTAL' ? '還車地點' : '目的地點'}
               value={endLocDisplay}
               onChange={v => { setEndLocDisplay(v); set('end_location', v); }}
-              onPlaceSelect={_place => { /* end_location set by onChange to Chinese display name */ }}
+              onPlaceSelect={place => {
+                setFormData(prev => ({
+                  ...prev,
+                  arrival_lat: place.lat ?? prev.arrival_lat,
+                  arrival_lng: place.lng ?? prev.arrival_lng,
+                }));
+              }}
               placeholder={formData.category === 'RENTAL' ? '搜尋還車地點...' : '搜尋目的地...'}
               showNameOnSelect
             />
