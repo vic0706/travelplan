@@ -1,5 +1,6 @@
 import { Hono } from 'hono';
 import { Env } from '../worker';
+import { optimizeDailyItinerary } from '../utils/optimizer';
 
 const bookings = new Hono<{ Bindings: Env }>();
 
@@ -11,19 +12,39 @@ async function insertItinerary(db: any, tripId: string, item: {
   lat?: number | null; lng?: number | null;
   arrival_lat?: number | null; arrival_lng?: number | null;
 }, transportMode = '', transportTime = '') {
+  // Compute chronological display_order so this item slots into the right position
+  let displayOrder: number | null = null;
+  if (item.start_time) {
+    const { results: existing } = await db.prepare(
+      `SELECT id, start_time FROM Itineraries WHERE trip_id = ? AND date = ? ORDER BY COALESCE(start_time, '99:99'), COALESCE(display_order, 9999)`
+    ).bind(tripId, item.date).all() as { results: { id: number; start_time: string }[] };
+    let insertIdx = existing.length;
+    for (let i = 0; i < existing.length; i++) {
+      if ((existing[i].start_time || '') > item.start_time) { insertIdx = i; break; }
+    }
+    for (let i = insertIdx; i < existing.length; i++) {
+      await db.prepare(`UPDATE Itineraries SET display_order = ? WHERE id = ?`).bind(i + 2, existing[i].id).run();
+    }
+    for (let i = 0; i < insertIdx; i++) {
+      await db.prepare(`UPDATE Itineraries SET display_order = ? WHERE id = ?`).bind(i + 1, existing[i].id).run();
+    }
+    displayOrder = insertIdx + 1;
+  }
+
+  const stayDuration = timeDiffMins(item.start_time, item.end_time);
   const result = await db.prepare(`
     INSERT INTO Itineraries (
       trip_id, city_id, date, start_time, end_time, title, address,
       image_url, notes, tags, icon, sub_items, type, related_id,
-      is_time_fixed, stay_duration, next_transport_mode, next_transport_time,
+      is_time_fixed, stay_duration, display_order, next_transport_mode, next_transport_time,
       next_transport_auto_time, lat, lng, google_place_id, rating,
       reviews_count, opening_hours, place_website, place_phone
-    ) VALUES (?, NULL, ?, ?, ?, ?, ?, ?, ?, '[]', ?, '[]', ?, ?, 1, '0', ?, ?, '0', ?, ?, ?, NULL, NULL, NULL, NULL, NULL)
+    ) VALUES (?, NULL, ?, ?, ?, ?, ?, ?, ?, '[]', ?, '[]', ?, ?, 1, ?, ?, ?, ?, '0', ?, ?, ?, NULL, NULL, NULL, NULL, NULL)
   `).bind(
     tripId, item.date, item.start_time, item.end_time,
     item.title, item.address, item.image_url, item.notes,
     item.icon, item.type, item.related_id,
-    transportMode, transportTime,
+    String(stayDuration), displayOrder, transportMode, transportTime,
     item.lat ?? null, item.lng ?? null,
     item.google_place_id || ''
   ).run();
@@ -73,6 +94,21 @@ function addMins(time: string, mins: number): string {
   return `${String(Math.floor(total / 60)).padStart(2, '0')}:${String(total % 60).padStart(2, '0')}`;
 }
 
+function timeDiffMins(startTime: string, endTime: string): number {
+  if (!startTime || !endTime) return 0;
+  const [sh, sm] = startTime.split(':').map(Number);
+  const [eh, em] = endTime.split(':').map(Number);
+  return Math.max(0, (eh * 60 + em) - (sh * 60 + sm));
+}
+
+// ── Helper: collect all dates affected by a booking (for optimizer) ──────────
+function affectedDates(b: any): string[] {
+  if (b.category === 'HOTEL' && b.start_date && b.end_date) {
+    return iterateDates(b.start_date, b.end_date);
+  }
+  return [...new Set([b.start_date, b.end_date].filter(Boolean))] as string[];
+}
+
 // ── Auto-generate itinerary items based on booking category ──────────────────
 async function generateItineraryItems(db: any, tripId: string, bookingId: number, b: any, details: any, imageUrl: string) {
   const cat = b.category;
@@ -84,6 +120,8 @@ async function generateItineraryItems(db: any, tripId: string, bookingId: number
   if (cat === 'HOTEL') {
     const checkInTime  = b.start_time || '16:00';
     const checkOutTime = b.end_time   || '11:00';
+    const checkInEnd   = addMins(checkInTime,  details.check_in_stay  ?? 0);
+    const checkOutEnd  = addMins(checkOutTime, details.check_out_stay ?? 0);
     const dailyOut     = details.daily_start_time || '09:00';
     const dailyReturn  = details.daily_end_time   || '22:00';
     const dailyTimes: Record<string, { out?: string; return?: string }> = details.daily_times || {};
@@ -98,17 +136,19 @@ async function generateItineraryItems(db: any, tripId: string, bookingId: number
       const retTime = perDay.return ?? dailyReturn;
 
       const placeId = b.google_place_id || '';
+      const hotelNotes = [b.title, notes].filter(Boolean).join('\n');
+      const hotelLatLng = { lat: b.lat ?? null, lng: b.lng ?? null };
       if (isFirst && isLast) {
-        await insertItinerary(db, tripId, { date, start_time: checkInTime,  end_time: checkInTime,  title: `Check-in ${b.title}`,  address: addr, image_url: imageUrl, notes, icon: 'Bed', type: 'ACCOMMODATION', related_id: bookingId, google_place_id: placeId }, defaultMode, defaultTime);
-        await insertItinerary(db, tripId, { date, start_time: checkOutTime, end_time: checkOutTime, title: `Check-out ${b.title}`, address: addr, image_url: imageUrl, notes, icon: 'Bed', type: 'ACCOMMODATION', related_id: bookingId, google_place_id: placeId }, defaultMode, defaultTime);
+        await insertItinerary(db, tripId, { date, start_time: checkInTime,  end_time: checkInEnd,  title: 'Check-in',  address: addr, image_url: imageUrl, notes: hotelNotes, icon: 'Bed', type: 'ACCOMMODATION', related_id: bookingId, google_place_id: placeId, ...hotelLatLng }, defaultMode, defaultTime);
+        await insertItinerary(db, tripId, { date, start_time: checkOutTime, end_time: checkOutEnd, title: 'Check-out', address: addr, image_url: imageUrl, notes: hotelNotes, icon: 'Bed', type: 'ACCOMMODATION', related_id: bookingId, google_place_id: placeId, ...hotelLatLng }, defaultMode, defaultTime);
       } else if (isFirst) {
-        await insertItinerary(db, tripId, { date, start_time: checkInTime, end_time: checkInTime, title: `Check-in ${b.title}`, address: addr, image_url: imageUrl, notes, icon: 'Bed', type: 'ACCOMMODATION', related_id: bookingId, google_place_id: placeId }, defaultMode, defaultTime);
-        await insertItinerary(db, tripId, { date, start_time: retTime,     end_time: retTime,     title: `返回 ${b.title}`,      address: addr, image_url: imageUrl, notes: '', icon: 'Bed', type: 'ACCOMMODATION', related_id: bookingId, google_place_id: placeId }, defaultMode, defaultTime);
+        await insertItinerary(db, tripId, { date, start_time: checkInTime, end_time: checkInEnd, title: 'Check-in', address: addr, image_url: imageUrl, notes: hotelNotes, icon: 'Bed', type: 'ACCOMMODATION', related_id: bookingId, google_place_id: placeId, ...hotelLatLng }, defaultMode, defaultTime);
+        await insertItinerary(db, tripId, { date, start_time: retTime,     end_time: retTime,    title: '返回飯店', address: addr, image_url: imageUrl, notes: b.title, icon: 'Bed', type: 'ACCOMMODATION', related_id: bookingId, google_place_id: placeId, ...hotelLatLng }, defaultMode, defaultTime);
       } else if (isLast) {
-        await insertItinerary(db, tripId, { date, start_time: checkOutTime, end_time: checkOutTime, title: `Check-out ${b.title}`, address: addr, image_url: imageUrl, notes, icon: 'Bed', type: 'ACCOMMODATION', related_id: bookingId, google_place_id: placeId }, defaultMode, defaultTime);
+        await insertItinerary(db, tripId, { date, start_time: checkOutTime, end_time: checkOutEnd, title: 'Check-out', address: addr, image_url: imageUrl, notes: hotelNotes, icon: 'Bed', type: 'ACCOMMODATION', related_id: bookingId, google_place_id: placeId, ...hotelLatLng }, defaultMode, defaultTime);
       } else {
-        await insertItinerary(db, tripId, { date, start_time: outTime, end_time: outTime, title: `出門 ${b.title}`, address: addr, image_url: imageUrl, notes: '', icon: 'Bed', type: 'ACCOMMODATION', related_id: bookingId, google_place_id: placeId }, defaultMode, defaultTime);
-        await insertItinerary(db, tripId, { date, start_time: retTime, end_time: retTime, title: `返回 ${b.title}`, address: addr, image_url: imageUrl, notes: '', icon: 'Bed', type: 'ACCOMMODATION', related_id: bookingId, google_place_id: placeId }, defaultMode, defaultTime);
+        await insertItinerary(db, tripId, { date, start_time: outTime, end_time: outTime, title: '離開飯店', address: addr, image_url: imageUrl, notes: b.title, icon: 'Bed', type: 'ACCOMMODATION', related_id: bookingId, google_place_id: placeId, ...hotelLatLng }, defaultMode, defaultTime);
+        await insertItinerary(db, tripId, { date, start_time: retTime, end_time: retTime, title: '返回飯店', address: addr, image_url: imageUrl, notes: b.title, icon: 'Bed', type: 'ACCOMMODATION', related_id: bookingId, google_place_id: placeId, ...hotelLatLng }, defaultMode, defaultTime);
       }
     }
     return;
@@ -116,10 +156,23 @@ async function generateItineraryItems(db: any, tripId: string, bookingId: number
 
   if (cat === 'RENTAL' || cat === 'PRIVATE_TRANSFER') {
     const placeId = b.google_place_id || '';
-    await insertItinerary(db, tripId, { date: b.start_date, start_time: b.start_time || '10:00', end_time: b.start_time || '10:00', title: `取車：${b.title}`, address: addr, image_url: imageUrl, notes, icon: 'Car', type: 'RENTAL', related_id: bookingId, google_place_id: placeId }, defaultMode, defaultTime);
-    if (b.end_date && b.end_date !== b.start_date) {
-      await insertItinerary(db, tripId, { date: b.end_date, start_time: b.end_time || '10:00', end_time: b.end_time || '10:00', title: `還車：${b.title}`, address: b.end_location || addr, image_url: imageUrl, notes, icon: 'Car', type: 'RENTAL', related_id: bookingId, google_place_id: placeId }, defaultMode, defaultTime);
+    // 取車：取車地點 + start_time
+    await insertItinerary(db, tripId, { date: b.start_date, start_time: b.start_time || '10:00', end_time: b.start_time || '10:00', title: `取車：${b.title}`, address: addr, image_url: imageUrl, notes, icon: 'Car', type: 'RENTAL', related_id: bookingId, google_place_id: placeId, lat: b.lat ?? null, lng: b.lng ?? null }, defaultMode, defaultTime);
+    // 還車：還車地點 + end_time（同日或跨日皆建立，只要有 end_time 或 end_date）
+    const returnDate = b.end_date || b.start_date;
+    if (b.end_time || (b.end_date && b.end_date !== b.start_date)) {
+      await insertItinerary(db, tripId, { date: returnDate, start_time: b.end_time || '10:00', end_time: b.end_time || '10:00', title: `還車：${b.title}`, address: b.end_location || addr, image_url: imageUrl, notes, icon: 'Car', type: 'RENTAL', related_id: bookingId, google_place_id: placeId, lat: b.arrival_lat ?? b.lat ?? null, lng: b.arrival_lng ?? b.lng ?? null }, defaultMode, defaultTime);
     }
+    return;
+  }
+
+  if (cat === 'RESTAURANT') {
+    await insertItinerary(db, tripId, {
+      date: b.start_date, start_time: b.start_time || '19:00', end_time: b.start_time || '19:00',
+      title: b.title, address: b.start_location || addr, image_url: imageUrl, notes,
+      icon: 'UtensilsCrossed', type: 'GENERAL', related_id: bookingId,
+      google_place_id: b.google_place_id || '', lat: b.lat ?? null, lng: b.lng ?? null,
+    }, defaultMode, defaultTime);
     return;
   }
 
@@ -215,6 +268,11 @@ bookings.post('/', async (c) => {
     console.error('[bookings] generateItineraryItems failed:', err);
   }
 
+  // Re-optimize affected dates so smart items get rescheduled around new fixed anchors
+  for (const date of affectedDates(b)) {
+    try { await optimizeDailyItinerary(c.env.DB, tripId, date); } catch {}
+  }
+
   const created = await c.env.DB.prepare('SELECT * FROM Bookings WHERE id = ?').bind(bookingId).first() as any;
   return c.json({ ...created, details: created?.details ? JSON.parse(created.details) : {} });
 });
@@ -249,6 +307,11 @@ bookings.put('/:bookingId', async (c) => {
     await generateItineraryItems(c.env.DB, tripId, Number(bookingId), b, details, b.image_url || '');
   } catch (err) {
     console.error('[bookings PUT] generateItineraryItems failed:', err);
+  }
+
+  // Re-optimize affected dates so smart items get rescheduled around updated fixed anchors
+  for (const date of affectedDates(b)) {
+    try { await optimizeDailyItinerary(c.env.DB, tripId, date); } catch {}
   }
 
   return c.json({ success: true });

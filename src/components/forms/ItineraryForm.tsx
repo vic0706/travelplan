@@ -9,7 +9,7 @@ import { LocationPicker } from '../pickers/LocationPicker';
 import { AddressSearchInput } from '../inputs/AddressSearchInput';
 import { clsx } from 'clsx';
 import { useLiveQuery } from 'dexie-react-hooks';
-import { db, getCachedPlaceSuggestions, cachePlaceSuggestions } from '../../db';
+import { db, getCachedPlaceSuggestions, cachePlaceSuggestions, getCachedPlaceDetails, cachePlaceDetails } from '../../db';
 
 interface ItineraryFormProps {
   tripId: number;
@@ -143,6 +143,8 @@ export function ItineraryForm({ tripId, date, onSuccess, onCancel, initialData, 
     opening_hours: initialData?.opening_hours || '',
     place_website: initialData?.place_website || '',
     place_phone: initialData?.place_phone || '',
+    review_summary: initialData?.review_summary || '',
+    place_status: initialData?.place_status || '',
     next_transport_mode: initialData?.next_transport_mode || '',
     next_transport_time: initialData?.next_transport_time || '',
     next_transport_auto_time: initialData?.next_transport_auto_time || ''
@@ -242,10 +244,45 @@ export function ItineraryForm({ tripId, date, onSuccess, onCancel, initialData, 
     return () => clearTimeout(timer);
   }, [formData.address, isLocationManuallyEdited]);
 
-  const handleSuggestionSelect = (suggestion: any) => {
+  const handleSuggestionSelect = async (suggestion: any) => {
     setFormData(prev => ({ ...prev, address: suggestion.description, google_place_id: suggestion.place_id }));
     setSuggestions([]);
     setIsLocationManuallyEdited(false);
+
+    try {
+      let details: any = await getCachedPlaceDetails(suggestion.place_id);
+      if (!details) {
+        const res = await apiFetch(`/api/places/details?placeId=${encodeURIComponent(suggestion.place_id)}&session=${sessionToken.current}`);
+        if (res.ok) {
+          details = await res.json();
+          await cachePlaceDetails(suggestion.place_id, details);
+        }
+        sessionToken.current = Math.random().toString(36).substring(2);
+      }
+      if (!details) return;
+      setFormData(prev => {
+        const updated = {
+          ...prev,
+          address:       details.formattedAddress         || prev.address,
+          lat:           details.location?.latitude       ?? prev.lat,
+          lng:           details.location?.longitude      ?? prev.lng,
+          image_url:     details.actual_photo_url         || prev.image_url,
+          rating:        details.rating                   ?? prev.rating,
+          reviews_count: details.userRatingCount          ?? prev.reviews_count,
+          opening_hours: details.currentOpeningHours
+            ? JSON.stringify(details.currentOpeningHours)
+            : details.regularOpeningHours
+              ? JSON.stringify(details.regularOpeningHours)
+              : prev.opening_hours,
+          review_summary: details.reviewSummary?.text     ?? prev.review_summary,
+          place_status:   details.businessStatus          ?? prev.place_status,
+          place_website:  details.websiteUri              ?? prev.place_website,
+          place_phone:    details.internationalPhoneNumber ?? prev.place_phone,
+        };
+        if (!prev.title && details.displayName?.text) updated.title = details.displayName.text;
+        return updated;
+      });
+    } catch { /* silent fallback — address + place_id already set */ }
   };
 
   useEffect(() => {
@@ -821,8 +858,8 @@ export function ItineraryForm({ tripId, date, onSuccess, onCancel, initialData, 
 
                 const newItem: any = {
                   title: subTitle,
-                  start_time: isTimeFixed ? subStartTime : '',
-                  end_time: isTimeFixed ? subEndTime : '',
+                  start_time: isTimeFixed ? subStartTime : (editingSubItem?.start_time ?? ''),
+                  end_time: isTimeFixed ? subEndTime : (editingSubItem?.end_time ?? ''),
                   notes: notesEl?.value || '',
                   address: subAddress,
                   lat: subLat ?? undefined,

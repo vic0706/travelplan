@@ -329,6 +329,63 @@ trips.delete('/:id/itineraries/:itemId/sub-items/:subId', async (c) => {
   }
 });
 
+// 批次更新子活動排序，並依序重算時間
+trips.patch('/:id/itineraries/:itemId/sub-items/reorder', async (c) => {
+  const tripId = c.req.param('id');
+  const itineraryId = c.req.param('itemId');
+  try {
+    const canEdit = await checkTripAccess(c, Number(tripId), 'edit');
+    if (!canEdit) return c.json({ error: 'Unauthorized' }, 403);
+
+    const body = await c.req.json().catch(() => ({}));
+    const { items } = body as { items: { id: number; display_order: number }[] };
+    if (!Array.isArray(items) || items.length === 0) {
+      return c.json({ error: 'items[] is required' }, 400);
+    }
+
+    // Update display_order
+    const orderStatements = items.map(({ id, display_order }) =>
+      c.env.DB.prepare('UPDATE SubItemItineraries SET display_order = ? WHERE id = ? AND itinerary_id = ?')
+        .bind(display_order, id, itineraryId)
+    );
+    await c.env.DB.batch(orderStatements);
+
+    // Recalculate sub-item times if parent has a start_time
+    const { results: parents } = await c.env.DB.prepare(
+      'SELECT start_time FROM Itineraries WHERE id = ? AND trip_id = ?'
+    ).bind(itineraryId, tripId).all();
+    const parent = (parents as any[])[0];
+
+    if (parent?.start_time) {
+      const { results: subs } = await c.env.DB.prepare(
+        'SELECT * FROM SubItemItineraries WHERE itinerary_id = ? ORDER BY display_order, id'
+      ).bind(itineraryId).all();
+
+      const toMins = (t: string) => { const [h, m] = t.split(':').map(Number); return h * 60 + (m || 0); };
+      const toTime = (m: number) => `${String(Math.floor(m / 60) % 24).padStart(2, '0')}:${String(m % 60).padStart(2, '0')}`;
+
+      let cursor = toMins(parent.start_time);
+      const timeStatements: any[] = [];
+      for (const sub of subs as any[]) {
+        const dur = (sub as any).duration || 0;
+        const walk = (sub as any).next_walk_mins || 0;
+        if (dur > 0) {
+          timeStatements.push(
+            c.env.DB.prepare('UPDATE SubItemItineraries SET start_time = ?, end_time = ? WHERE id = ?')
+              .bind(toTime(cursor), toTime(cursor + dur), (sub as any).id)
+          );
+        }
+        cursor += dur + walk;
+      }
+      if (timeStatements.length > 0) await c.env.DB.batch(timeStatements);
+    }
+
+    return c.json({ success: true });
+  } catch (error: any) {
+    return c.json({ error: error.message }, 500);
+  }
+});
+
 // 一次性資料遷移：將 sub_items JSON → SubItemItineraries table
 trips.post('/:id/migrate-sub-items', async (c) => {
   const tripId = c.req.param('id');
@@ -388,7 +445,7 @@ trips.post('/:id/itineraries', async (c) => {
       notes = '', icon = 'MapPin', tags = [], image_url = '',
       google_place_id = '', lat = null, lng = null, arrival_lat = null, arrival_lng = null,
       rating = null, reviews_count = null, opening_hours = '',
-      place_website = '', place_phone = '',
+      place_website = '', place_phone = '', review_summary = null, place_status = null,
       // Default to AUTO mode — optimizer will pick the fastest transport when smart scheduling runs
       next_transport_mode = 'AUTO', next_transport_time = 'auto', next_transport_auto_time = '',
       next_transport_resolved_mode = '', next_transport_haversine_time = '',
@@ -401,24 +458,48 @@ trips.post('/:id/itineraries', async (c) => {
       return c.json({ error: 'title and date are required' }, 400);
     }
 
+    // For fixed-time items, compute display_order so insertion lands in chronological position
+    let displayOrder: number | null = null;
+    if (is_time_fixed && start_time) {
+      const { results: existing } = await c.env.DB.prepare(
+        `SELECT id, start_time FROM Itineraries WHERE trip_id = ? AND date = ? ORDER BY COALESCE(start_time, '99:99'), COALESCE(display_order, 9999)`
+      ).bind(tripId, date).all() as { results: { id: number; start_time: string }[] };
+
+      let insertIdx = existing.length;
+      for (let i = 0; i < existing.length; i++) {
+        if ((existing[i].start_time || '') > start_time) { insertIdx = i; break; }
+      }
+      // Shift items at and after insertion point
+      for (let i = insertIdx; i < existing.length; i++) {
+        await c.env.DB.prepare(`UPDATE Itineraries SET display_order = ? WHERE id = ?`)
+          .bind(i + 2, existing[i].id).run();
+      }
+      // Assign explicit order to items before insertion point (normalize)
+      for (let i = 0; i < insertIdx; i++) {
+        await c.env.DB.prepare(`UPDATE Itineraries SET display_order = ? WHERE id = ?`)
+          .bind(i + 1, existing[i].id).run();
+      }
+      displayOrder = insertIdx + 1;
+    }
+
     const { meta } = await c.env.DB.prepare(`
       INSERT INTO Itineraries (
         trip_id, city_id, date, start_time, end_time, title, address,
         image_url, notes, tags, icon, sub_items, type, related_id,
-        is_time_fixed, stay_duration,
+        is_time_fixed, stay_duration, display_order,
         next_transport_mode, next_transport_time, next_transport_auto_time,
         next_transport_resolved_mode, next_transport_haversine_time, next_transport_custom_label,
         lat, lng, arrival_lat, arrival_lng, google_place_id, rating, reviews_count, opening_hours,
-        place_website, place_phone
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        place_website, place_phone, review_summary, place_status
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).bind(
       tripId, city_id, date, start_time, end_time, title, address,
       image_url, notes, JSON.stringify(tags), icon, sub_items, type, related_id,
-      is_time_fixed ? 1 : 0, String(stay_duration),
+      is_time_fixed ? 1 : 0, String(stay_duration), displayOrder,
       next_transport_mode, next_transport_time, String(next_transport_auto_time),
       next_transport_resolved_mode, next_transport_haversine_time, next_transport_custom_label,
       lat, lng, arrival_lat, arrival_lng, google_place_id, rating, reviews_count, opening_hours,
-      place_website, place_phone
+      place_website, place_phone, review_summary ?? null, place_status ?? null
     ).run();
 
     return c.json({ id: meta.last_row_id, success: true }, 201);
@@ -440,7 +521,7 @@ trips.put('/:id/itineraries/:itineraryId', async (c) => {
     const {
       title, date, address, start_time, end_time, notes, icon, tags,
       image_url, google_place_id, lat, lng, arrival_lat, arrival_lng, rating, reviews_count,
-      opening_hours, place_website, place_phone, place_status, sync_conflict_warning,
+      opening_hours, place_website, place_phone, review_summary, place_status, sync_conflict_warning,
       next_transport_mode, next_transport_time, next_transport_auto_time,
       next_transport_resolved_mode, next_transport_haversine_time, next_transport_custom_label,
       sub_items, is_time_fixed, stay_duration, type, related_id, city_id,
@@ -456,7 +537,7 @@ trips.put('/:id/itineraries/:itineraryId', async (c) => {
         next_transport_resolved_mode = ?, next_transport_haversine_time = ?, next_transport_custom_label = ?,
         lat = ?, lng = ?, arrival_lat = ?, arrival_lng = ?, google_place_id = ?, rating = ?, reviews_count = ?,
         opening_hours = ?, place_website = ?, place_phone = ?,
-        place_status = ?, sync_conflict_warning = ?
+        review_summary = ?, place_status = ?, sync_conflict_warning = ?
       WHERE id = ? AND trip_id = ?
     `).bind(
       city_id ?? null, date, start_time ?? '', end_time ?? '', title,
@@ -468,7 +549,7 @@ trips.put('/:id/itineraries/:itineraryId', async (c) => {
       next_transport_resolved_mode ?? '', String(next_transport_haversine_time ?? ''), next_transport_custom_label ?? '',
       lat ?? null, lng ?? null, arrival_lat ?? null, arrival_lng ?? null, google_place_id ?? '', rating ?? null, reviews_count ?? null,
       opening_hours ?? '', place_website ?? '', place_phone ?? '',
-      place_status ?? null, sync_conflict_warning ?? null,
+      review_summary ?? null, place_status ?? null, sync_conflict_warning ?? null,
       itineraryId, tripId
     ).run();
 

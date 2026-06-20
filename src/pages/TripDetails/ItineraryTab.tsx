@@ -1,6 +1,5 @@
-import React, { useState, useEffect } from 'react';
-import { Plus, Check, X } from 'lucide-react';
-import { motion, AnimatePresence } from 'framer-motion';
+import React, { useState } from 'react';
+import { Plus } from 'lucide-react';
 import {
   DndContext, DragOverlay, MouseSensor, TouchSensor,
   closestCenter, useSensor, useSensors,
@@ -149,47 +148,38 @@ export function ItineraryTab({
   backupMap, onAddBackup, onSwapBackup, onDeleteBackup,
 }: ItineraryTabProps) {
   const [activeId, setActiveId] = useState<number | null>(null);
-  // pendingOrder: 暫存拖曳後的新順序，等用戶確認才送出
-  const [pendingOrder, setPendingOrder] = useState<Itinerary[] | null>(null);
-
-  // 切換日期時重置 pending
-  useEffect(() => {
-    setPendingOrder(null);
-  }, [selectedDate]);
+  const [dragCollapseSignal, setDragCollapseSignal] = useState(0);
+  const [dragDefaultSignal, setDragDefaultSignal] = useState(0);
 
   const sensors = useSensors(
     useSensor(MouseSensor,  { activationConstraint: { distance: 5 } }),
     useSensor(TouchSensor,  { activationConstraint: { delay: 200, tolerance: 10 } }),
   );
 
-  const displayList = pendingOrder ?? filteredItineraries;
-  const itemIds = displayList.map(i => i.id);
-  const activeItem = activeId != null ? displayList.find(i => i.id === activeId) : null;
+  const itemIds = filteredItineraries.map(i => i.id);
+  const activeItem = activeId != null ? filteredItineraries.find(i => i.id === activeId) : null;
+
+  const handleDragStart = ({ active }: any) => {
+    setActiveId(active.id as number);
+    setDragCollapseSignal(c => c + 1);
+  };
 
   const handleDragEnd = (event: any) => {
     const { active, over } = event;
     setActiveId(null);
+    setDragDefaultSignal(c => c + 1);
     if (!over || active.id === over.id) return;
 
-    const oldIndex = displayList.findIndex(i => i.id === active.id);
-    const newIndex = displayList.findIndex(i => i.id === over.id);
+    const oldIndex = filteredItineraries.findIndex(i => i.id === active.id);
+    const newIndex = filteredItineraries.findIndex(i => i.id === over.id);
     if (oldIndex === -1 || newIndex === -1) return;
 
-    setPendingOrder(arrayMove(displayList, oldIndex, newIndex));
+    onReorder(arrayMove(filteredItineraries, oldIndex, newIndex));
   };
 
-  const handleConfirmSort = async () => {
-    if (pendingOrder) {
-      try {
-        await onReorder(pendingOrder);
-      } finally {
-        setPendingOrder(null);
-      }
-    }
-  };
-
-  const handleCancelSort = () => {
-    setPendingOrder(null);
+  const handleDragCancel = () => {
+    setActiveId(null);
+    setDragDefaultSignal(c => c + 1);
   };
 
   return (
@@ -204,28 +194,28 @@ export function ItineraryTab({
       />
 
       <div className="space-y-4">
-        {displayList.length > 0 ? (
+        {filteredItineraries.length > 0 ? (
           <DndContext
             sensors={sensors}
             collisionDetection={closestCenter}
-            onDragStart={({ active }) => setActiveId(active.id as number)}
+            onDragStart={handleDragStart}
             onDragEnd={handleDragEnd}
-            onDragCancel={() => setActiveId(null)}
+            onDragCancel={handleDragCancel}
           >
             <SortableContext items={itemIds} strategy={verticalListSortingStrategy}>
-              {displayList.map((item, index) => (
+              {filteredItineraries.map((item, index) => (
                 <SortableCard
                   key={item.id}
                   item={item}
                   backups={backupMap.get(item.id) ?? []}
                   index={index}
-                  displayList={displayList}
+                  displayList={filteredItineraries}
                   conflictedIdsInView={conflictedIdsInView}
                   bookings={bookings}
                   canEdit={canEdit}
                   expandSignal={expandSignal}
-                  collapseSignal={collapseSignal}
-                  defaultSignal={defaultSignal}
+                  collapseSignal={collapseSignal + dragCollapseSignal}
+                  defaultSignal={defaultSignal + dragDefaultSignal}
                   expandState={expandState}
                   onEditItinerary={onEditItinerary}
                   onEditNextTransport={onEditNextTransport}
@@ -266,37 +256,6 @@ export function ItineraryTab({
           </button>
         )}
       </div>
-
-      {/* 排序確認浮動 popup */}
-      <AnimatePresence>
-        {pendingOrder && (
-          <motion.div
-            initial={{ opacity: 0, y: 24 }}
-            animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: 24 }}
-            transition={{ type: 'spring', damping: 22, stiffness: 300 }}
-            className="fixed bottom-20 left-1/2 -translate-x-1/2 z-[201] w-[300px] bg-zinc-900 border border-orange-500/40 rounded-3xl shadow-2xl overflow-hidden"
-          >
-            <div className="px-4 pt-4 pb-2">
-              <p className="text-[12px] text-zinc-400 text-center">順序已調整，確認後儲存</p>
-            </div>
-            <div className="flex items-center gap-2 px-3 pb-3">
-              <button
-                onClick={handleCancelSort}
-                className="flex-1 flex items-center justify-center gap-1 py-2.5 rounded-2xl bg-zinc-800 text-zinc-400 text-[12px] font-bold hover:bg-zinc-700 active:scale-95 transition-all"
-              >
-                <X size={13} />取消
-              </button>
-              <button
-                onClick={handleConfirmSort}
-                className="flex-1 flex items-center justify-center gap-1 py-2.5 rounded-2xl bg-orange-500 text-white text-[12px] font-bold hover:bg-orange-400 active:scale-95 transition-all"
-              >
-                <Check size={13} />確認排序
-              </button>
-            </div>
-          </motion.div>
-        )}
-      </AnimatePresence>
     </div>
   );
 }

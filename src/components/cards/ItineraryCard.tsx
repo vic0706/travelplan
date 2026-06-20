@@ -1,11 +1,14 @@
-import React, { useState, useEffect, useRef } from 'react';
-import { Car, Train, Bus, AlertTriangle, Star, Plus, Footprints, Bike, Navigation2, Sparkles, Clock, Asterisk, ChevronLeft, ChevronRight, ChevronDown, Motorbike, Copy, CalendarDays, MapPin, Lock, LockOpen } from 'lucide-react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
+import { Car, Train, Bus, AlertTriangle, Star, Plus, Footprints, Bike, Navigation2, Sparkles, Clock, Asterisk, ChevronLeft, ChevronRight, ChevronDown, Motorbike, Copy, CalendarDays, MapPin, Lock, LockOpen, GripVertical } from 'lucide-react';
 import { apiFetch } from '../../utils/api';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Itinerary } from '../../types';
 import { DynamicIcon } from '../common/DynamicIcon';
 import { useAppStore } from '../../store';
 import { clsx } from 'clsx';
+import { DndContext, closestCenter, MouseSensor, TouchSensor, useSensor, useSensors } from '@dnd-kit/core';
+import { SortableContext, useSortable, verticalListSortingStrategy, arrayMove } from '@dnd-kit/sortable';
+import { CSS } from '@dnd-kit/utilities';
 
 interface ItineraryCardProps {
   item: Itinerary;
@@ -24,7 +27,6 @@ interface ItineraryCardProps {
   onChangeDate?: () => void;
   onToggleLock?: () => void;
   dragHandleListeners?: Record<string, unknown>;
-  // 備案導航
   cardIndex?: number;
   totalCards?: number;
   onPrevCard?: () => void;
@@ -48,19 +50,222 @@ const safeParse = (data: any) => {
   catch { return []; }
 };
 
-const checkIsClosed = (dateStr: string, openingHoursJson?: string | null) => {
+interface TodayHoursInfo {
+  text: string;
+  isClosedToday: boolean;
+  isOutsideHours: boolean;
+}
+
+const getTodayHours = (dateStr: string, openingHoursJson?: string | null, startTime?: string | null): TodayHoursInfo | null => {
   if (!openingHoursJson) return null;
   try {
     const data = JSON.parse(openingHoursJson);
-    if (data.periods?.length === 1) {
-      const p = data.periods[0];
-      if (p.open?.day === 0 && p.open?.hour === 0 && !p.close) return null;
+    if (!data.periods?.length) return null;
+    // 24h
+    if (data.periods.length === 1 && data.periods[0].open?.day === 0 &&
+        data.periods[0].open?.hour === 0 && !data.periods[0].close) {
+      return { text: '全天 24 小時', isClosedToday: false, isOutsideHours: false };
     }
-    const dayOfWeek = new Date(dateStr).getDay();
-    const isOpen = data.periods?.some((p: any) => p.open?.day === dayOfWeek);
-    return !isOpen ? '排定日期可能公休' : null;
+    const tripDay = new Date(dateStr).getDay();
+    const todayPeriods = (data.periods as any[]).filter(p => p.open?.day === tripDay);
+    if (todayPeriods.length === 0) {
+      return { text: '公休', isClosedToday: true, isOutsideHours: false };
+    }
+    const text = todayPeriods.map((p: any) => {
+      const oh = String(p.open.hour).padStart(2, '0');
+      const om = String(p.open.minute || 0).padStart(2, '0');
+      if (!p.close) return '全天';
+      const ch = String(p.close.hour).padStart(2, '0');
+      const cm = String(p.close.minute || 0).padStart(2, '0');
+      return `${oh}:${om}–${ch}:${cm}`;
+    }).join('、');
+    let isOutsideHours = false;
+    if (startTime) {
+      const [h, m] = startTime.split(':').map(Number);
+      const itemMins = h * 60 + (m || 0);
+      isOutsideHours = !todayPeriods.some((p: any) => {
+        const openMins = p.open.hour * 60 + (p.open.minute || 0);
+        if (!p.close) return true;
+        const closeMins = p.close.hour * 60 + (p.close.minute || 0);
+        // Handle midnight crossing (e.g. 11:00–01:30 next day)
+        if (closeMins <= openMins) {
+          return itemMins >= openMins || itemMins < closeMins;
+        }
+        return itemMins >= openMins && itemMins < closeMins;
+      });
+    }
+    return { text, isClosedToday: false, isOutsideHours };
   } catch { return null; }
 };
+
+const walkEstimate = (from: any, to: any): number | null => {
+  if (!from?.lat || !from?.lng || !to?.lat || !to?.lng) return null;
+  const R = 6371;
+  const dLat = (to.lat - from.lat) * Math.PI / 180;
+  const dLon = (to.lng - from.lng) * Math.PI / 180;
+  const a = Math.sin(dLat / 2) ** 2 + Math.cos(from.lat * Math.PI / 180) * Math.cos(to.lat * Math.PI / 180) * Math.sin(dLon / 2) ** 2;
+  const dist = R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(Math.max(0, 1 - a)));
+  return Math.ceil(dist * 1.3 * 13) + 3;
+};
+
+// ── Sub-item drag components ──────────────────────────────────────────────────
+
+interface SortableSubItemProps {
+  sub: any;
+  idx: number;
+  nextSub?: any;
+  walkOverrides: Record<number, number>;
+  onSelect: (idx: number) => void;
+  isLast: boolean;
+  canEdit?: boolean;
+}
+
+function SortableSubItem({ sub, idx, nextSub, walkOverrides, onSelect, isLast, canEdit }: SortableSubItemProps) {
+  const subHasDetails = !!sub.notes || (Array.isArray(sub.tags) && sub.tags.length > 0);
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
+    id: sub.id,
+    disabled: !canEdit,
+  });
+
+  const style: React.CSSProperties = {
+    transform: CSS.Transform.toString(transform),
+    transition,
+    opacity: isDragging ? 0.35 : 1,
+  };
+
+  const walkMins = walkOverrides[sub.id] !== undefined ? walkOverrides[sub.id] : (sub.next_walk_mins || 0);
+  const est = !isLast ? walkEstimate(sub, nextSub) : null;
+  const displayWalk = walkMins > 0
+    ? { mins: walkMins, isEstimate: false }
+    : est !== null
+      ? { mins: est, isEstimate: true }
+      : null;
+
+  const subNavUrl = (sub.lat && sub.lng)
+    ? `https://maps.google.com/maps?daddr=${encodeURIComponent(sub.title || '')}@${sub.lat},${sub.lng}`
+    : sub.address
+    ? `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(sub.address)}`
+    : null;
+
+  return (
+    <div ref={setNodeRef} style={style}>
+      <div
+        onClick={subHasDetails ? (e) => { e.stopPropagation(); onSelect(idx); } : undefined}
+        className={clsx(
+          "w-full flex flex-col px-3 py-2.5 bg-white/5 border border-white/10 rounded-xl relative overflow-hidden transition-colors",
+          subHasDetails ? "active:bg-white/10 cursor-pointer" : "cursor-default"
+        )}
+      >
+        <div className="absolute left-0 top-0 bottom-0 w-0.5 bg-orange-500/50 rounded-r-full" />
+        <div className="flex items-center gap-2 pl-0.5">
+          {canEdit && (
+            <div
+              {...attributes}
+              {...listeners}
+              className="shrink-0 text-zinc-700 hover:text-zinc-500 cursor-grab active:cursor-grabbing"
+              style={{ touchAction: 'none' }}
+              onClick={(e) => e.stopPropagation()}
+            >
+              <GripVertical size={13} />
+            </div>
+          )}
+          <div className="flex-1 min-w-0">
+            {!!sub.start_time && (
+              <div className="font-mono text-[10px] text-zinc-500 mb-0.5">
+                {sub.start_time}{sub.end_time && sub.end_time !== sub.start_time ? ` — ${sub.end_time}` : ''}
+              </div>
+            )}
+            <div className="text-[13px] font-bold text-white truncate">{sub.title}</div>
+            {Array.isArray(sub.tags) && (sub.tags as string[]).length > 0 && (
+              <div className="flex flex-wrap gap-1 mt-0.5">
+                {(sub.tags as string[]).map((t: string) => (
+                  <span key={t} className="text-[8px] font-bold text-orange-400/70 bg-orange-400/10 px-1 py-0.5 rounded border border-orange-400/15">#{t}</span>
+                ))}
+              </div>
+            )}
+          </div>
+          <div className="flex items-center gap-1 shrink-0">
+            {subNavUrl && (
+              <a
+                href={subNavUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                onClick={(e) => e.stopPropagation()}
+                className="p-1.5 rounded-lg text-zinc-500 hover:text-orange-400 active:bg-white/10 transition-colors"
+              >
+                <Navigation2 size={13} />
+              </a>
+            )}
+            {subHasDetails && (
+              <>
+                <Asterisk size={9} strokeWidth={3} className="text-zinc-600" />
+                <ChevronRight size={11} className="text-zinc-700" />
+              </>
+            )}
+          </div>
+        </div>
+        {!isLast && displayWalk && (
+          <div className="flex items-center justify-end gap-0.5 mt-1.5">
+            <span className="text-[7px] text-zinc-600 font-bold leading-none">下一站</span>
+            <span className={clsx('flex items-center gap-0.5', displayWalk.isEstimate ? 'text-zinc-700' : 'text-zinc-500')}>
+              <Footprints size={8} />
+              <span className="text-[8px] font-mono leading-none">
+                {displayWalk.isEstimate && '~'}{formatDuration(displayWalk.mins)}
+              </span>
+            </span>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+interface SubItemsListProps {
+  items: any[];
+  walkOverrides: Record<number, number>;
+  onReorder: (newItems: any[]) => void;
+  onSelectItem: (idx: number) => void;
+  canEdit?: boolean;
+}
+
+function SubItemsList({ items, walkOverrides, onReorder, onSelectItem, canEdit }: SubItemsListProps) {
+  const sensors = useSensors(
+    useSensor(MouseSensor, { activationConstraint: { distance: 5 } }),
+    useSensor(TouchSensor, { activationConstraint: { distance: 8 } }),
+  );
+
+  const handleDragEnd = (event: any) => {
+    const { active, over } = event;
+    if (!over || active.id === over.id) return;
+    const oldIdx = items.findIndex((s: any) => s.id === active.id);
+    const newIdx = items.findIndex((s: any) => s.id === over.id);
+    if (oldIdx === -1 || newIdx === -1) return;
+    onReorder(arrayMove(items, oldIdx, newIdx));
+  };
+
+  return (
+    <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
+      <SortableContext items={items.map((s: any) => s.id)} strategy={verticalListSortingStrategy}>
+        <div className="space-y-1">
+          {items.map((sub: any, idx: number) => (
+            <SortableSubItem
+              key={sub.id}
+              sub={sub}
+              idx={idx}
+              nextSub={items[idx + 1]}
+              walkOverrides={walkOverrides}
+              onSelect={onSelectItem}
+              isLast={idx === items.length - 1}
+              canEdit={canEdit}
+            />
+          ))}
+        </div>
+      </SortableContext>
+    </DndContext>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 
 export function ItineraryCard({
   item, nextItem, canEdit, isConflicted, onEdit, showNextTransport, onEditNextTransport,
@@ -77,13 +282,18 @@ export function ItineraryCard({
   const endTimeStr = item.end_time || item.start_time || '23:59';
   const isPast = Date.now() > new Date(`${item.date}T${endTimeStr}`).getTime();
 
-  const closedWarning    = checkIsClosed(item.date, item.opening_hours);
+  const todayHours       = getTodayHours(item.date, item.opening_hours, item.start_time);
+  const isScheduledDuringClosed = !!todayHours && (todayHours.isClosedToday || todayHours.isOutsideHours) && !!item.start_time;
+  const closedWarning    = todayHours?.isClosedToday ? '排定日期公休' : todayHours?.isOutsideHours ? '排程時間可能不在營業時段' : null;
   const hasWarning       = !!closedWarning || !!item.sync_conflict_warning || !!isConflicted;
   const isCircuitBreaker = canEdit && !!showNextTransport && !!item.start_time && (!item.next_transport_mode || item.next_transport_mode === '');
 
-  const hasContent = !!item.rating || subItems.length > 0 || tags.length > 0 || !!item.notes || hasWarning;
-  const hasPhoto   = !!item.image_url;
-  const canExpand  = hasPhoto || hasContent;
+  const hasSubItems = subItems.length > 0;
+  const hasDetails  = tags.length > 0 || !!item.rating || !!todayHours || hasWarning || !!item.review_summary;
+  const hasNotes    = !!item.notes;
+  const hasContent  = hasSubItems || hasDetails || hasNotes;
+  const hasPhoto    = !!item.image_url;
+  const canExpand   = hasPhoto || hasContent;
 
   const getInitialExpanded = () => {
     if (expandState === 'expanded') return canExpand;
@@ -91,9 +301,10 @@ export function ItineraryCard({
     return !isPast && hasPhoto;
   };
   const [isExpanded,     setIsExpanded]     = useState(getInitialExpanded);
-  const [overlayVisible, setOverlayVisible] = useState(false);
+  const [overlaySection, setOverlaySection] = useState<'sub-items' | 'details' | 'notes' | null>(null);
   const [subItemIdx,     setSubItemIdx]     = useState<number | null>(null);
   const [walkOverrides,  setWalkOverrides]  = useState<Record<number, number>>({});
+  const [localSubItems,  setLocalSubItems]  = useState<any[]>(() => safeParse(item.sub_items));
   const fetchedWalkRef = useRef<Set<number>>(new Set());
 
   useEffect(() => {
@@ -132,17 +343,9 @@ export function ItineraryCard({
   };
 
   useEffect(() => {
-    if (overlayVisible) { setTimeout(checkOverlayScroll, 60); }
+    if (overlaySection) { setTimeout(checkOverlayScroll, 60); }
     else setCanScrollDown(false);
-  }, [overlayVisible, subItemIdx]);
-
-  const detailParts: string[] = [
-    item.notes ? '備注' : '',
-    tags.length > 0 ? '標籤' : '',
-    subItems.length > 0 ? '子活動' : '',
-    hasWarning ? '⚠' : '',
-  ].filter(Boolean) as string[];
-  const detailLabel = detailParts.length > 0 ? detailParts.join(' · ') : '詳情';
+  }, [overlaySection, subItemIdx]);
 
   useEffect(() => {
     if (expandSignal && expandSignal > 0 && hasPhoto) setIsExpanded(true);
@@ -150,17 +353,34 @@ export function ItineraryCard({
 
   useEffect(() => {
     if (collapseSignal && collapseSignal > 0) {
-      setIsExpanded(false); setOverlayVisible(false); setSubItemIdx(null);
+      setIsExpanded(false); setOverlaySection(null); setSubItemIdx(null);
     }
   }, [collapseSignal]);
 
   useEffect(() => {
     if (defaultSignal && defaultSignal > 0) {
       setIsExpanded(!isPast && hasPhoto);
-      setOverlayVisible(false);
+      setOverlaySection(null);
       setSubItemIdx(null);
     }
   }, [defaultSignal, isPast, hasPhoto]);
+
+  useEffect(() => {
+    setLocalSubItems(safeParse(item.sub_items));
+    setSubItemIdx(null);
+  }, [item.sub_items]);
+
+  const openSection = (section: 'sub-items' | 'details' | 'notes') => {
+    setSubItemIdx(null);
+    if (!isExpanded) {
+      setIsExpanded(true);
+      setOverlaySection(section);
+    } else if (overlaySection === section) {
+      setOverlaySection(null);
+    } else {
+      setOverlaySection(section);
+    }
+  };
 
   const openGoogleMaps = () => {
     let url: string;
@@ -172,17 +392,43 @@ export function ItineraryCard({
       const dest = encodeURIComponent(item.address || item.title);
       url = `https://maps.google.com/maps?daddr=${dest}`;
     }
-    // window.open is blocked in iOS PWA standalone mode; use location redirect via anchor
     const a = document.createElement('a');
-    a.href = url;
-    a.target = '_blank';
-    a.rel = 'noopener noreferrer';
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
+    a.href = url; a.target = '_blank'; a.rel = 'noopener noreferrer';
+    document.body.appendChild(a); a.click(); document.body.removeChild(a);
   };
 
-  // Use the optimizer-resolved mode (when AUTO) or the user-set mode
+  const handleSubItemsReorder = useCallback(async (newItems: any[]) => {
+    // Recalculate sub-item times locally (optimistic update)
+    let itemsWithTimes = newItems;
+    if (item.start_time) {
+      const toMins = (t: string) => { const [h, m] = t.split(':').map(Number); return h * 60 + (m || 0); };
+      const toTime = (m: number) => `${String(Math.floor(m / 60) % 24).padStart(2,'0')}:${String(m % 60).padStart(2,'0')}`;
+      let cursor = toMins(item.start_time);
+      itemsWithTimes = newItems.map(sub => {
+        const dur = sub.duration || 0;
+        const walk = sub.next_walk_mins || 0;
+        const updated = dur > 0
+          ? { ...sub, start_time: toTime(cursor), end_time: toTime(cursor + dur) }
+          : { ...sub };
+        cursor += dur + walk;
+        return updated;
+      });
+    }
+    setLocalSubItems(itemsWithTimes);
+    try {
+      await apiFetch(
+        `/api/trips/${item.trip_id}/itineraries/${item.id}/sub-items/reorder`,
+        {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ items: newItems.map((s: any, i: number) => ({ id: s.id, display_order: i })) }),
+        }
+      );
+    } catch {
+      setLocalSubItems(safeParse(item.sub_items));
+    }
+  }, [item.trip_id, item.id, item.sub_items, item.start_time]);
+
   const displayMode = (item.next_transport_resolved_mode || item.next_transport_mode || '').toLowerCase();
   const isAutoUnresolved = (item.next_transport_mode || '').toUpperCase() === 'AUTO' && !item.next_transport_resolved_mode;
 
@@ -207,41 +453,36 @@ export function ItineraryCard({
   const manualVal = parseInt(item.next_transport_time?.toString().replace(/\D/g, '') || '0', 10);
   const autoVal   = Math.round(Number((item as any).next_transport_auto_time || 0));
 
+  // Front-end haversine estimate: shown when optimizer hasn't run but both items have coords
+  const haversineEst = (() => {
+    if (manualVal > 0 || autoVal > 0) return null;
+    const fLat = item.lat, fLng = item.lng, tLat = nextItem?.lat, tLng = nextItem?.lng;
+    if (!fLat || !fLng || !tLat || !tLng) return null;
+    const dLat = (tLat - fLat) * Math.PI / 180;
+    const dLon = (tLng - fLng) * Math.PI / 180;
+    const a = Math.sin(dLat / 2) ** 2 + Math.cos(fLat * Math.PI / 180) * Math.cos(tLat * Math.PI / 180) * Math.sin(dLon / 2) ** 2;
+    const dist = 6371 * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(Math.max(0, 1 - a)));
+    const sp: Record<string, [number, number]> = { driving:[1.2,8], walking:[13,3], bicycling:[5,5], transit:[3,12], motorcycling:[1.2,5] };
+    const [s, b] = sp[displayMode] ?? sp.driving;
+    return Math.ceil(dist * 1.3 * s) + b;
+  })();
+
   const handleTitleClick = () => {
     if (canEdit) { onEdit(); return; }
     if (!canExpand) return;
     if (isExpanded) {
       setIsExpanded(false);
-      setOverlayVisible(false);
+      setOverlaySection(null);
       setSubItemIdx(null);
     } else {
       setIsExpanded(true);
     }
-  };
-
-  const handleDetailBtn = () => {
-    if (!isExpanded) {
-      setIsExpanded(true);
-      setOverlayVisible(true);
-    } else {
-      setOverlayVisible(v => !v);
-      setSubItemIdx(null);
-    }
-  };
-
-  const walkEstimate = (from: any, to: any): number | null => {
-    if (!from?.lat || !from?.lng || !to?.lat || !to?.lng) return null;
-    const R = 6371;
-    const dLat = (to.lat - from.lat) * Math.PI / 180;
-    const dLon = (to.lng - from.lng) * Math.PI / 180;
-    const a = Math.sin(dLat / 2) ** 2 + Math.cos(from.lat * Math.PI / 180) * Math.cos(to.lat * Math.PI / 180) * Math.sin(dLon / 2) ** 2;
-    const dist = R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(Math.max(0, 1 - a)));
-    return Math.ceil(dist * 1.3 * 13) + 3;
   };
 
   const renderOverlayContent = () => {
+    // Sub-item detail drill-down
     if (subItemIdx !== null) {
-      const sub = subItems[subItemIdx];
+      const sub = localSubItems[subItemIdx];
       if (!sub) return null;
       const subNavUrl = (sub.lat && sub.lng)
         ? `https://maps.google.com/maps?daddr=${encodeURIComponent(sub.title || '')}@${sub.lat},${sub.lng}`
@@ -250,186 +491,101 @@ export function ItineraryCard({
         : null;
       return (
         <div>
-          <button
-            type="button"
-            onClick={() => setSubItemIdx(null)}
-            className="w-full flex items-center gap-2 bg-white/5 active:bg-white/10 rounded-xl px-3 py-2.5 mb-3 text-orange-400 transition-colors"
-          >
-            <ChevronLeft size={14} strokeWidth={2.5} />
-            <span className="text-[11px] font-black tracking-wide">返回</span>
-          </button>
-          {sub.start_time && !!(item as any).is_time_fixed && (
-            <div className="font-mono text-[9px] text-zinc-500 mb-1">
-              {sub.start_time}{sub.end_time && sub.end_time !== sub.start_time ? ` — ${sub.end_time}` : ''}
-            </div>
+          <h5 className="text-[13px] font-black text-white mb-2">{sub.title}</h5>
+          {sub.notes && (
+            <p className="text-[11px] text-zinc-300 leading-relaxed">{sub.notes}</p>
           )}
-          <h5 className="text-[13px] font-black text-white mb-1">{sub.title}</h5>
-          {sub.duration > 0 && (
-            <div className="text-[9px] text-orange-400/70 mb-2">{sub.duration} 分鐘</div>
-          )}
-          {sub.address && (
-            <div className="flex items-center gap-1.5 mb-2">
-              <MapPin size={10} className="text-zinc-500 shrink-0" />
-              <span className="text-[11px] text-zinc-400 flex-1 leading-tight">{sub.address}</span>
-              {subNavUrl && (
-                <a
-                  href={subNavUrl}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="shrink-0 p-1.5 rounded-lg bg-orange-500/10 text-orange-400 hover:bg-orange-500/20 transition-colors"
-                >
-                  <Navigation2 size={12} />
-                </a>
-              )}
-            </div>
-          )}
-          {sub.tags?.length > 0 && (
-            <div className="flex flex-wrap gap-1 mb-2">
-              {sub.tags.map((t: string) => (
-                <span key={t} className="text-[8px] font-bold text-orange-400 bg-orange-400/10 px-1.5 py-0.5 rounded-md border border-orange-400/20">#{t}</span>
-              ))}
-            </div>
-          )}
-          {sub.notes
-            ? <p className="text-[11px] text-zinc-300 leading-relaxed italic">{sub.notes}</p>
-            : <p className="text-[10px] text-zinc-600 italic">沒有備註</p>
-          }
         </div>
       );
     }
 
-    return (
-      <div className="space-y-2">
-        {/* Tags */}
-        {tags.length > 0 && (
-          <div className="flex flex-wrap gap-1">
-            {tags.map((t: string) => (
-              <span key={t} className="text-[9px] font-bold text-orange-400 bg-orange-500/10 px-1.5 py-0.5 rounded-md border border-orange-500/20">#{t}</span>
-            ))}
-          </div>
-        )}
+    // ── 子活動 section ──
+    if (overlaySection === 'sub-items') {
+      return (
+        <div onClick={(e) => e.stopPropagation()}>
+          <SubItemsList
+            items={localSubItems}
+            walkOverrides={walkOverrides}
+            onReorder={handleSubItemsReorder}
+            onSelectItem={(idx) => setSubItemIdx(idx)}
+            canEdit={canEdit}
+          />
+        </div>
+      );
+    }
 
-        {/* 子活動 */}
-        {subItems.length > 0 && (
-          <div className="space-y-1">
-            <div className="text-[8px] font-black text-zinc-500 uppercase tracking-[0.15em]">子活動</div>
-            {subItems.map((sub: any, idx: number) => {
-              const subHasDetails = !!sub.notes;
-              const showTime = !!sub.start_time;
-              const subNavUrl = (sub.lat && sub.lng)
-                ? `https://maps.google.com/maps?daddr=${encodeURIComponent(sub.title || '')}@${sub.lat},${sub.lng}`
-                : sub.address
-                ? `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(sub.address)}`
-                : null;
-              const walkMins = walkOverrides[sub.id] !== undefined ? walkOverrides[sub.id] : (sub.next_walk_mins || 0);
-              const hasWalkRow = idx < subItems.length - 1;
-              const nextSub = subItems[idx + 1];
-              const est = hasWalkRow ? walkEstimate(sub, nextSub) : null;
-              const displayWalk = walkMins > 0
-                ? { mins: walkMins, isEstimate: false }
-                : est !== null
-                  ? { mins: est, isEstimate: true }
-                  : null;
-
-              return (
-                <div
-                  key={idx}
-                  onClick={subHasDetails ? (e) => { e.stopPropagation(); setSubItemIdx(idx); } : undefined}
-                  className={clsx(
-                    "w-full flex flex-col px-3 py-2.5 bg-white/5 border border-white/10 rounded-xl relative overflow-hidden transition-colors",
-                    subHasDetails ? "active:bg-white/10 cursor-pointer" : "cursor-default"
-                  )}
-                >
-                  {/* Left accent */}
-                  <div className="absolute left-0 top-0 bottom-0 w-0.5 bg-orange-500/50 rounded-r-full" />
-
-                  {/* Main row */}
-                  <div className="flex items-center gap-3 pl-0.5">
-                    <div className="flex-1 min-w-0">
-                      {showTime && (
-                        <div className="font-mono text-[10px] text-zinc-500 mb-0.5">
-                          {sub.start_time}{sub.end_time && sub.end_time !== sub.start_time ? ` — ${sub.end_time}` : ''}
-                        </div>
-                      )}
-                      <div className="text-[13px] font-bold text-white truncate">{sub.title}</div>
-                      {Array.isArray(sub.tags) && (sub.tags as string[]).length > 0 && (
-                        <div className="flex flex-wrap gap-1 mt-0.5">
-                          {(sub.tags as string[]).map((t: string) => (
-                            <span key={t} className="text-[8px] font-bold text-orange-400/70 bg-orange-400/10 px-1 py-0.5 rounded border border-orange-400/15">#{t}</span>
-                          ))}
-                        </div>
-                      )}
-                    </div>
-                    <div className="flex items-center gap-1 shrink-0">
-                      {subNavUrl && (
-                        <a
-                          href={subNavUrl}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          onClick={(e) => e.stopPropagation()}
-                          className="p-1.5 rounded-lg text-zinc-500 hover:text-orange-400 active:bg-white/10 transition-colors"
-                        >
-                          <Navigation2 size={13} />
-                        </a>
-                      )}
-                      {subHasDetails && (
-                        <>
-                          <Asterisk size={9} strokeWidth={3} className="text-zinc-600" />
-                          <ChevronRight size={11} className="text-zinc-700" />
-                        </>
-                      )}
-                    </div>
-                  </div>
-                  {/* Walk time to next sub-item — shown as bottom row to keep nav button vertically centered */}
-                  {hasWalkRow && displayWalk && (
-                    <div className="flex items-center justify-end gap-0.5 mt-1.5">
-                      <span className="text-[7px] text-zinc-600 font-bold leading-none">下一站</span>
-                      <span className={clsx('flex items-center gap-0.5', displayWalk.isEstimate ? 'text-zinc-700' : 'text-zinc-500')}>
-                        <Footprints size={8} />
-                        <span className="text-[8px] font-mono leading-none">
-                          {displayWalk.isEstimate && '~'}{formatDuration(displayWalk.mins)}
-                        </span>
-                      </span>
-                    </div>
+    // ── 詳情 section ──
+    if (overlaySection === 'details') {
+      const isClosed = todayHours?.isClosedToday || todayHours?.isOutsideHours;
+      return (
+        <div className="space-y-2.5">
+          {/* Rating + Today's hours on the same row */}
+          {(item.rating || todayHours) && !isBackup && (
+            <div className="flex items-center gap-2">
+              {item.rating && (
+                <div className="flex items-center gap-1 shrink-0">
+                  <Star size={12} className="text-yellow-400 fill-yellow-400" />
+                  <span className="text-[15px] font-black text-yellow-300 leading-none">{(item.rating as number).toFixed(1)}</span>
+                </div>
+              )}
+              {item.rating && todayHours && <div className="w-px h-4 bg-white/10 shrink-0" />}
+              {todayHours && (
+                <div className={clsx(
+                  'flex items-center gap-1.5 flex-1 min-w-0 rounded-lg px-2.5 py-1.5',
+                  isClosed ? 'bg-red-500/10 border border-red-500/30' : 'bg-white/5 border border-white/8'
+                )}>
+                  <Clock size={11} className={clsx('shrink-0', isClosed ? 'text-red-400' : 'text-zinc-400')} />
+                  <span className={clsx('text-[11px] font-bold leading-tight truncate', isClosed ? 'text-red-400' : 'text-zinc-200')}>
+                    營業時間：{todayHours.text}
+                  </span>
+                  {isClosed && (
+                    <AlertTriangle size={10} className="text-red-400 shrink-0 ml-auto" />
                   )}
                 </div>
-              );
-            })}
-          </div>
-        )}
+              )}
+            </div>
+          )}
+          {/* Tags */}
+          {tags.length > 0 && (
+            <div className="flex flex-wrap gap-1.5">
+              {tags.map((t: string) => (
+                <span key={t} className="text-[11px] font-bold text-orange-400 bg-orange-500/10 px-2 py-0.5 rounded-md border border-orange-500/20">#{t}</span>
+              ))}
+            </div>
+          )}
+          {/* Conflict / sync warnings */}
+          {(isConflicted || item.sync_conflict_warning) && (
+            <div className="space-y-1">
+              {isConflicted && (
+                <div className="flex items-center gap-1.5 text-red-400 text-[10px] font-bold">
+                  <AlertTriangle size={10} />行程時間衝突
+                </div>
+              )}
+              {item.sync_conflict_warning && (
+                <div className="flex items-center gap-1.5 text-orange-400 text-[10px] font-bold">
+                  <AlertTriangle size={10} />{item.sync_conflict_warning}
+                </div>
+              )}
+            </div>
+          )}
+          {/* Review summary */}
+          {item.review_summary && (
+            <div className="text-[10px] text-zinc-400 leading-relaxed border-l-2 border-zinc-700 pl-2">
+              {item.review_summary}
+            </div>
+          )}
+        </div>
+      );
+    }
 
-        {/* AI 評論摘要 */}
-        {item.review_summary && (
-          <div className="text-[10px] text-zinc-400 leading-relaxed italic border-l-2 border-zinc-700 pl-2">
-            {item.review_summary}
-          </div>
-        )}
+    // ── 備註 section ──
+    if (overlaySection === 'notes') {
+      return (
+        <p className="text-[13px] text-zinc-200 leading-relaxed whitespace-pre-wrap">{item.notes}</p>
+      );
+    }
 
-        {/* 警告 + 備註 */}
-        {(hasWarning || item.notes) && (
-          <div className="space-y-1.5">
-            {isConflicted && (
-              <div className="flex items-center gap-1 text-red-400 text-[10px] font-bold">
-                <AlertTriangle size={10} />行程時間衝突
-              </div>
-            )}
-            {closedWarning && (
-              <div className="flex items-center gap-1 text-red-400 text-[10px] font-bold">
-                <Clock size={10} />⚠️ {closedWarning}
-              </div>
-            )}
-            {item.sync_conflict_warning && !closedWarning && (
-              <div className="flex items-center gap-1 text-orange-400 text-[10px] font-bold">
-                <AlertTriangle size={10} />{item.sync_conflict_warning}
-              </div>
-            )}
-            {item.notes && (
-              <p className="text-[11px] text-zinc-300 leading-relaxed italic whitespace-pre-wrap">{item.notes}</p>
-            )}
-          </div>
-        )}
-      </div>
-    );
+    return null;
   };
 
   const hasNavigation = !!(totalCards && totalCards > 1);
@@ -476,21 +632,44 @@ export function ItineraryCard({
     );
   };
 
+  const renderSectionButtons = (onPhoto: boolean) => {
+    const btnClass = (section: 'sub-items' | 'details' | 'notes') => clsx(
+      'px-2 py-1 rounded-lg transition-all text-[9px] font-black tracking-wider',
+      overlaySection === section
+        ? 'text-orange-400 bg-orange-500/10'
+        : onPhoto
+          ? 'text-white/55 hover:text-white/80 active:bg-white/10'
+          : 'text-zinc-600 hover:text-zinc-400 active:bg-zinc-800/50'
+    );
+    const activeClass = 'px-2 py-1 rounded-lg text-[9px] font-black tracking-wider text-orange-400 bg-orange-500/10';
+    if (!hasSubItems && !hasDetails && !hasNotes) return <div />;
+    return (
+      <div className="flex items-center gap-0.5">
+        {hasSubItems && (
+          <button type="button" onClick={() => openSection('sub-items')} className={btnClass('sub-items')}>子活動</button>
+        )}
+        {subItemIdx !== null && (
+          <button type="button" onClick={() => setSubItemIdx(null)} className={activeClass}>子活動詳情</button>
+        )}
+        {hasDetails && (
+          <button type="button" onClick={() => openSection('details')} className={btnClass('details')}>詳情</button>
+        )}
+        {hasNotes && (
+          <button type="button" onClick={() => openSection('notes')} className={btnClass('notes')}>備註</button>
+        )}
+      </div>
+    );
+  };
+
   const renderBottomBar = (onPhoto: boolean) => {
     const hasBar = hasContent || (showNextTransport && (canEdit || !!item.next_transport_mode)) || hasNavigation;
     if (!hasBar) return null;
     if (onPhoto) {
       return (
         <div className="absolute bottom-0 left-0 right-0 z-20 flex items-center justify-between px-3 py-2 bg-black/50 backdrop-blur-[8px] border-t border-white/5">
-          {detailParts.length > 0 ? (
-            <button type="button" onClick={handleDetailBtn}
-              className={clsx('flex items-center gap-1 px-2 py-1 rounded-lg transition-all',
-                overlayVisible ? 'text-orange-400 bg-orange-500/10' : 'text-white/55 hover:text-white/80')}>
-              <span className="text-[9px] font-black tracking-wider">{detailLabel}</span>
-            </button>
-          ) : <div />}
+          {renderSectionButtons(true)}
           {renderNavCenter(true)}
-          {showNextTransport && (canEdit || !!item.next_transport_mode) && (
+          {showNextTransport && (canEdit || !!item.next_transport_mode) ? (
             <button type="button" disabled={!canEdit}
               onClick={(e) => { e.stopPropagation(); if (canEdit && onEditNextTransport) onEditNextTransport(); }}
               className={clsx('flex items-center gap-1.5 px-2 py-1 rounded-lg transition-colors',
@@ -500,7 +679,7 @@ export function ItineraryCard({
                   <span className="text-[8px] text-white/30 font-bold">下一站</span>
                   {getTransportIcon(12)}
                   <span className="text-[10px] font-black tracking-tight">
-                    {manualVal > 0 ? formatDuration(manualVal) : autoVal > 0 ? formatDuration(autoVal) : '自動'}
+                    {manualVal > 0 ? formatDuration(manualVal) : autoVal > 0 ? formatDuration(autoVal) : haversineEst ? `~${formatDuration(haversineEst)}` : '自動'}
                   </span>
                 </div>
               ) : (
@@ -509,20 +688,13 @@ export function ItineraryCard({
                 </div>
               )}
             </button>
-          )}
-          {!showNextTransport && <div />}
+          ) : <div />}
         </div>
       );
     }
     return (
       <div className="flex items-center justify-between px-3 pb-3 pt-1">
-        {detailParts.length > 0 ? (
-          <button type="button" onClick={handleDetailBtn}
-            className={clsx('flex items-center gap-1 px-2.5 py-1.5 rounded-xl transition-all',
-              overlayVisible ? 'text-orange-500 bg-orange-500/8' : 'text-zinc-600 hover:text-zinc-400')}>
-            <span className="text-[9px] font-black tracking-wider">{detailLabel}</span>
-          </button>
-        ) : <div />}
+        {renderSectionButtons(false)}
         {renderNavCenter(false)}
         {showNextTransport && (canEdit || !!item.next_transport_mode) ? (
           <button type="button" disabled={!canEdit}
@@ -534,7 +706,7 @@ export function ItineraryCard({
                 <span className="text-[9px] text-zinc-600 font-bold">下一站</span>
                 {getTransportIcon()}
                 <span className="text-[11px] font-black tracking-tight">
-                  {manualVal > 0 ? formatDuration(manualVal) : autoVal > 0 ? formatDuration(autoVal) : '自動'}
+                  {manualVal > 0 ? formatDuration(manualVal) : autoVal > 0 ? formatDuration(autoVal) : haversineEst ? `~${formatDuration(haversineEst)}` : '自動'}
                 </span>
               </div>
             ) : (
@@ -556,12 +728,13 @@ export function ItineraryCard({
     >
       <div className={clsx(
         'relative flex flex-col bg-[#1c1c1e] rounded-[32px] overflow-hidden border transition-all',
-        isConflicted     && 'border-red-500 ring-2 ring-red-500/50',
-        isCircuitBreaker && 'border-red-500 shadow-[0_0_15px_rgba(239,68,68,0.2)] bg-[#2a1a1a]',
-        !isConflicted && !isCircuitBreaker && (canEdit ? 'border-zinc-800 hover:border-zinc-700' : 'border-zinc-800'),
+        isConflicted       && 'border-red-500 ring-2 ring-red-500/50',
+        isCircuitBreaker   && !isConflicted && 'border-red-500 shadow-[0_0_15px_rgba(239,68,68,0.2)] bg-[#2a1a1a]',
+        isScheduledDuringClosed && !isConflicted && !isCircuitBreaker && 'border-red-500/70 ring-1 ring-red-500/20',
+        !isConflicted && !isCircuitBreaker && !isScheduledDuringClosed && (canEdit ? 'border-zinc-800 hover:border-zinc-700' : 'border-zinc-800'),
       )}>
 
-        {/* ── ROW 1: ICON ｜ 標題 ｜ 導航 ── */}
+        {/* ── ROW 1: ICON ｜ 標題 ｜ 按鈕 ── */}
         <div
           className="px-4 pt-4 pb-2 flex items-center gap-3 min-h-[76px]"
           {...(dragHandleListeners as React.HTMLAttributes<HTMLDivElement>)}
@@ -578,7 +751,6 @@ export function ItineraryCard({
           </div>
 
           <div className="flex-1 min-w-0 cursor-pointer" onClick={handleTitleClick}>
-            {/* ── Time (top, clock style) ── */}
             {item.start_time ? (
               <div className="flex items-center gap-1.5 mb-0.5">
                 <span className={clsx(
@@ -587,7 +759,7 @@ export function ItineraryCard({
                 )}>
                   {item.start_time}{item.end_time && item.end_time !== item.start_time ? ` — ${item.end_time}` : ''}
                 </span>
-                {!(item as any).is_time_fixed && !isPast && <Sparkles size={9} className="text-orange-500/60" />}
+                {!(item as any).is_time_fixed && !isPast && canEdit && <Sparkles size={9} className="text-orange-500/60" />}
                 {isCircuitBreaker && <span className="w-1.5 h-1.5 rounded-full bg-red-500 animate-pulse shrink-0" />}
               </div>
             ) : (
@@ -596,11 +768,9 @@ export function ItineraryCard({
                 <span className="text-[11px] font-bold text-zinc-600 tracking-wide">待排程</span>
               </div>
             )}
-            {/* ── Title ── */}
             <h4 className={clsx('text-[16px] font-black leading-tight truncate', isPast ? 'text-zinc-600' : 'text-white')}>
               {item.title}
             </h4>
-            {/* Warning summary — visible without expanding */}
             {(isConflicted || isCircuitBreaker || closedWarning || item.sync_conflict_warning) && (
               <div className="flex flex-wrap items-center gap-x-2 gap-y-0 mt-0.5">
                 {isConflicted && (
@@ -614,7 +784,7 @@ export function ItineraryCard({
                   </span>
                 )}
                 {closedWarning && (
-                  <span className="flex items-center gap-0.5 text-[10px] font-bold text-yellow-500">
+                  <span className="flex items-center gap-0.5 text-[10px] font-bold text-red-400">
                     <Clock size={9} />{closedWarning}
                   </span>
                 )}
@@ -626,13 +796,6 @@ export function ItineraryCard({
               </div>
             )}
           </div>
-
-          {item.rating && !isBackup && (
-            <div className="shrink-0 flex items-center gap-0.5 bg-yellow-500/15 rounded-lg px-1.5 py-0.5">
-              <Star size={9} className="text-yellow-400 fill-yellow-400" />
-              <span className="text-[10px] font-black text-yellow-300">{(item.rating as number).toFixed(1)}</span>
-            </div>
-          )}
 
           {isBackup && (
             <>
@@ -665,7 +828,6 @@ export function ItineraryCard({
               >
                 <CalendarDays size={15} />
               </button>
-              {/* 鎖頭：切換 is_time_fixed */}
               <button
                 onClick={(e) => { e.stopPropagation(); onToggleLock?.(); }}
                 className={clsx(
@@ -674,7 +836,7 @@ export function ItineraryCard({
                     ? 'text-orange-500 hover:text-orange-400'
                     : 'text-zinc-600 hover:text-zinc-400'
                 )}
-                title={(item as any).is_time_fixed ? '解鎖時間（讓 AI 可調整）' : '鎖定時間'}
+                title={(item as any).is_time_fixed ? '解鎖時間' : '鎖定時間'}
               >
                 {(item as any).is_time_fixed ? <Lock size={15} /> : <LockOpen size={15} />}
               </button>
@@ -688,7 +850,7 @@ export function ItineraryCard({
           </button>
         </div>
 
-        {/* ── 展開區域（照片延伸到卡片底部，底部列懸浮其上） ── */}
+        {/* ── 展開區域 ── */}
         <AnimatePresence initial={false}>
           {isExpanded && canExpand && (
             <motion.div
@@ -700,7 +862,6 @@ export function ItineraryCard({
               className="overflow-hidden"
             >
               <div className="relative" style={{ height: 197 }}>
-                {/* 背景：照片或深色底 */}
                 {hasPhoto ? (
                   <img
                     src={item.image_url!}
@@ -715,9 +876,8 @@ export function ItineraryCard({
                   />
                 )}
 
-                {/* 內容遮罩 - z-10，底部留出底部列空間 */}
                 <AnimatePresence>
-                  {overlayVisible && (
+                  {overlaySection && (
                     <motion.div
                       initial={{ opacity: 0 }}
                       animate={{ opacity: 1 }}
@@ -728,7 +888,7 @@ export function ItineraryCard({
                       <div
                         ref={overlayScrollRef}
                         onScroll={checkOverlayScroll}
-                        onClick={canEdit ? () => onEdit() : undefined}
+                        onClick={canEdit && overlaySection !== 'sub-items' ? () => onEdit() : undefined}
                         className="absolute inset-0 overflow-y-auto no-scrollbar p-3 pb-11"
                       >
                         {renderOverlayContent()}
@@ -742,14 +902,12 @@ export function ItineraryCard({
                   )}
                 </AnimatePresence>
 
-                {/* 底部列 - 懸浮在照片上，z-20 */}
                 {renderBottomBar(true)}
               </div>
             </motion.div>
           )}
         </AnimatePresence>
 
-        {/* 底部列 - 未展開時顯示於卡片下方 */}
         {!isExpanded && renderBottomBar(false)}
 
       </div>

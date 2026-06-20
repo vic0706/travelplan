@@ -1,5 +1,5 @@
 import React, { useState, useMemo } from 'react';
-import { X, MapPin, Loader2, Plane, Train, Ship, Car, Bed, Bus, ArrowLeft, Clock, ArrowRight } from 'lucide-react';
+import { X, MapPin, Loader2, Plane, Train, Ship, Car, Bed, Bus, UtensilsCrossed, ArrowLeft, Clock, ArrowRight } from 'lucide-react';
 import { motion } from 'framer-motion';
 import { LocationPicker } from '../pickers/LocationPicker';
 import { DateRangePicker } from '../pickers/DateRangePicker';
@@ -15,8 +15,9 @@ const BOOKING_CATEGORIES: { id: BookingCategory; label: string; icon: React.Elem
   { id: 'TRAIN',            label: '火車',      icon: Train, description: '高鐵・捷運・電車' },
   { id: 'FERRY',            label: '船票',      icon: Ship,  description: '渡輪・遊輪' },
   { id: 'RENTAL',           label: '租車',      icon: Car,   description: '自駕・租賃車輛' },
-  { id: 'PRIVATE_TRANSFER', label: '接送',      icon: Car,   description: '包車・計程車' },
-  { id: 'BUS',              label: '公車/巴士', icon: Bus,   description: '客運・市區公車' },
+  { id: 'PRIVATE_TRANSFER', label: '接送',      icon: Car,              description: '包車・計程車' },
+  { id: 'BUS',              label: '公車/巴士', icon: Bus,              description: '客運・市區公車' },
+  { id: 'RESTAURANT',       label: '訂餐廳',    icon: UtensilsCrossed,  description: '餐廳訂位・美食預約' },
 ];
 
 const getProviderLabel = (cat: BookingCategory) => {
@@ -26,6 +27,7 @@ const getProviderLabel = (cat: BookingCategory) => {
     case 'TRAIN':            return '車種車型';
     case 'FERRY':            return '船種船型';
     case 'BUS':              return '巴士業者';
+    case 'RESTAURANT':       return '訂位平台';
     default:                 return '供應商';
   }
 };
@@ -37,6 +39,7 @@ const getProviderPlaceholder = (cat: BookingCategory) => {
     case 'TRAIN':            return '高鐵自由座・台鐵莒光';
     case 'FERRY':            return '台灣好行・麗娜輪';
     case 'BUS':              return '統聯・阿羅哈';
+    case 'RESTAURANT':       return 'OpenTable・Tabelog';
     default:                 return '供應商名稱';
   }
 };
@@ -156,6 +159,11 @@ export function BookingForm({ initialData, onSubmit, onCancel, onDelete, loading
   const [rentalPickupBuffer, setRentalPickupBuffer] = useState<number>(initialDetails.pickup_buffer ?? 30);
   const [rentalReturnBuffer, setRentalReturnBuffer] = useState<number>(initialDetails.return_buffer ?? 15);
 
+  // Restaurant specific
+  const [restaurantAdultPax, setRestaurantAdultPax] = useState<number>(initialDetails.adult_pax ?? 2);
+  const [restaurantChildPax, setRestaurantChildPax] = useState<number>(initialDetails.child_pax ?? 0);
+  const [restaurantDuration, setRestaurantDuration] = useState<number>(initialDetails.duration ?? 90);
+
   // Display-only states for location inputs (show place name; backend stores address)
   const [startLocDisplay, setStartLocDisplay] = useState<string>(initialData?.start_location || '');
   const [endLocDisplay,   setEndLocDisplay]   = useState<string>(initialData?.end_location   || '');
@@ -228,6 +236,9 @@ export function BookingForm({ initialData, onSubmit, onCancel, onDelete, loading
         return_buffer: rentalReturnBuffer,
       };
     }
+    if (cat === 'RESTAURANT') {
+      return { adult_pax: restaurantAdultPax, child_pax: restaurantChildPax, duration: restaurantDuration };
+    }
     return formData.details || {};
   };
 
@@ -256,8 +267,9 @@ export function BookingForm({ initialData, onSubmit, onCancel, onDelete, loading
   const terminalLabel       = getTerminalLabel(formData.category);
 
   const isHotel = formData.category === 'HOTEL';
-  // Hide city for transport and hotel categories (hotel uses address search instead)
-  const showCity = !isTransport && !isHotel && !formData.start_location;
+  const isRestaurant = formData.category === 'RESTAURANT';
+  // Hide city for transport, hotel, rental, restaurant (all use address instead)
+  const showCity = !isTransport && !isHotel && !isRentalOrTransfer && !isRestaurant && !formData.start_location;
 
   // All hotel days except checkout day (each day has at least a 返回 card)
   const middleHotelDates = useMemo(() => {
@@ -383,10 +395,11 @@ export function BookingForm({ initialData, onSubmit, onCancel, onDelete, loading
         <input type="text" required value={formData.title} onChange={e => set('title', e.target.value)}
           className="w-full bg-zinc-900 border border-zinc-800 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-orange-500 transition-colors"
           placeholder={
-            formData.category === 'HOTEL'  ? '飯店名稱' :
-            formData.category === 'FLIGHT' ? '如：CI100' :
-            formData.category === 'TRAIN'  ? '如：高鐵0201' :
-            formData.category === 'BUS'    ? '如：統聯 12:00 台北→台中' :
+            formData.category === 'HOTEL'      ? '飯店名稱' :
+            formData.category === 'FLIGHT'     ? '如：CI100' :
+            formData.category === 'TRAIN'      ? '如：高鐵0201' :
+            formData.category === 'BUS'        ? '如：統聯 12:00 台北→台中' :
+            formData.category === 'RESTAURANT' ? '餐廳名稱' :
             '訂票名稱'
           } />
       </div>
@@ -463,7 +476,13 @@ export function BookingForm({ initialData, onSubmit, onCancel, onDelete, loading
                 label="出發地"
                 value={startLocDisplay}
                 onChange={v => { setStartLocDisplay(v); set('start_location', v); }}
-                onPlaceSelect={_place => { /* start_location set by onChange to Chinese display name */ }}
+                onPlaceSelect={place => {
+                  setFormData(prev => ({
+                    ...prev,
+                    lat: place.lat ?? prev.lat,
+                    lng: place.lng ?? prev.lng,
+                  }));
+                }}
                 placeholder="搜尋出發站..."
                 showNameOnSelect
               />
@@ -471,7 +490,13 @@ export function BookingForm({ initialData, onSubmit, onCancel, onDelete, loading
                 label="目的地"
                 value={endLocDisplay}
                 onChange={v => { setEndLocDisplay(v); set('end_location', v); }}
-                onPlaceSelect={_place => { /* end_location set by onChange to Chinese display name */ }}
+                onPlaceSelect={place => {
+                  setFormData(prev => ({
+                    ...prev,
+                    arrival_lat: place.lat ?? prev.arrival_lat,
+                    arrival_lng: place.lng ?? prev.arrival_lng,
+                  }));
+                }}
                 placeholder="搜尋目的站..."
                 showNameOnSelect
               />
@@ -494,6 +519,8 @@ export function BookingForm({ initialData, onSubmit, onCancel, onDelete, loading
                 google_place_id: place.google_place_id || prev.google_place_id,
                 title:           prev.title || place.name || prev.title,
                 image_url:       prev.image_url || place.image_url || '',
+                lat:             place.lat ?? prev.lat,
+                lng:             place.lng ?? prev.lng,
               }));
             }}
             placeholder="搜尋飯店或地址..."
@@ -923,7 +950,13 @@ export function BookingForm({ initialData, onSubmit, onCancel, onDelete, loading
               label={formData.category === 'RENTAL' ? '取車地點' : '出發地點'}
               value={startLocDisplay}
               onChange={v => { setStartLocDisplay(v); set('start_location', v); }}
-              onPlaceSelect={_place => { /* start_location set by onChange to Chinese display name */ }}
+              onPlaceSelect={place => {
+                setFormData(prev => ({
+                  ...prev,
+                  lat: place.lat ?? prev.lat,
+                  lng: place.lng ?? prev.lng,
+                }));
+              }}
               placeholder={formData.category === 'RENTAL' ? '搜尋取車地點...' : '搜尋出發地...'}
               showNameOnSelect
             />
@@ -931,11 +964,116 @@ export function BookingForm({ initialData, onSubmit, onCancel, onDelete, loading
               label={formData.category === 'RENTAL' ? '還車地點' : '目的地點'}
               value={endLocDisplay}
               onChange={v => { setEndLocDisplay(v); set('end_location', v); }}
-              onPlaceSelect={_place => { /* end_location set by onChange to Chinese display name */ }}
+              onPlaceSelect={place => {
+                setFormData(prev => ({
+                  ...prev,
+                  arrival_lat: place.lat ?? prev.arrival_lat,
+                  arrival_lng: place.lng ?? prev.arrival_lng,
+                }));
+              }}
               placeholder={formData.category === 'RENTAL' ? '搜尋還車地點...' : '搜尋目的地...'}
               showNameOnSelect
             />
           </div>
+        </div>
+      )}
+
+      {/* ─── 餐廳訂位 ─── */}
+      {isRestaurant && (
+        <div className="space-y-4 bg-zinc-900/50 border border-zinc-800 rounded-2xl p-4">
+          <p className="text-[10px] font-black text-orange-500 uppercase tracking-widest">訂位資訊</p>
+
+          {/* 日期 */}
+          <div>
+            <label className="block text-[10px] font-bold text-zinc-400 uppercase tracking-wider mb-2">
+              訂位日期
+              {tripStartDate && tripEndDate && (
+                <span className="ml-2 text-zinc-600 normal-case tracking-normal font-normal">({tripStartDate} — {tripEndDate})</span>
+              )}
+            </label>
+            <input
+              type="date"
+              value={formData.start_date}
+              onChange={e => {
+                setDateError('');
+                setFormData(prev => ({ ...prev, start_date: e.target.value, end_date: e.target.value }));
+              }}
+              className="w-full bg-zinc-900 border border-zinc-800 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-orange-500 transition-colors [color-scheme:dark]"
+            />
+            {dateError && <p className="mt-2 text-[11px] text-red-400 font-bold">{dateError}</p>}
+          </div>
+
+          {/* 用餐時間 */}
+          {timeInput('用餐時間', formData.start_time, v => {
+            set('start_time', v);
+            if (v && restaurantDuration > 0) set('end_time', addMinutes(v, restaurantDuration));
+          })}
+
+          {/* 結束時間 + 時長滑桿 */}
+          <div className="space-y-1.5">
+            <div className="flex items-center justify-between">
+              <label className="text-[10px] font-bold text-zinc-400 uppercase tracking-widest">結束時間</label>
+              <span className="text-[9px] font-black text-orange-400">用餐約 {restaurantDuration}分</span>
+            </div>
+            <div className="flex items-center bg-zinc-900 border border-zinc-800 rounded-xl px-3 py-2 gap-2 focus-within:border-orange-500 transition-colors">
+              <Clock size={13} className="text-orange-500 shrink-0" />
+              <input type="time" value={formData.end_time} onChange={e => set('end_time', e.target.value)}
+                className="bg-transparent text-white font-mono font-bold text-sm outline-none [color-scheme:dark]" />
+              <div className="w-px h-4 bg-zinc-700 shrink-0 mx-1" />
+              <span className="text-[9px] text-zinc-600 shrink-0">時長</span>
+              <input type="range" min="30" max="180" step="15" value={restaurantDuration}
+                onChange={e => {
+                  const mins = parseInt(e.target.value);
+                  setRestaurantDuration(mins);
+                  if (formData.start_time) set('end_time', addMinutes(formData.start_time, mins));
+                }}
+                className="flex-1 accent-orange-500 h-1.5 bg-zinc-800 rounded-lg appearance-none cursor-pointer outline-none" />
+              <span className="text-[10px] font-black text-orange-400 shrink-0 w-7 text-right">{restaurantDuration}分</span>
+            </div>
+          </div>
+
+          {/* 用餐人數（大人 + 小孩） */}
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="block text-[10px] font-bold text-zinc-400 uppercase tracking-widest mb-2">大人</label>
+              <div className="flex items-center bg-zinc-900 border border-zinc-800 rounded-xl px-4 py-3 gap-2 focus-within:border-orange-500 transition-colors">
+                <input type="number" min="0" max="50" value={restaurantAdultPax}
+                  onChange={e => setRestaurantAdultPax(Math.max(0, parseInt(e.target.value) || 0))}
+                  className="w-10 bg-transparent text-white font-bold text-sm outline-none text-center" />
+                <span className="text-zinc-400 text-sm">位</span>
+              </div>
+            </div>
+            <div>
+              <label className="block text-[10px] font-bold text-zinc-400 uppercase tracking-widest mb-2">小孩</label>
+              <div className="flex items-center bg-zinc-900 border border-zinc-800 rounded-xl px-4 py-3 gap-2 focus-within:border-orange-500 transition-colors">
+                <input type="number" min="0" max="50" value={restaurantChildPax}
+                  onChange={e => setRestaurantChildPax(Math.max(0, parseInt(e.target.value) || 0))}
+                  className="w-10 bg-transparent text-white font-bold text-sm outline-none text-center" />
+                <span className="text-zinc-400 text-sm">位</span>
+              </div>
+            </div>
+          </div>
+
+          {/* 餐廳地址 */}
+          <AddressSearchInput
+            label="餐廳地址"
+            value={startLocDisplay}
+            onChange={v => { setStartLocDisplay(v); set('start_location', v); }}
+            onPlaceSelect={place => {
+              setFormData(prev => ({
+                ...prev,
+                start_location:  place.address,
+                google_place_id: place.google_place_id || prev.google_place_id,
+                title:           prev.title || place.name || prev.title,
+                image_url:       prev.image_url || place.image_url || '',
+                lat:             place.lat ?? prev.lat,
+                lng:             place.lng ?? prev.lng,
+              }));
+              setStartLocDisplay(place.name || place.address);
+            }}
+            placeholder="搜尋餐廳..."
+            showNameOnSelect
+          />
         </div>
       )}
 
