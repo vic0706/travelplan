@@ -507,6 +507,8 @@ export function BookingForm({ initialData, onSubmit, onCancel, onDelete, loading
                 google_place_id: place.google_place_id || prev.google_place_id,
                 title:           prev.title || place.name || prev.title,
                 image_url:       prev.image_url || place.image_url || '',
+                lat:             place.lat ?? prev.lat,
+                lng:             place.lng ?? prev.lng,
               }));
             }}
             placeholder="搜尋飯店或地址..."

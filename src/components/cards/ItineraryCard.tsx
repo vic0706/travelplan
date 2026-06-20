@@ -453,6 +453,20 @@ export function ItineraryCard({
   const manualVal = parseInt(item.next_transport_time?.toString().replace(/\D/g, '') || '0', 10);
   const autoVal   = Math.round(Number((item as any).next_transport_auto_time || 0));
 
+  // Front-end haversine estimate: shown when optimizer hasn't run but both items have coords
+  const haversineEst = (() => {
+    if (manualVal > 0 || autoVal > 0) return null;
+    const fLat = item.lat, fLng = item.lng, tLat = nextItem?.lat, tLng = nextItem?.lng;
+    if (!fLat || !fLng || !tLat || !tLng) return null;
+    const dLat = (tLat - fLat) * Math.PI / 180;
+    const dLon = (tLng - fLng) * Math.PI / 180;
+    const a = Math.sin(dLat / 2) ** 2 + Math.cos(fLat * Math.PI / 180) * Math.cos(tLat * Math.PI / 180) * Math.sin(dLon / 2) ** 2;
+    const dist = 6371 * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(Math.max(0, 1 - a)));
+    const sp: Record<string, [number, number]> = { driving:[1.2,8], walking:[13,3], bicycling:[5,5], transit:[3,12], motorcycling:[1.2,5] };
+    const [s, b] = sp[displayMode] ?? sp.driving;
+    return Math.ceil(dist * 1.3 * s) + b;
+  })();
+
   const handleTitleClick = () => {
     if (canEdit) { onEdit(); return; }
     if (!canExpand) return;
@@ -665,7 +679,7 @@ export function ItineraryCard({
                   <span className="text-[8px] text-white/30 font-bold">下一站</span>
                   {getTransportIcon(12)}
                   <span className="text-[10px] font-black tracking-tight">
-                    {manualVal > 0 ? formatDuration(manualVal) : autoVal > 0 ? formatDuration(autoVal) : '自動'}
+                    {manualVal > 0 ? formatDuration(manualVal) : autoVal > 0 ? formatDuration(autoVal) : haversineEst ? `~${formatDuration(haversineEst)}` : '自動'}
                   </span>
                 </div>
               ) : (
