@@ -270,7 +270,8 @@ bookings.post('/', async (c) => {
 
   // Re-optimize affected dates so smart items get rescheduled around new fixed anchors
   for (const date of affectedDates(b)) {
-    try { await optimizeDailyItinerary(c.env.DB, tripId, date); } catch {}
+    try { await optimizeDailyItinerary(c.env, Number(tripId), date); }
+    catch (err) { console.error('[bookings POST] optimize failed for', date, err); }
   }
 
   const created = await c.env.DB.prepare('SELECT * FROM Bookings WHERE id = ?').bind(bookingId).first() as any;
@@ -311,7 +312,8 @@ bookings.put('/:bookingId', async (c) => {
 
   // Re-optimize affected dates so smart items get rescheduled around updated fixed anchors
   for (const date of affectedDates(b)) {
-    try { await optimizeDailyItinerary(c.env.DB, tripId, date); } catch {}
+    try { await optimizeDailyItinerary(c.env, Number(tripId), date); }
+    catch (err) { console.error('[bookings PUT] optimize failed for', date, err); }
   }
 
   return c.json({ success: true });
